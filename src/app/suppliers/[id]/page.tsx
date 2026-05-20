@@ -326,15 +326,9 @@ export default function SupplierDetailPage() {
                   <h3 className="font-600 text-blue-800 mb-3 flex items-center gap-2"><Icon name="KeyIcon" size={16} />Accès portail fournisseur</h3>
                   <dl className="space-y-2">
                     <div className="flex gap-3">
-                      <dt className="text-xs text-blue-600 w-28 shrink-0">Identifiant</dt>
-                      <dd className="text-xs text-blue-800 font-mono flex-1 break-all">{supplier.portalLogin}</dd>
+                      <dt className="text-xs text-blue-600 w-28 shrink-0">Code PIN</dt>
+                      <dd className="text-xs text-blue-800 font-mono flex-1 tracking-widest">{supplier.portalLogin}</dd>
                     </div>
-                    {supplier.portalPasswordPlain && (
-                      <div className="flex gap-3">
-                        <dt className="text-xs text-blue-600 w-28 shrink-0">Mot de passe</dt>
-                        <dd className="text-xs text-blue-800 font-mono flex-1">{supplier.portalPasswordPlain}</dd>
-                      </div>
-                    )}
                     <div className="flex gap-3">
                       <dt className="text-xs text-blue-600 w-28 shrink-0">URL portail</dt>
                       <dd className="text-xs flex-1">
@@ -690,11 +684,8 @@ export default function SupplierDetailPage() {
 
 // ─── Supplier Access Modal ────────────────────────────────────────────────────
 
-function generatePassword(len = 12): string {
-  const chars = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%';
-  let pwd = '';
-  for (let i = 0; i < len; i++) pwd += chars[Math.floor(Math.random() * chars.length)];
-  return pwd;
+function generatePin(): string {
+  return String(Math.floor(100000 + Math.random() * 900000));
 }
 
 interface SupplierAccessModalProps {
@@ -705,62 +696,35 @@ interface SupplierAccessModalProps {
 
 function SupplierAccessModal({ supplier, onClose, onSaved }: SupplierAccessModalProps) {
   const [step, setStep] = useState<'generate' | 'generated'>('generate');
-  const [email, setEmail] = useState(supplier.email || '');
-  const [password, setPassword] = useState(generatePassword());
-  const [showPwd, setShowPwd] = useState(false);
+  const [pin, setPin] = useState(generatePin());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState('');
 
   const portalUrl = `${process.env.NEXT_PUBLIC_SITE_URL || ''}/supplier-portal/login`;
-
-  const credentialsText = `Accès portail fournisseur — ${supplier.companyName}\n\nURL: ${portalUrl}\nIdentifiant: ${email}\nMot de passe: ${password}`;
+  const credentialsText = `Accès portail fournisseur — ${supplier.companyName}\n\nURL: ${portalUrl}\nCode PIN: ${pin}`;
 
   async function handleGenerate() {
-    if (!email.trim()) { setError('Email requis'); return; }
     setLoading(true);
     setError('');
     try {
-      // Create/update auth user via edge function
-      const { data: authData, error: authError } = await supabase.functions.invoke('create-supplier-user', {
-        body: { email, password },
-      });
-      if (authError || authData?.error) throw new Error(authData?.error ?? authError?.message ?? 'Erreur création compte');
-      const authUserId: string = authData.user_id;
-
-      // Upsert portal user record
       await supabase.from('supplier_portal_users').upsert({
-        auth_user_id: authUserId,
         supplier_id: supplier.id,
-        portal_email: email,
+        pin_code: pin,
         is_active: true,
       }, { onConflict: 'supplier_id' });
 
-      // Save credentials on supplier record
       await supabase.from('suppliers').update({
-        portal_login: email,
-        portal_password_plain: password,
-        portal_user_id: authUserId,
+        portal_login: pin,
+        portal_password_plain: null,
       }).eq('id', supplier.id);
 
       setStep('generated');
     } catch (err: any) {
-      setError(err.message || 'Erreur');
+      setError(err.message || 'Erreur lors de la sauvegarde');
     } finally {
       setLoading(false);
     }
-  }
-
-  async function handleSendEmail() {
-    await supabase.functions.invoke('send-email', {
-      body: {
-        type: 'supplier_credentials',
-        to: email,
-        data: { supplierName: supplier.companyName, email, password, portalUrl },
-      },
-    });
-    setCopied('email');
-    setTimeout(() => setCopied(''), 2000);
   }
 
   function handleCopy() {
@@ -799,89 +763,74 @@ function SupplierAccessModal({ supplier, onClose, onSaved }: SupplierAccessModal
               {supplier.portalLogin && (
                 <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-700">
                   <Icon name="ExclamationTriangleIcon" size={14} className="shrink-0 mt-0.5" />
-                  Un accès existe déjà ({supplier.portalLogin}). Générer un nouvel accès remplacera l'ancien.
+                  Un accès existe déjà (PIN : {supplier.portalLogin}). Générer un nouveau PIN remplacera l'ancien.
                 </div>
               )}
+
               <div>
-                <label className="block text-xs font-600 text-muted-foreground uppercase tracking-wide mb-1.5">Email de connexion</label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-lg border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-                  placeholder="fournisseur@exemple.com"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-600 text-muted-foreground uppercase tracking-wide mb-1.5">Mot de passe temporaire</label>
+                <label className="block text-xs font-600 text-muted-foreground uppercase tracking-wide mb-1.5">Code PIN à 6 chiffres</label>
                 <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <input
-                      type={showPwd ? 'text' : 'password'}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="w-full px-3.5 py-2.5 rounded-lg border border-border text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary pr-10"
-                    />
-                    <button type="button" onClick={() => setShowPwd((p) => !p)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                      <Icon name={showPwd ? 'EyeSlashIcon' : 'EyeIcon'} size={15} />
-                    </button>
-                  </div>
-                  <button type="button" onClick={() => setPassword(generatePassword())} className="px-3 py-2 border border-border rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                  <input
+                    type="text"
+                    value={pin}
+                    onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    className="flex-1 px-3.5 py-2.5 rounded-lg border border-border text-sm font-mono tracking-widest text-center focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                    maxLength={6}
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setPin(generatePin())}
+                    className="px-3 py-2 border border-border rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                    title="Générer un nouveau PIN aléatoire"
+                  >
                     <Icon name="ArrowPathIcon" size={14} />
                   </button>
                 </div>
               </div>
+
               {error && (
                 <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
                   <Icon name="ExclamationCircleIcon" size={14} />
                   {error}
                 </div>
               )}
+
               <button
                 onClick={handleGenerate}
-                disabled={loading}
+                disabled={loading || pin.length !== 6}
                 className="w-full flex items-center justify-center gap-2 py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-600 hover:bg-primary/90 disabled:opacity-60 transition-colors"
               >
                 {loading ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Icon name="KeyIcon" size={15} />}
-                {loading ? 'Génération…' : 'Générer l\'accès'}
+                {loading ? 'Sauvegarde…' : 'Enregistrer le code PIN'}
               </button>
             </>
           ) : (
             <>
               <div className="flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700">
                 <Icon name="CheckCircleIcon" size={16} />
-                Accès créé avec succès !
+                Code PIN enregistré avec succès !
               </div>
 
-              <div className="bg-muted/30 rounded-xl p-4 space-y-2 font-mono text-sm border border-border">
+              <div className="bg-muted/30 rounded-xl p-4 space-y-3 border border-border">
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-muted-foreground">URL portail</span>
                   <span className="text-xs text-primary truncate max-w-[200px]">{portalUrl}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">Identifiant</span>
-                  <span className="text-xs font-600 text-foreground">{email}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">Mot de passe</span>
-                  <span className="text-xs font-600 text-foreground">{password}</span>
+                  <span className="text-xs text-muted-foreground">Code PIN</span>
+                  <span className="text-lg font-700 font-mono tracking-widest text-foreground">{pin}</span>
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={handleCopy}
                   className={`flex flex-col items-center gap-1.5 py-3 rounded-xl border text-xs font-600 transition-colors ${copied === 'copy' ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-border text-muted-foreground hover:text-foreground hover:bg-muted'}`}
                 >
                   <Icon name={copied === 'copy' ? 'CheckIcon' : 'ClipboardDocumentIcon'} size={18} />
                   {copied === 'copy' ? 'Copié !' : 'Copier'}
-                </button>
-                <button
-                  onClick={handleSendEmail}
-                  className={`flex flex-col items-center gap-1.5 py-3 rounded-xl border text-xs font-600 transition-colors ${copied === 'email' ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-border text-muted-foreground hover:text-foreground hover:bg-muted'}`}
-                >
-                  <Icon name="EnvelopeIcon" size={18} />
-                  {copied === 'email' ? 'Envoyé !' : 'Email'}
                 </button>
                 <button
                   onClick={handleWhatsApp}
