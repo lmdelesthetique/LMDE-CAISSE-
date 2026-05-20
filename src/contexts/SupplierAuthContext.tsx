@@ -1,9 +1,16 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+} from 'react';
 import { createClient } from '@/lib/supabase/client';
 
-interface SupplierPortalUser {
+export interface SupplierPortalUser {
   authUserId: string;
   supplierId: string;
   supplierName: string;
@@ -28,7 +35,10 @@ const SupplierAuthContext = createContext<SupplierAuthContextType>({
 
 export const useSupplierAuth = () => useContext(SupplierAuthContext);
 
-async function fetchProfile(authUserId: string, email: string): Promise<SupplierPortalUser | null> {
+async function fetchSupplierProfile(
+  authUserId: string,
+  email: string,
+): Promise<SupplierPortalUser | null> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from('supplier_portal_users')
@@ -37,7 +47,14 @@ async function fetchProfile(authUserId: string, email: string): Promise<Supplier
     .eq('is_active', true)
     .maybeSingle();
 
-  if (error || !data) return null;
+  if (error) {
+    console.error('[SupplierAuth] fetchProfile error:', error.message);
+    return null;
+  }
+  if (!data) {
+    console.warn('[SupplierAuth] Aucune ligne trouvée pour', authUserId);
+    return null;
+  }
 
   const row = data as any;
   return {
@@ -48,36 +65,46 @@ async function fetchProfile(authUserId: string, email: string): Promise<Supplier
   };
 }
 
-export const SupplierAuthProvider = ({ children }: { children: React.ReactNode }) => {
+export function SupplierAuthProvider({ children }: { children: React.ReactNode }) {
+  const supabase = useRef(createClient()).current;
   const [supplierUser, setSupplierUser] = useState<SupplierPortalUser | null>(null);
   const [loading, setLoading] = useState(true);
-  // Use a single stable supabase client
-  const supabase = useRef(createClient()).current;
+
+  const loadProfile = useCallback(async (authUserId: string, email: string) => {
+    const profile = await fetchSupplierProfile(authUserId, email);
+    setSupplierUser(profile);
+    return profile;
+  }, []);
 
   useEffect(() => {
-    // Initial session check
+    let mounted = true;
+
     supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!mounted) return;
       if (session?.user) {
-        const profile = await fetchProfile(session.user.id, session.user.email ?? '');
-        setSupplierUser(profile);
+        await loadProfile(session.user.id, session.user.email ?? '');
       }
       setLoading(false);
     });
 
-    // Subscribe to auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) {
-        const profile = await fetchProfile(session.user.id, session.user.email ?? '');
-        setSupplierUser(profile);
-      } else {
-        setSupplierUser(null);
-      }
-    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (_event, session) => {
+        if (!mounted) return;
+        if (session?.user) {
+          await loadProfile(session.user.id, session.user.email ?? '');
+        } else {
+          setSupplierUser(null);
+        }
+      },
+    );
 
-    return () => subscription.unsubscribe();
-  }, [supabase]);
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, [supabase, loadProfile]);
 
-  const signIn = async (email: string, password: string): Promise<void> => {
+  const signIn = useCallback(async (email: string, password: string) => {
     const { data, error } = await supabase.auth.signInWithPassword({
       email: email.toLowerCase().trim(),
       password,
@@ -87,33 +114,34 @@ export const SupplierAuthProvider = ({ children }: { children: React.ReactNode }
       throw new Error('Identifiants incorrects. Veuillez réessayer.');
     }
 
-    const profile = await fetchProfile(data.user.id, data.user.email ?? '');
+    const profile = await loadProfile(data.user.id, data.user.email ?? '');
+
     if (!profile) {
       await supabase.auth.signOut();
-      throw new Error('Accès non autorisé. Contactez l\'administrateur BeautyPOS.');
+      throw new Error("Accès non autorisé. Contactez l'administrateur BeautyPOS.");
     }
+  }, [supabase, loadProfile]);
 
-    setSupplierUser(profile);
-  };
-
-  const signOut = async (): Promise<void> => {
+  const signOut = useCallback(async () => {
     await supabase.auth.signOut();
     setSupplierUser(null);
-  };
+  }, [supabase]);
 
-  const resetPassword = async (email: string): Promise<void> => {
+  const resetPassword = useCallback(async (email: string) => {
     const { error } = await supabase.auth.resetPasswordForEmail(
       email.toLowerCase().trim(),
-      { redirectTo: `${window.location.origin}/supplier-portal/reset-password` }
+      {
+        redirectTo: `${typeof window !== 'undefined' ? window.location.origin : ''}/supplier-portal/reset-password`,
+      },
     );
     if (error) {
-      throw new Error('Impossible d\'envoyer l\'email de réinitialisation. Vérifiez l\'adresse saisie.');
+      throw new Error("Impossible d'envoyer l'email. Vérifiez l'adresse saisie.");
     }
-  };
+  }, [supabase]);
 
   return (
     <SupplierAuthContext.Provider value={{ supplierUser, loading, signIn, signOut, resetPassword }}>
       {children}
     </SupplierAuthContext.Provider>
   );
-};
+}
