@@ -17,8 +17,6 @@ interface SupplierAuthContextType {
   signOut: () => Promise<void>;
 }
 
-const SESSION_KEY = 'supplier_portal_session';
-
 const SupplierAuthContext = createContext<SupplierAuthContextType>({
   supplierUser: null,
   loading: true,
@@ -33,55 +31,78 @@ export const SupplierAuthProvider = ({ children }: { children: React.ReactNode }
   const [loading, setLoading] = useState(true);
   const supabase = createClient();
 
-  // Restore session from localStorage on mount — no Supabase Auth calls
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(SESSION_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored) as SupplierPortalUser;
-        setSupplierUser(parsed);
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session?.user) {
+        await loadSupplierProfile(session.user.id, session.user.email || '');
       }
-    } catch {
-      // ignore parse errors
-    } finally {
       setLoading(false);
-    }
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user) {
+        await loadSupplierProfile(session.user.id, session.user.email || '');
+      } else {
+        setSupplierUser(null);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  const signIn = async (email: string, password: string) => {
-    // Query supplier_portal_users directly — no supabase.auth involved
-    const { data, error } = await supabase
+  async function loadSupplierProfile(authUserId: string, email: string) {
+    const { data } = await supabase
       .from('supplier_portal_users')
-      .select('id, auth_user_id, supplier_id, portal_password, is_active, suppliers(company_name)')
-      .eq('email', email.toLowerCase().trim())
+      .select('supplier_id, suppliers(company_name)')
+      .eq('auth_user_id', authUserId)
       .eq('is_active', true)
       .single();
 
-    if (error || !data) {
+    if (data) {
+      const row = data as any;
+      setSupplierUser({
+        authUserId,
+        supplierId: row.supplier_id,
+        supplierName: row.suppliers?.company_name || 'Fournisseur',
+        email,
+      });
+    }
+  }
+
+  const signIn = async (email: string, password: string) => {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email.toLowerCase().trim(),
+      password,
+    });
+
+    if (error || !data.user) {
       throw new Error('Identifiants incorrects. Veuillez vérifier votre email et mot de passe.');
     }
 
-    const row = data as any;
+    // Vérifier que c'est bien un fournisseur
+    const { data: portalUser, error: portalError } = await supabase
+      .from('supplier_portal_users')
+      .select('supplier_id, suppliers(company_name)')
+      .eq('auth_user_id', data.user.id)
+      .eq('is_active', true)
+      .single();
 
-    // Check password — stored as plain text or bcrypt hash
-    // For plain text passwords (simple setup)
-    if (row.portal_password !== password) {
-      throw new Error('Identifiants incorrects. Veuillez vérifier votre email et mot de passe.');
+    if (portalError || !portalUser) {
+      await supabase.auth.signOut();
+      throw new Error('Accès non autorisé. Ce compte n\'est pas un compte fournisseur.');
     }
 
-    const session: SupplierPortalUser = {
-      authUserId: row.auth_user_id || row.id,
+    const row = portalUser as any;
+    setSupplierUser({
+      authUserId: data.user.id,
       supplierId: row.supplier_id,
       supplierName: row.suppliers?.company_name || 'Fournisseur',
       email: email.toLowerCase().trim(),
-    };
-
-    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-    setSupplierUser(session);
+    });
   };
 
   const signOut = async () => {
-    localStorage.removeItem(SESSION_KEY);
+    await supabase.auth.signOut();
     setSupplierUser(null);
   };
 
