@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
 interface SupplierPortalUser {
@@ -15,6 +15,7 @@ interface SupplierAuthContextType {
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  resetPassword: (email: string) => Promise<void>;
 }
 
 const SupplierAuthContext = createContext<SupplierAuthContextType>({
@@ -22,78 +23,96 @@ const SupplierAuthContext = createContext<SupplierAuthContextType>({
   loading: true,
   signIn: async () => {},
   signOut: async () => {},
+  resetPassword: async () => {},
 });
 
 export const useSupplierAuth = () => useContext(SupplierAuthContext);
 
+async function fetchProfile(authUserId: string, email: string): Promise<SupplierPortalUser | null> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('supplier_portal_users')
+    .select('supplier_id, suppliers(company_name)')
+    .eq('auth_user_id', authUserId)
+    .eq('is_active', true)
+    .maybeSingle();
+
+  if (error || !data) return null;
+
+  const row = data as any;
+  return {
+    authUserId,
+    supplierId: row.supplier_id,
+    supplierName: row.suppliers?.company_name ?? 'Fournisseur',
+    email,
+  };
+}
+
 export const SupplierAuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [supplierUser, setSupplierUser] = useState<SupplierPortalUser | null>(null);
   const [loading, setLoading] = useState(true);
+  // Use a single stable supabase client
+  const supabase = useRef(createClient()).current;
 
   useEffect(() => {
-    const supabase = createClient();
+    // Initial session check
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
-        await loadProfile(session.user.id, session.user.email || '');
+        const profile = await fetchProfile(session.user.id, session.user.email ?? '');
+        setSupplierUser(profile);
       }
       setLoading(false);
     });
-    const { data: { subscription } } = createClient().auth.onAuthStateChange(async (_e, session) => {
-      if (session?.user) await loadProfile(session.user.id, session.user.email || '');
-      else setSupplierUser(null);
+
+    // Subscribe to auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user) {
+        const profile = await fetchProfile(session.user.id, session.user.email ?? '');
+        setSupplierUser(profile);
+      } else {
+        setSupplierUser(null);
+      }
     });
+
     return () => subscription.unsubscribe();
-  }, []);
+  }, [supabase]);
 
-  async function loadProfile(authUserId: string, email: string) {
-    const supabase = createClient();
-    const { data } = await supabase
-      .from('supplier_portal_users')
-      .select('supplier_id, suppliers(company_name)')
-      .eq('auth_user_id', authUserId)
-      .eq('is_active', true)
-      .maybeSingle();
-
-    if (data) {
-      const row = data as any;
-      setSupplierUser({
-        authUserId,
-        supplierId: row.supplier_id,
-        supplierName: row.suppliers?.company_name || 'Fournisseur',
-        email,
-      });
-    } else {
-      setSupplierUser(null);
-    }
-  }
-
-  const signIn = async (email: string, password: string) => {
-    const supabase = createClient();
+  const signIn = async (email: string, password: string): Promise<void> => {
     const { data, error } = await supabase.auth.signInWithPassword({
       email: email.toLowerCase().trim(),
       password,
     });
-    if (error || !data.user) throw new Error('Identifiants incorrects.');
-    await loadProfile(data.user.id, data.user.email || '');
-    const profile = await supabase
-      .from('supplier_portal_users')
-      .select('id')
-      .eq('auth_user_id', data.user.id)
-      .eq('is_active', true)
-      .maybeSingle();
-    if (!profile.data) {
-      await supabase.auth.signOut();
-      throw new Error('Accès non autorisé.');
+
+    if (error || !data.user) {
+      throw new Error('Identifiants incorrects. Veuillez réessayer.');
     }
+
+    const profile = await fetchProfile(data.user.id, data.user.email ?? '');
+    if (!profile) {
+      await supabase.auth.signOut();
+      throw new Error('Accès non autorisé. Contactez l\'administrateur BeautyPOS.');
+    }
+
+    setSupplierUser(profile);
   };
 
-  const signOut = async () => {
-    await createClient().auth.signOut();
+  const signOut = async (): Promise<void> => {
+    await supabase.auth.signOut();
     setSupplierUser(null);
   };
 
+  const resetPassword = async (email: string): Promise<void> => {
+    const { error } = await supabase.auth.resetPasswordForEmail(
+      email.toLowerCase().trim(),
+      { redirectTo: `${window.location.origin}/supplier-portal/reset-password` }
+    );
+    if (error) {
+      throw new Error('Impossible d\'envoyer l\'email de réinitialisation. Vérifiez l\'adresse saisie.');
+    }
+  };
+
   return (
-    <SupplierAuthContext.Provider value={{ supplierUser, loading, signIn, signOut }}>
+    <SupplierAuthContext.Provider value={{ supplierUser, loading, signIn, signOut, resetPassword }}>
       {children}
     </SupplierAuthContext.Provider>
   );
