@@ -2,13 +2,23 @@
 
 import React, { useState } from 'react';
 import Icon from '@/components/ui/AppIcon';
+import { createClient } from '@/lib/supabase/client';
 import { supplierService } from '@/lib/services/supplierService';
 
 interface OrderItem {
+  productId?: string;
   name: string;
   qty: number;
   unit_price: number;
   total: number;
+}
+
+interface Product {
+  id: string;
+  name: string;
+  reference?: string;
+  image_url?: string;
+  buy_price?: number;
 }
 
 interface Props {
@@ -18,9 +28,13 @@ interface Props {
 }
 
 export default function OrderFormModal({ supplierId, onClose, onSaved }: Props) {
+  const supabase = createClient();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<OrderItem[]>([{ name: '', qty: 1, unit_price: 0, total: 0 }]);
+  const [suggestions, setSuggestions] = useState<Record<number, Product[]>>({});
+  const [openDropdown, setOpenDropdown] = useState<number | null>(null);
+  const [searching, setSearching] = useState<number | null>(null);
   const [form, setForm] = useState({
     notes: '',
     shippingCost: 0,
@@ -44,8 +58,52 @@ export default function OrderFormModal({ supplierId, onClose, onSaved }: Props) 
     });
   };
 
+  const searchProducts = async (index: number, query: string) => {
+    setItems((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], name: query, productId: undefined };
+      return next;
+    });
+    if (query.trim().length < 2) {
+      setSuggestions((p) => ({ ...p, [index]: [] }));
+      setOpenDropdown(null);
+      return;
+    }
+    setSearching(index);
+    const { data } = await supabase
+      .from('products')
+      .select('id, name, reference, image_url, buy_price')
+      .ilike('name', `%${query.trim()}%`)
+      .eq('is_active', true)
+      .limit(8);
+    setSuggestions((p) => ({ ...p, [index]: data || [] }));
+    setOpenDropdown(index);
+    setSearching(null);
+  };
+
+  const selectProduct = (index: number, product: Product) => {
+    const buyPrice = Number(product.buy_price) || 0;
+    setItems((prev) => {
+      const next = [...prev];
+      next[index] = {
+        ...next[index],
+        productId: product.id,
+        name: product.name,
+        unit_price: buyPrice || next[index].unit_price,
+        total: Number(next[index].qty) * (buyPrice || next[index].unit_price),
+      };
+      return next;
+    });
+    setSuggestions((p) => ({ ...p, [index]: [] }));
+    setOpenDropdown(null);
+  };
+
   const addItem = () => setItems((p) => [...p, { name: '', qty: 1, unit_price: 0, total: 0 }]);
-  const removeItem = (i: number) => setItems((p) => p.filter((_, idx) => idx !== i));
+
+  const removeItem = (i: number) => {
+    setItems((p) => p.filter((_, idx) => idx !== i));
+    setSuggestions((p) => { const next = { ...p }; delete next[i]; return next; });
+  };
 
   const subtotal = items.reduce((s, i) => s + Number(i.total), 0);
   const total = subtotal + Number(form.shippingCost) + Number(form.customsCost) + Number(form.otherCosts);
@@ -99,13 +157,58 @@ export default function OrderFormModal({ supplierId, onClose, onSaved }: Props) 
             </div>
             <div className="space-y-2">
               {items.map((item, i) => (
-                <div key={i} className="grid grid-cols-12 gap-2 items-center">
-                  <input
-                    value={item.name}
-                    onChange={(e) => updateItem(i, 'name', e.target.value)}
-                    placeholder="Nom du produit"
-                    className="col-span-5 px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  />
+                <div key={i} className="grid grid-cols-12 gap-2 items-start">
+                  {/* Product search */}
+                  <div className="col-span-5 relative">
+                    <div className="relative">
+                      <input
+                        value={item.name}
+                        onChange={(e) => searchProducts(i, e.target.value)}
+                        onFocus={() => { if ((suggestions[i] || []).length > 0) setOpenDropdown(i); }}
+                        onBlur={() => setTimeout(() => setOpenDropdown(null), 150)}
+                        placeholder="Nom ou référence produit"
+                        autoComplete="off"
+                        className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 pr-7"
+                      />
+                      {searching === i && (
+                        <div className="absolute right-2 top-2.5">
+                          <div className="w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                        </div>
+                      )}
+                      {item.productId && searching !== i && (
+                        <div className="absolute right-2 top-2.5">
+                          <Icon name="CheckIcon" size={14} className="text-emerald-500" />
+                        </div>
+                      )}
+                    </div>
+                    {openDropdown === i && (suggestions[i] || []).length > 0 && (
+                      <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-white border border-border rounded-lg shadow-lg overflow-hidden max-h-48 overflow-y-auto">
+                        {(suggestions[i] || []).map((p) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onMouseDown={() => selectProduct(i, p)}
+                            className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-muted text-left transition-colors"
+                          >
+                            {p.image_url ? (
+                              <img src={p.image_url} alt="" className="w-7 h-7 rounded object-cover border border-border shrink-0" />
+                            ) : (
+                              <div className="w-7 h-7 rounded bg-muted flex items-center justify-center shrink-0">
+                                <Icon name="PhotoIcon" size={12} className="text-muted-foreground" />
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium text-foreground truncate">{p.name}</p>
+                              <p className="text-[11px] text-muted-foreground">
+                                {p.reference && <span className="mr-2 font-mono">{p.reference}</span>}
+                                {p.buy_price ? `${Number(p.buy_price).toFixed(2)} €` : ''}
+                              </p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <input
                     type="number" min="1" value={item.qty}
                     onChange={(e) => updateItem(i, 'qty', Number(e.target.value))}

@@ -22,7 +22,12 @@ export type SupplierReliability = 'excellent' | 'good' | 'average' | 'poor' | 'u
 
 export type OrderStatus =
   | 'draft' | 'sent' | 'awaiting_validation' | 'modification_requested'
-  | 'validated'| 'awaiting_payment' | 'payment_sent' | 'payment_confirmed' |'in_production'| 'ready_to_ship' | 'shipped' | 'partially_received' |'received' | 'issue_reported' | 'refund_requested' | 'refund_received' | 'cancelled';
+  | 'validated' | 'awaiting_payment' | 'payment_sent' | 'payment_confirmed'
+  | 'payment_pending' | 'payment_in_progress' | 'paid' | 'payment_received_by_supplier'
+  | 'in_preparation' | 'in_production' | 'ready_to_ship' | 'shipped'
+  | 'partially_received' | 'fully_received' | 'costs_recorded' | 'stock_integrated'
+  | 'received' | 'issue_reported' | 'refund_requested' | 'refund_received'
+  | 'closed' | 'suspended' | 'cancelled';
 
 export type PaymentStatus = 'pending' | 'sent' | 'confirmed' | 'partial' | 'overdue';
 export type PaymentMethod = 'wire_transfer' | 'wise' | 'alibaba' | 'paypal' | 'other';
@@ -64,6 +69,7 @@ export interface Supplier {
 }
 
 export interface OrderItem {
+  productId?: string;
   name: string;
   qty: number;
   unit_price: number;
@@ -178,24 +184,31 @@ function mapSupplier(row: any): Supplier {
 }
 
 function mapOrder(row: any): SupplierOrder {
+  const lines: any[] = row.fo_order_lines || [];
   return {
     id: row.id,
     supplierId: row.supplier_id,
     orderNumber: row.order_number,
     orderStatus: row.order_status,
-    items: typeof row.items === 'string' ? JSON.parse(row.items) : (row.items || []),
+    items: lines.map((l) => ({
+      productId: l.product_id || undefined,
+      name: l.product_name,
+      qty: Number(l.qty_ordered),
+      unit_price: Number(l.unit_price),
+      total: Number(l.line_total),
+    })),
     subtotal: Number(row.subtotal),
     shippingCost: Number(row.transport_cost),
     customsCost: Number(row.customs_cost),
-    otherCosts: Number(row.other_costs),
-    totalAmount: Number(row.total_amount),
-    currency: row.currency,
-    exchangeRate: Number(row.exchange_rate),
+    otherCosts: 0,
+    totalAmount: Number(row.total_real_cost),
+    currency: 'EUR',
+    exchangeRate: 1,
     notes: row.notes,
-    trackingNumber: row.tracking_number,
-    expectedDeliveryAt: row.expected_delivery_at,
-    shippedAt: row.shipped_at,
-    receivedAt: row.received_at,
+    trackingNumber: undefined,
+    expectedDeliveryAt: undefined,
+    shippedAt: undefined,
+    receivedAt: undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     supplierResponse: row.supplier_response ?? 'pending',
@@ -378,8 +391,8 @@ export const supplierService = {
     const supabase = createClient();
     try {
       const { data, error } = await supabase
-        .from('supplier_orders')
-        .select('*')
+        .from('fo_orders')
+        .select('*, fo_order_lines(*)')
         .eq('supplier_id', supplierId)
         .order('created_at', { ascending: false });
       if (error) { if (isSchemaError(error)) throw error; return []; }
@@ -391,8 +404,8 @@ export const supplierService = {
     const supabase = createClient();
     try {
       const { data, error } = await supabase
-        .from('supplier_orders')
-        .select('*, suppliers(company_name)')
+        .from('fo_orders')
+        .select('*, fo_order_lines(*), suppliers(company_name)')
         .order('created_at', { ascending: false });
       if (error) { if (isSchemaError(error)) throw error; return []; }
       return (data || []).map((row) => ({ ...mapOrder(row), supplierName: row.suppliers?.company_name || '' }));
@@ -402,39 +415,58 @@ export const supplierService = {
   async createOrder(payload: Partial<SupplierOrder>): Promise<SupplierOrder | null> {
     const supabase = createClient();
     try {
-      const orderNum = `CMD-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`;
+      const orderNum = payload.orderNumber || `CMD-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`;
+      const subtotal = Number(payload.subtotal) || 0;
+      const transportCost = Number(payload.shippingCost) || 0;
+      const customsCost = Number(payload.customsCost) || 0;
+      const totalRealCost = Number(payload.totalAmount) || subtotal + transportCost + customsCost;
+
       const { data, error } = await supabase
-        .from('supplier_orders')
+        .from('fo_orders')
         .insert({
           supplier_id: payload.supplierId,
-          order_number: payload.orderNumber || orderNum,
+          order_number: orderNum,
           order_status: payload.orderStatus || 'draft',
-          items: payload.items || [],
-          subtotal: payload.subtotal || 0,
-          shipping_cost: payload.shippingCost || 0,
-          customs_cost: payload.customsCost || 0,
-          other_costs: payload.otherCosts || 0,
-          total_amount: payload.totalAmount || 0,
-          currency: payload.currency || 'EUR',
-          exchange_rate: payload.exchangeRate || 1,
-          notes: payload.notes,
-          expected_delivery_at: payload.expectedDeliveryAt,
+          notes: payload.notes || null,
+          subtotal,
+          transport_cost: transportCost,
+          customs_cost: customsCost,
+          total_real_cost: totalRealCost,
         })
         .select()
         .single();
       if (error) { if (isSchemaError(error)) throw error; return null; }
-      return data ? mapOrder(data) : null;
+
+      const items = payload.items || [];
+      if (items.length > 0) {
+        await supabase.from('fo_order_lines').insert(
+          items.map((item) => ({
+            order_id: data.id,
+            product_id: item.productId || null,
+            product_name: item.name,
+            qty_ordered: Number(item.qty),
+            unit_price: Number(item.unit_price),
+            line_total: Number(item.total),
+          }))
+        );
+      }
+
+      const { data: full } = await supabase
+        .from('fo_orders')
+        .select('*, fo_order_lines(*)')
+        .eq('id', data.id)
+        .single();
+      return full ? mapOrder(full) : null;
     } catch (e: any) { throw e; }
   },
 
-  async updateOrderStatus(orderId: string, status: OrderStatus, extra?: Partial<SupplierOrder>): Promise<boolean> {
+  async updateOrderStatus(orderId: string, status: OrderStatus, _extra?: Partial<SupplierOrder>): Promise<boolean> {
     const supabase = createClient();
     try {
-      const updateData: any = { order_status: status };
-      if (extra?.trackingNumber !== undefined) updateData.tracking_number = extra.trackingNumber;
-      if (extra?.shippedAt !== undefined) updateData.shipped_at = extra.shippedAt;
-      if (extra?.receivedAt !== undefined) updateData.received_at = extra.receivedAt;
-      const { error } = await supabase.from('supplier_orders').update(updateData).eq('id', orderId);
+      const { error } = await supabase
+        .from('fo_orders')
+        .update({ order_status: status, updated_at: new Date().toISOString() })
+        .eq('id', orderId);
       if (error) { if (isSchemaError(error)) throw error; return false; }
       return true;
     } catch (e: any) { throw e; }
@@ -582,7 +614,7 @@ export const supplierService = {
     const supabase = createClient();
     try {
       const [ordersRes, paymentsRes, claimsRes] = await Promise.all([
-        supabase.from('supplier_orders').select('total_amount, order_status').eq('supplier_id', supplierId),
+        supabase.from('fo_orders').select('total_real_cost, order_status').eq('supplier_id', supplierId),
         supabase.from('supplier_payments').select('amount, payment_status').eq('supplier_id', supplierId),
         supabase.from('supplier_claims').select('estimated_loss, claim_status').eq('supplier_id', supplierId),
       ]);
@@ -595,7 +627,7 @@ export const supplierService = {
       const totalSpent = payments.filter((p) => p.payment_status === 'confirmed').reduce((s, p) => s + Number(p.amount), 0);
       const totalClaims = claims.length;
       const totalRefunded = claims.filter((c) => c.claim_status === 'refund_received').reduce((s, c) => s + Number(c.estimated_loss), 0);
-      const activeOrders = orders.filter((o) => !['received', 'cancelled'].includes(o.order_status)).length;
+      const activeOrders = orders.filter((o) => !['fully_received', 'closed', 'cancelled'].includes(o.order_status)).length;
 
       return { totalOrders, totalSpent, totalClaims, totalRefunded, activeOrders };
     } catch (e: any) {

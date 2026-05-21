@@ -243,26 +243,34 @@ export default function SupplierDashboardPage() {
   const handleReportOutOfStock = async (orderId: string, orderNumber: string, productName: string) => {
     if (!supplierUser || reportingLine) return;
     setReportingLine(orderId + productName);
-    await supabase.rpc('send_supplier_portal_message', {
+    const { error } = await supabase.rpc('send_supplier_portal_message', {
       p_supplier_id: supplierUser.supplierId,
       p_content: `⚠️ Rupture de stock signalée — Commande ${orderNumber} : "${productName}" est actuellement hors stock.`,
       p_order_id: orderId,
     });
+    if (error) {
+      console.error('[handleReportOutOfStock] RPC error:', error.message);
+    } else {
+      await loadMessages();
+    }
     setReportingLine(null);
-    await loadMessages();
   };
 
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMsg.trim() || sending || !supplierUser) return;
     setSending(true);
-    await supabase.rpc('send_supplier_portal_message', {
+    const { error } = await supabase.rpc('send_supplier_portal_message', {
       p_supplier_id: supplierUser.supplierId,
       p_content: newMsg.trim(),
     });
-    setNewMsg('');
+    if (!error) {
+      setNewMsg('');
+      await loadMessages();
+    } else {
+      console.error('[sendMessage] RPC error:', error.message);
+    }
     setSending(false);
-    await loadMessages();
   };
 
   const handleSignOut = () => { signOut(); router.replace('/supplier-portal/login'); };
