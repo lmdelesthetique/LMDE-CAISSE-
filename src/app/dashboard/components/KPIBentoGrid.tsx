@@ -160,6 +160,34 @@ export default function KPIBentoGrid({ filters }: KPIBentoGridProps) {
         accent="success"
         loading={loading}
       />
+
+      {/* Row 3 — Margin KPIs */}
+      <div className="md:col-span-2 lg:col-span-2">
+        <KPICard
+          label="Taux de marque moyen"
+          value={kpis ? `${kpis.avgMarginPct.toFixed(1)} %` : '—'}
+          sub="MB / PV HT — produits actifs"
+          icon="ChartBarIcon"
+          accent={kpis && kpis.avgMarginPct >= 50 ? 'success' : kpis && kpis.avgMarginPct >= 20 ? 'default' : 'warning'}
+          loading={loading}
+        />
+      </div>
+      <KPICard
+        label="Marges < 20 %"
+        value={kpis ? String(kpis.productsBelow20Pct) : '—'}
+        sub="Produits peu rentables (alerte)"
+        icon="ArrowTrendingDownIcon"
+        accent={kpis && kpis.productsBelow20Pct > 0 ? 'danger' : 'success'}
+        loading={loading}
+      />
+      <KPICard
+        label="Marges ≥ 50 %"
+        value={kpis ? String(kpis.productsAbove50Pct) : '—'}
+        sub="Produits très rentables"
+        icon="ArrowTrendingUpIcon"
+        accent="success"
+        loading={loading}
+      />
     </div>
   );
 }

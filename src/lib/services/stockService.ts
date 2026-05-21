@@ -122,10 +122,13 @@ function mapProduct(r: Record<string, unknown>): StockProduct {
   const transport = Number(r.transport) || 0;
   const customs = Number(r.customs) || 0;
   const otherFees = Number(r.other_fees) || 0;
-  const costPrice = buyPrice + transport + customs + otherFees;
+  const structurePct = Number(r.structure_pct) || 0;
+  const baseCost = buyPrice + transport + customs + otherFees;
+  const costPrice = baseCost + baseCost * (structurePct / 100);
   const sellPriceTtc = Number(r.sell_price_ttc) || 0;
-  const margin = sellPriceTtc - costPrice;
-  const marginRate = sellPriceTtc > 0 ? (margin / sellPriceTtc) * 100 : 0;
+  const sellPriceHt = Number(r.sell_price_ht) || sellPriceTtc / 1.085 || 0;
+  const margin = sellPriceHt - costPrice;
+  const marginRate = sellPriceHt > 0 ? (margin / sellPriceHt) * 100 : 0;
   const stockTransitContainer = Number(r.stock_transit_container) || 0;
   const stockTransitAvion = Number(r.stock_transit_avion) || 0;
   const stockReserved = Number(r.stock_reserved) || 0;

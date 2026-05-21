@@ -9,6 +9,8 @@ export interface ProductRecord {
   buyPrice: number;
   transport: number;
   customs: number;
+  otherFees?: number;
+  structurePct?: number;
   costPrice: number;
   sellPriceHT: number;
   sellPriceTTC: number;

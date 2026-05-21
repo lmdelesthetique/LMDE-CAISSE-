@@ -23,7 +23,10 @@ function mapDbProduct(r: any): ProductRecord {
   const transport = Number(r.transport) || 0;
   const customs = Number(r.customs) || 0;
   const otherFees = Number(r.other_fees) || 0;
-  const costPrice = buyPrice + transport + customs + otherFees;
+  const structurePct = Number(r.structure_pct) || 0;
+  const baseCost = buyPrice + transport + customs + otherFees;
+  const structureAmount = baseCost * (structurePct / 100);
+  const costPrice = baseCost + structureAmount;
   const sellPriceHT = Number(r.sell_price_ht) || Number(r.sell_price_ttc) / 1.085 || 0;
   const sellPriceTTC = Number(r.sell_price_ttc) || sellPriceHT * 1.085;
   const marginAmount = sellPriceHT - costPrice;
@@ -39,6 +42,8 @@ function mapDbProduct(r: any): ProductRecord {
     buyPrice,
     transport,
     customs,
+    otherFees,
+    structurePct,
     costPrice,
     sellPriceHT,
     sellPriceTTC,
@@ -233,7 +238,9 @@ export default function ProductManagementContent() {
   const handleSave = async (data: any, imageUrl?: string, colorVariants?: ColorVariant[]) => {
     let savedProductId: string | null = null;
     const transportPctAmount = Number(data.buyPrice) * (Number(data.transportPct || 0) / 100);
-    const costPrice = Number(data.buyPrice) + Number(data.transport || 0) + transportPctAmount + Number(data.customs || 0) + Number(data.otherFees || 0);
+    const baseCost = Number(data.buyPrice) + Number(data.transport || 0) + transportPctAmount + Number(data.customs || 0) + Number(data.otherFees || 0);
+    const structurePctVal = Number(data.structurePct || 0);
+    const costPrice = baseCost + baseCost * (structurePctVal / 100);
     const tvaRate = Number(data.tva || 8.5);
     const sellPriceHT = Number(data.sellPriceHT) || 0;
     const sellPriceTTC = sellPriceHT * (1 + tvaRate / 100);
@@ -255,6 +262,7 @@ export default function ProductManagementContent() {
       transport: Number(data.transport) || 0,
       customs: Number(data.customs) || 0,
       other_fees: Number(data.otherFees) || 0,
+      structure_pct: Number(data.structurePct) || 0,
       sell_price_ht: sellPriceHT,
       sell_price_ttc: Math.round(sellPriceTTC * 100) / 100,
       min_stock: Number(data.minStock) || 5,

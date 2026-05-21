@@ -70,6 +70,12 @@ function CartRow({
                   </span>
                 )}
               </p>
+              {item.costPrice !== undefined && item.costPrice > 0 && (() => {
+                const sellHT = item.price / (1 + (item.tva || 0.085));
+                const marginPct = ((sellHT - item.costPrice) / sellHT) * 100;
+                const color = marginPct >= 50 ? 'text-emerald-600' : marginPct >= 20 ? 'text-amber-600' : 'text-red-500';
+                return <span className={`text-[10px] font-600 ${color}`}>Marge {marginPct.toFixed(0)}%</span>;
+              })()}
               {/* Price edit button */}
               <button
                 onClick={() => setShowPriceEdit(true)}

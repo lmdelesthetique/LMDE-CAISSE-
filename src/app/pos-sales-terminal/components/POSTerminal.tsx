@@ -46,6 +46,7 @@ export interface CartItem {
   isFreePrice?: boolean;
   imageUrl?: string;
   variantName?: string;
+  costPrice?: number;
 }
 
 export interface HeldTicket {
@@ -124,7 +125,7 @@ export default function POSTerminal() {
     loyaltyService.getTiers().then(setLoyaltyTiers);
   }, []);
 
-  const addToCart = useCallback(async (product: { id: string; name: string; sku: string; price: number; imageUrl?: string; stock?: number; variantName?: string }) => {
+  const addToCart = useCallback(async (product: { id: string; name: string; sku: string; price: number; imageUrl?: string; stock?: number; variantName?: string; costPrice?: number }) => {
     // Check current stock before adding
     const currentQtyInCart = cart.reduce((sum, i) => i.productId === product.id && i.variantName === product.variantName && !i.isFreePrice ? sum + i.qty : sum, 0);
 
@@ -163,6 +164,7 @@ export default function POSTerminal() {
         tva: LIVE_TAX_RATE,
         imageUrl: product.imageUrl,
         variantName: product.variantName,
+        costPrice: product.costPrice,
       }];
     });
   }, [cart]);
@@ -185,6 +187,7 @@ export default function POSTerminal() {
         price: product.sellPriceTtc,
         imageUrl: product.imageUrl || undefined,
         stock: product.stock,
+        costPrice: product.costPrice,
       });
       setBarcodeStatus('found');
       toast.success(`📦 ${product.name} ajouté au panier`, { duration: 2000 });

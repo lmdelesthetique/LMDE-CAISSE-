@@ -15,6 +15,9 @@ export interface DashboardKPIs {
   caDayPrev: number;
   salesDayPrev: number;
   activeProductsCount: number;
+  avgMarginPct: number;
+  productsBelow20Pct: number;
+  productsAbove50Pct: number;
 }
 
 export interface RevenuePoint {
@@ -175,6 +178,7 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
     prevDayReceipts,
     stockAlertResult,
     activeProductsResult,
+    marginProductsResult,
   ] = await Promise.all([
     buildReceiptsQuery(start, end),
     buildReceiptsQuery(prevStart, prevEnd),
@@ -184,10 +188,28 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
       .or('product_status.eq.rupture,and(stock.gt.0,stock.lte.min_stock)'),
     supabase.from('products').select('*', { count: 'exact', head: true })
       .eq('product_status', 'active'),
+    supabase.from('products')
+      .select('sell_price_ht, sell_price_ttc, buy_price, transport, customs, other_fees, structure_pct')
+      .eq('product_status', 'active'),
   ]);
 
   const stockAlertCount = stockAlertResult.count;
   const activeProductsCount = activeProductsResult.count;
+
+  const marginPcts = (marginProductsResult.data ?? []).map((p: any) => {
+    const buyPrice = Number(p.buy_price) || 0;
+    const transport = Number(p.transport) || 0;
+    const customs = Number(p.customs) || 0;
+    const otherFees = Number(p.other_fees) || 0;
+    const structurePct = Number(p.structure_pct) || 0;
+    const baseCost = buyPrice + transport + customs + otherFees;
+    const realCost = baseCost + baseCost * (structurePct / 100);
+    const sellHT = Number(p.sell_price_ht) || Number(p.sell_price_ttc) / 1.085 || 0;
+    return sellHT > 0 ? ((sellHT - realCost) / sellHT) * 100 : 0;
+  });
+  const avgMarginPct = marginPcts.length > 0 ? marginPcts.reduce((s: number, m: number) => s + m, 0) / marginPcts.length : 0;
+  const productsBelow20Pct = marginPcts.filter((m: number) => m < 20).length;
+  const productsAbove50Pct = marginPcts.filter((m: number) => m >= 50).length;
 
   const sum = (arr: { data: { total_amount: number }[] | null }) =>
     (arr.data ?? []).reduce((s, r) => s + (Number(r.total_amount) || 0), 0);
@@ -213,6 +235,9 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
     caDayPrev,
     salesDayPrev,
     activeProductsCount: activeProductsCount ?? 0,
+    avgMarginPct: Math.round(avgMarginPct * 10) / 10,
+    productsBelow20Pct,
+    productsAbove50Pct,
   };
 }
 

@@ -16,6 +16,12 @@ interface DBProduct {
   ref: string;
   barcode?: string;
   sell_price_ttc: number;
+  sell_price_ht?: number;
+  buy_price?: number;
+  transport?: number;
+  customs?: number;
+  other_fees?: number;
+  structure_pct?: number;
   stock: number;
   min_stock?: number;
   category: string;
@@ -39,7 +45,17 @@ interface FavouriteRow {
 }
 
 interface ProductGridProps {
-  onAddToCart: (product: { id: string; name: string; sku: string; price: number; imageUrl?: string; stock: number; variantName?: string }) => void;
+  onAddToCart: (product: { id: string; name: string; sku: string; price: number; imageUrl?: string; stock: number; variantName?: string; costPrice?: number }) => void;
+}
+
+function computeCostPrice(p: DBProduct): number {
+  const buyPrice = Number(p.buy_price) || 0;
+  const transport = Number(p.transport) || 0;
+  const customs = Number(p.customs) || 0;
+  const otherFees = Number(p.other_fees) || 0;
+  const structurePct = Number(p.structure_pct) || 0;
+  const baseCost = buyPrice + transport + customs + otherFees;
+  return baseCost + baseCost * (structurePct / 100);
 }
 
 function getStockBadge(stock: number, minStock: number, isKit: boolean): { label: string; color: string } | null {
@@ -80,7 +96,7 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
       fetchAll<DBProduct>((from, to) =>
         supabase
           .from('products')
-          .select('id, name, ref, barcode, sell_price_ttc, stock, min_stock, category, image_url, status, product_status, is_kit, has_color_variants')
+          .select('id, name, ref, barcode, sell_price_ttc, sell_price_ht, buy_price, transport, customs, other_fees, structure_pct, stock, min_stock, category, image_url, status, product_status, is_kit, has_color_variants')
           .in('status', ['active', 'rupture'])
           .order('name')
           .range(from, to)
@@ -251,6 +267,7 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
                           price: Number(product.sell_price_ttc),
                           imageUrl: product.image_url,
                           stock: product.stock,
+                          costPrice: computeCostPrice(product),
                         });
                       }
                     }
@@ -382,6 +399,7 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
                           imageUrl: variantPickerProduct.image_url,
                           stock: v.quantity,
                           variantName: v.color_name,
+                          costPrice: computeCostPrice(variantPickerProduct),
                         });
                         setVariantPickerProduct(null);
                         setVariantPickerRows([]);

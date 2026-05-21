@@ -10,7 +10,7 @@ import { type ProductRecord } from './mockProducts';
 const supabase = createClient();
 
 type EditField =
-  | 'buy_price' | 'sell_price_ttc' | 'sell_price_ht' | 'tva' |'category'| 'supplier' | 'min_stock' | 'status' |'promo_price' | 'transport' | 'customs';
+  | 'buy_price' | 'sell_price_ttc' | 'sell_price_ht' | 'tva' | 'category' | 'supplier' | 'min_stock' | 'status' | 'promo_price' | 'transport' | 'customs' | 'structure_pct';
 
 interface FieldConfig {
   label: string;
@@ -24,7 +24,7 @@ const FIELD_CONFIG: Record<EditField, FieldConfig> = {
   buy_price:      { label: "Prix d'achat fournisseur", type: 'number', unit: '€', hint: 'Recalcule automatiquement la marge' },
   sell_price_ttc: { label: 'Prix de vente TTC',        type: 'number', unit: '€', hint: 'Met à jour le prix HT automatiquement' },
   sell_price_ht:  { label: 'Prix de vente HT',         type: 'number', unit: '€', hint: 'Met à jour le prix TTC automatiquement' },
-  tva:            { label: 'TVA',                      type: 'select', options: ['0', '5.5', '10', '20'], unit: '%' },
+  tva:            { label: 'TVA',                      type: 'select', options: ['0', '5.5', '8.5', '10', '20'], unit: '%' },
   category:       { label: 'Catégorie',                type: 'select', options: [] },
   supplier:       { label: 'Fournisseur',              type: 'select', options: [] },
   min_stock:      { label: 'Stock minimum',            type: 'number', unit: 'unités' },
@@ -32,6 +32,7 @@ const FIELD_CONFIG: Record<EditField, FieldConfig> = {
   promo_price:    { label: 'Prix promotionnel',        type: 'number', unit: '€' },
   transport:      { label: 'Frais de transport',       type: 'number', unit: '€' },
   customs:        { label: 'Frais de douane',          type: 'number', unit: '€' },
+  structure_pct:  { label: 'Frais de structure',       type: 'number', unit: '%', hint: 'Recalcule le coût réel et les marges automatiquement' },
 };
 
 interface BulkEditModalProps {
@@ -77,6 +78,15 @@ export default function BulkEditModal({ products, onClose, onDone }: BulkEditMod
     return ((ht - buyPrice) / ht * 100).toFixed(1) + '%';
   }
 
+  function calcFullMargin(p: ProductRecord, overrides: { structurePct?: number } = {}): string {
+    const structurePct = overrides.structurePct !== undefined ? overrides.structurePct : (p.structurePct || 0);
+    const baseCost = p.buyPrice + (p.transport || 0) + (p.customs || 0) + (p.otherFees || 0);
+    const realCost = baseCost + baseCost * (structurePct / 100);
+    const sellHT = p.sellPriceHT || p.sellPriceTTC / 1.085;
+    if (sellHT <= 0) return '0%';
+    return ((sellHT - realCost) / sellHT * 100).toFixed(1) + '%';
+  }
+
   function getOldValue(p: ProductRecord): string {
     switch (field) {
       case 'buy_price':      return `${p.buyPrice.toFixed(2)} €`;
@@ -90,6 +100,7 @@ export default function BulkEditModal({ products, onClose, onDone }: BulkEditMod
       case 'promo_price':    return '—';
       case 'transport':      return `${p.transport?.toFixed(2) ?? '0.00'} €`;
       case 'customs':        return `${p.customs?.toFixed(2) ?? '0.00'} €`;
+      case 'structure_pct':  return `${(p.structurePct || 0).toFixed(1)} %`;
       default:               return '—';
     }
   }
@@ -118,6 +129,11 @@ export default function BulkEditModal({ products, onClose, onDone }: BulkEditMod
           item.newValue = `${numVal.toFixed(2)} € HT → ${(numVal * 1.085).toFixed(2)} € TTC`;
           item.oldMargin = calcMargin(p.buyPrice, p.sellPriceTTC);
           item.newMargin = calcMargin(p.buyPrice, numVal * 1.085);
+          break;
+        case 'structure_pct':
+          item.newValue = `${numVal.toFixed(1)} %`;
+          item.oldMargin = calcFullMargin(p);
+          item.newMargin = calcFullMargin(p, { structurePct: numVal });
           break;
         default:
           item.newValue = value;
@@ -154,6 +170,7 @@ export default function BulkEditModal({ products, onClose, onDone }: BulkEditMod
         case 'promo_price':    return { promo_price: numVal };
         case 'transport':      return { transport: numVal };
         case 'customs':        return { customs: numVal };
+        case 'structure_pct':  return { structure_pct: numVal };
         default:               return {};
       }
     };

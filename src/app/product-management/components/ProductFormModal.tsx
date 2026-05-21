@@ -609,17 +609,43 @@ export default function ProductFormModal({ product, onClose, onSave }: ProductFo
                       {structurePct > 0 && <p className="text-[11px] text-purple-600 mt-1">= {structureAmount.toFixed(2)} € (loyer · salaires · charges)</p>}
                     </div>
                   </div>
-                  <div className="mt-3 space-y-1.5">
-                    <div className="flex items-center justify-between bg-white rounded-lg px-4 py-2 border border-border">
-                      <span className="text-sm text-muted-foreground">Coût de revient réel</span>
-                      <span className="text-sm font-600 tabular-nums text-foreground">{costPrice.toFixed(2)} €</span>
-                    </div>
-                    {structurePct > 0 && (
-                      <div className="flex items-center justify-between bg-purple-50 rounded-lg px-4 py-2 border border-purple-200">
-                        <span className="text-sm font-700 text-purple-800">Coût business réel</span>
-                        <span className="text-base font-700 tabular-nums text-purple-800">{realBusinessCost.toFixed(2)} €</span>
+                  {/* Détail du calcul */}
+                  <div className="mt-3 bg-muted/20 rounded-xl border border-border overflow-hidden">
+                    <p className="text-[10px] font-600 text-muted-foreground uppercase tracking-wide px-4 pt-2.5 pb-1">Détail du coût de revient</p>
+                    <div className="divide-y divide-border/50">
+                      <div className="flex items-center justify-between px-4 py-1.5 text-xs text-muted-foreground">
+                        <span>Prix d&apos;achat</span>
+                        <span className="tabular-nums font-500">{Number(buyPrice).toFixed(2)} €</span>
                       </div>
-                    )}
+                      {(Number(transport) + transportPctAmount) > 0 && (
+                        <div className="flex items-center justify-between px-4 py-1.5 text-xs text-muted-foreground">
+                          <span>+ Transport</span>
+                          <span className="tabular-nums font-500">{(Number(transport) + transportPctAmount).toFixed(2)} €</span>
+                        </div>
+                      )}
+                      {Number(customs) > 0 && (
+                        <div className="flex items-center justify-between px-4 py-1.5 text-xs text-muted-foreground">
+                          <span>+ Douane</span>
+                          <span className="tabular-nums font-500">{Number(customs).toFixed(2)} €</span>
+                        </div>
+                      )}
+                      {Number(otherFees) > 0 && (
+                        <div className="flex items-center justify-between px-4 py-1.5 text-xs text-muted-foreground">
+                          <span>+ Autres frais</span>
+                          <span className="tabular-nums font-500">{Number(otherFees).toFixed(2)} €</span>
+                        </div>
+                      )}
+                      {structurePct > 0 && (
+                        <div className="flex items-center justify-between px-4 py-1.5 text-xs text-purple-700 bg-purple-50/50">
+                          <span>+ Frais structure ({structurePct}%)</span>
+                          <span className="tabular-nums font-500">{structureAmount.toFixed(2)} €</span>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between px-4 py-2 bg-white">
+                        <span className="text-sm font-700 text-foreground">= Coût de revient réel</span>
+                        <span className="text-sm font-700 tabular-nums text-foreground">{realBusinessCost.toFixed(2)} €</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
