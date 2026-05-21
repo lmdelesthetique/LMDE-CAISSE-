@@ -7,6 +7,7 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import { Category, CategoryFormData, fetchCategories, createCategory, updateCategory, deleteCategory } from '@/lib/services/categoryService';
 import { categoryStore } from '@/lib/stores/dataStore';
 import { createClient } from '@/lib/supabase/client';
+import { fetchAll } from '@/lib/utils/fetchAll';
 
 const supabase = createClient();
 
@@ -209,15 +210,17 @@ function AddProductModal({ categoryName, onClose, onAdded }: AddProductModalProp
 
   useEffect(() => {
     setLoading(true);
-    supabase
-      .from('products')
-      .select('id, name, ref, image_url, stock, sell_price_ttc, status, product_status, category')
-      .neq('category', categoryName)
-      .order('name')
-      .then(({ data }) => {
-        if (data) setProducts(data as CategoryProduct[]);
-        setLoading(false);
-      });
+    fetchAll<any>((from, to) =>
+      supabase
+        .from('products')
+        .select('id, name, ref, image_url, stock, sell_price_ttc, status, product_status, category')
+        .neq('category', categoryName)
+        .order('name')
+        .range(from, to)
+    ).then((data) => {
+      setProducts(data as any[]);
+      setLoading(false);
+    });
   }, [categoryName]);
 
   const filtered = products.filter(
@@ -437,12 +440,15 @@ function CategoryDetailPanel({ category, allCategories, onBack, onCategoryUpdate
 
   const loadProducts = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from('products')
-      .select('id, name, ref, image_url, stock, sell_price_ttc, status, product_status, category')
-      .eq('category', category.name)
-      .order('name');
-    setProducts((data as CategoryProduct[]) || []);
+    const data = await fetchAll<any>((from, to) =>
+      supabase
+        .from('products')
+        .select('id, name, ref, image_url, stock, sell_price_ttc, status, product_status, category')
+        .eq('category', category.name)
+        .order('name')
+        .range(from, to)
+    );
+    setProducts(data as any[]);
     setSelectedIds(new Set());
     setLoading(false);
   }, [category.name]);
@@ -723,8 +729,10 @@ export default function CategoriesContent() {
     try {
       const data = await fetchCategories();
       setCategories(data);
-      const { data: products } = await supabase.from('products').select('category, stock, sell_price_ttc');
-      if (products) {
+      const products = await fetchAll((from, to) =>
+        supabase.from('products').select('category, stock, sell_price_ttc').range(from, to)
+      );
+      if (products.length >= 0) {
         const stats: Record<string, { productCount: number; totalStock: number; totalPrice: number }> = {};
         products.forEach((p: any) => {
           const cat = p.category || '';

@@ -6,6 +6,7 @@ import AppImage from '@/components/ui/AppImage';
 import POSFavouritesManager from './POSFavouritesManager';
 import { createClient } from '@/lib/supabase/client';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
+import { fetchAll } from '@/lib/utils/fetchAll';
 
 const supabase = createClient();
 
@@ -75,31 +76,29 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
 
   const loadData = useCallback(async () => {
     setLoading(true);
-    const [prodsResult, favsResult] = await Promise.all([
-      supabase
-        .from('products')
-        .select('id, name, ref, barcode, sell_price_ttc, stock, min_stock, category, image_url, status, product_status, is_kit, has_color_variants')
-        .in('status', ['active', 'rupture'])
-        .order('name'),
+    const [allProds, favsResult] = await Promise.all([
+      fetchAll<DBProduct>((from, to) =>
+        supabase
+          .from('products')
+          .select('id, name, ref, barcode, sell_price_ttc, stock, min_stock, category, image_url, status, product_status, is_kit, has_color_variants')
+          .in('status', ['active', 'rupture'])
+          .order('name')
+          .range(from, to)
+      ),
       supabase
         .from('pos_favourites')
         .select('product_id, sort_order')
         .order('sort_order'),
     ]);
 
-    const prods = prodsResult.data;
-    const favs = favsResult.data;
-
-    if (prods) {
-      setProducts(prods as DBProduct[]);
-      const cats = Array.from(new Set(prods.map((p: any) => p.category).filter(Boolean))).sort() as string[];
-      setCategories([
-        { id: '__all__', label: 'Tous' },
-        ...cats.map((c) => ({ id: c, label: c })),
-      ]);
-    }
-    if (favs) {
-      const sorted = (favs as FavouriteRow[]).sort((a, b) => a.sort_order - b.sort_order);
+    setProducts(allProds);
+    const cats = Array.from(new Set(allProds.map((p) => p.category).filter(Boolean))).sort() as string[];
+    setCategories([
+      { id: '__all__', label: 'Tous' },
+      ...cats.map((c) => ({ id: c, label: c })),
+    ]);
+    if (favsResult.data) {
+      const sorted = (favsResult.data as FavouriteRow[]).sort((a, b) => a.sort_order - b.sort_order);
       setFavouriteIds(sorted.map((f) => f.product_id));
     }
     setLoading(false);

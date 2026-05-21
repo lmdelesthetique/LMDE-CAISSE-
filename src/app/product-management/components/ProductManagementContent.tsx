@@ -11,6 +11,7 @@ import BulkEditModal from './BulkEditModal';
 import { createClient } from '@/lib/supabase/client';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { categoryStore, supplierStore } from '@/lib/stores/dataStore';
+import { fetchAll } from '@/lib/utils/fetchAll';
 
 const supabase = createClient();
 
@@ -90,11 +91,10 @@ export default function ProductManagementContent() {
 
   const loadProducts = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('products')
-      .select('*')
-      .order('name');
-    if (!error && data) {
+    const data = await fetchAll<any>((from, to) =>
+      supabase.from('products').select('*').order('name').range(from, to)
+    );
+    if (data.length >= 0) {
       const mapped = data.map(mapDbProduct);
       setProducts(mapped);
       // Load categories and suppliers from centralized store

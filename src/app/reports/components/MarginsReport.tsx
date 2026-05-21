@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
+import { fetchAll } from '@/lib/utils/fetchAll';
 import type { DateRange } from '../page';
 import { exportToPDF, exportToExcel } from '../utils/exportUtils';
 
@@ -48,17 +49,20 @@ export default function MarginsReport({ dateRange }: MarginsReportProps) {
         .gte('created_at', dateRange.from)
         .lte('created_at', dateRange.to + 'T23:59:59');
 
-      // Fetch all products for purchase_price lookup
-      const { data: products } = await supabase
-        .from('products')
-        .select('id, name, category, purchase_price');
+      // Fetch all products for purchase_price lookup (load all, bypass Supabase 1000-row default)
+      const products = await fetchAll((from, to) =>
+        supabase
+          .from('products')
+          .select('id, name, category, buy_price, purchase_price')
+          .range(from, to)
+      );
 
       const productLookup: Record<string, { name: string; category: string; purchase_price: number }> = {};
-      (products ?? []).forEach((p: any) => {
+      products.forEach((p: any) => {
         productLookup[p.id] = {
           name: p.name ?? 'Produit inconnu',
           category: p.category ?? 'Non catégorisé',
-          purchase_price: p.purchase_price ?? 0,
+          purchase_price: Number(p.buy_price ?? p.purchase_price ?? 0),
         };
       });
 

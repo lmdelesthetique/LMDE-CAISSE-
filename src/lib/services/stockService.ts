@@ -1,6 +1,7 @@
 'use client';
 
 import { createClient } from '@/lib/supabase/client';
+import { fetchAll } from '@/lib/utils/fetchAll';
 
 const supabase = createClient();
 
@@ -175,18 +176,18 @@ function mapProduct(r: Record<string, unknown>): StockProduct {
 }
 
 export async function fetchStockProducts(search?: string): Promise<StockProduct[]> {
-  let query = supabase
-    .from('products')
-    .select('*')
-    .order('name');
-
-  if (search && search.trim()) {
-    query = query.or(`name.ilike.%${search}%,ref.ilike.%${search}%,supplier.ilike.%${search}%,category.ilike.%${search}%`);
-  }
-
-  const { data, error } = await query;
-  if (error) { console.error('fetchStockProducts', error); return []; }
-  return (data || []).map(mapProduct);
+  const data = await fetchAll<Record<string, unknown>>((from, to) => {
+    if (search && search.trim()) {
+      return supabase
+        .from('products')
+        .select('*')
+        .or(`name.ilike.%${search.trim()}%,ref.ilike.%${search.trim()}%,supplier.ilike.%${search.trim()}%,category.ilike.%${search.trim()}%`)
+        .order('name')
+        .range(from, to);
+    }
+    return supabase.from('products').select('*').order('name').range(from, to);
+  });
+  return data.map(mapProduct);
 }
 
 /**

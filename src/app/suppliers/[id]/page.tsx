@@ -14,6 +14,7 @@ import PaymentFormModal from '../components/PaymentFormModal';
 import ClaimFormModal from '../components/ClaimFormModal';
 import MessagingPanel from '../components/MessagingPanel';
 import { createClient } from '@/lib/supabase/client';
+import { fetchAll } from '@/lib/utils/fetchAll';
 
 const supabase = createClient();
 
@@ -112,12 +113,15 @@ export default function SupplierDetailPage() {
   const loadLinkedProducts = useCallback(async () => {
     if (!supplierId) return;
     setProductsLoading(true);
-    const { data } = await supabase
-      .from('products')
-      .select('id, name, ref, category, image_url, stock, min_stock, buy_price, sell_price_ttc, product_status, is_suspended')
-      .eq('supplier_id', supplierId)
-      .order('name');
-    setLinkedProducts(data || []);
+    const data = await fetchAll<any>((from, to) =>
+      supabase
+        .from('products')
+        .select('id, name, ref, category, image_url, stock, min_stock, buy_price, sell_price_ttc, product_status, is_suspended')
+        .eq('supplier_id', supplierId)
+        .order('name')
+        .range(from, to)
+    );
+    setLinkedProducts(data);
     setProductsLoading(false);
   }, [supplierId]);
 

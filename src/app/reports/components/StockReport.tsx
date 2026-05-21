@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
+import { fetchAll } from '@/lib/utils/fetchAll';
 import type { DateRange } from '../page';
 import { exportToPDF, exportToExcel } from '../utils/exportUtils';
 
@@ -41,22 +42,25 @@ export default function StockReport({ dateRange }: StockReportProps) {
     setLoading(true);
     const supabase = createClient();
     try {
-      const { data: products } = await supabase
-        .from('products')
-        .select('id, name, reference, category, stock_quantity, min_stock_alert, purchase_price, product_status')
-        .order('stock_quantity', { ascending: true });
+      const products = await fetchAll((from, to) =>
+        supabase
+          .from('products')
+          .select('id, name, ref, category, stock, min_stock, buy_price, status, product_status')
+          .order('stock', { ascending: true })
+          .range(from, to)
+      );
 
-      if (products) {
+      if (products.length >= 0) {
         const mapped: StockRow[] = products.map((p: any) => {
-          const stock = p.stock_quantity ?? 0;
-          const min = p.min_stock_alert ?? 0;
-          const purchasePrice = p.purchase_price ?? 0;
+          const stock = Number(p.stock ?? p.stock_quantity ?? 0);
+          const min = Number(p.min_stock ?? p.min_stock_alert ?? 0);
+          const purchasePrice = Number(p.buy_price ?? p.purchase_price ?? 0);
           let status = 'OK';
           if (stock === 0) status = 'Rupture';
           else if (stock <= min) status = 'Faible';
           return {
             product_name: p.name ?? '-',
-            reference: p.reference ?? '-',
+            reference: p.ref ?? p.reference ?? '-',
             category: p.category ?? 'Non catégorisé',
             current_stock: stock,
             min_stock: min,

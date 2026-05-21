@@ -1,6 +1,7 @@
 'use client';
 
 import { createClient } from '@/lib/supabase/client';
+import { fetchAll } from '@/lib/utils/fetchAll';
 
 const supabase = createClient();
 
@@ -154,13 +155,16 @@ export async function fetchStockLevels(locationId?: string): Promise<StockLevel[
     }));
   }
 
-  // Fallback: use main products table
-  const { data: products, error: prodError } = await supabase
-    .from('products')
-    .select('id, name, ref, category, buy_price, stock, min_stock, supplier')
-    .order('name');
+  // Fallback: use main products table (load all, bypass Supabase 1000-row default)
+  const products = await fetchAll((from, to) =>
+    supabase
+      .from('products')
+      .select('id, name, ref, category, buy_price, stock, min_stock, supplier')
+      .order('name')
+      .range(from, to)
+  );
 
-  if (prodError || !products) return [];
+  if (!products.length) return [];
 
   return products.map((p: {
     id: string;

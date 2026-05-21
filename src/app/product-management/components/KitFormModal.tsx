@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import AppImage from '@/components/ui/AppImage';
 import { createClient } from '@/lib/supabase/client';
+import { fetchAll } from '@/lib/utils/fetchAll';
 
 const supabase = createClient();
 
@@ -58,15 +59,15 @@ export default function KitFormModal({ kitProductId, onClose, onSaved }: KitForm
   };
 
   useEffect(() => {
-    // Load all non-kit products
-    supabase
-      .from('products')
-      .select('id, name, ref, image_url, buy_price, sell_price_ttc, stock, category')
-      .eq('is_kit', false)
-      .order('name')
-      .then(({ data }) => {
-        if (data) setAllProducts(data as SimpleProduct[]);
-      });
+    // Load all non-kit products (bypass Supabase 1000-row default with range pagination)
+    fetchAll<SimpleProduct>((from, to) =>
+      supabase
+        .from('products')
+        .select('id, name, ref, image_url, buy_price, sell_price_ttc, stock, category')
+        .eq('is_kit', false)
+        .order('name')
+        .range(from, to)
+    ).then((data) => setAllProducts(data));
 
     // If editing, load existing kit data
     if (kitProductId) {
