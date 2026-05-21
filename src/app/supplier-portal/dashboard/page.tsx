@@ -5,14 +5,19 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { useSupplierAuth } from '@/contexts/SupplierAuthContext';
 
-type OrderStatus = 'pending' | 'confirmed' | 'shipped' | 'delivered' | 'cancelled';
+// fo_orders order_status values
+type OrderStatus =
+  | 'draft' | 'sent' | 'awaiting_validation' | 'modification_requested'
+  | 'validated' | 'awaiting_payment' | 'payment_sent' | 'payment_confirmed'
+  | 'in_production' | 'ready_to_ship' | 'shipped' | 'partially_received'
+  | 'received' | 'issue_reported' | 'refund_requested' | 'refund_received' | 'cancelled';
 
 interface Order {
   id: string;
   order_number: string;
   created_at: string;
   total_amount: number;
-  status: OrderStatus;
+  order_status: OrderStatus;
   notes: string | null;
 }
 
@@ -31,21 +36,52 @@ interface Thread {
   messages: Message[];
 }
 
-const STATUS_LABEL: Record<OrderStatus, string> = {
-  pending: 'En attente',
-  confirmed: 'Confirmée',
+const STATUS_LABEL: Record<string, string> = {
+  draft: 'Brouillon',
+  sent: 'Envoyée',
+  awaiting_validation: 'En validation',
+  modification_requested: 'Modif. demandée',
+  validated: 'Validée',
+  awaiting_payment: 'Attente paiement',
+  payment_sent: 'Paiement envoyé',
+  payment_confirmed: 'Paiement confirmé',
+  in_production: 'En production',
+  ready_to_ship: 'Prête à expédier',
   shipped: 'Expédiée',
-  delivered: 'Livrée',
+  partially_received: 'Reçue partiellement',
+  received: 'Reçue',
+  issue_reported: 'Problème signalé',
+  refund_requested: 'Remb. demandé',
+  refund_received: 'Remb. reçu',
   cancelled: 'Annulée',
 };
 
-const STATUS_CLASS: Record<OrderStatus, string> = {
-  pending: 'bg-amber-50 text-amber-700 border-amber-200',
-  confirmed: 'bg-blue-50 text-blue-700 border-blue-200',
-  shipped: 'bg-purple-50 text-purple-700 border-purple-200',
-  delivered: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  cancelled: 'bg-red-50 text-red-600 border-red-200',
+const STATUS_CLASS: Record<string, string> = {
+  draft: 'bg-gray-50 text-gray-600 border-gray-200',
+  sent: 'bg-blue-50 text-blue-700 border-blue-200',
+  awaiting_validation: 'bg-amber-50 text-amber-700 border-amber-200',
+  modification_requested: 'bg-orange-50 text-orange-700 border-orange-200',
+  validated: 'bg-teal-50 text-teal-700 border-teal-200',
+  awaiting_payment: 'bg-amber-50 text-amber-700 border-amber-200',
+  payment_sent: 'bg-blue-50 text-blue-700 border-blue-200',
+  payment_confirmed: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  in_production: 'bg-violet-50 text-violet-700 border-violet-200',
+  ready_to_ship: 'bg-teal-50 text-teal-700 border-teal-200',
+  shipped: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+  partially_received: 'bg-amber-50 text-amber-700 border-amber-200',
+  received: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  issue_reported: 'bg-red-50 text-red-600 border-red-200',
+  refund_requested: 'bg-red-50 text-red-600 border-red-200',
+  refund_received: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  cancelled: 'bg-gray-50 text-gray-500 border-gray-200',
 };
+
+const ACTIVE_STATUSES: OrderStatus[] = [
+  'sent', 'awaiting_validation', 'modification_requested', 'validated',
+  'awaiting_payment', 'payment_sent', 'payment_confirmed',
+  'in_production', 'ready_to_ship', 'shipped', 'partially_received',
+  'issue_reported', 'refund_requested',
+];
 
 export default function SupplierDashboardPage() {
   const router = useRouter();
@@ -67,25 +103,22 @@ export default function SupplierDashboardPage() {
     }
   }, [authLoading, supplierUser, router]);
 
+  // Uses SECURITY DEFINER RPC to bypass fo_orders RLS for PIN-auth users
   const loadOrders = useCallback(async () => {
     if (!supplierUser) return;
-    const { data } = await supabase
-      .from('orders')
-      .select('id, order_number, created_at, total_amount, status, notes')
-      .eq('supplier_id', supplierUser.supplierId)
-      .order('created_at', { ascending: false })
-      .limit(100);
+    const { data } = await supabase.rpc('get_supplier_portal_orders', {
+      p_supplier_id: supplierUser.supplierId,
+    });
     setOrders((data as Order[]) ?? []);
   }, [supabase, supplierUser]);
 
+  // Uses SECURITY DEFINER RPC to bypass thread/message RLS for PIN-auth users
   const loadThreads = useCallback(async () => {
     if (!supplierUser) return;
-    const { data } = await supabase
-      .from('supplier_message_threads')
-      .select(`id, subject, updated_at, messages:supplier_messages(id, created_at, content, sender_type, is_read)`)
-      .eq('supplier_id', supplierUser.supplierId)
-      .order('updated_at', { ascending: false });
-    const loaded = (data ?? []) as Thread[];
+    const { data } = await supabase.rpc('get_supplier_portal_threads', {
+      p_supplier_id: supplierUser.supplierId,
+    });
+    const loaded = (data as Thread[]) ?? [];
     setThreads(loaded);
     return loaded;
   }, [supabase, supplierUser]);
@@ -104,13 +137,9 @@ export default function SupplierDashboardPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [activeThread]);
 
+  // Uses SECURITY DEFINER RPC to mark messages read without Supabase Auth
   const markRead = useCallback(async (thread: Thread) => {
-    await supabase
-      .from('supplier_messages')
-      .update({ is_read: true })
-      .eq('thread_id', thread.id)
-      .eq('sender_type', 'admin')
-      .eq('is_read', false);
+    await supabase.rpc('mark_supplier_thread_read', { p_thread_id: thread.id });
   }, [supabase]);
 
   const sendMessage = async (e: React.FormEvent) => {
@@ -118,12 +147,11 @@ export default function SupplierDashboardPage() {
     if (!newMsg.trim() || !activeThread || sending || !supplierUser) return;
     setSending(true);
     try {
-      await supabase.from('supplier_messages').insert({
-        thread_id: activeThread.id,
-        supplier_id: supplierUser.supplierId,
-        content: newMsg.trim(),
-        sender_type: 'supplier',
-        is_read: false,
+      // Uses SECURITY DEFINER RPC to insert message without Supabase Auth
+      await supabase.rpc('insert_supplier_message', {
+        p_thread_id: activeThread.id,
+        p_supplier_id: supplierUser.supplierId,
+        p_content: newMsg.trim(),
       });
       setNewMsg('');
       const refreshed = await loadThreads();
@@ -136,14 +164,19 @@ export default function SupplierDashboardPage() {
     }
   };
 
-  const handleSignOut = async () => {
-    await signOut();
+  const handleSignOut = () => {
+    signOut();
     router.replace('/supplier-portal/login');
   };
 
-  const activeOrders = orders.filter((o) => o.status !== 'delivered' && o.status !== 'cancelled');
-  const totalConfirmed = orders.filter((o) => o.status === 'confirmed').reduce((s, o) => s + o.total_amount, 0);
-  const unreadTotal = threads.reduce((s, t) => s + t.messages.filter((m) => m.sender_type === 'admin' && !m.is_read).length, 0);
+  const activeOrders = orders.filter((o) => ACTIVE_STATUSES.includes(o.order_status));
+  const totalConfirmed = orders
+    .filter((o) => o.order_status === 'payment_confirmed')
+    .reduce((s, o) => s + o.total_amount, 0);
+  const unreadTotal = threads.reduce(
+    (s, t) => s + t.messages.filter((m) => m.sender_type === 'admin' && !m.is_read).length,
+    0,
+  );
 
   if (authLoading || !supplierUser) {
     return (
@@ -228,10 +261,16 @@ export default function SupplierDashboardPage() {
                     {orders.map((o) => (
                       <tr key={o.id} className="border-b border-gray-50 hover:bg-gray-50/60">
                         <td className="px-5 py-3.5 font-medium text-gray-900">{o.order_number}</td>
-                        <td className="px-5 py-3.5 text-gray-500">{new Date(o.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })}</td>
-                        <td className="px-5 py-3.5 font-medium text-gray-900">{o.total_amount.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</td>
+                        <td className="px-5 py-3.5 text-gray-500">
+                          {new Date(o.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </td>
+                        <td className="px-5 py-3.5 font-medium text-gray-900">
+                          {o.total_amount.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                        </td>
                         <td className="px-5 py-3.5">
-                          <span className={`text-xs px-2.5 py-1 rounded-full border font-medium ${STATUS_CLASS[o.status]}`}>{STATUS_LABEL[o.status]}</span>
+                          <span className={`text-xs px-2.5 py-1 rounded-full border font-medium ${STATUS_CLASS[o.order_status] ?? 'bg-gray-50 text-gray-500 border-gray-200'}`}>
+                            {STATUS_LABEL[o.order_status] ?? o.order_status}
+                          </span>
                         </td>
                         <td className="px-5 py-3.5 text-gray-400 text-xs max-w-xs truncate">{o.notes ?? '—'}</td>
                       </tr>
@@ -250,7 +289,9 @@ export default function SupplierDashboardPage() {
                 ) : (
                   threads.map((thread) => {
                     const unread = thread.messages.filter((m) => m.sender_type === 'admin' && !m.is_read).length;
-                    const last = [...thread.messages].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+                    const last = [...thread.messages].sort(
+                      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+                    )[0];
                     return (
                       <button
                         key={thread.id}
@@ -259,10 +300,14 @@ export default function SupplierDashboardPage() {
                       >
                         <div className="flex items-center justify-between gap-1 mb-1">
                           <span className={`text-xs font-semibold truncate ${unread > 0 ? 'text-gray-900' : 'text-gray-600'}`}>{thread.subject}</span>
-                          {unread > 0 && <span className="shrink-0 w-4 h-4 rounded-full bg-emerald-600 text-white text-[9px] flex items-center justify-center font-bold">{unread}</span>}
+                          {unread > 0 && (
+                            <span className="shrink-0 w-4 h-4 rounded-full bg-emerald-600 text-white text-[9px] flex items-center justify-center font-bold">{unread}</span>
+                          )}
                         </div>
                         {last && <p className="text-[11px] text-gray-400 truncate">{last.content}</p>}
-                        <p className="text-[10px] text-gray-300 mt-1">{new Date(thread.updated_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}</p>
+                        <p className="text-[10px] text-gray-300 mt-1">
+                          {new Date(thread.updated_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
+                        </p>
                       </button>
                     );
                   })

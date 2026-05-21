@@ -278,32 +278,7 @@ export const supplierService = {
   async create(payload: Partial<Supplier>): Promise<Supplier | null> {
     const supabase = createClient();
     try {
-      // Generate portal credentials
-      const companySlug = (payload.companyName || 'supplier')
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, '')
-        .substring(0, 12);
-      const randomSuffix = Math.random().toString(36).substring(2, 7);
-      const portalLogin = `${companySlug}${randomSuffix}@supplier.beautypos`;
-      const portalPassword = Math.random().toString(36).substring(2, 8).toUpperCase() +
-        Math.random().toString(36).substring(2, 6) + '!';
-
-      // Create auth user for supplier portal
-      let portalUserId: string | undefined;
-      try {
-        const { data: authData, error: authError } = await supabase.auth.signUp({
-          email: portalLogin,
-          password: portalPassword,
-          options: {
-            data: { role: 'supplier', company_name: payload.companyName },
-          },
-        });
-        if (!authError && authData.user) {
-          portalUserId = authData.user.id;
-        }
-      } catch (_) {
-        // Portal user creation is non-blocking
-      }
+      const pin = String(Math.floor(100000 + Math.random() * 900000));
 
       const { data, error } = await supabase
         .from('suppliers')
@@ -327,9 +302,8 @@ export const supplierService = {
           minimum_order: payload.minimumOrder,
           notes: payload.notes,
           reliability: payload.reliability || 'unknown',
-          portal_login: portalLogin,
-          portal_password_plain: portalPassword,
-          portal_user_id: portalUserId || null,
+          portal_login: pin,
+          portal_password_plain: null,
         })
         .select()
         .single();
@@ -337,16 +311,12 @@ export const supplierService = {
 
       const supplier = data ? mapSupplier(data) : null;
 
-      // Link portal user to supplier in supplier_portal_users table
-      if (supplier && portalUserId) {
-        try {
-          await supabase.from('supplier_portal_users').insert({
-            auth_user_id: portalUserId,
-            supplier_id: supplier.id,
-            is_active: true,
-          });
-        } catch (_) {
-          // Non-blocking
+      if (supplier) {
+        const { error: upsertError } = await supabase
+          .from('supplier_portal_users')
+          .upsert({ supplier_id: supplier.id, pin_code: pin, is_active: true }, { onConflict: 'supplier_id' });
+        if (upsertError) {
+          console.error('[supplierService.create] portal upsert error:', upsertError.message);
         }
       }
 

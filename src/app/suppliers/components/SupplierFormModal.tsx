@@ -22,8 +22,7 @@ const RELIABILITY_OPTIONS: { value: SupplierReliability; label: string }[] = [
 ];
 
 interface PortalCredentials {
-  login: string;
-  password: string;
+  pin: string;
   supplierName: string;
 }
 
@@ -49,44 +48,26 @@ function CredentialsModal({ credentials, onClose }: { credentials: PortalCredent
             </div>
             <div>
               <h3 className="font-700 text-foreground">Fournisseur créé avec succès</h3>
-              <p className="text-xs text-muted-foreground">Accès portail fournisseur généré</p>
+              <p className="text-xs text-muted-foreground">Code PIN d'accès portail généré</p>
             </div>
           </div>
         </div>
 
         <div className="px-6 py-5 space-y-4">
-          <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
-            <p className="text-xs text-amber-800 font-medium">⚠️ Notez ces identifiants maintenant — le mot de passe ne sera plus affiché.</p>
-          </div>
-
           <div>
-            <p className="text-xs font-600 uppercase tracking-widest text-muted-foreground mb-3">Identifiants portail fournisseur</p>
+            <p className="text-xs font-600 uppercase tracking-widest text-muted-foreground mb-3">Accès portail fournisseur</p>
             <div className="space-y-3">
               <div className="flex items-center gap-2">
-                <div className="flex-1 bg-muted rounded-lg px-3 py-2">
-                  <p className="text-[10px] text-muted-foreground mb-0.5">Identifiant (email)</p>
-                  <p className="text-sm font-mono text-foreground">{credentials.login}</p>
+                <div className="flex-1 bg-muted rounded-lg px-3 py-3 text-center">
+                  <p className="text-[10px] text-muted-foreground mb-1">Code PIN à 6 chiffres</p>
+                  <p className="text-2xl font-700 font-mono tracking-widest text-foreground">{credentials.pin}</p>
                 </div>
                 <button
-                  onClick={() => copyToClipboard(credentials.login, 'login')}
+                  onClick={() => copyToClipboard(credentials.pin, 'pin')}
                   className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                  title="Copier"
+                  title="Copier le PIN"
                 >
-                  <Icon name={copied === 'login' ? 'CheckIcon' : 'ClipboardDocumentIcon'} size={16} />
-                </button>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <div className="flex-1 bg-muted rounded-lg px-3 py-2">
-                  <p className="text-[10px] text-muted-foreground mb-0.5">Mot de passe</p>
-                  <p className="text-sm font-mono text-foreground">{credentials.password}</p>
-                </div>
-                <button
-                  onClick={() => copyToClipboard(credentials.password, 'password')}
-                  className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                  title="Copier"
-                >
-                  <Icon name={copied === 'password' ? 'CheckIcon' : 'ClipboardDocumentIcon'} size={16} />
+                  <Icon name={copied === 'pin' ? 'CheckIcon' : 'ClipboardDocumentIcon'} size={16} />
                 </button>
               </div>
 
@@ -98,7 +79,7 @@ function CredentialsModal({ credentials, onClose }: { credentials: PortalCredent
                 <button
                   onClick={() => copyToClipboard(portalUrl, 'url')}
                   className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                  title="Copier"
+                  title="Copier l'URL"
                 >
                   <Icon name={copied === 'url' ? 'CheckIcon' : 'ClipboardDocumentIcon'} size={16} />
                 </button>
@@ -106,16 +87,27 @@ function CredentialsModal({ credentials, onClose }: { credentials: PortalCredent
             </div>
           </div>
 
-          <button
-            onClick={() => copyToClipboard(
-              `Portail fournisseur BeautyPOS\nFournisseur: ${credentials.supplierName}\nURL: ${portalUrl}\nIdentifiant: ${credentials.login}\nMot de passe: ${credentials.password}`,
-              'all'
-            )}
-            className="w-full flex items-center justify-center gap-2 border border-border rounded-lg px-4 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-          >
-            <Icon name={copied === 'all' ? 'CheckIcon' : 'ClipboardDocumentListIcon'} size={16} />
-            {copied === 'all' ? 'Copié !' : 'Tout copier'}
-          </button>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => copyToClipboard(
+                `Portail fournisseur LMDE\nFournisseur: ${credentials.supplierName}\nURL: ${portalUrl}\nCode PIN: ${credentials.pin}`,
+                'all'
+              )}
+              className="flex items-center justify-center gap-2 border border-border rounded-lg px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            >
+              <Icon name={copied === 'all' ? 'CheckIcon' : 'ClipboardDocumentListIcon'} size={15} />
+              {copied === 'all' ? 'Copié !' : 'Tout copier'}
+            </button>
+            <a
+              href={`https://wa.me/?text=${encodeURIComponent(`Portail fournisseur LMDE\nFournisseur: ${credentials.supplierName}\nURL: ${portalUrl}\nCode PIN: ${credentials.pin}`)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2 border border-emerald-200 rounded-lg px-3 py-2 text-sm text-emerald-700 hover:bg-emerald-50 transition-colors"
+            >
+              <Icon name="ChatBubbleLeftRightIcon" size={15} />
+              WhatsApp
+            </a>
+          </div>
         </div>
 
         <div className="px-6 py-4 border-t border-border">
@@ -177,10 +169,9 @@ export default function SupplierFormModal({ supplier, onClose, onSaved }: Props)
         onSaved();
       } else {
         const created = await supplierService.create(payload);
-        if (created && created.portalLogin && created.portalPasswordPlain) {
+        if (created && created.portalLogin) {
           setCreatedCredentials({
-            login: created.portalLogin,
-            password: created.portalPasswordPlain,
+            pin: created.portalLogin,
             supplierName: created.companyName,
           });
         } else {
@@ -208,7 +199,7 @@ export default function SupplierFormModal({ supplier, onClose, onSaved }: Props)
             <div>
               <h2 className="font-700 text-foreground text-lg">{isEdit ? 'Modifier le fournisseur' : 'Nouveau fournisseur'}</h2>
               {!isEdit && (
-                <p className="text-xs text-muted-foreground mt-0.5">Des identifiants portail seront générés automatiquement</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Un code PIN portail sera généré automatiquement</p>
               )}
             </div>
             <button onClick={onClose} className="p-2 rounded-lg hover:bg-muted text-muted-foreground transition-colors">
@@ -226,10 +217,7 @@ export default function SupplierFormModal({ supplier, onClose, onSaved }: Props)
             {isEdit && supplier?.portalLogin && (
               <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
                 <p className="text-xs font-600 text-blue-800 mb-1">Accès portail existant</p>
-                <p className="text-xs text-blue-700">Login : <span className="font-mono">{supplier.portalLogin}</span></p>
-                {supplier.portalPasswordPlain && (
-                  <p className="text-xs text-blue-700">Mot de passe : <span className="font-mono">{supplier.portalPasswordPlain}</span></p>
-                )}
+                <p className="text-xs text-blue-700">Code PIN : <span className="font-mono font-700 tracking-widest">{supplier.portalLogin}</span></p>
               </div>
             )}
 
@@ -362,7 +350,7 @@ export default function SupplierFormModal({ supplier, onClose, onSaved }: Props)
                   <Icon name="KeyIcon" size={15} className="text-primary mt-0.5 shrink-0" />
                   <div>
                     <p className="text-xs font-600 text-primary">Accès portail fournisseur</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">Des identifiants de connexion seront générés automatiquement et affichés après la création.</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Un code PIN à 6 chiffres sera généré automatiquement et affiché après la création.</p>
                   </div>
                 </div>
               </div>
