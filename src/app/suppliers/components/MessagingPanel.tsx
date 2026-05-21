@@ -120,6 +120,7 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
       const payload: any = {
         supplier_id: supplierId,
         sender: 'store',
+        sender_type: 'admin',
         content: text || null,
         message_type: messageType,
         is_read: false,

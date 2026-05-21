@@ -90,6 +90,9 @@ export interface SupplierOrder {
   receivedAt?: string;
   createdAt: string;
   updatedAt: string;
+  supplierResponse?: 'pending' | 'accepted' | 'refused';
+  supplierComment?: string;
+  paymentStatus?: string;
 }
 
 export interface SupplierPayment {
@@ -195,6 +198,9 @@ function mapOrder(row: any): SupplierOrder {
     receivedAt: row.received_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    supplierResponse: row.supplier_response ?? 'pending',
+    supplierComment: row.supplier_comment,
+    paymentStatus: row.payment_status,
   };
 }
 

@@ -378,6 +378,20 @@ export default function SupplierDetailPage() {
                 Nouvelle commande
               </button>
             </div>
+
+            {/* Alert: supplier responses pending */}
+            {orders.some((o) => o.supplierResponse === 'refused') && (
+              <div className="flex items-start gap-3 p-4 mb-4 bg-red-50 border border-red-200 rounded-xl">
+                <Icon name="ExclamationCircleIcon" size={18} className="text-red-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-600 text-red-800">
+                    {orders.filter((o) => o.supplierResponse === 'refused').length} commande{orders.filter((o) => o.supplierResponse === 'refused').length > 1 ? 's' : ''} refusée{orders.filter((o) => o.supplierResponse === 'refused').length > 1 ? 's' : ''} par le fournisseur
+                  </p>
+                  <p className="text-xs text-red-600 mt-0.5">Consultez les commentaires ci-dessous et prenez les mesures nécessaires.</p>
+                </div>
+              </div>
+            )}
+
             {orders.length === 0 ? (
               <div className="bg-white border border-border rounded-xl p-10 text-center">
                 <Icon name="ClipboardDocumentListIcon" size={36} className="text-muted-foreground mx-auto mb-3" />
@@ -387,13 +401,35 @@ export default function SupplierDetailPage() {
               <div className="space-y-3">
                 {orders.map((order) => {
                   const cfg = ORDER_STATUS_CONFIG[order.orderStatus] || { label: order.orderStatus, color: 'text-gray-600 bg-gray-100' };
+                  const hasRefused = order.supplierResponse === 'refused';
+                  const hasAccepted = order.supplierResponse === 'accepted';
+                  const hasPending = order.supplierResponse === 'pending' || !order.supplierResponse;
                   return (
-                    <div key={order.id} className="bg-white border border-border rounded-xl p-5 shadow-card">
+                    <div key={order.id} className={`bg-white border rounded-xl p-5 shadow-card ${hasRefused ? 'border-red-200 bg-red-50/20' : 'border-border'}`}>
                       <div className="flex items-start justify-between gap-4 mb-3">
                         <div>
-                          <div className="flex items-center gap-3">
+                          <div className="flex flex-wrap items-center gap-2">
                             <h3 className="font-600 text-foreground">{order.orderNumber}</h3>
                             <StatusPill label={cfg.label} color={cfg.color} />
+                            {/* Supplier response badge */}
+                            {hasAccepted && (
+                              <span className="inline-flex items-center gap-1 text-xs font-600 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                <Icon name="CheckCircleIcon" size={11} />
+                                Acceptée par fournisseur
+                              </span>
+                            )}
+                            {hasRefused && (
+                              <span className="inline-flex items-center gap-1 text-xs font-600 px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200">
+                                <Icon name="XCircleIcon" size={11} />
+                                Refusée par fournisseur
+                              </span>
+                            )}
+                            {hasPending && ['sent', 'awaiting_validation', 'validated'].includes(order.orderStatus) && (
+                              <span className="inline-flex items-center gap-1 text-xs font-600 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                                <Icon name="ClockIcon" size={11} />
+                                En attente réponse
+                              </span>
+                            )}
                           </div>
                           <p className="text-xs text-muted-foreground mt-0.5">Créée le {new Date(order.createdAt).toLocaleDateString('fr-FR')}</p>
                         </div>
@@ -402,6 +438,14 @@ export default function SupplierDetailPage() {
                           <p className="text-xs text-muted-foreground">dont {order.shippingCost.toFixed(2)} € transport · {order.customsCost.toFixed(2)} € douane</p>
                         </div>
                       </div>
+
+                      {/* Supplier comment (especially when refused) */}
+                      {order.supplierComment && (
+                        <div className={`mb-3 px-3 py-2.5 rounded-lg text-xs border ${hasRefused ? 'bg-red-50 border-red-100 text-red-700' : 'bg-emerald-50 border-emerald-100 text-emerald-700'}`}>
+                          <span className="font-600">Commentaire fournisseur : </span>
+                          {order.supplierComment}
+                        </div>
+                      )}
 
                       {order.items && order.items.length > 0 && (
                         <div className="bg-muted/50 rounded-lg p-3 mb-3">
