@@ -312,11 +312,13 @@ export const supplierService = {
       const supplier = data ? mapSupplier(data) : null;
 
       if (supplier) {
-        const { error: upsertError } = await supabase
-          .from('supplier_portal_users')
-          .upsert({ supplier_id: supplier.id, pin_code: pin, is_active: true }, { onConflict: 'supplier_id' });
-        if (upsertError) {
-          console.error('[supplierService.create] portal upsert error:', upsertError.message);
+        // SECURITY DEFINER RPC bypasses RLS on supplier_portal_users
+        const { error: rpcError } = await supabase.rpc('upsert_supplier_portal_pin', {
+          p_supplier_id: supplier.id,
+          p_pin: pin,
+        });
+        if (rpcError) {
+          console.error('[supplierService.create] portal pin rpc error:', rpcError.message);
         }
       }
 

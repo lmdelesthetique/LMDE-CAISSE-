@@ -708,18 +708,13 @@ function SupplierAccessModal({ supplier, onClose, onSaved }: SupplierAccessModal
     setLoading(true);
     setError('');
     try {
-      // Upsert portal user — auth_user_id is now nullable, supplier_id is unique
-      const { error: upsertError } = await supabase
-        .from('supplier_portal_users')
-        .upsert({ supplier_id: supplier.id, pin_code: pin, is_active: true }, { onConflict: 'supplier_id' });
-      if (upsertError) throw new Error(`Erreur portail : ${upsertError.message}`);
-
-      // Mirror PIN on the supplier row for display in the admin UI
-      const { error: updateError } = await supabase
-        .from('suppliers')
-        .update({ portal_login: pin, portal_password_plain: null })
-        .eq('id', supplier.id);
-      if (updateError) throw new Error(`Erreur fournisseur : ${updateError.message}`);
+      // SECURITY DEFINER RPC bypasses RLS on supplier_portal_users
+      // (direct INSERT/UPDATE is blocked for authenticated admin users by RLS)
+      const { error: rpcError } = await supabase.rpc('upsert_supplier_portal_pin', {
+        p_supplier_id: supplier.id,
+        p_pin: pin,
+      });
+      if (rpcError) throw new Error(`Erreur : ${rpcError.message}`);
 
       setStep('generated');
     } catch (err: any) {
