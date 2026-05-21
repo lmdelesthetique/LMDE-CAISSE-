@@ -295,7 +295,7 @@ export default function ClientImportPage() {
         loyalty_points: client.loyaltyPoints || 0,
         loyalty_tier: 'bronze',
         total_spent: 0,
-        visit_count: 0,
+        total_visits: 0,
       }));
 
       const { error } = await supabase.from('clients').insert(payloads);
@@ -313,7 +313,7 @@ export default function ClientImportPage() {
             loyalty_points: client.loyaltyPoints || 0,
             loyalty_tier: 'bronze',
             total_spent: 0,
-            visit_count: 0,
+            total_visits: 0,
           });
           if (rowErr) { errors++; addLog(`❌ ${client.firstName} ${client.lastName} — ${rowErr.message}`); }
           else { created++; }
