@@ -45,6 +45,7 @@ export interface CartItem {
   tva: number;
   isFreePrice?: boolean;
   imageUrl?: string;
+  variantName?: string;
 }
 
 export interface HeldTicket {
@@ -123,10 +124,10 @@ export default function POSTerminal() {
     loyaltyService.getTiers().then(setLoyaltyTiers);
   }, []);
 
-  const addToCart = useCallback(async (product: { id: string; name: string; sku: string; price: number; imageUrl?: string; stock?: number }) => {
+  const addToCart = useCallback(async (product: { id: string; name: string; sku: string; price: number; imageUrl?: string; stock?: number; variantName?: string }) => {
     // Check current stock before adding
-    const currentQtyInCart = cart.reduce((sum, i) => i.productId === product.id && !i.isFreePrice ? sum + i.qty : sum, 0);
-    
+    const currentQtyInCart = cart.reduce((sum, i) => i.productId === product.id && i.variantName === product.variantName && !i.isFreePrice ? sum + i.qty : sum, 0);
+
     // If stock info passed directly, use it; otherwise fetch from DB
     let availableStock = product.stock ?? 999;
     if (product.stock === undefined && !product.id.startsWith('free-')) {
@@ -145,14 +146,15 @@ export default function POSTerminal() {
     }
 
     setCart((prev) => {
-      const existing = prev.find((i) => i.productId === product.id && !i.isFreePrice);
+      const existing = prev.find((i) => i.productId === product.id && i.variantName === product.variantName && !i.isFreePrice);
       if (existing) {
-        return prev.map((i) => i.productId === product.id && !i.isFreePrice ? { ...i, qty: i.qty + 1 } : i);
+        return prev.map((i) => i.productId === product.id && i.variantName === product.variantName && !i.isFreePrice ? { ...i, qty: i.qty + 1 } : i);
       }
+      const displayName = product.variantName ? `${product.name} — ${product.variantName}` : product.name;
       return [...prev, {
-        id: `ci-${product.id}-${Date.now()}`,
+        id: `ci-${product.id}-${product.variantName ?? ''}-${Date.now()}`,
         productId: product.id,
-        name: product.name,
+        name: displayName,
         sku: product.sku,
         price: product.price,
         qty: 1,
@@ -160,6 +162,7 @@ export default function POSTerminal() {
         discountType: 'percent',
         tva: LIVE_TAX_RATE,
         imageUrl: product.imageUrl,
+        variantName: product.variantName,
       }];
     });
   }, [cart]);

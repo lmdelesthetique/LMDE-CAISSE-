@@ -47,7 +47,7 @@ function mapDbProduct(r: any): ProductRecord {
     minStock: Number(r.min_stock) || 5,
     status: r.status || r.product_status || 'active',
     shopify: Boolean(r.shopify),
-    variants: Boolean(r.variants),
+    variants: Boolean(r.has_color_variants),
     imageUrl: r.image_url || undefined,
     colorVariants: undefined,
     isKit: Boolean(r.is_kit),
@@ -174,7 +174,22 @@ export default function ProductManagementContent() {
   };
 
   const openCreate = () => { setEditProduct(null); setShowModal(true); };
-  const openEdit = (p: ProductRecord) => { setEditProduct(p); setShowModal(true); };
+  const openEdit = async (p: ProductRecord) => {
+    const { data: variantRows } = await supabase
+      .from('product_color_stock')
+      .select('id, color_name, color_hex, quantity, min_stock')
+      .eq('product_id', p.id)
+      .order('created_at', { ascending: true });
+    const colorVariants: ColorVariant[] = (variantRows || []).map((v: any) => ({
+      id: v.id,
+      colorName: v.color_name || '',
+      colorHex: v.color_hex || '#000000',
+      quantity: Number(v.quantity) || 0,
+      minStock: Number(v.min_stock) || 0,
+    }));
+    setEditProduct({ ...p, colorVariants: colorVariants.length > 0 ? colorVariants : undefined });
+    setShowModal(true);
+  };
 
   const openBarcodeForProduct = (p: ProductRecord) => {
     setBarcodePrintProducts([p]);
@@ -216,6 +231,7 @@ export default function ProductManagementContent() {
   };
 
   const handleSave = async (data: any, imageUrl?: string, colorVariants?: ColorVariant[]) => {
+    let savedProductId: string | null = null;
     const transportPctAmount = Number(data.buyPrice) * (Number(data.transportPct || 0) / 100);
     const costPrice = Number(data.buyPrice) + Number(data.transport || 0) + transportPctAmount + Number(data.customs || 0) + Number(data.otherFees || 0);
     const tvaRate = Number(data.tva || 8.5);
@@ -252,6 +268,7 @@ export default function ProductManagementContent() {
     };
 
     if (editProduct) {
+      savedProductId = editProduct.id;
       const previousStock = editProduct.stock || 0;
       const { error } = await supabase.from('products').update(payload).eq('id', editProduct.id);
       if (error) {
@@ -288,6 +305,7 @@ export default function ProductManagementContent() {
         showToast(`Erreur création : ${error.message}`, 'error');
         return;
       }
+      savedProductId = inserted?.id ?? null;
       // Log initial stock entry if quantity > 0
       if (newQuantity > 0 && inserted?.id) {
         await supabase.from('stock_movements_log').insert({
@@ -308,6 +326,27 @@ export default function ProductManagementContent() {
         : '';
       showToast(`Produit "${data.name}" créé avec succès${colorMsg}`);
     }
+
+    // Save color variants
+    if (savedProductId && colorVariants !== undefined) {
+      await supabase.from('product_color_stock').delete().eq('product_id', savedProductId);
+      if (colorVariants.length > 0) {
+        const { error: varErr } = await supabase.from('product_color_stock').insert(
+          colorVariants.map((v) => ({
+            product_id: savedProductId,
+            color_name: v.colorName,
+            color_hex: v.colorHex,
+            quantity: v.quantity,
+            min_stock: v.minStock,
+          }))
+        );
+        if (varErr) showToast(`Erreur déclinaisons : ${varErr.message}`, 'error');
+      }
+      await supabase.from('products')
+        .update({ has_color_variants: colorVariants.length > 0 })
+        .eq('id', savedProductId);
+    }
+
     setShowModal(false);
     loadProducts();
   };

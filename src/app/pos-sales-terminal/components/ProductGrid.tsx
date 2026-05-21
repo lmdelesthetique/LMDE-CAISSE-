@@ -22,6 +22,14 @@ interface DBProduct {
   status: string;
   product_status?: string;
   is_kit?: boolean;
+  has_color_variants?: boolean;
+}
+
+interface ColorVariantRow {
+  id: string;
+  color_name: string;
+  color_hex: string;
+  quantity: number;
 }
 
 interface FavouriteRow {
@@ -30,7 +38,7 @@ interface FavouriteRow {
 }
 
 interface ProductGridProps {
-  onAddToCart: (product: { id: string; name: string; sku: string; price: number; imageUrl?: string; stock: number }) => void;
+  onAddToCart: (product: { id: string; name: string; sku: string; price: number; imageUrl?: string; stock: number; variantName?: string }) => void;
 }
 
 function getStockBadge(stock: number, minStock: number, isKit: boolean): { label: string; color: string } | null {
@@ -49,13 +57,28 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
   const [favouriteIds, setFavouriteIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [showFavManager, setShowFavManager] = useState(false);
+  const [variantPickerProduct, setVariantPickerProduct] = useState<DBProduct | null>(null);
+  const [variantPickerRows, setVariantPickerRows] = useState<ColorVariantRow[]>([]);
+  const [variantPickerLoading, setVariantPickerLoading] = useState(false);
+
+  const openVariantPicker = useCallback(async (product: DBProduct) => {
+    setVariantPickerProduct(product);
+    setVariantPickerLoading(true);
+    const { data } = await supabase
+      .from('product_color_stock')
+      .select('id, color_name, color_hex, quantity')
+      .eq('product_id', product.id)
+      .order('created_at', { ascending: true });
+    setVariantPickerRows((data as ColorVariantRow[]) || []);
+    setVariantPickerLoading(false);
+  }, []);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     const [prodsResult, favsResult] = await Promise.all([
       supabase
         .from('products')
-        .select('id, name, ref, barcode, sell_price_ttc, stock, min_stock, category, image_url, status, product_status, is_kit')
+        .select('id, name, ref, barcode, sell_price_ttc, stock, min_stock, category, image_url, status, product_status, is_kit, has_color_variants')
         .in('status', ['active', 'rupture'])
         .order('name'),
       supabase
@@ -219,14 +242,18 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
                   key={product.id}
                   onClick={() => {
                     if (!isOutOfStock) {
-                      onAddToCart({
-                        id: product.id,
-                        name: product.name,
-                        sku: product.ref || product.id,
-                        price: Number(product.sell_price_ttc),
-                        imageUrl: product.image_url,
-                        stock: product.stock,
-                      });
+                      if (product.has_color_variants) {
+                        openVariantPicker(product);
+                      } else {
+                        onAddToCart({
+                          id: product.id,
+                          name: product.name,
+                          sku: product.ref || product.id,
+                          price: Number(product.sell_price_ttc),
+                          imageUrl: product.image_url,
+                          stock: product.stock,
+                        });
+                      }
                     }
                   }}
                   disabled={isOutOfStock}
@@ -316,6 +343,73 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
         <POSFavouritesManager
           onClose={() => { setShowFavManager(false); loadData(); }}
         />
+      )}
+
+      {/* Variant picker modal */}
+      {variantPickerProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
+            <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
+              <div>
+                <p className="text-xs text-muted-foreground">Choisir une couleur</p>
+                <p className="text-sm font-600 text-foreground truncate max-w-[220px]">{variantPickerProduct.name}</p>
+              </div>
+              <button
+                onClick={() => { setVariantPickerProduct(null); setVariantPickerRows([]); }}
+                className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Icon name="XMarkIcon" size={16} />
+              </button>
+            </div>
+            <div className="p-4">
+              {variantPickerLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : variantPickerRows.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">Aucune déclinaison trouvée</p>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  {variantPickerRows.map((v) => (
+                    <button
+                      key={v.id}
+                      disabled={v.quantity === 0}
+                      onClick={() => {
+                        onAddToCart({
+                          id: variantPickerProduct.id,
+                          name: variantPickerProduct.name,
+                          sku: variantPickerProduct.ref || variantPickerProduct.id,
+                          price: Number(variantPickerProduct.sell_price_ttc),
+                          imageUrl: variantPickerProduct.image_url,
+                          stock: v.quantity,
+                          variantName: v.color_name,
+                        });
+                        setVariantPickerProduct(null);
+                        setVariantPickerRows([]);
+                      }}
+                      className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-left transition-all active:scale-95 ${
+                        v.quantity === 0
+                          ? 'opacity-40 cursor-not-allowed border-border bg-muted/30'
+                          : 'border-border hover:border-primary/40 hover:bg-primary/5'
+                      }`}
+                    >
+                      <span
+                        className="w-5 h-5 rounded-full border border-border/60 shrink-0"
+                        style={{ backgroundColor: v.color_hex || '#ccc' }}
+                      />
+                      <div className="min-w-0">
+                        <p className="text-xs font-600 text-foreground truncate">{v.color_name}</p>
+                        <p className={`text-[10px] ${v.quantity === 0 ? 'text-red-500' : 'text-muted-foreground'}`}>
+                          {v.quantity === 0 ? 'Rupture' : `Stock: ${v.quantity}`}
+                        </p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
