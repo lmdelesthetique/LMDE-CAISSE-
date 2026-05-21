@@ -240,7 +240,38 @@ export default function ProductFormModal({ product, onClose, onSave }: ProductFo
   const realBusinessCost = costPrice + structureAmount;
   const sellPriceTTC = Number(sellPriceHT) * (1 + Number(tva) / 100);
   const marginAmount = Number(sellPriceHT) - realBusinessCost;
-  const marginPct = sellPriceHT > 0 ? (marginAmount / Number(sellPriceHT)) * 100 : 0;
+  const tauxDeMarque = sellPriceHT > 0 ? (marginAmount / Number(sellPriceHT)) * 100 : 0;
+  const tauxDeMarge = realBusinessCost > 0 ? (marginAmount / realBusinessCost) * 100 : 0;
+  const marginPct = tauxDeMarque;
+
+  // TTC bidirectional input
+  const [ttcDisplay, setTtcDisplay] = useState<string>(() =>
+    ((product?.sellPriceHT || 0) * (1 + 8.5 / 100)).toFixed(2)
+  );
+  const isEditingTTCRef = useRef(false);
+
+  useEffect(() => {
+    if (!isEditingTTCRef.current) {
+      const ttc = Number(sellPriceHT) * (1 + Number(tva) / 100);
+      setTtcDisplay(ttc > 0 ? ttc.toFixed(2) : '0.00');
+    }
+  }, [sellPriceHT, tva]);
+
+  const handleTTCChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    isEditingTTCRef.current = true;
+    setTtcDisplay(e.target.value);
+    const ttc = parseFloat(e.target.value);
+    if (!isNaN(ttc) && ttc >= 0) {
+      const ht = ttc / (1 + Number(tva) / 100);
+      setValue('sellPriceHT', Math.round(ht * 10000) / 10000, { shouldDirty: true });
+    }
+  };
+
+  const handleTTCBlur = () => {
+    isEditingTTCRef.current = false;
+    const ttc = Number(sellPriceHT) * (1 + Number(tva) / 100);
+    setTtcDisplay(ttc.toFixed(2));
+  };
 
   // Stock status computation
   const getStockStatus = (qty: number, min: number) => {
@@ -594,18 +625,54 @@ export default function ProductFormModal({ product, onClose, onSave }: ProductFo
 
                 <div className="bg-muted/30 rounded-xl p-4">
                   <h3 className="text-sm font-700 text-foreground mb-3">Prix de vente</h3>
-                  <div className="grid grid-cols-2 gap-4">
+
+                  {/* Double saisie HT ↔ TTC */}
+                  <div className="grid grid-cols-2 gap-4 mb-3">
                     <div>
-                      <label className="block text-xs font-600 text-muted-foreground mb-1.5">Prix de vente HT (€) <span className="text-red-500">*</span></label>
-                      <input {...register('sellPriceHT', { valueAsNumber: true, required: 'Le prix HT est obligatoire', min: { value: 0.01, message: 'Le prix doit être positif' } })} type="number" step="0.01" placeholder="0.00" className="w-full px-3 py-2 border border-border rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+                      <label className="block text-xs font-600 text-muted-foreground mb-1.5">
+                        Prix de vente HT (€) <span className="text-red-500">*</span>
+                        <span className="ml-1.5 text-[10px] text-blue-500 font-400">→ calcule TTC</span>
+                      </label>
+                      <input
+                        {...register('sellPriceHT', { valueAsNumber: true, required: 'Le prix HT est obligatoire', min: { value: 0.01, message: 'Le prix doit être positif' } })}
+                        type="number" step="0.01" placeholder="0.00"
+                        className="w-full px-3 py-2 border border-primary/40 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-blue-50/30"
+                      />
                       {errors.sellPriceHT && <p className="text-xs text-red-500 mt-1">{errors.sellPriceHT.message}</p>}
                     </div>
                     <div>
-                      <label className="block text-xs font-600 text-muted-foreground mb-1.5">TVA (%)</label>
-                      <input {...register('tva', { valueAsNumber: true })} type="number" step="0.5" className="w-full px-3 py-2 border border-border rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+                      <label className="block text-xs font-600 text-muted-foreground mb-1.5">
+                        Prix de vente TTC (€)
+                        <span className="ml-1.5 text-[10px] text-emerald-500 font-400">→ calcule HT</span>
+                      </label>
+                      <input
+                        type="number" step="0.01" placeholder="0.00"
+                        value={ttcDisplay}
+                        onChange={handleTTCChange}
+                        onBlur={handleTTCBlur}
+                        className="w-full px-3 py-2 border border-emerald-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-400 bg-emerald-50/30"
+                      />
+                      <p className="text-[10px] text-emerald-600 mt-1">= HT × (1 + TVA/100)</p>
                     </div>
                   </div>
-                  <div className="mt-3 grid grid-cols-3 gap-3">
+
+                  {/* TVA select */}
+                  <div className="mb-1">
+                    <label className="block text-xs font-600 text-muted-foreground mb-1.5">TVA applicable</label>
+                    <select
+                      {...register('tva', { valueAsNumber: true })}
+                      className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary bg-white"
+                    >
+                      <option value={0}>0% — Exonéré</option>
+                      <option value={5.5}>5,5% — Alimentaire / livres</option>
+                      <option value={8.5}>8,5% — Saint-Martin (taux local)</option>
+                      <option value={10}>10% — Restauration / travaux</option>
+                      <option value={20}>20% — Taux normal</option>
+                    </select>
+                  </div>
+
+                  {/* KPI strip — 4 colonnes */}
+                  <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
                     <div className="bg-white rounded-lg px-3 py-2.5 border border-border text-center">
                       <p className="text-[10px] text-muted-foreground uppercase tracking-wide">PV TTC</p>
                       <p className="text-base font-700 tabular-nums text-foreground mt-0.5">{sellPriceTTC.toFixed(2)} €</p>
@@ -615,8 +682,14 @@ export default function ProductFormModal({ product, onClose, onSave }: ProductFo
                       <p className={`text-base font-700 tabular-nums mt-0.5 ${marginAmount >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{marginAmount.toFixed(2)} €</p>
                     </div>
                     <div className="bg-white rounded-lg px-3 py-2.5 border border-border text-center">
-                      <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Taux marge</p>
-                      <p className={`text-base font-700 tabular-nums mt-0.5 ${marginPct >= 50 ? 'text-emerald-600' : marginPct >= 30 ? 'text-amber-600' : 'text-red-500'}`}>{marginPct.toFixed(1)}%</p>
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Taux de marque</p>
+                      <p className={`text-base font-700 tabular-nums mt-0.5 ${tauxDeMarque >= 50 ? 'text-emerald-600' : tauxDeMarque >= 20 ? 'text-amber-500' : 'text-red-500'}`}>{tauxDeMarque.toFixed(1)}%</p>
+                      <p className="text-[9px] text-muted-foreground">MB / PV HT</p>
+                    </div>
+                    <div className="bg-white rounded-lg px-3 py-2.5 border border-border text-center">
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Taux de marge</p>
+                      <p className={`text-base font-700 tabular-nums mt-0.5 ${tauxDeMarge >= 50 ? 'text-emerald-600' : tauxDeMarge >= 20 ? 'text-amber-500' : 'text-red-500'}`}>{tauxDeMarge.toFixed(1)}%</p>
+                      <p className="text-[9px] text-muted-foreground">MB / Coût revient</p>
                     </div>
                   </div>
                 </div>
