@@ -5,18 +5,19 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { useSupplierAuth } from '@/contexts/SupplierAuthContext';
 
-// fo_orders order_status values
+// fo_orders order_status — real enum values from public.fo_order_status
 type OrderStatus =
-  | 'draft' | 'sent' | 'awaiting_validation' | 'modification_requested'
-  | 'validated' | 'awaiting_payment' | 'payment_sent' | 'payment_confirmed'
-  | 'in_production' | 'ready_to_ship' | 'shipped' | 'partially_received'
-  | 'received' | 'issue_reported' | 'refund_requested' | 'refund_received' | 'cancelled';
+  | 'draft' | 'sent' | 'awaiting_validation' | 'modification_requested' | 'validated'
+  | 'payment_pending' | 'payment_in_progress' | 'paid' | 'payment_received_by_supplier'
+  | 'in_preparation' | 'in_production' | 'ready_to_ship' | 'shipped'
+  | 'partially_received' | 'fully_received'
+  | 'costs_recorded' | 'stock_integrated' | 'closed' | 'suspended' | 'cancelled';
 
 interface Order {
   id: string;
   order_number: string;
   created_at: string;
-  total_amount: number;
+  total_real_cost: number;
   order_status: OrderStatus;
   notes: string | null;
 }
@@ -42,17 +43,20 @@ const STATUS_LABEL: Record<string, string> = {
   awaiting_validation: 'En validation',
   modification_requested: 'Modif. demandée',
   validated: 'Validée',
-  awaiting_payment: 'Attente paiement',
-  payment_sent: 'Paiement envoyé',
-  payment_confirmed: 'Paiement confirmé',
+  payment_pending: 'Paiement en attente',
+  payment_in_progress: 'Paiement en cours',
+  paid: 'Payée',
+  payment_received_by_supplier: 'Paiement reçu',
+  in_preparation: 'En préparation',
   in_production: 'En production',
   ready_to_ship: 'Prête à expédier',
   shipped: 'Expédiée',
   partially_received: 'Reçue partiellement',
-  received: 'Reçue',
-  issue_reported: 'Problème signalé',
-  refund_requested: 'Remb. demandé',
-  refund_received: 'Remb. reçu',
+  fully_received: 'Reçue',
+  costs_recorded: 'Coûts enregistrés',
+  stock_integrated: 'Stock intégré',
+  closed: 'Clôturée',
+  suspended: 'Suspendue',
   cancelled: 'Annulée',
 };
 
@@ -62,25 +66,27 @@ const STATUS_CLASS: Record<string, string> = {
   awaiting_validation: 'bg-amber-50 text-amber-700 border-amber-200',
   modification_requested: 'bg-orange-50 text-orange-700 border-orange-200',
   validated: 'bg-teal-50 text-teal-700 border-teal-200',
-  awaiting_payment: 'bg-amber-50 text-amber-700 border-amber-200',
-  payment_sent: 'bg-blue-50 text-blue-700 border-blue-200',
-  payment_confirmed: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  payment_pending: 'bg-amber-50 text-amber-700 border-amber-200',
+  payment_in_progress: 'bg-blue-50 text-blue-700 border-blue-200',
+  paid: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  payment_received_by_supplier: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  in_preparation: 'bg-violet-50 text-violet-700 border-violet-200',
   in_production: 'bg-violet-50 text-violet-700 border-violet-200',
   ready_to_ship: 'bg-teal-50 text-teal-700 border-teal-200',
   shipped: 'bg-indigo-50 text-indigo-700 border-indigo-200',
   partially_received: 'bg-amber-50 text-amber-700 border-amber-200',
-  received: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  issue_reported: 'bg-red-50 text-red-600 border-red-200',
-  refund_requested: 'bg-red-50 text-red-600 border-red-200',
-  refund_received: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  fully_received: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  costs_recorded: 'bg-sky-50 text-sky-700 border-sky-200',
+  stock_integrated: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  closed: 'bg-gray-50 text-gray-600 border-gray-200',
+  suspended: 'bg-orange-50 text-orange-700 border-orange-200',
   cancelled: 'bg-gray-50 text-gray-500 border-gray-200',
 };
 
 const ACTIVE_STATUSES: OrderStatus[] = [
   'sent', 'awaiting_validation', 'modification_requested', 'validated',
-  'awaiting_payment', 'payment_sent', 'payment_confirmed',
-  'in_production', 'ready_to_ship', 'shipped', 'partially_received',
-  'issue_reported', 'refund_requested',
+  'payment_pending', 'payment_in_progress', 'paid', 'payment_received_by_supplier',
+  'in_preparation', 'in_production', 'ready_to_ship', 'shipped', 'partially_received',
 ];
 
 export default function SupplierDashboardPage() {
@@ -171,8 +177,8 @@ export default function SupplierDashboardPage() {
 
   const activeOrders = orders.filter((o) => ACTIVE_STATUSES.includes(o.order_status));
   const totalConfirmed = orders
-    .filter((o) => o.order_status === 'payment_confirmed')
-    .reduce((s, o) => s + o.total_amount, 0);
+    .filter((o) => o.order_status === 'paid' || o.order_status === 'payment_received_by_supplier')
+    .reduce((s, o) => s + o.total_real_cost, 0);
   const unreadTotal = threads.reduce(
     (s, t) => s + t.messages.filter((m) => m.sender_type === 'admin' && !m.is_read).length,
     0,
@@ -265,7 +271,7 @@ export default function SupplierDashboardPage() {
                           {new Date(o.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })}
                         </td>
                         <td className="px-5 py-3.5 font-medium text-gray-900">
-                          {o.total_amount.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                          {o.total_real_cost.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
                         </td>
                         <td className="px-5 py-3.5">
                           <span className={`text-xs px-2.5 py-1 rounded-full border font-medium ${STATUS_CLASS[o.order_status] ?? 'bg-gray-50 text-gray-500 border-gray-200'}`}>

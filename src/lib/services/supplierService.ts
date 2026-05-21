@@ -182,7 +182,7 @@ function mapOrder(row: any): SupplierOrder {
     orderStatus: row.order_status,
     items: typeof row.items === 'string' ? JSON.parse(row.items) : (row.items || []),
     subtotal: Number(row.subtotal),
-    shippingCost: Number(row.shipping_cost),
+    shippingCost: Number(row.transport_cost),
     customsCost: Number(row.customs_cost),
     otherCosts: Number(row.other_costs),
     totalAmount: Number(row.total_amount),

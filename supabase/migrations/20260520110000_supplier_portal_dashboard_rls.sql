@@ -10,7 +10,7 @@ RETURNS TABLE (
   id UUID,
   order_number TEXT,
   created_at TIMESTAMPTZ,
-  total_amount NUMERIC,
+  total_real_cost NUMERIC,
   order_status TEXT,
   notes TEXT
 )
@@ -23,8 +23,8 @@ AS $$
     fo.id,
     fo.order_number,
     fo.created_at,
-    fo.total_amount,
-    fo.order_status,
+    fo.total_real_cost,
+    fo.order_status::TEXT,
     fo.notes
   FROM public.fo_orders fo
   WHERE fo.supplier_id = p_supplier_id
