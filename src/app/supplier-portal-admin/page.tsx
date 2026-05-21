@@ -9,7 +9,8 @@ import { createClient } from '@/lib/supabase/client';
 interface PortalUser {
   id: string;
   supplier_id: string;
-  portal_email: string;
+  pin_code: string | null;
+  portal_email: string | null;
   is_active: boolean;
   created_at: string;
   suppliers?: { company_name: string };
@@ -26,7 +27,7 @@ export default function SupplierPortalAdminPage() {
     setLoading(true);
     const { data } = await supabase
       .from('supplier_portal_users')
-      .select('id, supplier_id, portal_email, is_active, created_at, suppliers(company_name)')
+      .select('id, supplier_id, pin_code, portal_email, is_active, created_at, suppliers(company_name)')
       .order('created_at', { ascending: false });
     setPortalUsers((data ?? []) as PortalUser[]);
     setLoading(false);
@@ -39,7 +40,7 @@ export default function SupplierPortalAdminPage() {
 
   async function revokeAccess(userId: string, supplierId: string) {
     await supabase.from('supplier_portal_users').delete().eq('id', userId);
-    await supabase.from('suppliers').update({ portal_login: null, portal_password_plain: null, portal_user_id: null }).eq('id', supplierId);
+    await supabase.from('suppliers').update({ portal_login: null, portal_password_plain: null }).eq('id', supplierId);
     await loadData();
   }
 
@@ -54,7 +55,7 @@ export default function SupplierPortalAdminPage() {
               </div>
               <div>
                 <h1 className="text-xl font-700 text-foreground">Portail Fournisseur — Accès</h1>
-                <p className="text-sm text-muted-foreground mt-0.5">Gérer les comptes d'accès fournisseurs</p>
+                <p className="text-sm text-muted-foreground mt-0.5">Gérer les codes PIN d'accès fournisseurs</p>
               </div>
             </div>
             <Link
@@ -75,8 +76,24 @@ export default function SupplierPortalAdminPage() {
               <p className="text-sm font-600 text-blue-800">Comment créer un accès fournisseur ?</p>
               <p className="text-sm text-blue-700 mt-0.5">
                 Ouvrez la <Link href="/suppliers" className="underline font-medium">fiche d'un fournisseur</Link>, puis cliquez sur le bouton{' '}
-                <strong>« Générer accès fournisseur »</strong>. Le système génère automatiquement les identifiants et vous permet de les envoyer par email ou WhatsApp.
+                <strong>« Générer accès fournisseur »</strong>. Le système génère automatiquement un code PIN à 6 chiffres que vous pouvez copier ou envoyer par WhatsApp.
               </p>
+            </div>
+          </div>
+
+          {/* Connection info */}
+          <div className="flex items-start gap-3 p-4 bg-emerald-50 border border-emerald-200 rounded-xl mb-6">
+            <Icon name="LinkIcon" size={18} className="text-emerald-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-600 text-emerald-800">URL du portail fournisseur</p>
+              <a
+                href="/supplier-portal/login"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-emerald-700 underline font-mono"
+              >
+                {typeof window !== 'undefined' ? window.location.origin : ''}/supplier-portal/login
+              </a>
             </div>
           </div>
 
@@ -104,7 +121,13 @@ export default function SupplierPortalAdminPage() {
                       <div className={`w-2.5 h-2.5 rounded-full ${user.is_active ? 'bg-emerald-500' : 'bg-gray-300'}`} />
                       <div>
                         <p className="text-sm font-600 text-foreground">{user.suppliers?.company_name ?? '—'}</p>
-                        <p className="text-xs text-muted-foreground font-mono">{user.portal_email}</p>
+                        {user.pin_code ? (
+                          <p className="text-xs text-muted-foreground font-mono tracking-widest">
+                            PIN : <span className="font-700 text-foreground">{user.pin_code}</span>
+                          </p>
+                        ) : (
+                          <p className="text-xs text-red-500">Aucun PIN — régénérer depuis la fiche</p>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-2">

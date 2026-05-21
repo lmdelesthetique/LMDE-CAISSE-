@@ -45,20 +45,26 @@ export function SupplierAuthProvider({ children }: { children: React.ReactNode }
 
   const signIn = useCallback(async (pin: string) => {
     const supabase = createClient();
-    const { data, error } = await supabase
-      .from('supplier_portal_users')
-      .select('supplier_id, suppliers(company_name)')
-      .eq('pin_code', pin.trim())
-      .eq('is_active', true)
-      .maybeSingle();
 
-    if (error) throw new Error('Erreur lors de la vérification du code PIN.');
-    if (!data) throw new Error('Code PIN incorrect ou accès désactivé.');
+    // Use SECURITY DEFINER RPC to bypass RLS — anon users cannot query supplier_portal_users directly
+    const { data, error } = await supabase.rpc('verify_supplier_pin', {
+      p_pin: pin.trim(),
+    });
 
-    const row = data as any;
+    if (error) {
+      console.error('[SupplierAuth] RPC error:', error.message);
+      throw new Error('Erreur lors de la vérification du code PIN.');
+    }
+
+    const rows = data as Array<{ supplier_id: string; company_name: string }> | null;
+    if (!rows || rows.length === 0) {
+      throw new Error('Code PIN incorrect ou accès désactivé.');
+    }
+
+    const row = rows[0];
     const user: SupplierPortalUser = {
       supplierId: row.supplier_id,
-      supplierName: row.suppliers?.company_name ?? 'Fournisseur',
+      supplierName: row.company_name ?? 'Fournisseur',
     };
 
     localStorage.setItem(SESSION_KEY, JSON.stringify(user));

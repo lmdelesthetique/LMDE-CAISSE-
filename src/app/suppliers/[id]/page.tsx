@@ -708,16 +708,18 @@ function SupplierAccessModal({ supplier, onClose, onSaved }: SupplierAccessModal
     setLoading(true);
     setError('');
     try {
-      await supabase.from('supplier_portal_users').upsert({
-        supplier_id: supplier.id,
-        pin_code: pin,
-        is_active: true,
-      }, { onConflict: 'supplier_id' });
+      // Upsert portal user — auth_user_id is now nullable, supplier_id is unique
+      const { error: upsertError } = await supabase
+        .from('supplier_portal_users')
+        .upsert({ supplier_id: supplier.id, pin_code: pin, is_active: true }, { onConflict: 'supplier_id' });
+      if (upsertError) throw new Error(`Erreur portail : ${upsertError.message}`);
 
-      await supabase.from('suppliers').update({
-        portal_login: pin,
-        portal_password_plain: null,
-      }).eq('id', supplier.id);
+      // Mirror PIN on the supplier row for display in the admin UI
+      const { error: updateError } = await supabase
+        .from('suppliers')
+        .update({ portal_login: pin, portal_password_plain: null })
+        .eq('id', supplier.id);
+      if (updateError) throw new Error(`Erreur fournisseur : ${updateError.message}`);
 
       setStep('generated');
     } catch (err: any) {
