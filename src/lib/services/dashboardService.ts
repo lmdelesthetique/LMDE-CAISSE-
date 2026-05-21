@@ -1,6 +1,7 @@
 'use client';
 
 import { createClient } from '@/lib/supabase/client';
+import { fetchAll } from '@/lib/utils/fetchAll';
 
 export interface DashboardKPIs {
   caMonth: number;
@@ -309,16 +310,19 @@ export async function fetchTopProducts(filters?: DashboardFiltersState): Promise
 
   if (filters?.employeeId) receiptsQuery = receiptsQuery.eq('employee_id', filters.employeeId);
 
-  let productsQuery = supabase
-    .from('products')
-    .select('id, name, category, stock, sell_price_ttc, cost_price, buy_price');
+  const [receiptsResult, products] = await Promise.all([
+    receiptsQuery,
+    fetchAll<any>((from, to) => {
+      let q = supabase
+        .from('products')
+        .select('id, name, category, stock, sell_price_ttc, cost_price, buy_price')
+        .range(from, to);
+      if (filters?.categoryId) q = q.eq('category_id', filters.categoryId);
+      return q;
+    }),
+  ]);
 
-  if (filters?.categoryId) productsQuery = productsQuery.eq('category_id', filters.categoryId);
-
-  const receiptsResult = await receiptsQuery;
-  const productsResult = await productsQuery;
   const receipts = receiptsResult.data;
-  const products = productsResult.data;
 
   if (!receipts || !products) return [];
 

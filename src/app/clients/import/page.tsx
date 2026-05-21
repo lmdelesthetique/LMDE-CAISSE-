@@ -6,6 +6,7 @@ import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import * as XLSX from 'xlsx';
+import { fetchAll } from '@/lib/utils/fetchAll';
 
 const supabase = createClient();
 
@@ -213,15 +214,15 @@ export default function ClientImportPage() {
       }))
       .filter((c) => c.firstName.trim() || c.lastName.trim());
 
-    // Fetch existing clients for duplicate detection
-    const { data: existingClients } = await supabase
-      .from('clients')
-      .select('id, first_name, last_name, email, phone');
+    // Fetch ALL existing clients for duplicate detection (bypass Supabase 1000-row default)
+    const existingClients = await fetchAll<any>((from, to) =>
+      supabase.from('clients').select('id, first_name, last_name, email, phone').range(from, to)
+    );
 
     const existingByEmail: Record<string, any> = {};
     const existingByPhone: Record<string, any> = {};
     const existingByName: Record<string, any> = {};
-    (existingClients || []).forEach((c: any) => {
+    existingClients.forEach((c: any) => {
       if (c.email) existingByEmail[c.email.toLowerCase().trim()] = c;
       if (c.phone) existingByPhone[c.phone.replace(/\s/g, '')] = c;
       const nameKey = `${c.first_name || ''} ${c.last_name || ''}`.toLowerCase().trim();

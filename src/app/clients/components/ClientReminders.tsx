@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
+import { fetchAll } from '@/lib/utils/fetchAll';
 
 interface ReminderClient {
   id: string;
@@ -66,12 +67,15 @@ export default function ClientReminders() {
       const today = new Date();
       const todayMD = `${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
-      const { data: clients } = await supabase
-        .from('clients')
-        .select('id, first_name, last_name, phone, email, birth_date')
-        .not('birth_date', 'is', null);
+      const clients = await fetchAll<any>((from, to) =>
+        supabase
+          .from('clients')
+          .select('id, first_name, last_name, phone, email, birth_date')
+          .not('birth_date', 'is', null)
+          .range(from, to)
+      );
 
-      for (const c of clients ?? []) {
+      for (const c of clients) {
         if (!c.birth_date) continue;
         const bDate = new Date(c.birth_date);
         const bMD = `${String(bDate.getMonth() + 1).padStart(2, '0')}-${String(bDate.getDate()).padStart(2, '0')}`;

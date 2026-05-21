@@ -6,6 +6,7 @@ import Icon from '@/components/ui/AppIcon';
 import AppLayout from '@/components/AppLayout';
 import { createClient } from '@/lib/supabase/client';
 import { categoryStore } from '@/lib/stores/dataStore';
+import { fetchAll } from '@/lib/utils/fetchAll';
 import * as XLSX from 'xlsx';
 
 const supabase = createClient();
@@ -550,15 +551,15 @@ export default function ProductImportPage() {
       }))
       .filter((p) => p.name.trim() !== '');
 
-    // Fetch existing products for dedup check
-    const { data: existingProducts } = await supabase
-      .from('products')
-      .select('id, ref, barcode, name');
+    // Fetch ALL existing products for dedup check (bypass Supabase 1000-row default)
+    const existingProducts = await fetchAll<any>((from, to) =>
+      supabase.from('products').select('id, ref, barcode, name').range(from, to)
+    );
 
     const existingByRef: Record<string, any> = {};
     const existingByBarcode: Record<string, any> = {};
     const existingByName: Record<string, any> = {};
-    (existingProducts || []).forEach((p: any) => {
+    existingProducts.forEach((p: any) => {
       if (p.ref && p.ref.trim()) existingByRef[p.ref.toLowerCase().trim()] = p;
       if (p.barcode && p.barcode.trim()) existingByBarcode[p.barcode.toLowerCase().trim()] = p;
       if (p.name && p.name.trim()) existingByName[p.name.toLowerCase().trim()] = p;

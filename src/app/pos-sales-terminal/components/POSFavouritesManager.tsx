@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import AppImage from '@/components/ui/AppImage';
 import { createClient } from '@/lib/supabase/client';
+import { fetchAll } from '@/lib/utils/fetchAll';
 
 const supabase = createClient();
 
@@ -45,23 +46,23 @@ export default function POSFavouritesManager({ onClose }: POSFavouritesManagerPr
 
   const loadData = useCallback(async () => {
     setLoading(true);
-    const [favsResult, prodsResult] = await Promise.all([
+    const [favsResult, allProds] = await Promise.all([
       supabase
         .from('pos_favourites')
         .select('id, product_id, sort_order, products(name, ref, image_url, sell_price_ttc, stock, category)')
         .order('sort_order'),
-      supabase
-        .from('products')
-        .select('id, name, ref, image_url, sell_price_ttc, stock, category')
-        .eq('status', 'active')
-        .order('name'),
+      fetchAll<AllProduct>((from, to) =>
+        supabase
+          .from('products')
+          .select('id, name, ref, image_url, sell_price_ttc, stock, category')
+          .eq('status', 'active')
+          .order('name')
+          .range(from, to)
+      ),
     ]);
 
-    const favs = favsResult.data;
-    const prods = prodsResult.data;
-
-    if (favs) {
-      const mapped: FavouriteProduct[] = favs.map((f: any) => ({
+    if (favsResult.data) {
+      const mapped: FavouriteProduct[] = favsResult.data.map((f: any) => ({
         id: f.id,
         product_id: f.product_id,
         sort_order: f.sort_order,
@@ -74,7 +75,7 @@ export default function POSFavouritesManager({ onClose }: POSFavouritesManagerPr
       }));
       setFavourites(mapped);
     }
-    if (prods) setAllProducts(prods as AllProduct[]);
+    setAllProducts(allProds);
     setLoading(false);
   }, []);
 

@@ -1,6 +1,7 @@
 'use client';
 
 import { createClient } from '@/lib/supabase/client';
+import { fetchAll } from '@/lib/utils/fetchAll';
 
 export interface Client {
   id: string;
@@ -250,13 +251,10 @@ export const clientService = {
   async getAll(): Promise<Client[]> {
     const supabase = createClient();
     try {
-      const { data, error } = await supabase
-        .from('clients')
-        .select('*')
-        .eq('is_active', true)
-        .order('last_name', { ascending: true });
-      if (error) { console.log('clientService.getAll error:', error.message); return []; }
-      return (data ?? []).map(mapClient);
+      const data = await fetchAll<any>((from, to) =>
+        supabase.from('clients').select('*').eq('is_active', true).order('last_name', { ascending: true }).range(from, to)
+      );
+      return data.map(mapClient);
     } catch (e: any) { console.log('clientService.getAll exception:', e.message); return []; }
   },
 

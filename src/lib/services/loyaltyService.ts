@@ -1,6 +1,7 @@
 'use client';
 
 import { createClient } from '@/lib/supabase/client';
+import { fetchAll } from '@/lib/utils/fetchAll';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -598,7 +599,7 @@ export const loyaltyService = {
   async getDashboardStats(): Promise<LoyaltyDashboardStats> {
     const supabase = createClient();
     try {
-      const [clientsRes, redemptionsRes, txRes] = await Promise.all([
+      const [clientsRes, redemptionsRes, transactions] = await Promise.all([
         supabase
           .from('clients')
           .select('id, first_name, last_name, loyalty_points, total_spent, total_visits, loyalty_tier, phone')
@@ -610,15 +611,13 @@ export const loyaltyService = {
           .select('*')
           .order('redeemed_at', { ascending: false })
           .limit(200),
-        supabase
-          .from('loyalty_transactions')
-          .select('points_change')
-          .limit(1000),
+        fetchAll<any>((from, to) =>
+          supabase.from('loyalty_transactions').select('points_change').range(from, to)
+        ),
       ]);
 
       const clients = clientsRes.data ?? [];
       const redemptions = redemptionsRes.data ?? [];
-      const transactions = txRes.data ?? [];
 
       const totalPointsIssued = transactions
         .filter((t: any) => t.points_change > 0)
