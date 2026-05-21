@@ -1,6 +1,7 @@
 'use client';
 
 import { createClient } from '@/lib/supabase/client';
+import { deductStockForSale } from './stockService';
 
 export type ReservationStatus = 'pending' | 'deposit_paid' | 'ready' | 'completed' | 'cancelled';
 export type ReservationPaymentMethod = 'cash' | 'card' | 'transfer' | 'cheque';
@@ -444,6 +445,13 @@ export const reservationService = {
     const supabase = createClient();
     try {
       const today = new Date().toISOString().split('T')[0];
+
+      const { data: existing } = await supabase
+        .from('reservations')
+        .select('items, reservation_status')
+        .eq('id', id)
+        .maybeSingle();
+
       const { data, error } = await supabase
         .from('reservations')
         .update({
@@ -458,6 +466,21 @@ export const reservationService = {
         .select()
         .single();
       if (error) { console.log('reservationService.recordBalance error:', error.message); return null; }
+
+      // Deduct stock for sold items (only if not already completed)
+      if (existing && existing.reservation_status !== 'completed' && Array.isArray(existing.items)) {
+        const stockItems = (existing.items as any[])
+          .filter((item) => item.productId || item.product_id)
+          .map((item) => ({
+            productId: item.productId || item.product_id,
+            name: item.name || item.productName || '',
+            qty: Number(item.qty || item.quantity) || 1,
+          }));
+        if (stockItems.length > 0) {
+          await deductStockForSale(stockItems, `RES-${id.slice(0, 8).toUpperCase()}`, 'reservation', 'Réservation');
+        }
+      }
+
       return data ? mapReservation(data) : null;
     } catch (e: any) { console.log('reservationService.recordBalance exception:', e.message); return null; }
   },
@@ -479,6 +502,12 @@ export const reservationService = {
   async markCompleted(id: string): Promise<Reservation | null> {
     const supabase = createClient();
     try {
+      const { data: existing } = await supabase
+        .from('reservations')
+        .select('items, reservation_status')
+        .eq('id', id)
+        .maybeSingle();
+
       const { data, error } = await supabase
         .from('reservations')
         .update({ reservation_status: 'completed', completed_at: new Date().toISOString() })
@@ -486,6 +515,21 @@ export const reservationService = {
         .select()
         .single();
       if (error) { console.log('reservationService.markCompleted error:', error.message); return null; }
+
+      // Deduct stock for sold items (only if not already completed)
+      if (existing && existing.reservation_status !== 'completed' && Array.isArray(existing.items)) {
+        const stockItems = (existing.items as any[])
+          .filter((item) => item.productId || item.product_id)
+          .map((item) => ({
+            productId: item.productId || item.product_id,
+            name: item.name || item.productName || '',
+            qty: Number(item.qty || item.quantity) || 1,
+          }));
+        if (stockItems.length > 0) {
+          await deductStockForSale(stockItems, `RES-${id.slice(0, 8).toUpperCase()}`, 'reservation', 'Réservation');
+        }
+      }
+
       return data ? mapReservation(data) : null;
     } catch (e: any) { console.log('reservationService.markCompleted exception:', e.message); return null; }
   },

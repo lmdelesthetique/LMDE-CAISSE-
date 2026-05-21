@@ -84,6 +84,8 @@ export default function ProductFormModal({ product, onClose, onSave }: ProductFo
   const [newColorHex, setNewColorHex] = useState('#FFB6C1');
   const [newColorQty, setNewColorQty] = useState(0);
   const [newColorMin, setNewColorMin] = useState(0);
+  const [editingVariantId, setEditingVariantId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<{ colorName: string; colorHex: string }>({ colorName: '', colorHex: '#000000' });
 
   // Load real suppliers and categories from DB
   useEffect(() => {
@@ -298,6 +300,17 @@ export default function ProductFormModal({ product, onClose, onSave }: ProductFo
   const handleColorQtyChange = (id: string, qty: number) => setColorVariants((prev) => prev.map((cv) => (cv.id === id ? { ...cv, quantity: qty } : cv)));
   const handleColorMinChange = (id: string, min: number) => setColorVariants((prev) => prev.map((cv) => (cv.id === id ? { ...cv, minStock: min } : cv)));
   const handlePresetColor = (name: string, hex: string) => { setNewColorName(name); setNewColorHex(hex); };
+
+  const startEditVariant = (cv: ColorVariant) => {
+    setEditingVariantId(cv.id);
+    setEditDraft({ colorName: cv.colorName, colorHex: cv.colorHex });
+  };
+  const confirmEditVariant = (id: string) => {
+    if (!editDraft.colorName.trim()) return;
+    setColorVariants((prev) => prev.map((cv) => cv.id === id ? { ...cv, colorName: editDraft.colorName.trim(), colorHex: editDraft.colorHex } : cv));
+    setEditingVariantId(null);
+  };
+  const cancelEditVariant = () => setEditingVariantId(null);
 
   const onSubmit = async (data: ProductFormData) => {
     setLoading(true);
@@ -782,25 +795,56 @@ export default function ProductFormModal({ product, onClose, onSave }: ProductFo
                     <div className="space-y-2">
                       {colorVariants.map((cv) => (
                         <div key={cv.id} className="flex items-center gap-3 bg-white border border-border rounded-xl px-4 py-3">
-                          <div className="w-8 h-8 rounded-lg border border-border/50 shrink-0 shadow-sm" style={{ backgroundColor: cv.colorHex }} />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-600 text-foreground">{cv.colorName}</p>
-                            <p className="text-[10px] text-muted-foreground font-mono">{cv.colorHex}</p>
-                          </div>
-                          <div className="flex flex-col items-center gap-0.5">
-                            <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Qté</label>
-                            <input type="number" min={0} value={cv.quantity} onChange={(e) => handleColorQtyChange(cv.id, Number(e.target.value))} className="w-16 px-2 py-1 border border-border rounded-lg text-sm font-mono text-center focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
-                          </div>
-                          <div className="flex flex-col items-center gap-0.5">
-                            <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Min</label>
-                            <input type="number" min={0} value={cv.minStock} onChange={(e) => handleColorMinChange(cv.id, Number(e.target.value))} className="w-16 px-2 py-1 border border-border rounded-lg text-sm font-mono text-center focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
-                          </div>
-                          <div className={`px-2 py-1 rounded-md text-xs font-600 ${cv.quantity === 0 ? 'bg-red-100 text-red-700' : cv.quantity <= cv.minStock ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                            {cv.quantity === 0 ? 'Rupture' : cv.quantity <= cv.minStock ? 'Bas' : 'OK'}
-                          </div>
-                          <button type="button" onClick={() => handleRemoveColor(cv.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors" title="Supprimer cette couleur">
-                            <Icon name="TrashIcon" size={14} />
-                          </button>
+                          {editingVariantId === cv.id ? (
+                            <>
+                              <div className="flex items-center gap-2 flex-1 min-w-0">
+                                <input type="color" value={editDraft.colorHex} onChange={(e) => setEditDraft((d) => ({ ...d, colorHex: e.target.value }))} className="w-9 h-9 rounded-lg border border-border cursor-pointer p-0.5 shrink-0" />
+                                <div className="flex flex-col gap-1 flex-1 min-w-0">
+                                  <input type="text" value={editDraft.colorName} onChange={(e) => setEditDraft((d) => ({ ...d, colorName: e.target.value }))} placeholder="Nom couleur" className="px-2 py-1 border border-primary rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 w-full" />
+                                  <input type="text" value={editDraft.colorHex} onChange={(e) => setEditDraft((d) => ({ ...d, colorHex: e.target.value }))} placeholder="#000000" className="px-2 py-1 border border-border rounded-lg text-xs font-mono focus:outline-none w-full" />
+                                </div>
+                              </div>
+                              <div className="flex flex-col items-center gap-0.5">
+                                <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Qté</label>
+                                <input type="number" min={0} value={cv.quantity} onChange={(e) => handleColorQtyChange(cv.id, Number(e.target.value))} className="w-16 px-2 py-1 border border-border rounded-lg text-sm font-mono text-center focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+                              </div>
+                              <div className="flex flex-col items-center gap-0.5">
+                                <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Min</label>
+                                <input type="number" min={0} value={cv.minStock} onChange={(e) => handleColorMinChange(cv.id, Number(e.target.value))} className="w-16 px-2 py-1 border border-border rounded-lg text-sm font-mono text-center focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+                              </div>
+                              <button type="button" onClick={() => confirmEditVariant(cv.id)} className="p-1.5 rounded-lg hover:bg-emerald-50 text-emerald-600 transition-colors" title="Confirmer">
+                                <Icon name="CheckIcon" size={14} />
+                              </button>
+                              <button type="button" onClick={cancelEditVariant} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground transition-colors" title="Annuler">
+                                <Icon name="XMarkIcon" size={14} />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <div className="w-8 h-8 rounded-lg border border-border/50 shrink-0 shadow-sm" style={{ backgroundColor: cv.colorHex }} />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-600 text-foreground">{cv.colorName}</p>
+                                <p className="text-[10px] text-muted-foreground font-mono">{cv.colorHex}</p>
+                              </div>
+                              <div className="flex flex-col items-center gap-0.5">
+                                <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Qté</label>
+                                <input type="number" min={0} value={cv.quantity} onChange={(e) => handleColorQtyChange(cv.id, Number(e.target.value))} className="w-16 px-2 py-1 border border-border rounded-lg text-sm font-mono text-center focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+                              </div>
+                              <div className="flex flex-col items-center gap-0.5">
+                                <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Min</label>
+                                <input type="number" min={0} value={cv.minStock} onChange={(e) => handleColorMinChange(cv.id, Number(e.target.value))} className="w-16 px-2 py-1 border border-border rounded-lg text-sm font-mono text-center focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+                              </div>
+                              <div className={`px-2 py-1 rounded-md text-xs font-600 ${cv.quantity === 0 ? 'bg-red-100 text-red-700' : cv.quantity <= cv.minStock ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                {cv.quantity === 0 ? 'Rupture' : cv.quantity <= cv.minStock ? 'Bas' : 'OK'}
+                              </div>
+                              <button type="button" onClick={() => startEditVariant(cv)} className="p-1.5 rounded-lg hover:bg-blue-50 text-muted-foreground hover:text-blue-600 transition-colors" title="Modifier cette couleur">
+                                <Icon name="PencilIcon" size={14} />
+                              </button>
+                              <button type="button" onClick={() => handleRemoveColor(cv.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors" title="Supprimer cette couleur">
+                                <Icon name="TrashIcon" size={14} />
+                              </button>
+                            </>
+                          )}
                         </div>
                       ))}
                     </div>

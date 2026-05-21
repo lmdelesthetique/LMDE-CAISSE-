@@ -261,6 +261,7 @@ export default function ProductManagementContent() {
       stock: newQuantity,
       status: computedStatus,
       product_status: computedStatus,
+      is_active: true,
       shopify: Boolean(data.shopify),
       // Ensure we never store a data: URL — only real storage URLs or null
       image_url: (imageUrl && !imageUrl.startsWith('data:')) ? imageUrl : null,

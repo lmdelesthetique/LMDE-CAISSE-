@@ -13,12 +13,19 @@ interface OrderItem {
   total: number;
 }
 
+interface ProductVariant {
+  id: string;
+  colorName: string;
+  colorHex: string;
+}
+
 interface Product {
   id: string;
   name: string;
   reference?: string;
   image_url?: string;
   buy_price?: number;
+  has_color_variants?: boolean;
 }
 
 interface Props {
@@ -35,6 +42,7 @@ export default function OrderFormModal({ supplierId, onClose, onSaved }: Props) 
   const [suggestions, setSuggestions] = useState<Record<number, Product[]>>({});
   const [openDropdown, setOpenDropdown] = useState<number | null>(null);
   const [searching, setSearching] = useState<number | null>(null);
+  const [itemVariants, setItemVariants] = useState<Record<number, ProductVariant[]>>({});
   const [form, setForm] = useState({
     notes: '',
     shippingCost: 0,
@@ -72,7 +80,7 @@ export default function OrderFormModal({ supplierId, onClose, onSaved }: Props) 
     setSearching(index);
     const { data } = await supabase
       .from('products')
-      .select('id, name, reference, image_url, buy_price')
+      .select('id, name, reference, image_url, buy_price, has_color_variants')
       .ilike('name', `%${query.trim()}%`)
       .eq('is_active', true)
       .limit(8);
@@ -81,7 +89,7 @@ export default function OrderFormModal({ supplierId, onClose, onSaved }: Props) 
     setSearching(null);
   };
 
-  const selectProduct = (index: number, product: Product) => {
+  const selectProduct = async (index: number, product: Product) => {
     const buyPrice = Number(product.buy_price) || 0;
     setItems((prev) => {
       const next = [...prev];
@@ -96,6 +104,20 @@ export default function OrderFormModal({ supplierId, onClose, onSaved }: Props) 
     });
     setSuggestions((p) => ({ ...p, [index]: [] }));
     setOpenDropdown(null);
+
+    if (product.has_color_variants) {
+      const { data } = await supabase
+        .from('product_color_stock')
+        .select('id, color_name, color_hex')
+        .eq('product_id', product.id)
+        .order('color_name');
+      setItemVariants((p) => ({
+        ...p,
+        [index]: (data || []).map((v: any) => ({ id: v.id, colorName: v.color_name, colorHex: v.color_hex })),
+      }));
+    } else {
+      setItemVariants((p) => { const next = { ...p }; delete next[index]; return next; });
+    }
   };
 
   const addItem = () => setItems((p) => [...p, { name: '', qty: 1, unit_price: 0, total: 0 }]);
@@ -103,6 +125,7 @@ export default function OrderFormModal({ supplierId, onClose, onSaved }: Props) 
   const removeItem = (i: number) => {
     setItems((p) => p.filter((_, idx) => idx !== i));
     setSuggestions((p) => { const next = { ...p }; delete next[i]; return next; });
+    setItemVariants((p) => { const next = { ...p }; delete next[i]; return next; });
   };
 
   const subtotal = items.reduce((s, i) => s + Number(i.total), 0);
@@ -157,7 +180,8 @@ export default function OrderFormModal({ supplierId, onClose, onSaved }: Props) 
             </div>
             <div className="space-y-2">
               {items.map((item, i) => (
-                <div key={i} className="grid grid-cols-12 gap-2 items-start">
+                <div key={i} className="space-y-1.5">
+                <div className="grid grid-cols-12 gap-2 items-start">
                   {/* Product search */}
                   <div className="col-span-5 relative">
                     <div className="relative">
@@ -227,6 +251,26 @@ export default function OrderFormModal({ supplierId, onClose, onSaved }: Props) 
                   <button type="button" onClick={() => removeItem(i)} disabled={items.length === 1} className="col-span-1 p-2 text-muted-foreground hover:text-red-500 disabled:opacity-30 transition-colors">
                     <Icon name="TrashIcon" size={14} />
                   </button>
+                </div>
+                {(itemVariants[i] || []).length > 0 && (
+                  <div className="ml-1 flex flex-wrap gap-1.5 pb-1">
+                    <span className="text-[11px] text-muted-foreground self-center">Couleur :</span>
+                    {(itemVariants[i] || []).map((v) => (
+                      <button
+                        key={v.id}
+                        type="button"
+                        onClick={() => {
+                          const baseName = item.name.split(' — ')[0];
+                          updateItem(i, 'name', `${baseName} — ${v.colorName}`);
+                        }}
+                        className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[11px] font-500 transition-all ${item.name.endsWith(`— ${v.colorName}`) ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:border-primary/40'}`}
+                      >
+                        <span className="w-3 h-3 rounded-full border border-border/50 shrink-0" style={{ backgroundColor: v.colorHex }} />
+                        {v.colorName}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 </div>
               ))}
             </div>
