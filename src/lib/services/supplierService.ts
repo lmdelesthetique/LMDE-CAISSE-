@@ -385,6 +385,30 @@ export const supplierService = {
     } catch (e: any) { throw e; }
   },
 
+  async getDeleteInfo(id: string): Promise<{ activeOrders: number; linkedProducts: number }> {
+    const supabase = createClient();
+    const ACTIVE_STATUSES = ['sent','awaiting_validation','validated','awaiting_payment','payment_sent','payment_confirmed','in_production','ready_to_ship','shipped','partially_received'];
+    const [ordersRes, productsRes] = await Promise.all([
+      supabase.from('fo_orders').select('*', { count: 'exact', head: true }).eq('supplier_id', id).in('status', ACTIVE_STATUSES),
+      supabase.from('products').select('*', { count: 'exact', head: true }).eq('supplier_id', id),
+    ]);
+    return { activeOrders: ordersRes.count ?? 0, linkedProducts: productsRes.count ?? 0 };
+  },
+
+  async permanentDelete(id: string): Promise<boolean> {
+    const supabase = createClient();
+    try {
+      // Delink products
+      await supabase.from('products').update({ supplier_id: null }).eq('supplier_id', id);
+      // Remove portal access
+      await supabase.from('supplier_portal_users').delete().eq('supplier_id', id);
+      // Hard delete
+      const { error } = await supabase.from('suppliers').delete().eq('id', id);
+      if (error) { if (isSchemaError(error)) throw error; return false; }
+      return true;
+    } catch (e: any) { throw e; }
+  },
+
   // ─── Orders ────────────────────────────────────────────────────────────────
 
   async getOrders(supplierId: string): Promise<SupplierOrder[]> {

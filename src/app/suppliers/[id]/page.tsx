@@ -84,6 +84,9 @@ export default function SupplierDetailPage() {
   const [showPaymentForm, setShowPaymentForm] = useState(false);
   const [showClaimForm, setShowClaimForm] = useState(false);
   const [showAccessModal, setShowAccessModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteInfo, setDeleteInfo] = useState<{ activeOrders: number; linkedProducts: number } | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     if (!supplierId) return;
@@ -146,6 +149,19 @@ export default function SupplierDetailPage() {
   const handleSendMessage = async (content: string) => {
     await supplierService.sendMessage({ supplierId, sender: 'store', content });
     load();
+  };
+
+  const handleDeleteClick = async () => {
+    const info = await supplierService.getDeleteInfo(supplierId);
+    setDeleteInfo(info);
+    setShowDeleteConfirm(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    setDeleting(true);
+    await supplierService.permanentDelete(supplierId);
+    setDeleting(false);
+    router.push('/suppliers');
   };
 
   if (loading) {
@@ -231,6 +247,13 @@ export default function SupplierDetailPage() {
             >
               <Icon name="KeyIcon" size={14} />
               Générer accès fournisseur
+            </button>
+            <button
+              onClick={handleDeleteClick}
+              className="flex items-center gap-2 px-4 py-2 border border-red-200 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 hover:border-red-300 transition-colors"
+            >
+              <Icon name="TrashIcon" size={14} />
+              Supprimer
             </button>
           </div>
 
@@ -725,6 +748,46 @@ export default function SupplierDetailPage() {
       )}
       {showAccessModal && supplier && (
         <SupplierAccessModal supplier={supplier} onClose={() => setShowAccessModal(false)} onSaved={() => { setShowAccessModal(false); load(); }} />
+      )}
+
+      {showDeleteConfirm && deleteInfo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 animate-fade-in">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center shrink-0">
+                <Icon name="TrashIcon" size={20} className="text-red-600" />
+              </div>
+              <div>
+                <h2 className="text-base font-700 text-foreground">Supprimer ce fournisseur</h2>
+                <p className="text-sm text-muted-foreground">{supplier.companyName}</p>
+              </div>
+            </div>
+
+            {deleteInfo.activeOrders > 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-3 flex items-start gap-2">
+                <Icon name="ExclamationTriangleIcon" size={16} className="text-amber-600 mt-0.5 shrink-0" />
+                <p className="text-xs text-amber-800 font-500">Ce fournisseur a <strong>{deleteInfo.activeOrders} commande{deleteInfo.activeOrders > 1 ? 's' : ''} active{deleteInfo.activeOrders > 1 ? 's' : ''}</strong>. Elles seront conservées mais détachées du fournisseur.</p>
+              </div>
+            )}
+            {deleteInfo.linkedProducts > 0 && (
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-3 flex items-start gap-2">
+                <Icon name="InformationCircleIcon" size={16} className="text-blue-600 mt-0.5 shrink-0" />
+                <p className="text-xs text-blue-800"><strong>{deleteInfo.linkedProducts} produit{deleteInfo.linkedProducts > 1 ? 's' : ''}</strong> sera délié{deleteInfo.linkedProducts > 1 ? 's' : ''} de ce fournisseur.</p>
+              </div>
+            )}
+
+            <p className="text-sm text-muted-foreground mb-6">Cette action est irréversible. L'accès portail fournisseur sera aussi supprimé.</p>
+
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setShowDeleteConfirm(false)} className="px-4 py-2 text-sm font-600 border border-border rounded-lg text-muted-foreground hover:bg-muted transition-colors">
+                Annuler
+              </button>
+              <button onClick={handleConfirmDelete} disabled={deleting} className="flex items-center gap-2 px-4 py-2 text-sm font-600 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50">
+                {deleting ? <><Icon name="ArrowPathIcon" size={14} className="animate-spin" />Suppression…</> : <><Icon name="TrashIcon" size={14} />Supprimer définitivement</>}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </AppLayout>
   );

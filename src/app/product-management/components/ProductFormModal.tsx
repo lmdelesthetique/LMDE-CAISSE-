@@ -781,10 +781,13 @@ export default function ProductFormModal({ product, onClose, onSave }: ProductFo
                       <input type="number" min={0} value={newColorMin} onChange={(e) => setNewColorMin(Number(e.target.value))} className="w-full px-3 py-2 border border-border rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
                     </div>
                   </div>
-                  <button type="button" onClick={handleAddColor} disabled={!newColorName.trim()} className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-600 hover:opacity-90 transition-opacity disabled:opacity-40 active:scale-95">
-                    <Icon name="PlusIcon" size={14} />
-                    Ajouter cette couleur au stock
-                  </button>
+                  <div className="flex items-center justify-between">
+                    <button type="button" onClick={handleAddColor} disabled={!newColorName.trim()} className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-600 hover:opacity-90 transition-opacity disabled:opacity-40 active:scale-95">
+                      <Icon name="PlusIcon" size={14} />
+                      Ajouter cette couleur au stock
+                    </button>
+                    <span className="text-xs text-muted-foreground">{colorVariants.length}/60 déclinaisons</span>
+                  </div>
                 </div>
                 {colorVariants.length > 0 ? (
                   <div className="space-y-2">

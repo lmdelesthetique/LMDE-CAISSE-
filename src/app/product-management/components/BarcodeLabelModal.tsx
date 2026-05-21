@@ -3,6 +3,9 @@
 import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { type ProductRecord } from './mockProducts';
+import { createClient } from '@/lib/supabase/client';
+
+interface VariantRow { colorName: string; colorHex: string; quantity: number; }
 
 interface BarcodeLabelModalProps {
   products: ProductRecord[];
@@ -303,18 +306,86 @@ export default function BarcodeLabelModal({ products, onClose }: BarcodeLabelMod
   const [isPrinting, setIsPrinting] = useState(false);
   const [activeTab, setActiveTab] = useState<'config' | 'preview'>('config');
 
-  const selectedProducts = products.filter((p) => selectedIds.has(p.id));
-  const totalLabels = selectedProducts.reduce((sum, p) => sum + (productQtys[p.id] || 1), 0);
-  const totalPages = Math.ceil(totalLabels / SHEET.perPage);
+  // Variant support
+  const [colorVariantsMap, setColorVariantsMap] = useState<Record<string, VariantRow[]>>({});
+  const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set());
+  const [variantQtys, setVariantQtys] = useState<Record<string, number>>({});
+  const [selectedVariantIds, setSelectedVariantIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const withVariants = products.filter((p) => p.variants);
+    if (!withVariants.length) return;
+    const supabase = createClient();
+    Promise.all(
+      withVariants.map((p) =>
+        supabase.from('product_color_stock').select('color_name, color_hex, quantity').eq('product_id', p.id).order('created_at')
+      )
+    ).then((results) => {
+      const map: Record<string, VariantRow[]> = {};
+      withVariants.forEach((p, i) => {
+        const rows = (results[i].data || []).map((v: any) => ({
+          colorName: v.color_name || '',
+          colorHex: v.color_hex || '#888888',
+          quantity: Number(v.quantity) || 0,
+        }));
+        if (rows.length > 0) map[p.id] = rows;
+      });
+      setColorVariantsMap(map);
+    });
+  }, [products]);
+
+  const toggleExpand = (productId: string) => {
+    const variants = colorVariantsMap[productId] || [];
+    if (expandedProducts.has(productId)) {
+      setExpandedProducts((prev) => { const n = new Set(prev); n.delete(productId); return n; });
+    } else {
+      setExpandedProducts((prev) => new Set([...prev, productId]));
+      setSelectedVariantIds((prev) => {
+        const n = new Set(prev);
+        variants.forEach((v) => n.add(`${productId}::${v.colorName}`));
+        return n;
+      });
+      setVariantQtys((prev) => {
+        const n = { ...prev };
+        variants.forEach((v) => { const k = `${productId}::${v.colorName}`; if (!n[k]) n[k] = 1; });
+        return n;
+      });
+    }
+  };
+
+  const toggleVariant = (variantId: string) => {
+    setSelectedVariantIds((prev) => {
+      const n = new Set(prev);
+      if (n.has(variantId)) n.delete(variantId); else n.add(variantId);
+      return n;
+    });
+  };
 
   const allLabels: ProductRecord[] = useMemo(() => {
     const list: ProductRecord[] = [];
-    selectedProducts.forEach((p) => {
-      const qty = productQtys[p.id] || 1;
-      for (let i = 0; i < qty; i++) list.push(p);
+    products.forEach((p) => {
+      const variants = colorVariantsMap[p.id] || [];
+      const isExpanded = expandedProducts.has(p.id) && variants.length > 0;
+      if (isExpanded) {
+        variants.forEach((v) => {
+          const vid = `${p.id}::${v.colorName}`;
+          if (!selectedVariantIds.has(vid)) return;
+          const qty = variantQtys[vid] || 1;
+          for (let i = 0; i < qty; i++) {
+            list.push({ ...p, name: `${p.name} — ${v.colorName}`, ref: `${p.ref} — ${v.colorName}`, stock: v.quantity } as ProductRecord);
+          }
+        });
+      } else {
+        if (!selectedIds.has(p.id)) return;
+        const qty = productQtys[p.id] || 1;
+        for (let i = 0; i < qty; i++) list.push(p);
+      }
     });
     return list;
-  }, [selectedProducts, productQtys]);
+  }, [products, selectedIds, productQtys, colorVariantsMap, expandedProducts, selectedVariantIds, variantQtys]);
+
+  const totalLabels = allLabels.length;
+  const totalPages = Math.ceil(Math.max(1, totalLabels) / SHEET.perPage);
 
   const pages: (ProductRecord | null)[][] = useMemo(() => {
     const result: (ProductRecord | null)[][] = [];
@@ -586,37 +657,72 @@ ${pagesHTML}
                 const qty = productQtys[product.id] || 1;
                 const barcodeVal = product.barcode || product.ref || '';
                 const fmt = chooseBarcodeFormat(barcodeVal);
+                const variants = colorVariantsMap[product.id] || [];
+                const hasVariants = product.variants && variants.length > 0;
+                const isExpanded = expandedProducts.has(product.id);
+
                 return (
-                  <div key={product.id}
-                    className={`flex items-center gap-2.5 p-2.5 rounded-xl border transition-colors ${
-                      isSelected ? 'border-primary/40 bg-primary/5' : 'border-border opacity-50'
-                    }`}
-                  >
-                    <input type="checkbox" checked={isSelected} onChange={() => toggleProduct(product.id)} className="accent-primary shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-600 text-foreground truncate">{product.name}</p>
-                      <p className="text-[10px] text-muted-foreground font-mono truncate">
-                        {barcodeVal || '—'}
-                        {barcodeVal && <span className="ml-1 text-[9px] text-primary/70 font-sans">[{fmt}]</span>}
-                      </p>
+                  <div key={product.id}>
+                    {/* Product row */}
+                    <div className={`flex items-center gap-2.5 p-2.5 rounded-xl border transition-colors ${
+                      isExpanded ? 'border-violet-300 bg-violet-50' : isSelected ? 'border-primary/40 bg-primary/5' : 'border-border opacity-50'
+                    }`}>
+                      <input type="checkbox"
+                        checked={isExpanded ? variants.some((v) => selectedVariantIds.has(`${product.id}::${v.colorName}`)) : isSelected}
+                        onChange={() => { if (isExpanded) { variants.forEach((v) => toggleVariant(`${product.id}::${v.colorName}`)); } else { toggleProduct(product.id); } }}
+                        className="accent-primary shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-600 text-foreground truncate">{product.name}</p>
+                        <p className="text-[10px] text-muted-foreground font-mono truncate">
+                          {barcodeVal || '—'}
+                          {barcodeVal && <span className="ml-1 text-[9px] text-primary/70 font-sans">[{fmt}]</span>}
+                        </p>
+                      </div>
+                      {hasVariants && (
+                        <button
+                          onClick={() => toggleExpand(product.id)}
+                          className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded font-600 border transition-colors ${isExpanded ? 'border-violet-400 bg-violet-100 text-violet-700' : 'border-border text-muted-foreground hover:border-violet-300 hover:text-violet-600'}`}
+                          title={isExpanded ? 'Réduire déclinaisons' : `Développer ${variants.length} déclinaisons`}
+                        >
+                          {isExpanded ? '▲ Réduire' : `▼ ${variants.length} coul.`}
+                        </button>
+                      )}
+                      {!isExpanded && (
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button onClick={() => setProductQtys((prev) => ({ ...prev, [product.id]: Math.max(1, (prev[product.id] || 1) - 1) }))} disabled={!isSelected}
+                            className="w-5 h-5 rounded border border-border flex items-center justify-center text-xs font-700 hover:bg-muted disabled:opacity-30 transition-colors">−</button>
+                          <input type="number" min="1" max="999" value={qty} disabled={!isSelected}
+                            onChange={(e) => setProductQtys((prev) => ({ ...prev, [product.id]: Math.max(1, parseInt(e.target.value) || 1) }))}
+                            className="w-10 text-center text-xs font-700 border border-border rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:opacity-30" />
+                          <button onClick={() => setProductQtys((prev) => ({ ...prev, [product.id]: Math.min(999, (prev[product.id] || 1) + 1) }))} disabled={!isSelected}
+                            className="w-5 h-5 rounded border border-border flex items-center justify-center text-xs font-700 hover:bg-muted disabled:opacity-30 transition-colors">+</button>
+                        </div>
+                      )}
                     </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        onClick={() => setProductQtys((prev) => ({ ...prev, [product.id]: Math.max(1, (prev[product.id] || 1) - 1) }))}
-                        disabled={!isSelected}
-                        className="w-5 h-5 rounded border border-border flex items-center justify-center text-xs font-700 hover:bg-muted disabled:opacity-30 transition-colors"
-                      >−</button>
-                      <input
-                        type="number" min="1" max="999" value={qty} disabled={!isSelected}
-                        onChange={(e) => setProductQtys((prev) => ({ ...prev, [product.id]: Math.max(1, parseInt(e.target.value) || 1) }))}
-                        className="w-10 text-center text-xs font-700 border border-border rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:opacity-30"
-                      />
-                      <button
-                        onClick={() => setProductQtys((prev) => ({ ...prev, [product.id]: Math.min(999, (prev[product.id] || 1) + 1) }))}
-                        disabled={!isSelected}
-                        className="w-5 h-5 rounded border border-border flex items-center justify-center text-xs font-700 hover:bg-muted disabled:opacity-30 transition-colors"
-                      >+</button>
-                    </div>
+
+                    {/* Variant sub-rows */}
+                    {isExpanded && variants.map((v) => {
+                      const vid = `${product.id}::${v.colorName}`;
+                      const isVarSel = selectedVariantIds.has(vid);
+                      const vQty = variantQtys[vid] || 1;
+                      return (
+                        <div key={vid} className={`ml-6 mt-1 flex items-center gap-2 p-2 rounded-lg border text-xs transition-colors ${isVarSel ? 'border-violet-200 bg-white' : 'border-border/50 opacity-40'}`}>
+                          <input type="checkbox" checked={isVarSel} onChange={() => toggleVariant(vid)} className="accent-violet-600 shrink-0" />
+                          <span className="w-3.5 h-3.5 rounded-full border border-border/50 shrink-0" style={{ backgroundColor: v.colorHex }} />
+                          <span className="flex-1 font-500 text-foreground truncate">{v.colorName}</span>
+                          <span className="text-muted-foreground text-[10px]">Stk:{v.quantity}</span>
+                          <div className="flex items-center gap-0.5 shrink-0">
+                            <button onClick={() => setVariantQtys((p) => ({ ...p, [vid]: Math.max(1, (p[vid] || 1) - 1) }))} disabled={!isVarSel}
+                              className="w-4 h-4 rounded border border-border flex items-center justify-center font-700 hover:bg-muted disabled:opacity-30">−</button>
+                            <input type="number" min="1" max="999" value={vQty} disabled={!isVarSel}
+                              onChange={(e) => setVariantQtys((p) => ({ ...p, [vid]: Math.max(1, parseInt(e.target.value) || 1) }))}
+                              className="w-8 text-center font-700 border border-border rounded px-0.5 py-0.5 focus:outline-none disabled:opacity-30" />
+                            <button onClick={() => setVariantQtys((p) => ({ ...p, [vid]: Math.min(999, (p[vid] || 1) + 1) }))} disabled={!isVarSel}
+                              className="w-4 h-4 rounded border border-border flex items-center justify-center font-700 hover:bg-muted disabled:opacity-30">+</button>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 );
               })}
@@ -784,7 +890,7 @@ ${pagesHTML}
                 </div>
 
                 <div className="flex-1 overflow-auto p-6 flex items-start justify-center bg-gray-100">
-                  {selectedProducts.length === 0 ? (
+                  {totalLabels === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
                       <Icon name="TagIcon" size={40} className="text-muted-foreground" />
                       <p className="text-sm text-muted-foreground">Sélectionnez des produits pour voir l'aperçu</p>
@@ -828,7 +934,7 @@ ${pagesHTML}
             </button>
             <button
               onClick={handlePrint}
-              disabled={selectedProducts.length === 0 || isPrinting}
+              disabled={totalLabels === 0 || isPrinting}
               className="flex items-center gap-2 px-5 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-600 hover:opacity-90 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isPrinting ? (

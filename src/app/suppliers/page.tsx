@@ -33,6 +33,8 @@ export default function SuppliersPage() {
   const [filterCountry, setFilterCountry] = useState('');
   const [filterReliability, setFilterReliability] = useState('');
   const [showForm, setShowForm] = useState(false);
+  const [deleteInfo, setDeleteInfo] = useState<{ id: string; name: string; activeOrders: number; linkedProducts: number } | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -48,6 +50,22 @@ export default function SuppliersPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  const handleDeleteClick = async (e: React.MouseEvent, supplier: Supplier) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const info = await supplierService.getDeleteInfo(supplier.id);
+    setDeleteInfo({ id: supplier.id, name: supplier.companyName, ...info });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteInfo) return;
+    setDeleting(true);
+    await supplierService.permanentDelete(deleteInfo.id);
+    setDeleteInfo(null);
+    setDeleting(false);
+    load();
+  };
 
   const filtered = suppliers.filter((s) => {
     const q = search.toLowerCase();
@@ -196,7 +214,16 @@ export default function SuppliersPage() {
                     <span className="text-xs text-muted-foreground">
                       {supplier.lastOrderAt ? `Dernière commande ${new Date(supplier.lastOrderAt).toLocaleDateString('fr-FR')}` : 'Aucune commande'}
                     </span>
-                    <Icon name="ChevronRightIcon" size={14} className="text-muted-foreground group-hover:text-primary transition-colors" />
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={(e) => handleDeleteClick(e, supplier)}
+                        className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
+                        title="Supprimer ce fournisseur"
+                      >
+                        <Icon name="TrashIcon" size={14} />
+                      </button>
+                      <Icon name="ChevronRightIcon" size={14} className="text-muted-foreground group-hover:text-primary transition-colors" />
+                    </div>
                   </div>
                 </div>
               </Link>
@@ -210,6 +237,46 @@ export default function SuppliersPage() {
           onClose={() => setShowForm(false)}
           onSaved={() => { setShowForm(false); load(); }}
         />
+      )}
+
+      {deleteInfo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 animate-fade-in">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center shrink-0">
+                <Icon name="TrashIcon" size={20} className="text-red-600" />
+              </div>
+              <div>
+                <h2 className="text-base font-700 text-foreground">Supprimer le fournisseur</h2>
+                <p className="text-sm text-muted-foreground">{deleteInfo.name}</p>
+              </div>
+            </div>
+
+            {deleteInfo.activeOrders > 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 flex items-start gap-2">
+                <Icon name="ExclamationTriangleIcon" size={16} className="text-amber-600 mt-0.5 shrink-0" />
+                <p className="text-xs text-amber-800 font-500">Ce fournisseur a <strong>{deleteInfo.activeOrders} commande{deleteInfo.activeOrders > 1 ? 's' : ''} active{deleteInfo.activeOrders > 1 ? 's' : ''}</strong>. Elles seront conservées mais détachées du fournisseur.</p>
+              </div>
+            )}
+            {deleteInfo.linkedProducts > 0 && (
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4 flex items-start gap-2">
+                <Icon name="InformationCircleIcon" size={16} className="text-blue-600 mt-0.5 shrink-0" />
+                <p className="text-xs text-blue-800"><strong>{deleteInfo.linkedProducts} produit{deleteInfo.linkedProducts > 1 ? 's' : ''}</strong> sera délié{deleteInfo.linkedProducts > 1 ? 's' : ''} de ce fournisseur.</p>
+              </div>
+            )}
+
+            <p className="text-sm text-muted-foreground mb-6">Cette action est irréversible. L'accès portail fournisseur sera aussi supprimé.</p>
+
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setDeleteInfo(null)} className="px-4 py-2 text-sm font-600 border border-border rounded-lg text-muted-foreground hover:bg-muted transition-colors">
+                Annuler
+              </button>
+              <button onClick={handleConfirmDelete} disabled={deleting} className="flex items-center gap-2 px-4 py-2 text-sm font-600 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50">
+                {deleting ? <><Icon name="ArrowPathIcon" size={14} className="animate-spin" />Suppression…</> : <><Icon name="TrashIcon" size={14} />Supprimer définitivement</>}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </AppLayout>
   );
