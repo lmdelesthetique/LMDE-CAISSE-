@@ -227,7 +227,7 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
       </div>
 
       {/* Product grid */}
-      <div className="flex-1 overflow-y-auto scrollbar-thin p-4">
+      <div className="flex-1 overflow-y-auto scrollbar-thin p-2">
         {loading ? (
           <div className="flex flex-col items-center justify-center h-48 gap-3">
             <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -244,13 +244,12 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: '5px' }}>
             {displayedProducts.map((product) => {
               const isFav = favouriteIds.includes(product.id);
               const isOutOfStock = product.stock === 0;
               const minStock = product.min_stock || 3;
               const isLowStock = !isOutOfStock && product.stock <= minStock;
-              const stockBadge = getStockBadge(product.stock, minStock, Boolean(product.is_kit));
 
               return (
                 <button
@@ -273,78 +272,66 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
                     }
                   }}
                   disabled={isOutOfStock}
-                  title={isOutOfStock ? 'Produit en rupture de stock' : undefined}
-                  className={`group relative flex flex-col rounded-xl border bg-white shadow-card text-left transition-all duration-150 overflow-hidden
+                  title={product.name}
+                  className={`group relative flex flex-col rounded-lg border bg-white text-left transition-all duration-150 overflow-hidden
                     ${isOutOfStock
-                      ? 'opacity-60 cursor-not-allowed border-red-200 bg-red-50/30'
+                      ? 'opacity-60 cursor-not-allowed border-red-200 bg-red-50/20'
                       : isLowStock
-                        ? 'hover:shadow-card-hover hover:border-amber-300 active:scale-95 border-amber-200'
-                        : 'hover:shadow-card-hover hover:border-primary/30 active:scale-95'
+                        ? 'hover:shadow-md hover:border-amber-300 active:scale-95 border-amber-200'
+                        : 'hover:shadow-md hover:border-primary/40 active:scale-95 border-border'
                     }`}
                 >
-                  {/* Image */}
-                  <div className="aspect-square w-full overflow-hidden bg-muted/30 relative">
+                  {/* Image — fixed height */}
+                  <div className="relative overflow-hidden bg-muted/30 shrink-0 w-full" style={{ height: '70px' }}>
                     {product.image_url ? (
                       <AppImage
                         src={product.image_url}
-                        alt={`Photo de ${product.name}`}
-                        width={120}
-                        height={120}
+                        alt={product.name}
+                        width={110}
+                        height={70}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center">
-                        <Icon name="PhotoIcon" size={28} className="text-muted-foreground/40" />
+                        <Icon name="PhotoIcon" size={20} className="text-muted-foreground/40" />
                       </div>
                     )}
                     {isFav && (
-                      <span className="absolute top-1.5 left-1.5 w-5 h-5 bg-amber-400 rounded-full flex items-center justify-center">
-                        <Icon name="StarIcon" size={11} className="text-white" />
+                      <span className="absolute top-1 left-1 w-3.5 h-3.5 bg-amber-400 rounded-full flex items-center justify-center">
+                        <Icon name="StarIcon" size={8} className="text-white" />
                       </span>
                     )}
                     {product.is_kit && (
-                      <span className="absolute top-1.5 right-1.5 bg-violet-500 text-white text-[9px] font-700 px-1.5 py-0.5 rounded-full">Kit</span>
+                      <span className="absolute top-1 right-1 bg-violet-500 text-white text-[7px] font-700 px-1 py-0.5 rounded-full leading-none">Kit</span>
                     )}
-                    {/* Out of stock overlay */}
                     {isOutOfStock && (
-                      <div className="absolute inset-0 bg-red-900/20 flex items-center justify-center">
-                        <span className="bg-red-600 text-white text-[10px] font-700 px-2 py-1 rounded-full shadow">Rupture</span>
+                      <div className="absolute inset-0 bg-red-900/25 flex items-center justify-center">
+                        <span className="bg-red-600 text-white text-[8px] font-700 px-1.5 py-0.5 rounded-full shadow">Rupture</span>
                       </div>
                     )}
                   </div>
 
-                  {/* Stock badge — always visible */}
-                  {stockBadge && (
-                    <span className={`absolute top-2 right-2 text-[10px] font-700 px-1.5 py-0.5 rounded-full ${stockBadge.color}`}>
-                      {stockBadge.label}
-                    </span>
-                  )}
-
                   {/* Info */}
-                  <div className="p-2.5">
-                    <p className="text-xs font-600 text-foreground leading-tight line-clamp-2">{product.name}</p>
-                    <p className="text-[10px] text-muted-foreground font-mono mt-0.5">{product.ref}</p>
-                    <div className="flex items-center justify-between mt-1.5">
-                      <p className="text-sm font-700 text-primary tabular-nums">{Number(product.sell_price_ttc).toFixed(2)} €</p>
-                      {/* Stock status label */}
+                  <div className="px-1.5 pt-1 pb-1.5 flex flex-col gap-0.5 flex-1">
+                    <p className="text-[10px] font-600 text-foreground leading-[13px] line-clamp-2 flex-1">{product.name}</p>
+                    <div className="flex items-center justify-between gap-0.5 mt-0.5">
+                      <p className="text-[11px] font-700 text-primary tabular-nums shrink-0">{Number(product.sell_price_ttc).toFixed(2)} €</p>
                       {!product.is_kit && (
-                        <span className={`text-[9px] font-600 px-1.5 py-0.5 rounded-full ${
-                          isOutOfStock
-                            ? 'bg-red-100 text-red-700'
-                            : isLowStock
-                              ? 'bg-amber-100 text-amber-700' :'bg-emerald-100 text-emerald-700'
+                        <span className={`text-[8px] font-600 px-1 py-0.5 rounded-full leading-none shrink-0 ${
+                          isOutOfStock ? 'bg-red-100 text-red-700' :
+                          isLowStock ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
                         }`}>
-                          {isOutOfStock ? 'Rupture' : isLowStock ? 'Stock faible' : 'Disponible'}
+                          {isOutOfStock ? '0' : isLowStock ? product.stock : '✓'}
                         </span>
                       )}
                     </div>
                   </div>
 
-                  {/* Add overlay — only when in stock */}
+                  {/* Add overlay */}
                   {!isOutOfStock && (
-                    <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                      <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center shadow-lg">
-                        <Icon name="PlusIcon" size={16} className="text-white" />
+                    <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                      <div className="w-6 h-6 bg-primary rounded-full flex items-center justify-center shadow">
+                        <Icon name="PlusIcon" size={12} className="text-white" />
                       </div>
                     </div>
                   )}
