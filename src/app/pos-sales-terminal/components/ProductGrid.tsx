@@ -75,35 +75,31 @@ const SIZE_CONFIG: Record<CardSize, {
   iconSize: number;
   padding: string;
   nameClass: string;
-  refClass: string;
   priceClass: string;
 }> = {
   sm: {
-    grid: 'grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-2',
-    imgClass: 'h-14 w-full overflow-hidden bg-muted/30 relative',
-    imgW: 56, imgH: 56, iconSize: 18,
-    padding: 'p-1.5',
-    nameClass: 'text-[10px] font-600 text-foreground leading-tight line-clamp-2',
-    refClass: 'hidden',
-    priceClass: 'text-xs font-700 text-primary tabular-nums',
+    grid: 'grid-cols-8 gap-1.5',
+    imgClass: 'h-12 w-full overflow-hidden bg-muted/30 relative',
+    imgW: 48, imgH: 48, iconSize: 16,
+    padding: 'p-1',
+    nameClass: 'text-[9px] font-600 text-foreground leading-tight line-clamp-2',
+    priceClass: 'text-[10px] font-700 text-primary tabular-nums mt-0.5',
   },
   md: {
-    grid: 'grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3',
-    imgClass: 'aspect-square w-full overflow-hidden bg-muted/30 relative',
-    imgW: 120, imgH: 120, iconSize: 28,
-    padding: 'p-2.5',
-    nameClass: 'text-xs font-600 text-foreground leading-tight line-clamp-2',
-    refClass: 'text-[10px] text-muted-foreground font-mono mt-0.5',
-    priceClass: 'text-sm font-700 text-primary tabular-nums',
+    grid: 'grid-cols-5 gap-2',
+    imgClass: 'h-20 w-full overflow-hidden bg-muted/30 relative',
+    imgW: 80, imgH: 80, iconSize: 22,
+    padding: 'p-1.5',
+    nameClass: 'text-[10px] font-600 text-foreground leading-tight line-clamp-2',
+    priceClass: 'text-xs font-700 text-primary tabular-nums mt-0.5',
   },
   lg: {
-    grid: 'grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4',
-    imgClass: 'aspect-[4/3] w-full overflow-hidden bg-muted/30 relative',
-    imgW: 200, imgH: 160, iconSize: 36,
-    padding: 'p-3',
-    nameClass: 'text-sm font-600 text-foreground leading-tight line-clamp-2',
-    refClass: 'text-[11px] text-muted-foreground font-mono mt-0.5',
-    priceClass: 'text-base font-700 text-primary tabular-nums',
+    grid: 'grid-cols-3 gap-3',
+    imgClass: 'h-32 w-full overflow-hidden bg-muted/30 relative',
+    imgW: 160, imgH: 128, iconSize: 30,
+    padding: 'p-2',
+    nameClass: 'text-xs font-600 text-foreground leading-tight line-clamp-2',
+    priceClass: 'text-sm font-700 text-primary tabular-nums mt-0.5',
   },
 };
 
@@ -283,7 +279,7 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
       </div>
 
       {/* Product grid */}
-      <div className="flex-1 overflow-y-auto scrollbar-thin p-4">
+      <div className="flex-1 overflow-y-auto scrollbar-thin p-2">
         {loading ? (
           <div className="flex flex-col items-center justify-center h-48 gap-3">
             <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -370,32 +366,10 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
                     )}
                   </div>
 
-                  {/* Stock badge */}
-                  {stockBadge && cardSize !== 'sm' && (
-                    <span className={`absolute top-1.5 right-1.5 text-[9px] font-700 px-1.5 py-0.5 rounded-full ${stockBadge.color}`}>
-                      {stockBadge.label}
-                    </span>
-                  )}
-
                   {/* Info */}
                   <div className={cfg.padding}>
                     <p className={cfg.nameClass}>{product.name}</p>
-                    {cfg.refClass !== 'hidden' && (
-                      <p className={cfg.refClass}>{product.ref}</p>
-                    )}
-                    <div className="flex items-center justify-between mt-1">
-                      <p className={cfg.priceClass}>{Number(product.sell_price_ttc).toFixed(2)} €</p>
-                      {!product.is_kit && cardSize !== 'sm' && (
-                        <span className={`text-[9px] font-600 px-1.5 py-0.5 rounded-full ${
-                          isOutOfStock
-                            ? 'bg-red-100 text-red-700'
-                            : isLowStock
-                              ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
-                        }`}>
-                          {isOutOfStock ? 'Rupture' : isLowStock ? 'Faible' : 'Dispo'}
-                        </span>
-                      )}
-                    </div>
+                    <p className={cfg.priceClass}>{Number(product.sell_price_ttc).toFixed(2)} €</p>
                   </div>
 
                   {/* Add overlay */}
