@@ -3,7 +3,7 @@ import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 declare const Deno: { env: { get(key: string): string | undefined } };
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") ?? "";
-const RESEND_FROM_EMAIL = Deno.env.get("RESEND_FROM_EMAIL") ?? "onboarding@resend.dev";
+const RESEND_FROM_EMAIL = Deno.env.get("RESEND_FROM_EMAIL") ?? "LMDE Caisse <noreply@lmdecaisse.com>";
 
 // ─── French locale helpers ────────────────────────────────────────────────────
 

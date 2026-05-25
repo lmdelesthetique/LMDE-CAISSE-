@@ -65,6 +65,48 @@ function getStockBadge(stock: number, minStock: number, isKit: boolean): { label
   return { label: `Stock: ${stock}`, color: 'bg-emerald-500 text-white' };
 }
 
+type CardSize = 'sm' | 'md' | 'lg';
+
+const SIZE_CONFIG: Record<CardSize, {
+  grid: string;
+  imgClass: string;
+  imgW: number;
+  imgH: number;
+  iconSize: number;
+  padding: string;
+  nameClass: string;
+  refClass: string;
+  priceClass: string;
+}> = {
+  sm: {
+    grid: 'grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-2',
+    imgClass: 'h-14 w-full overflow-hidden bg-muted/30 relative',
+    imgW: 56, imgH: 56, iconSize: 18,
+    padding: 'p-1.5',
+    nameClass: 'text-[10px] font-600 text-foreground leading-tight line-clamp-2',
+    refClass: 'hidden',
+    priceClass: 'text-xs font-700 text-primary tabular-nums',
+  },
+  md: {
+    grid: 'grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3',
+    imgClass: 'aspect-square w-full overflow-hidden bg-muted/30 relative',
+    imgW: 120, imgH: 120, iconSize: 28,
+    padding: 'p-2.5',
+    nameClass: 'text-xs font-600 text-foreground leading-tight line-clamp-2',
+    refClass: 'text-[10px] text-muted-foreground font-mono mt-0.5',
+    priceClass: 'text-sm font-700 text-primary tabular-nums',
+  },
+  lg: {
+    grid: 'grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4',
+    imgClass: 'aspect-[4/3] w-full overflow-hidden bg-muted/30 relative',
+    imgW: 200, imgH: 160, iconSize: 36,
+    padding: 'p-3',
+    nameClass: 'text-sm font-600 text-foreground leading-tight line-clamp-2',
+    refClass: 'text-[11px] text-muted-foreground font-mono mt-0.5',
+    priceClass: 'text-base font-700 text-primary tabular-nums',
+  },
+};
+
 export default function ProductGrid({ onAddToCart }: ProductGridProps) {
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState('__all__');
@@ -77,6 +119,7 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
   const [variantPickerProduct, setVariantPickerProduct] = useState<DBProduct | null>(null);
   const [variantPickerRows, setVariantPickerRows] = useState<ColorVariantRow[]>([]);
   const [variantPickerLoading, setVariantPickerLoading] = useState(false);
+  const [cardSize, setCardSize] = useState<CardSize>('sm');
 
   const openVariantPicker = useCallback(async (product: DBProduct) => {
     setVariantPickerProduct(product);
@@ -168,6 +211,19 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
               </button>
             )}
           </div>
+          {/* Card size toggle */}
+          <div className="flex rounded-lg border border-border bg-white overflow-hidden shrink-0">
+            {(['sm', 'md', 'lg'] as CardSize[]).map((s) => (
+              <button
+                key={s}
+                onClick={() => setCardSize(s)}
+                title={s === 'sm' ? 'Petit' : s === 'md' ? 'Moyen' : 'Grand'}
+                className={`px-2 py-1.5 text-[11px] font-700 transition-colors ${cardSize === s ? 'bg-primary text-white' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
+              >
+                {s === 'sm' ? 'S' : s === 'md' ? 'M' : 'G'}
+              </button>
+            ))}
+          </div>
           <button
             onClick={() => setShowFavManager(true)}
             title="Gérer les favoris"
@@ -243,8 +299,10 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
               {activeTab === 'favourites' ? 'Cliquez sur ⭐ pour gérer vos favoris caisse' : 'Essayez un autre terme ou catégorie'}
             </p>
           </div>
-        ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
+        ) : (() => {
+          const cfg = SIZE_CONFIG[cardSize];
+          return (
+          <div className={`grid ${cfg.grid}`}>
             {displayedProducts.map((product) => {
               const isFav = favouriteIds.includes(product.id);
               const isOutOfStock = product.stock === 0;
@@ -283,68 +341,68 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
                     }`}
                 >
                   {/* Image */}
-                  <div className="aspect-square w-full overflow-hidden bg-muted/30 relative">
+                  <div className={cfg.imgClass}>
                     {product.image_url ? (
                       <AppImage
                         src={product.image_url}
                         alt={`Photo de ${product.name}`}
-                        width={120}
-                        height={120}
+                        width={cfg.imgW}
+                        height={cfg.imgH}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center">
-                        <Icon name="PhotoIcon" size={28} className="text-muted-foreground/40" />
+                        <Icon name="PhotoIcon" size={cfg.iconSize} className="text-muted-foreground/40" />
                       </div>
                     )}
                     {isFav && (
-                      <span className="absolute top-1.5 left-1.5 w-5 h-5 bg-amber-400 rounded-full flex items-center justify-center">
-                        <Icon name="StarIcon" size={11} className="text-white" />
+                      <span className="absolute top-1 left-1 w-4 h-4 bg-amber-400 rounded-full flex items-center justify-center">
+                        <Icon name="StarIcon" size={9} className="text-white" />
                       </span>
                     )}
                     {product.is_kit && (
-                      <span className="absolute top-1.5 right-1.5 bg-violet-500 text-white text-[9px] font-700 px-1.5 py-0.5 rounded-full">Kit</span>
+                      <span className="absolute top-1 right-1 bg-violet-500 text-white text-[8px] font-700 px-1 py-0.5 rounded-full">Kit</span>
                     )}
-                    {/* Out of stock overlay */}
                     {isOutOfStock && (
                       <div className="absolute inset-0 bg-red-900/20 flex items-center justify-center">
-                        <span className="bg-red-600 text-white text-[10px] font-700 px-2 py-1 rounded-full shadow">Rupture</span>
+                        <span className="bg-red-600 text-white text-[9px] font-700 px-1.5 py-0.5 rounded-full shadow">Rupture</span>
                       </div>
                     )}
                   </div>
 
-                  {/* Stock badge — always visible */}
-                  {stockBadge && (
-                    <span className={`absolute top-2 right-2 text-[10px] font-700 px-1.5 py-0.5 rounded-full ${stockBadge.color}`}>
+                  {/* Stock badge */}
+                  {stockBadge && cardSize !== 'sm' && (
+                    <span className={`absolute top-1.5 right-1.5 text-[9px] font-700 px-1.5 py-0.5 rounded-full ${stockBadge.color}`}>
                       {stockBadge.label}
                     </span>
                   )}
 
                   {/* Info */}
-                  <div className="p-2.5">
-                    <p className="text-xs font-600 text-foreground leading-tight line-clamp-2">{product.name}</p>
-                    <p className="text-[10px] text-muted-foreground font-mono mt-0.5">{product.ref}</p>
-                    <div className="flex items-center justify-between mt-1.5">
-                      <p className="text-sm font-700 text-primary tabular-nums">{Number(product.sell_price_ttc).toFixed(2)} €</p>
-                      {/* Stock status label */}
-                      {!product.is_kit && (
+                  <div className={cfg.padding}>
+                    <p className={cfg.nameClass}>{product.name}</p>
+                    {cfg.refClass !== 'hidden' && (
+                      <p className={cfg.refClass}>{product.ref}</p>
+                    )}
+                    <div className="flex items-center justify-between mt-1">
+                      <p className={cfg.priceClass}>{Number(product.sell_price_ttc).toFixed(2)} €</p>
+                      {!product.is_kit && cardSize !== 'sm' && (
                         <span className={`text-[9px] font-600 px-1.5 py-0.5 rounded-full ${
                           isOutOfStock
                             ? 'bg-red-100 text-red-700'
                             : isLowStock
-                              ? 'bg-amber-100 text-amber-700' :'bg-emerald-100 text-emerald-700'
+                              ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
                         }`}>
-                          {isOutOfStock ? 'Rupture' : isLowStock ? 'Stock faible' : 'Disponible'}
+                          {isOutOfStock ? 'Rupture' : isLowStock ? 'Faible' : 'Dispo'}
                         </span>
                       )}
                     </div>
                   </div>
 
-                  {/* Add overlay — only when in stock */}
+                  {/* Add overlay */}
                   {!isOutOfStock && (
                     <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                      <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center shadow-lg">
-                        <Icon name="PlusIcon" size={16} className="text-white" />
+                      <div className="w-7 h-7 bg-primary rounded-full flex items-center justify-center shadow-lg">
+                        <Icon name="PlusIcon" size={14} className="text-white" />
                       </div>
                     </div>
                   )}
@@ -352,6 +410,8 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
               );
             })}
           </div>
+          );
+        })()
         )}
       </div>
 
