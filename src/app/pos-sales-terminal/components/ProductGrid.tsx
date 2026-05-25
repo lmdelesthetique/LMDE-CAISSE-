@@ -68,39 +68,18 @@ function getStockBadge(stock: number, minStock: number, isKit: boolean): { label
 type CardSize = 'sm' | 'md' | 'lg';
 
 const SIZE_CONFIG: Record<CardSize, {
-  grid: string;
-  imgClass: string;
+  cols: number;
+  gap: number;
+  imgHeight: number;
   imgW: number;
-  imgH: number;
   iconSize: number;
   padding: string;
   nameClass: string;
   priceClass: string;
 }> = {
-  sm: {
-    grid: 'grid-cols-8 gap-1.5',
-    imgClass: 'h-12 w-full overflow-hidden bg-muted/30 relative',
-    imgW: 48, imgH: 48, iconSize: 16,
-    padding: 'p-1',
-    nameClass: 'text-[9px] font-600 text-foreground leading-tight line-clamp-2',
-    priceClass: 'text-[10px] font-700 text-primary tabular-nums mt-0.5',
-  },
-  md: {
-    grid: 'grid-cols-5 gap-2',
-    imgClass: 'h-20 w-full overflow-hidden bg-muted/30 relative',
-    imgW: 80, imgH: 80, iconSize: 22,
-    padding: 'p-1.5',
-    nameClass: 'text-[10px] font-600 text-foreground leading-tight line-clamp-2',
-    priceClass: 'text-xs font-700 text-primary tabular-nums mt-0.5',
-  },
-  lg: {
-    grid: 'grid-cols-3 gap-3',
-    imgClass: 'h-32 w-full overflow-hidden bg-muted/30 relative',
-    imgW: 160, imgH: 128, iconSize: 30,
-    padding: 'p-2',
-    nameClass: 'text-xs font-600 text-foreground leading-tight line-clamp-2',
-    priceClass: 'text-sm font-700 text-primary tabular-nums mt-0.5',
-  },
+  sm: { cols: 8, gap: 6,  imgHeight: 48,  imgW: 48,  iconSize: 16, padding: 'p-1',   nameClass: 'text-[9px] font-600 text-foreground leading-tight line-clamp-2',  priceClass: 'text-[10px] font-700 text-primary tabular-nums mt-0.5' },
+  md: { cols: 5, gap: 8,  imgHeight: 80,  imgW: 80,  iconSize: 22, padding: 'p-1.5', nameClass: 'text-[10px] font-600 text-foreground leading-tight line-clamp-2', priceClass: 'text-xs font-700 text-primary tabular-nums mt-0.5' },
+  lg: { cols: 3, gap: 12, imgHeight: 128, imgW: 160, iconSize: 30, padding: 'p-2',   nameClass: 'text-xs font-600 text-foreground leading-tight line-clamp-2',    priceClass: 'text-sm font-700 text-primary tabular-nums mt-0.5' },
 };
 
 export default function ProductGrid({ onAddToCart }: ProductGridProps) {
@@ -298,7 +277,7 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
         ) : (() => {
           const cfg = SIZE_CONFIG[cardSize];
           return (
-          <div className={`grid ${cfg.grid}`}>
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cfg.cols}, minmax(0, 1fr))`, gap: `${cfg.gap}px` }}>
             {displayedProducts.map((product) => {
               const isFav = favouriteIds.includes(product.id);
               const isOutOfStock = product.stock === 0;
@@ -337,7 +316,7 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
                     }`}
                 >
                   {/* Image */}
-                  <div className={cfg.imgClass}>
+                  <div className="w-full overflow-hidden bg-muted/30 relative" style={{ height: `${cfg.imgHeight}px` }}>
                     {product.image_url ? (
                       <AppImage
                         src={product.image_url}
