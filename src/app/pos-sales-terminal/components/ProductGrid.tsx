@@ -165,6 +165,7 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
   }, [favouriteIds, products, search]);
 
   const displayedProducts = activeTab === 'favourites' ? favouriteProducts : allFiltered;
+  const cfg = SIZE_CONFIG[cardSize];
 
   return (
     <div className="flex flex-col h-full bg-background overflow-hidden">
@@ -274,9 +275,7 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
               {activeTab === 'favourites' ? 'Cliquez sur ⭐ pour gérer vos favoris caisse' : 'Essayez un autre terme ou catégorie'}
             </p>
           </div>
-        ) : (() => {
-          const cfg = SIZE_CONFIG[cardSize];
-          return (
+        ) : (
           <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cfg.cols}, minmax(0, 1fr))`, gap: `${cfg.gap}px` }}>
             {displayedProducts.map((product) => {
               const isFav = favouriteIds.includes(product.id);
@@ -322,7 +321,7 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
                         src={product.image_url}
                         alt={`Photo de ${product.name}`}
                         width={cfg.imgW}
-                        height={cfg.imgH}
+                        height={cfg.imgHeight}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                       />
                     ) : (
@@ -363,8 +362,6 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
               );
             })}
           </div>
-          );
-        })()
         )}
       </div>
 
