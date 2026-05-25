@@ -7,8 +7,6 @@ import HeldTicketsDrawer from './HeldTicketsDrawer';
 import PaymentModal from './PaymentModal';
 import ClientLookupBar from './ClientLookupBar';
 import FreePriceModal from './FreePriceModal';
-import EmployeePINModal from './EmployeePINModal';
-import POSPinScreen from './POSPinScreen';
 import LoyaltyRewardNotification from './LoyaltyRewardNotification';
 import { AvailableRewardsModal, NewlyUnlockedRewardsModal, RewardAppliedBanner } from './LoyaltyRewardModals';
 import { usePOSAuth } from '@/contexts/POSAuthContext';
@@ -225,11 +223,6 @@ export default function POSTerminal() {
     setShowCameraScanner(false);
     setCameraManualBarcode('');
   }, [cameraScanner]);
-
-  // Show PIN screen if locked
-  if (isLocked) {
-    return <POSPinScreen />;
-  }
 
   const addFreePriceItem = useCallback((name: string, price: number) => {
     const id = `free-${Date.now()}`;

@@ -77,9 +77,9 @@ const SIZE_CONFIG: Record<CardSize, {
   nameClass: string;
   priceClass: string;
 }> = {
-  sm: { cols: 8, gap: 6,  imgHeight: 48,  imgW: 48,  iconSize: 16, padding: 'p-1',   nameClass: 'text-[9px] font-600 text-foreground leading-tight line-clamp-2',  priceClass: 'text-[10px] font-700 text-primary tabular-nums mt-0.5' },
-  md: { cols: 5, gap: 8,  imgHeight: 80,  imgW: 80,  iconSize: 22, padding: 'p-1.5', nameClass: 'text-[10px] font-600 text-foreground leading-tight line-clamp-2', priceClass: 'text-xs font-700 text-primary tabular-nums mt-0.5' },
-  lg: { cols: 3, gap: 12, imgHeight: 128, imgW: 160, iconSize: 30, padding: 'p-2',   nameClass: 'text-xs font-600 text-foreground leading-tight line-clamp-2',    priceClass: 'text-sm font-700 text-primary tabular-nums mt-0.5' },
+  sm: { cols: 6, gap: 6,  imgHeight: 72,  imgW: 72,  iconSize: 20, padding: 'p-1.5', nameClass: 'text-[10px] font-600 text-foreground leading-tight line-clamp-2', priceClass: 'text-[11px] font-700 text-primary tabular-nums mt-0.5' },
+  md: { cols: 4, gap: 8,  imgHeight: 100, imgW: 100, iconSize: 26, padding: 'p-2',   nameClass: 'text-xs font-600 text-foreground leading-tight line-clamp-2',    priceClass: 'text-xs font-700 text-primary tabular-nums mt-0.5' },
+  lg: { cols: 3, gap: 12, imgHeight: 150, imgW: 150, iconSize: 36, padding: 'p-2.5', nameClass: 'text-sm font-600 text-foreground leading-tight line-clamp-2',    priceClass: 'text-sm font-700 text-primary tabular-nums mt-1' },
 };
 
 export default function ProductGrid({ onAddToCart }: ProductGridProps) {
