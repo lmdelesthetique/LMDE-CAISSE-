@@ -5,10 +5,11 @@ import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import { DEFAULT_SETTINGS, type AppSettings } from '@/contexts/SettingsContext';
+import { sha256hex } from '@/contexts/POSAuthContext';
 
 const supabase = createClient();
 
-type SettingsTab = 'company' | 'payment' | 'templates' | 'stock' | 'returns' | 'loyalty' | 'labels' | 'printers' | 'employees' | 'backup';
+type SettingsTab = 'company' | 'payment' | 'templates' | 'stock' | 'returns' | 'loyalty' | 'labels' | 'printers' | 'employees' | 'backup' | 'security';
 
 const TABS: { id: SettingsTab; label: string; icon: string; desc: string }[] = [
   { id: 'company', label: 'Entreprise', icon: 'BuildingOfficeIcon', desc: 'Infos légales, logo, contact' },
@@ -20,6 +21,7 @@ const TABS: { id: SettingsTab; label: string; icon: string; desc: string }[] = [
   { id: 'labels', label: 'Étiquettes', icon: 'TagIcon', desc: 'Dimensions et format' },
   { id: 'printers', label: 'Imprimantes', icon: 'PrinterIcon', desc: 'Configuration impression' },
   { id: 'backup', label: 'Sauvegardes', icon: 'CloudArrowUpIcon', desc: 'Exports et sauvegardes' },
+  { id: 'security', label: 'Sécurité', icon: 'LockClosedIcon', desc: 'Code PIN caisse' },
 ];
 
 function SettingRow({ label, desc, children }: { label: string; desc?: string; children: React.ReactNode }) {
@@ -50,6 +52,14 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
+  // PIN state
+  const [currentPinHash, setCurrentPinHash] = useState<string | null>(null);
+  const [pinCurrent, setPinCurrent] = useState('');
+  const [pinNew, setPinNew] = useState('');
+  const [pinConfirm, setPinConfirm] = useState('');
+  const [pinSaving, setPinSaving] = useState(false);
+  const [pinMsg, setPinMsg] = useState<{ text: string; ok: boolean } | null>(null);
+
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3500);
@@ -66,6 +76,7 @@ export default function SettingsPage() {
           payment_methods: Array.isArray(data.payment_methods) ? data.payment_methods : DEFAULT_SETTINGS.payment_methods,
         };
         setSettings(merged);
+        setCurrentPinHash(data.pos_pin_hash ?? null);
         // Cache for receipt generation
         try { localStorage.setItem('beautypos_settings', JSON.stringify(merged)); } catch { /* ignore */ }
       }
@@ -74,6 +85,57 @@ export default function SettingsPage() {
     }
     setLoading(false);
   }, []);
+
+  const handleSavePin = async () => {
+    setPinMsg(null);
+    if (pinNew.length !== 6 || !/^\d{6}$/.test(pinNew)) {
+      setPinMsg({ text: 'Le nouveau PIN doit contenir exactement 6 chiffres', ok: false });
+      return;
+    }
+    if (pinNew !== pinConfirm) {
+      setPinMsg({ text: 'Les deux codes ne correspondent pas', ok: false });
+      return;
+    }
+    if (currentPinHash) {
+      const currentEntered = await sha256hex(pinCurrent);
+      if (currentEntered !== currentPinHash) {
+        setPinMsg({ text: 'Code PIN actuel incorrect', ok: false });
+        return;
+      }
+    }
+    setPinSaving(true);
+    try {
+      const newHash = await sha256hex(pinNew);
+      const { error } = await supabase.from('app_settings').upsert({ id: 'main', pos_pin_hash: newHash });
+      if (error) throw error;
+      setCurrentPinHash(newHash);
+      setPinCurrent(''); setPinNew(''); setPinConfirm('');
+      setPinMsg({ text: 'Code PIN mis à jour avec succès ✓', ok: true });
+    } catch (e: any) {
+      setPinMsg({ text: `Erreur : ${e.message}`, ok: false });
+    }
+    setPinSaving(false);
+  };
+
+  const handleRemovePin = async () => {
+    if (!currentPinHash) return;
+    const currentEntered = await sha256hex(pinCurrent);
+    if (currentEntered !== currentPinHash) {
+      setPinMsg({ text: 'Code PIN actuel incorrect', ok: false });
+      return;
+    }
+    setPinSaving(true);
+    try {
+      const { error } = await supabase.from('app_settings').upsert({ id: 'main', pos_pin_hash: null });
+      if (error) throw error;
+      setCurrentPinHash(null);
+      setPinCurrent(''); setPinNew(''); setPinConfirm('');
+      setPinMsg({ text: 'Code PIN supprimé — accès caisse sans PIN', ok: true });
+    } catch (e: any) {
+      setPinMsg({ text: `Erreur : ${e.message}`, ok: false });
+    }
+    setPinSaving(false);
+  };
 
   useEffect(() => { loadSettings(); }, [loadSettings]);
 
@@ -459,6 +521,98 @@ export default function SettingsPage() {
                     <option value="label">Imprimante étiquettes</option>
                   </select>
                 </SettingRow>
+              </div>
+            )}
+
+            {/* SECURITY */}
+            {activeTab === 'security' && (
+              <div className="max-w-2xl space-y-5">
+                <div className="bg-white border border-border rounded-2xl px-6 divide-y divide-border">
+                  <div className="py-4">
+                    <h2 className="text-base font-700 text-foreground">Code PIN Caisse</h2>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {currentPinHash
+                        ? 'Un code PIN est actif. La caisse demande le PIN à chaque nouvelle session (valide 8h).'
+                        : 'Aucun code PIN configuré — la caisse est accessible sans protection.'}
+                    </p>
+                  </div>
+
+                  {currentPinHash && (
+                    <div className="py-4">
+                      <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Code PIN actuel</label>
+                      <input
+                        type="password"
+                        inputMode="numeric"
+                        maxLength={6}
+                        value={pinCurrent}
+                        onChange={e => setPinCurrent(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        placeholder="••••••"
+                        className="mt-1.5 w-40 px-3 py-2 border border-border rounded-lg text-sm text-center tracking-widest focus:outline-none focus:ring-2 focus:ring-primary/30"
+                      />
+                    </div>
+                  )}
+
+                  <div className="py-4 space-y-3">
+                    <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide">
+                      {currentPinHash ? 'Nouveau code PIN' : 'Définir un code PIN'}
+                    </label>
+                    <div className="flex gap-3">
+                      <input
+                        type="password"
+                        inputMode="numeric"
+                        maxLength={6}
+                        value={pinNew}
+                        onChange={e => setPinNew(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        placeholder="6 chiffres"
+                        className="w-40 px-3 py-2 border border-border rounded-lg text-sm text-center tracking-widest focus:outline-none focus:ring-2 focus:ring-primary/30"
+                      />
+                      <input
+                        type="password"
+                        inputMode="numeric"
+                        maxLength={6}
+                        value={pinConfirm}
+                        onChange={e => setPinConfirm(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        placeholder="Confirmer"
+                        className="w-40 px-3 py-2 border border-border rounded-lg text-sm text-center tracking-widest focus:outline-none focus:ring-2 focus:ring-primary/30"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="py-4 flex items-center gap-3">
+                    <button
+                      onClick={handleSavePin}
+                      disabled={pinSaving || pinNew.length !== 6 || pinConfirm.length !== 6}
+                      className="px-4 py-2 bg-primary text-primary-foreground text-sm font-600 rounded-lg hover:opacity-90 disabled:opacity-40 transition-opacity"
+                    >
+                      {pinSaving ? 'Enregistrement…' : currentPinHash ? 'Changer le PIN' : 'Activer le PIN'}
+                    </button>
+                    {currentPinHash && (
+                      <button
+                        onClick={handleRemovePin}
+                        disabled={pinSaving || pinCurrent.length !== 6}
+                        className="px-4 py-2 border border-red-200 text-red-600 text-sm font-600 rounded-lg hover:bg-red-50 disabled:opacity-40 transition-colors"
+                      >
+                        Supprimer le PIN
+                      </button>
+                    )}
+                  </div>
+
+                  {pinMsg && (
+                    <div className={`py-3 text-sm font-500 ${pinMsg.ok ? 'text-emerald-600' : 'text-red-600'}`}>
+                      {pinMsg.text}
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-blue-50 border border-blue-200 rounded-2xl p-5 text-sm text-blue-800">
+                  <p className="font-600 mb-1">Comment ça fonctionne</p>
+                  <ul className="space-y-1 text-xs list-disc list-inside text-blue-700">
+                    <li>Le code PIN est haché (SHA-256) avant d&apos;être stocké — jamais en clair</li>
+                    <li>La session est valide 8h après la saisie du PIN</li>
+                    <li>Après 8h, le PIN est redemandé au rechargement de la caisse</li>
+                    <li>Sans PIN configuré, la caisse est accessible directement</li>
+                  </ul>
+                </div>
               </div>
             )}
 
