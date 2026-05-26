@@ -74,7 +74,7 @@ export function useBarcodeScanner({
 
 // ─── Camera Barcode Scanner ───────────────────────────────────────────────────
 
-export type CameraScanStatus = 'idle' | 'requesting' | 'active' | 'denied' | 'error';
+export type CameraScanStatus = 'idle' | 'requesting' | 'active' | 'no-detector' | 'denied' | 'error';
 
 interface UseCameraBarcodeScannerOptions {
   onScan: (barcode: string) => void;
@@ -139,10 +139,19 @@ export function useCameraBarcodeScanner({
         await videoRef.current.play();
       }
 
-      setStatus('active');
-
       // Use BarcodeDetector API if available
       const BarcodeDetectorAPI = (window as any).BarcodeDetector;
+      if (!BarcodeDetectorAPI) {
+        // Stop the stream — the page will show an iOS file-capture fallback instead
+        stream.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+        if (videoRef.current) videoRef.current.srcObject = null;
+        setStatus('no-detector');
+        return;
+      }
+
+      setStatus('active');
+
       if (BarcodeDetectorAPI) {
         const detector = new BarcodeDetectorAPI({
           formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'qr_code', 'upc_a', 'upc_e', 'itf', 'data_matrix'],
@@ -170,7 +179,6 @@ export function useCameraBarcodeScanner({
         };
         animFrameRef.current = requestAnimationFrame(scan);
       }
-      // If BarcodeDetector not available, camera shows but user must type/paste barcode
     } catch (err: any) {
       if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
         setStatus('denied');

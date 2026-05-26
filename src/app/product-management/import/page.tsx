@@ -18,21 +18,43 @@ interface ParsedRow {
 }
 
 interface ColumnMapping {
-  code: string;
-  name: string;
-  priceTTC: string;
+  reference: string;
   barcode: string;
-  ref: string;
+  product_name: string;
   category: string;
+  supplier: string;
+  stock_quantity: string;
+  purchase_price: string;
+  sell_price_ttc: string;
+  sell_price_ht: string;
+  vat_rate: string;
+  status: string;
+  description: string;
+  min_stock: string;
+  transport_cost: string;
+  customs_cost: string;
+  structure_cost_pct: string;
+  location: string;
 }
 
 interface MappedProduct {
-  code: string;
-  name: string;
-  priceTTC: number;
+  reference: string;
   barcode: string;
-  ref: string;
+  product_name: string;
   category: string;
+  supplier: string;
+  stock_quantity: number;
+  purchase_price: number;
+  sell_price_ttc: number;
+  sell_price_ht: number;
+  vat_rate: number;
+  status: string;
+  description: string;
+  min_stock: number;
+  transport_cost: number;
+  customs_cost: number;
+  structure_cost_pct: number;
+  location: string;
   rawRow: ParsedRow;
 }
 
@@ -67,27 +89,44 @@ interface ImportHistoryEntry {
 
 // ─── Column auto-detection heuristics ────────────────────────────────────────
 
+// Exact matches are listed first — autoDetect tries exact before partial
 const COLUMN_HINTS: Record<keyof ColumnMapping, string[]> = {
-  code: ['code', 'code produit', 'id', 'article', 'sku', 'product_code', 'code_article'],
-  name: ['libelle', 'libellé', 'nom', 'designation', 'désignation', 'name', 'product', 'produit', 'article'],
-  priceTTC: ['prix ttc', 'prix_ttc', 'prixttc', 'price', 'prix', 'tarif', 'montant', 'ttc'],
-  barcode: ['barcode', 'code barre', 'code_barre', 'ean', 'ean13', 'gtin', 'upc', 'code-barres'],
-  ref: ['ref', 'référence', 'reference', 'ref_produit', 'ref produit'],
-  category: ['categorie', 'catégorie', 'category', 'famille', 'type', 'rayon'],
+  reference:        ['reference', 'ref', 'référence', 'ref_produit', 'code_article', 'code produit', 'sku', 'code'],
+  barcode:          ['barcode', 'code_barre', 'code barre', 'code-barres', 'ean13', 'ean', 'gtin', 'upc'],
+  product_name:     ['product_name', 'name', 'nom', 'libelle', 'libellé', 'designation', 'désignation', 'produit', 'article'],
+  category:         ['category', 'categorie', 'catégorie', 'famille', 'rayon'],
+  supplier:         ['supplier', 'fournisseur', 'vendor', 'fabricant'],
+  stock_quantity:   ['stock_quantity', 'stock', 'quantite', 'quantité', 'qty', 'qté'],
+  purchase_price:   ['purchase_price', 'buy_price', 'prix_achat', 'prix achat', 'achat', 'coût achat'],
+  sell_price_ttc:   ['sell_price_ttc', 'prix_ttc', 'prix ttc', 'prixttc', 'tarif ttc', 'price', 'prix', 'tarif'],
+  sell_price_ht:    ['sell_price_ht', 'prix_ht', 'prix ht', 'ht', 'prix hors taxe'],
+  vat_rate:         ['vat_rate', 'tva', 'vat', 'taux_tva', 'taux tva', '% tva'],
+  status:           ['status', 'statut', 'état', 'etat', 'actif'],
+  description:      ['description', 'descriptif', 'details', 'détails', 'notes'],
+  min_stock:        ['min_stock', 'stock_min', 'stock min', 'seuil alerte', 'quantité minimum'],
+  transport_cost:   ['transport_cost', 'transport', 'frais_transport', 'frais transport', 'livraison'],
+  customs_cost:     ['customs_cost', 'customs', 'douane', 'droits_douane', 'droits douane', 'frais douane'],
+  structure_cost_pct: ['structure_cost_pct', 'structure_pct', 'structure', '% structure', 'overhead'],
+  location:         ['location', 'emplacement', 'zone', 'etagere', 'étag'],
+};
+
+const EMPTY_MAPPING: ColumnMapping = {
+  reference: '', barcode: '', product_name: '', category: '', supplier: '',
+  stock_quantity: '', purchase_price: '', sell_price_ttc: '', sell_price_ht: '',
+  vat_rate: '', status: '', description: '', min_stock: '', transport_cost: '',
+  customs_cost: '', structure_cost_pct: '', location: '',
 };
 
 function autoDetectColumns(headers: string[]): ColumnMapping {
-  const mapping: ColumnMapping = { code: '', name: '', priceTTC: '', barcode: '', ref: '', category: '' };
+  const mapping: ColumnMapping = { ...EMPTY_MAPPING };
   const lowerHeaders = headers.map((h) => h.toLowerCase().trim());
 
   for (const [field, hints] of Object.entries(COLUMN_HINTS) as [keyof ColumnMapping, string[]][]) {
-    for (const hint of hints) {
-      const idx = lowerHeaders.findIndex((h) => h.includes(hint));
-      if (idx !== -1) {
-        mapping[field] = headers[idx];
-        break;
-      }
-    }
+    // 1. Exact match (header === hint)
+    let idx = lowerHeaders.findIndex((h) => hints.includes(h));
+    // 2. Partial match (header contains hint)
+    if (idx === -1) idx = lowerHeaders.findIndex((h) => hints.some((hint) => h.includes(hint)));
+    if (idx !== -1) mapping[field] = headers[idx];
   }
   return mapping;
 }
@@ -411,6 +450,79 @@ function DemoCleanupModal({ onClose, onDone }: CleanupModalProps) {
   );
 }
 
+// ─── Export helpers ───────────────────────────────────────────────────────────
+
+const EXPORT_COLUMNS = [
+  { key: 'barcode', label: 'barcode' },
+  { key: 'ref', label: 'reference' },
+  { key: 'name', label: 'product_name' },
+  { key: 'category', label: 'category' },
+  { key: 'supplier', label: 'supplier' },
+  { key: 'buy_price', label: 'purchase_price' },
+  { key: 'sell_price_ttc', label: 'sell_price_ttc' },
+  { key: 'sell_price_ht', label: 'sell_price_ht' },
+  { key: 'vat_rate', label: 'vat_rate' },
+  { key: 'transport_cost', label: 'transport_cost' },
+  { key: 'customs_cost', label: 'customs_cost' },
+  { key: 'other_costs', label: 'other_costs' },
+  { key: 'structure_cost_pct', label: 'structure_pct' },
+  { key: 'total_real_cost', label: 'total_real_cost' },
+  { key: 'gross_margin', label: 'gross_margin' },
+  { key: 'margin_rate', label: 'margin_rate' },
+  { key: 'stock_quantity', label: 'stock_quantity' },
+  { key: 'min_stock', label: 'min_stock' },
+  { key: 'product_status', label: 'status' },
+  { key: 'description', label: 'description' },
+  { key: 'location', label: 'location' },
+];
+
+async function exportProductsCSV() {
+  const client = createClient();
+  const { data, error } = await client
+    .from('products')
+    .select('barcode,ref,name,category,supplier,buy_price,sell_price_ttc,sell_price_ht,vat_rate,transport_cost,customs_cost,other_costs,structure_cost_pct,total_real_cost,gross_margin,margin_rate,stock_quantity,min_stock,product_status,description,location')
+    .order('name');
+  if (error || !data) return;
+
+  const headers = EXPORT_COLUMNS.map((c) => c.label);
+  const rows = data.map((row: any) =>
+    EXPORT_COLUMNS.map((c) => {
+      const v = row[c.key];
+      return v === null || v === undefined ? '' : String(v);
+    })
+  );
+
+  const csv = [headers, ...rows]
+    .map((r) => r.map((v) => `"${v.replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `produits_export_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadTemplateCsv() {
+  const headers = EXPORT_COLUMNS.map((c) => c.label);
+  const example = [
+    '3760000000001', 'REF-001', 'Gel UV Rose Poudré', 'Onglerie', 'Fournisseur Chine',
+    '2.50', '12.90', '11.89', '8.5', '0.30', '0.10', '0', '5',
+    '', '', '', '10', '3', 'active', 'Gel UV longue durée couleur rose', 'Rayon A3',
+  ];
+  const csv = [headers, example]
+    .map((r) => r.map((v) => `"${v}"`).join(','))
+    .join('\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'modele_import_produits.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 // ─── Validation helpers ───────────────────────────────────────────────────────
 
 interface ValidationError {
@@ -423,19 +535,52 @@ interface ValidationError {
 function validateRows(rows: ParsedRow[], mapping: ColumnMapping): ValidationError[] {
   let errors: ValidationError[] = [];
   rows.forEach((row, i) => {
-    const name = mapping.name ? row[mapping.name] : '';
-    const price = mapping.priceTTC ? row[mapping.priceTTC] : '';
+    const name = mapping.product_name ? row[mapping.product_name] : '';
+    const price = mapping.sell_price_ttc ? row[mapping.sell_price_ttc] : '';
     const barcode = mapping.barcode ? row[mapping.barcode] : '';
+    const buyPriceRaw = mapping.purchase_price ? row[mapping.purchase_price] : '';
+    const vatRaw = mapping.vat_rate ? row[mapping.vat_rate] : '';
+    const stockRaw = mapping.stock_quantity ? row[mapping.stock_quantity] : '';
 
     if (!name || !name.trim()) {
       errors.push({ rowIndex: i + 1, field: 'Nom', message: 'Nom manquant', value: '' });
     }
+
+    let priceTTC = 0;
     if (price && price.trim()) {
       const cleaned = price.replace(/[€$£\s]/g, '').replace(',', '.');
-      if (isNaN(parseFloat(cleaned))) {
+      const parsed = parseFloat(cleaned);
+      if (isNaN(parsed)) {
         errors.push({ rowIndex: i + 1, field: 'Prix TTC', message: 'Prix invalide', value: price });
+      } else {
+        priceTTC = parsed;
       }
     }
+
+    let buyPrice = 0;
+    if (buyPriceRaw && buyPriceRaw.trim()) {
+      const cleaned = buyPriceRaw.replace(/[€$£\s]/g, '').replace(',', '.');
+      buyPrice = parseFloat(cleaned) || 0;
+    }
+
+    if (priceTTC > 0 && buyPrice > 0 && priceTTC <= buyPrice) {
+      errors.push({ rowIndex: i + 1, field: 'Prix TTC', message: `Prix TTC (${priceTTC}) doit être supérieur au prix d'achat (${buyPrice})`, value: price });
+    }
+
+    if (vatRaw && vatRaw.trim()) {
+      const vatNum = parseFloat(vatRaw.replace(',', '.'));
+      if (isNaN(vatNum) || vatNum < 0 || vatNum > 100) {
+        errors.push({ rowIndex: i + 1, field: 'TVA', message: 'Taux TVA invalide (doit être entre 0 et 100)', value: vatRaw });
+      }
+    }
+
+    if (stockRaw && stockRaw.trim()) {
+      const stockNum = parseFloat(stockRaw.replace(',', '.'));
+      if (isNaN(stockNum) || stockNum < 0 || !Number.isInteger(stockNum)) {
+        errors.push({ rowIndex: i + 1, field: 'Stock', message: 'Stock doit être un entier positif', value: stockRaw });
+      }
+    }
+
     if (barcode && barcode.trim() && barcode.trim().length > 0) {
       const bc = barcode.trim().replace(/\s/g, '');
       if (!/^\d{8,14}$/.test(bc) && bc.length > 0) {
@@ -456,7 +601,7 @@ export default function ProductImportPage() {
   const [fileName, setFileName] = useState('');
   const [headers, setHeaders] = useState<string[]>([]);
   const [rows, setRows] = useState<ParsedRow[]>([]);
-  const [mapping, setMapping] = useState<ColumnMapping>({ code: '', name: '', priceTTC: '', barcode: '', ref: '', category: '' });
+  const [mapping, setMapping] = useState<ColumnMapping>({ ...EMPTY_MAPPING });
   const [summary, setSummary] = useState<ImportSummary | null>(null);
   const [importLog, setImportLog] = useState<string[]>([]);
   const [importResult, setImportResult] = useState<{ created: number; updated: number; errors: number } | null>(null);
@@ -540,16 +685,34 @@ export default function ProductImportPage() {
   // ── Build summary ──
   const buildSummary = async () => {
     const mapped: MappedProduct[] = rows
-      .map((row) => ({
-        code: mapping.code ? (row[mapping.code] || '') : '',
-        name: mapping.name ? (row[mapping.name] || '') : '',
-        priceTTC: mapping.priceTTC ? parsePrice(row[mapping.priceTTC] || '') : 0,
-        barcode: mapping.barcode ? (row[mapping.barcode] || '') : '',
-        ref: mapping.ref ? (row[mapping.ref] || '') : (mapping.code ? (row[mapping.code] || '') : ''),
-        category: mapping.category ? (row[mapping.category] || '') : '',
-        rawRow: row,
-      }))
-      .filter((p) => p.name.trim() !== '');
+      .map((row) => {
+        const rawStatus = mapping.status ? (row[mapping.status] || '').toLowerCase().trim() : '';
+        const normalizedStatus = rawStatus === 'inactif' || rawStatus === 'inactive' || rawStatus === '0' || rawStatus === 'false'
+          ? 'inactive' : rawStatus === 'rupture' ? 'rupture' : rawStatus === 'coming_soon' || rawStatus === 'bientôt' ? 'coming_soon' : 'active';
+        const str = (key: keyof ColumnMapping) => mapping[key] ? (row[mapping[key]] || '') : '';
+        const num = (key: keyof ColumnMapping) => parsePrice(str(key));
+        return {
+          reference: str('reference'),
+          barcode: str('barcode'),
+          product_name: str('product_name'),
+          category: str('category'),
+          supplier: str('supplier'),
+          stock_quantity: Math.round(num('stock_quantity')),
+          purchase_price: num('purchase_price'),
+          sell_price_ttc: num('sell_price_ttc'),
+          sell_price_ht: num('sell_price_ht'),
+          vat_rate: num('vat_rate'),
+          status: normalizedStatus,
+          description: str('description'),
+          min_stock: Math.round(num('min_stock')),
+          transport_cost: num('transport_cost'),
+          customs_cost: num('customs_cost'),
+          structure_cost_pct: num('structure_cost_pct'),
+          location: str('location'),
+          rawRow: row,
+        };
+      })
+      .filter((p) => p.product_name.trim() !== '');
 
     // Fetch ALL existing products for dedup check (bypass Supabase 1000-row default)
     const existingProducts = await fetchAll<any>((from, to) =>
@@ -577,14 +740,14 @@ export default function ProductImportPage() {
     };
 
     for (const product of mapped) {
-      if (!product.name.trim()) {
+      if (!product.product_name.trim()) {
         result.errors++;
         result.products.push({ product, action: 'error', errorMsg: 'Nom manquant' });
         continue;
       }
 
-      // Use ref or code as dedup key; fall back to name if both empty
-      const codeKey = (product.ref.trim() || product.code.trim() || product.name.trim()).toLowerCase();
+      // Use reference as dedup key; fall back to name
+      const codeKey = (product.reference.trim() || product.product_name.trim()).toLowerCase();
       if (seenCodes.has(codeKey)) {
         result.duplicates++;
         result.products.push({ product, action: 'duplicate' });
@@ -592,12 +755,11 @@ export default function ProductImportPage() {
       }
       seenCodes.add(codeKey);
 
-      // Only look up by ref/barcode if they are non-empty
+      // Only look up by reference/barcode if non-empty
       const existing =
-        (product.ref.trim() ? existingByRef[product.ref.toLowerCase().trim()] : null) ||
-        (product.code.trim() ? existingByRef[product.code.toLowerCase().trim()] : null) ||
+        (product.reference.trim() ? existingByRef[product.reference.toLowerCase().trim()] : null) ||
         (product.barcode.trim() ? existingByBarcode[product.barcode.toLowerCase().trim()] : null) ||
-        existingByName[product.name.toLowerCase().trim()];
+        existingByName[product.product_name.toLowerCase().trim()];
 
       if (existing) {
         const oldBarcode = existing.barcode;
@@ -706,7 +868,7 @@ export default function ProductImportPage() {
         }
         addLog(
           `❌ [${rowLabel}] ${errorType} — code: ${code || 'N/A'} — ${msg}` +
-          ` | Données: name="${payload.name}" ref="${payload.ref ?? ''}" barcode="${payload.barcode ?? ''}" prix_ttc=${payload.sell_price_ttc}`
+          ` | Données: name="${payload.name}" ref="${payload.ref ?? ''}" barcode="${payload.barcode ?? ''}" prix_ttc=${payload.sell_price_ttc} statut=${payload.product_status ?? ''}`
         );
         console.error('CSV Import DB row error:', { rowLabel, errorType, code, message: msg, payload });
         return false;
@@ -723,15 +885,33 @@ export default function ProductImportPage() {
 
     // ── Batch INSERT in chunks of 100 ──
     const CHUNK = 100;
-    const createPayloads = toCreate.map(({ product }) => ({
-      name: product.name,
-      ref: product.ref || product.code || null,
-      barcode: product.barcode || null,
-      sell_price_ttc: product.priceTTC,
-      sell_price_ht: product.priceTTC > 0 ? +(product.priceTTC / 1.085).toFixed(4) : 0,
-      category: product.category || null,
-      status: 'active',
-    }));
+    const buildProductPayload = (product: MappedProduct, existingId?: string) => {
+      const sellHT = product.sell_price_ht > 0 ? product.sell_price_ht
+        : product.sell_price_ttc > 0 ? +(product.sell_price_ttc / (1 + (product.vat_rate > 0 ? product.vat_rate / 100 : 0.085))).toFixed(4) : 0;
+      const payload: Record<string, any> = {
+        name: product.product_name,
+        ref: product.reference || null,
+        barcode: product.barcode || null,
+        sell_price_ttc: product.sell_price_ttc || null,
+        sell_price_ht: sellHT || null,
+        category: product.category || null,
+        product_status: product.status || 'active',
+      };
+      if (existingId) payload.id = existingId;
+      if (product.purchase_price > 0) payload.buy_price = product.purchase_price;
+      if (product.transport_cost > 0) payload.transport_cost = product.transport_cost;
+      if (product.customs_cost > 0) payload.customs_cost = product.customs_cost;
+      if (product.structure_cost_pct > 0) payload.structure_cost_pct = product.structure_cost_pct;
+      if (product.vat_rate > 0) payload.vat_rate = product.vat_rate;
+      if (product.stock_quantity > 0) payload.stock_quantity = product.stock_quantity;
+      if (product.min_stock > 0) payload.min_stock = product.min_stock;
+      if (product.supplier) payload.supplier = product.supplier;
+      if (product.description) payload.description = product.description;
+      if (product.location) payload.location = product.location;
+      return payload;
+    };
+
+    const createPayloads = toCreate.map(({ product }) => buildProductPayload(product));
 
     for (let i = 0; i < createPayloads.length; i += CHUNK) {
       const chunk = createPayloads.slice(i, i + CHUNK);
@@ -742,7 +922,7 @@ export default function ProductImportPage() {
         addLog(`⚠️ Lot création ${Math.floor(i / CHUNK) + 1} échoué (${chunk.length} lignes) — analyse ligne par ligne...`);
         console.warn('CSV Import batch insert failed, retrying row-by-row:', error);
         for (let j = 0; j < chunk.length; j++) {
-          const rowLabel = `ligne ${i + j + 1} "${chunkItems[j].product.name}"`;
+          const rowLabel = `ligne ${i + j + 1} "${chunkItems[j].product.product_name}"`;
           const ok = await insertOneRow(chunk[j], rowLabel, 'insert');
           if (ok) created++;
           else errors++;
@@ -756,16 +936,7 @@ export default function ProductImportPage() {
     // ── Batch UPDATE in chunks of 100 using upsert ──
     const updatePayloads = toUpdate
       .filter((item) => item.existingId)
-      .map(({ product, existingId }) => ({
-        id: existingId!,
-        name: product.name,
-        ref: product.ref || product.code || null,
-        barcode: product.barcode || null,
-        sell_price_ttc: product.priceTTC,
-        sell_price_ht: product.priceTTC > 0 ? +(product.priceTTC / 1.085).toFixed(4) : 0,
-        category: product.category || null,
-        status: 'active',
-      }));
+      .map(({ product, existingId }) => buildProductPayload(product, existingId!));
 
     const updateItems = toUpdate.filter((item) => item.existingId);
 
@@ -778,7 +949,7 @@ export default function ProductImportPage() {
         addLog(`⚠️ Lot mise à jour ${Math.floor(i / CHUNK) + 1} échoué (${chunk.length} lignes) — analyse ligne par ligne...`);
         console.warn('CSV Import batch upsert failed, retrying row-by-row:', error);
         for (let j = 0; j < chunk.length; j++) {
-          const rowLabel = `ligne ${i + j + 1} "${chunkItems[j].product.name}" (id: ${chunk[j].id})`;
+          const rowLabel = `ligne ${i + j + 1} "${chunkItems[j].product.product_name}" (id: ${(chunk[j] as any).id})`;
           const ok = await insertOneRow(chunk[j], rowLabel, 'upsert');
           if (ok) updated++;
           else errors++;
@@ -831,6 +1002,7 @@ export default function ProductImportPage() {
     setFileName('');
     setHeaders([]);
     setRows([]);
+    setMapping({ ...EMPTY_MAPPING });
     setSummary(null);
     setImportLog([]);
     setImportResult(null);
@@ -847,12 +1019,23 @@ export default function ProductImportPage() {
 
   // ── Render ──
   const FIELD_LABELS: Record<keyof ColumnMapping, string> = {
-    code: 'Code produit',
-    name: 'Libellé / Nom *',
-    priceTTC: 'Prix TTC',
-    barcode: 'Code-barres',
-    ref: 'Référence',
-    category: 'Catégorie',
+    reference:          'Référence',
+    barcode:            'Code-barres',
+    product_name:       'Libellé / Nom *',
+    category:           'Catégorie',
+    supplier:           'Fournisseur',
+    stock_quantity:     'Stock actuel',
+    purchase_price:     'Prix achat fournisseur',
+    sell_price_ttc:     'Prix de vente TTC',
+    sell_price_ht:      'Prix de vente HT',
+    vat_rate:           'Taux TVA',
+    status:             'Statut',
+    description:        'Description',
+    min_stock:          'Stock minimum',
+    transport_cost:     'Frais transport',
+    customs_cost:       'Frais douane',
+    structure_cost_pct: 'Frais structure %',
+    location:           'Emplacement',
   };
 
   return (
@@ -873,13 +1056,22 @@ export default function ProductImportPage() {
                 <p className="text-xs text-muted-foreground">Importez vos vrais produits depuis votre ancienne caisse</p>
               </div>
             </div>
-            <button
-              onClick={() => setShowCleanup(true)}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl border border-red-200 text-red-600 text-sm font-500 hover:bg-red-50 transition-colors"
-            >
-              <Icon name="TrashIcon" size={15} />
-              Nettoyer données démo
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={exportProductsCSV}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl border border-border text-sm font-500 text-muted-foreground hover:bg-muted transition-colors"
+              >
+                <Icon name="ArrowDownTrayIcon" size={15} />
+                Exporter CSV
+              </button>
+              <button
+                onClick={() => setShowCleanup(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl border border-red-200 text-red-600 text-sm font-500 hover:bg-red-50 transition-colors"
+              >
+                <Icon name="TrashIcon" size={15} />
+                Nettoyer données démo
+              </button>
+            </div>
           </div>
 
           {/* Tabs */}
@@ -1027,6 +1219,16 @@ export default function ProductImportPage() {
                   <p className="text-xs text-muted-foreground mt-4">
                     Formats acceptés : CSV (séparateur ; ou , ou tabulation) · Excel (.xlsx, .xls) · Encodage UTF-8 ou Latin-1
                   </p>
+                  <div className="mt-4 pt-4 border-t border-border" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      onClick={downloadTemplateCsv}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-border text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                    >
+                      <Icon name="DocumentArrowDownIcon" size={15} />
+                      Télécharger le modèle CSV
+                    </button>
+                    <p className="text-xs text-muted-foreground mt-2">Tous les champs disponibles + 1 ligne d'exemple</p>
+                  </div>
                 </div>
               )}
 
@@ -1114,7 +1316,7 @@ export default function ProductImportPage() {
                     </button>
                     <button
                       onClick={goToPreview}
-                      disabled={!mapping.name}
+                      disabled={!mapping.product_name}
                       className="flex-1 px-5 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-500 hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Aperçu avant import →
@@ -1414,14 +1616,14 @@ export default function ProductImportPage() {
                                   </span>
                                 </td>
                                 <td className="px-4 py-2 font-500 text-foreground max-w-[180px] truncate">
-                                  {item.product.name}
+                                  {item.product.product_name}
                                   {item.errorMsg && (
                                     <span className="text-red-500 ml-1">({item.errorMsg})</span>
                                   )}
                                 </td>
-                                <td className="px-4 py-2 text-muted-foreground">{item.product.ref || item.product.code || '—'}</td>
+                                <td className="px-4 py-2 text-muted-foreground">{item.product.reference || '—'}</td>
                                 <td className="px-4 py-2 text-foreground">
-                                  {item.product.priceTTC > 0 ? `${item.product.priceTTC.toFixed(2)} €` : '—'}
+                                  {item.product.sell_price_ttc > 0 ? `${item.product.sell_price_ttc.toFixed(2)} €` : '—'}
                                 </td>
                                 <td className="px-4 py-2 text-muted-foreground">
                                   {item.product.barcode || '—'}

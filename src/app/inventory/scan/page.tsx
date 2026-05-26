@@ -72,6 +72,9 @@ export default function InventaireScanPage() {
     if (typeof window !== 'undefined') setPageUrl(window.location.href);
   }, []);
 
+  const iosFileRef = useRef<HTMLInputElement | null>(null);
+  const [iosDecoding, setIosDecoding] = useState(false);
+
   const addOrIncrementItem = useCallback((baseItem: Omit<ScannedItem, 'uid'>) => {
     const uid = baseItem.isVariant && baseItem.variantId
       ? `${baseItem.productId}-${baseItem.variantId}`
@@ -127,6 +130,40 @@ export default function InventaireScanPage() {
 
     setIsLooking(false);
   }, [isLooking, addOrIncrementItem, supabase]);
+
+  const handleIOSPhoto = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+
+    const BarcodeDetectorAPI = (window as any).BarcodeDetector;
+    if (!BarcodeDetectorAPI) {
+      toast.error('La détection automatique n\'est pas disponible sur ce navigateur. Saisissez le code-barres manuellement.', { duration: 5000 });
+      return;
+    }
+
+    setIosDecoding(true);
+    try {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.src = url;
+      await new Promise<void>((resolve) => { img.onload = () => resolve(); });
+
+      const detector = new BarcodeDetectorAPI({ formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'qr_code', 'upc_a', 'upc_e'] });
+      const barcodes = await detector.detect(img);
+      URL.revokeObjectURL(url);
+
+      if (barcodes.length > 0) {
+        await handleScan(barcodes[0].rawValue as string);
+      } else {
+        toast.error('Aucun code-barres détecté dans la photo. Réessayez en vous rapprochant.', { duration: 4000 });
+      }
+    } catch {
+      toast.error('Impossible de lire la photo. Saisissez le code-barres manuellement.', { duration: 4000 });
+    } finally {
+      setIosDecoding(false);
+    }
+  }, [handleScan]);
 
   const handleManualSubmit = useCallback(() => {
     const bc = manualBarcode.trim();
@@ -341,6 +378,48 @@ export default function InventaireScanPage() {
                   </div>
                 )}
 
+                {/* iOS fallback: BarcodeDetector not available, use file capture */}
+                {cameraScanner.status === 'no-detector' && (
+                  <div className="space-y-3">
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-center">
+                      <Icon name="DevicePhoneMobileIcon" size={28} className="text-amber-600 mx-auto mb-2" />
+                      <p className="text-sm font-600 text-amber-800 mb-1">Mode iOS / Safari</p>
+                      <p className="text-xs text-amber-700 mb-3">
+                        La détection automatique n'est pas disponible sur ce navigateur.
+                        Prenez une photo du code-barres avec votre appareil photo.
+                      </p>
+                      <input
+                        ref={iosFileRef}
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        className="hidden"
+                        onChange={handleIOSPhoto}
+                      />
+                      <button
+                        onClick={() => iosFileRef.current?.click()}
+                        disabled={iosDecoding}
+                        className="flex items-center gap-2 mx-auto px-5 py-2.5 bg-amber-600 text-white rounded-xl text-sm font-600 hover:bg-amber-700 transition-colors disabled:opacity-50"
+                      >
+                        {iosDecoding ? (
+                          <>
+                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            Analyse en cours…
+                          </>
+                        ) : (
+                          <>
+                            <Icon name="CameraIcon" size={16} />
+                            Prendre une photo
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <p className="text-xs text-center text-muted-foreground">
+                      Ou saisissez le code-barres manuellement ci-dessous
+                    </p>
+                  </div>
+                )}
+
                 {(cameraScanner.status === 'active' || cameraScanner.status === 'error') && (
                   <div className="space-y-3">
                     <div className="relative rounded-xl overflow-hidden bg-black" style={{ aspectRatio: '4/3' }}>
@@ -362,9 +441,10 @@ export default function InventaireScanPage() {
                       </div>
                     </div>
                     {cameraScanner.status === 'error' && (
-                      <p className="text-xs text-center text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
-                        BarcodeDetector non disponible sur ce navigateur — utilisez la saisie manuelle
-                      </p>
+                      <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-center">
+                        <p className="text-xs text-red-700 font-600 mb-1">Erreur d'accès caméra</p>
+                        <p className="text-xs text-red-600">Vérifiez les permissions dans les réglages du navigateur</p>
+                      </div>
                     )}
                     {cameraScanner.status === 'active' && (
                       <p className="text-xs text-center text-muted-foreground">Pointez vers le code-barres</p>

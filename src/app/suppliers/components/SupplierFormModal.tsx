@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { supplierService, Supplier, SupplierReliability } from '@/lib/services/supplierService';
+import { createClient } from '@/lib/supabase/client';
 
 interface Props {
   supplier?: Supplier;
@@ -12,7 +13,6 @@ interface Props {
 
 const COUNTRIES = ['Chine', 'France', 'Italie', 'Espagne', 'Allemagne', 'Corée du Sud', 'Japon', 'USA', 'Autre'];
 const LANGUAGES = ['Chinois', 'Français', 'Anglais', 'Chinois / Anglais', 'Coréen', 'Japonais', 'Espagnol', 'Autre'];
-const CATEGORIES = ['Onglerie', 'Gel X', 'Semi-permanent', 'Cils', 'Brow lift', 'Strass dentaires', 'Mobilier', 'Machines', 'Consommables', 'Formations', 'Kits débutants', 'Kits professionnels'];
 const RELIABILITY_OPTIONS: { value: SupplierReliability; label: string }[] = [
   { value: 'unknown', label: 'Inconnu' },
   { value: 'poor', label: 'Faible' },
@@ -124,10 +124,24 @@ function CredentialsModal({ credentials, onClose }: { credentials: PortalCredent
 }
 
 export default function SupplierFormModal({ supplier, onClose, onSaved }: Props) {
+  const supabase = createClient();
   const isEdit = !!supplier;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedCategories, setSelectedCategories] = useState<string[]>(supplier?.categories || []);
+  const [categories, setCategories] = useState<string[]>([]);
+
+  useEffect(() => {
+    supabase
+      .from('products')
+      .select('category')
+      .not('category', 'is', null)
+      .order('category')
+      .then(({ data }) => {
+        const unique = Array.from(new Set((data || []).map((r: any) => r.category).filter(Boolean))) as string[];
+        setCategories(unique);
+      });
+  }, []);
   const [createdCredentials, setCreatedCredentials] = useState<PortalCredentials | null>(null);
 
   const [form, setForm] = useState({
@@ -320,7 +334,7 @@ export default function SupplierFormModal({ supplier, onClose, onSaved }: Props)
             <div>
               <p className="text-xs font-600 uppercase tracking-widest text-muted-foreground mb-3">Catégories fournies</p>
               <div className="flex flex-wrap gap-2">
-                {CATEGORIES.map((cat) => (
+                {categories.map((cat) => (
                   <button
                     key={cat}
                     type="button"

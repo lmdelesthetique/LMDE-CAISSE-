@@ -109,10 +109,15 @@ export default function ProductManagementContent() {
       ]);
       const catNames = cats.map((c) => c.name).sort();
       const supNames = sups.map((s) => s.companyName).sort();
-      // Also include any categories/suppliers from products not yet in store
-      const prodCats = Array.from(new Set(mapped.map(p => p.category).filter(Boolean)));
+      // Categories: only from active products
+      const { data: activeCatRows } = await supabase
+        .from('products')
+        .select('category')
+        .eq('product_status', 'active')
+        .not('category', 'is', null);
+      const activeCats = Array.from(new Set((activeCatRows || []).map((r: any) => r.category).filter(Boolean))).sort() as string[];
+      const allCats = Array.from(new Set([...catNames, ...activeCats])).sort();
       const prodSups = Array.from(new Set(mapped.map(p => p.supplier).filter(Boolean)));
-      const allCats = Array.from(new Set([...catNames, ...prodCats])).sort();
       const allSups = Array.from(new Set([...supNames, ...prodSups])).sort();
       setCategoryOptions(['Tous', ...allCats]);
       setSupplierOptions(['Tous', ...allSups]);
