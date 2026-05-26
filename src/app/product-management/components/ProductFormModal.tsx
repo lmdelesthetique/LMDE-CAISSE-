@@ -76,6 +76,10 @@ export default function ProductFormModal({ product, onClose, onSave }: ProductFo
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Guards: re-assert select values once after their options load (edit mode only)
+  const categoryValueAsserted = useRef(false);
+  const supplierValueAsserted = useRef(false);
+
   // Color variants state
   const [colorVariants, setColorVariants] = useState<ColorVariant[]>(
     product?.colorVariants ? [...product.colorVariants] : []
@@ -211,6 +215,25 @@ export default function ProductFormModal({ product, onClose, onSave }: ProductFo
   const watchedCategory = watch('category');
   const watchedRef = watch('ref');
   const watchedBarcode = watch('barcode');
+
+  // After categoryOptions load, sync the DOM <select> so it shows the product's
+  // existing category. Without this, the select renders with no matching option
+  // (options arrive async) and stays on "Sélectionner…" until a re-render exposes it.
+  useEffect(() => {
+    if (!categoryValueAsserted.current && product?.category && categoryOptions.length > 0) {
+      categoryValueAsserted.current = true;
+      setValue('category', product.category);
+    }
+  }, [categoryOptions, product, setValue]);
+
+  // Same timing problem for the supplierId <select>.
+  useEffect(() => {
+    const supplierId = (product as any)?.supplierId;
+    if (!supplierValueAsserted.current && supplierId && supplierOptions.length > 0) {
+      supplierValueAsserted.current = true;
+      setValue('supplierId', supplierId);
+    }
+  }, [supplierOptions, product, setValue]);
 
   // When supplier changes, auto-fill supplier name
   useEffect(() => {
