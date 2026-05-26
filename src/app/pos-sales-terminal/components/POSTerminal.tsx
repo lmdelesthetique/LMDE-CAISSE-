@@ -866,46 +866,47 @@ export default function POSTerminal() {
             </div>
             <div className="p-5 space-y-4">
               {/* Camera status messages */}
-              {cameraScanner.status === 'requesting' && (
-                <div className="flex flex-col items-center gap-3 py-6">
-                  <div className="w-10 h-10 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
-                  <p className="text-sm text-muted-foreground text-center">Demande d'accès à la caméra…</p>
-                </div>
-              )}
               {cameraScanner.status === 'denied' && (
                 <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-center">
                   <p className="text-sm font-600 text-red-700 mb-1">Accès caméra refusé</p>
                   <p className="text-xs text-red-600">Autorisez l'accès à la caméra dans les paramètres de votre navigateur, puis réessayez.</p>
                 </div>
               )}
-              {cameraScanner.status === 'error' && (
-                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-center">
-                  <p className="text-sm font-600 text-amber-700 mb-1">Caméra indisponible</p>
-                  <p className="text-xs text-amber-600">Aucune caméra détectée ou erreur d'accès. Utilisez le lecteur USB ou saisissez le code manuellement.</p>
-                </div>
-              )}
-              {cameraScanner.status === 'active' && (
+              {(cameraScanner.status === 'requesting' || cameraScanner.status === 'active' || cameraScanner.status === 'error') && (
                 <div className="space-y-3">
-                  <div className="relative rounded-xl overflow-hidden bg-black aspect-video">
-                    <video
-                      ref={cameraScanner.videoRef}
-                      autoPlay
-                      playsInline
-                      muted
-                      className="w-full h-full object-cover"
+                  <div className="relative rounded-xl overflow-hidden bg-black" style={{ height: '260px' }}>
+                    {/* Quagga injects <video> + <canvas> into this div */}
+                    <div
+                      ref={cameraScanner.containerRef}
+                      className="absolute inset-0 [&_video]:w-full [&_video]:h-full [&_video]:object-cover"
                     />
-                    {/* Scan frame overlay */}
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                      <div className="w-48 h-32 border-2 border-sky-400 rounded-lg relative">
-                        <span className="absolute -top-1 -left-1 w-4 h-4 border-t-2 border-l-2 border-sky-400 rounded-tl" />
-                        <span className="absolute -top-1 -right-1 w-4 h-4 border-t-2 border-r-2 border-sky-400 rounded-tr" />
-                        <span className="absolute -bottom-1 -left-1 w-4 h-4 border-b-2 border-l-2 border-sky-400 rounded-bl" />
-                        <span className="absolute -bottom-1 -right-1 w-4 h-4 border-b-2 border-r-2 border-sky-400 rounded-br" />
-                        <div className="absolute inset-x-0 top-1/2 h-0.5 bg-sky-400/60 animate-pulse" />
+                    {cameraScanner.status === 'requesting' && (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 gap-3 z-10">
+                        <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <p className="text-sm text-white">Accès caméra…</p>
                       </div>
-                    </div>
+                    )}
+                    {cameraScanner.status === 'active' && (
+                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+                        <div className="w-48 h-32 border-2 border-sky-400 rounded-lg relative">
+                          <span className="absolute -top-0.5 -left-0.5 w-4 h-4 border-t-2 border-l-2 border-sky-400 rounded-tl" />
+                          <span className="absolute -top-0.5 -right-0.5 w-4 h-4 border-t-2 border-r-2 border-sky-400 rounded-tr" />
+                          <span className="absolute -bottom-0.5 -left-0.5 w-4 h-4 border-b-2 border-l-2 border-sky-400 rounded-bl" />
+                          <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 border-b-2 border-r-2 border-sky-400 rounded-br" />
+                          <div className="absolute inset-x-0 top-1/2 h-px bg-sky-400/60 animate-pulse" />
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <p className="text-xs text-center text-muted-foreground">Pointez la caméra vers le code-barres du produit</p>
+                  {cameraScanner.status === 'error' && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-center">
+                      <p className="text-sm font-600 text-amber-700 mb-1">Caméra indisponible</p>
+                      <p className="text-xs text-amber-600">Vérifiez les permissions dans les réglages du navigateur.</p>
+                    </div>
+                  )}
+                  {cameraScanner.status === 'active' && (
+                    <p className="text-xs text-center text-muted-foreground">Pointez la caméra vers le code-barres du produit</p>
+                  )}
                 </div>
               )}
               {/* Manual barcode input fallback */}

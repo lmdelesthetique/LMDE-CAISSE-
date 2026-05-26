@@ -12,6 +12,17 @@ import {
   getClientDiscount,
 } from '@/lib/services/clientService';
 import { loyaltyService, getNextTier, pointsToNextTier, REWARD_TYPE_ICONS, REWARD_TYPE_LABELS, type LoyaltyTier, type LoyaltyRedemption, type ClientLoyaltyReward } from '@/lib/services/loyaltyService';
+import { createClient as createSupabaseClient } from '@/lib/supabase/client';
+
+interface SubscriptionPlan {
+  id: string;
+  name: string;
+  price: number;
+  quota_amount: number;
+  shipping_free: boolean;
+  shipping_cost: number;
+  description: string | null;
+}
 
 interface ClientDetailPanelProps {
   client: Client;
@@ -93,6 +104,14 @@ export default function ClientDetailPanel({
   });
   const [savingSub, setSavingSub] = useState(false);
   const [savingDiscount, setSavingDiscount] = useState(false);
+
+  // Box subscription portal state
+  const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
+  const [portalPlanId, setPortalPlanId] = useState('');
+  const [portalPhone, setPortalPhone] = useState('');
+  const [portalPin, setPortalPin] = useState('');
+  const [savingPortal, setSavingPortal] = useState(false);
+  const [pinCopied, setPinCopied] = useState(false);
   const [discountType, setDiscountType] = useState(client.loyaltyDiscountType ?? '');
   const [discountValue, setDiscountValue] = useState(client.loyaltyDiscountValue ?? 0);
 
@@ -117,6 +136,28 @@ export default function ClientDetailPanel({
       });
     }
   }, [tab, client.id]);
+
+  useEffect(() => {
+    if (tab !== 'subscription') return;
+    const supabase = createSupabaseClient();
+    supabase.from('subscription_plans').select('*').eq('is_active', true).order('price').then(({ data }) => {
+      if (data) setPlans(data as SubscriptionPlan[]);
+    });
+    if (subscription) {
+      supabase
+        .from('client_subscriptions')
+        .select('plan_id, pin_code, portal_phone')
+        .eq('id', subscription.id)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (data) {
+            setPortalPlanId((data as any).plan_id ?? '');
+            setPortalPhone((data as any).portal_phone ?? '');
+            setPortalPin((data as any).pin_code ?? '');
+          }
+        });
+    }
+  }, [tab, subscription]);
 
   const nextTier = loyaltyTiers.length > 0 ? getNextTier(loyaltyTiers, client.loyaltyPoints) : null;
   const ptsToNext = loyaltyTiers.length > 0 ? pointsToNextTier(loyaltyTiers, client.loyaltyPoints) : 0;
@@ -192,6 +233,28 @@ export default function ClientDetailPanel({
     setShowSubForm(false);
     setSavingSub(false);
   };
+
+  const handleGeneratePin = () => {
+    setPortalPin(Math.floor(1000 + Math.random() * 9000).toString());
+  };
+
+  const handleSavePortal = async () => {
+    if (!subscription) return;
+    setSavingPortal(true);
+    const supabase = createSupabaseClient();
+    await supabase
+      .from('client_subscriptions')
+      .update({
+        plan_id: portalPlanId || null,
+        pin_code: portalPin || null,
+        portal_phone: portalPhone || null,
+      })
+      .eq('id', subscription.id);
+    setSavingPortal(false);
+  };
+
+  const selectedPlan = plans.find((p) => p.id === portalPlanId) ?? null;
+  const portalUrl = typeof window !== 'undefined' ? `${window.location.origin}/client-portal/login` : '/client-portal/login';
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
@@ -754,6 +817,106 @@ export default function ClientDetailPanel({
                       </button>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/* Box Beauté portal config */}
+              {subscription && (
+                <div className="border border-border rounded-xl p-4 space-y-3 bg-rose-50/40">
+                  <h3 className="text-xs font-700 uppercase tracking-wide text-rose-600 flex items-center gap-1.5">
+                    <Icon name="HeartIcon" size={13} />
+                    Box Beauté — Portail client
+                  </h3>
+
+                  {/* Plan selector */}
+                  <div>
+                    <label className="text-xs font-600 text-muted-foreground block mb-1">Formule</label>
+                    <select
+                      value={portalPlanId}
+                      onChange={(e) => setPortalPlanId(e.target.value)}
+                      className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white"
+                    >
+                      <option value="">— Choisir une formule —</option>
+                      {plans.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name} — {p.price} €/mois · {p.quota_amount} € quota
+                        </option>
+                      ))}
+                    </select>
+                    {selectedPlan && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Livraison : {selectedPlan.shipping_free ? 'offerte' : `${selectedPlan.shipping_cost} €`}
+                        {selectedPlan.description ? ` · ${selectedPlan.description}` : ''}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Portal phone */}
+                  <div>
+                    <label className="text-xs font-600 text-muted-foreground block mb-1">Téléphone portail</label>
+                    <input
+                      type="tel"
+                      value={portalPhone}
+                      onChange={(e) => setPortalPhone(e.target.value)}
+                      placeholder="Ex : 0692 00 00 00"
+                      className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    />
+                  </div>
+
+                  {/* PIN */}
+                  <div>
+                    <label className="text-xs font-600 text-muted-foreground block mb-1">Code PIN (4 chiffres)</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={portalPin}
+                        onChange={(e) => setPortalPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                        placeholder="1234"
+                        className="flex-1 px-3 py-2 border border-border rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/30 tracking-widest"
+                      />
+                      <button
+                        onClick={handleGeneratePin}
+                        className="px-3 py-2 border border-border rounded-lg text-xs font-600 text-muted-foreground hover:bg-muted transition-colors shrink-0"
+                        title="Générer un PIN aléatoire"
+                      >
+                        <Icon name="ArrowPathIcon" size={14} />
+                      </button>
+                      {portalPin && (
+                        <button
+                          onClick={() => { navigator.clipboard.writeText(portalPin); setPinCopied(true); setTimeout(() => setPinCopied(false), 1500); }}
+                          className="px-3 py-2 border border-border rounded-lg text-xs font-600 text-muted-foreground hover:bg-muted transition-colors shrink-0"
+                          title="Copier le PIN"
+                        >
+                          <Icon name={pinCopied ? 'CheckIcon' : 'ClipboardDocumentIcon'} size={14} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Portal link */}
+                  <div className="flex items-center gap-2 p-2.5 bg-white rounded-lg border border-border">
+                    <span className="text-xs text-muted-foreground flex-1 truncate">{portalUrl}</span>
+                    <a
+                      href="/client-portal/login"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-1 rounded hover:bg-muted text-muted-foreground transition-colors shrink-0"
+                      title="Ouvrir le portail"
+                    >
+                      <Icon name="ArrowTopRightOnSquareIcon" size={13} />
+                    </a>
+                  </div>
+
+                  <button
+                    onClick={handleSavePortal}
+                    disabled={savingPortal}
+                    className="w-full py-2 bg-rose-500 text-white rounded-lg text-sm font-600 hover:bg-rose-600 transition-colors disabled:opacity-40 flex items-center justify-center gap-2"
+                  >
+                    {savingPortal
+                      ? <><Icon name="ArrowPathIcon" size={14} className="animate-spin" />Enregistrement…</>
+                      : <><Icon name="CheckIcon" size={14} />Enregistrer le portail</>
+                    }
+                  </button>
                 </div>
               )}
 
