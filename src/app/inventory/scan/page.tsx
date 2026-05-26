@@ -72,9 +72,6 @@ export default function InventaireScanPage() {
     if (typeof window !== 'undefined') setPageUrl(window.location.href);
   }, []);
 
-  const iosFileRef = useRef<HTMLInputElement | null>(null);
-  const [iosDecoding, setIosDecoding] = useState(false);
-
   const addOrIncrementItem = useCallback((baseItem: Omit<ScannedItem, 'uid'>) => {
     const uid = baseItem.isVariant && baseItem.variantId
       ? `${baseItem.productId}-${baseItem.variantId}`
@@ -131,40 +128,6 @@ export default function InventaireScanPage() {
     setIsLooking(false);
   }, [isLooking, addOrIncrementItem, supabase]);
 
-  const handleIOSPhoto = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    e.target.value = '';
-
-    const BarcodeDetectorAPI = (window as any).BarcodeDetector;
-    if (!BarcodeDetectorAPI) {
-      toast.error('La détection automatique n\'est pas disponible sur ce navigateur. Saisissez le code-barres manuellement.', { duration: 5000 });
-      return;
-    }
-
-    setIosDecoding(true);
-    try {
-      const img = new Image();
-      const url = URL.createObjectURL(file);
-      img.src = url;
-      await new Promise<void>((resolve) => { img.onload = () => resolve(); });
-
-      const detector = new BarcodeDetectorAPI({ formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'qr_code', 'upc_a', 'upc_e'] });
-      const barcodes = await detector.detect(img);
-      URL.revokeObjectURL(url);
-
-      if (barcodes.length > 0) {
-        await handleScan(barcodes[0].rawValue as string);
-      } else {
-        toast.error('Aucun code-barres détecté dans la photo. Réessayez en vous rapprochant.', { duration: 4000 });
-      }
-    } catch {
-      toast.error('Impossible de lire la photo. Saisissez le code-barres manuellement.', { duration: 4000 });
-    } finally {
-      setIosDecoding(false);
-    }
-  }, [handleScan]);
-
   const handleManualSubmit = useCallback(() => {
     const bc = manualBarcode.trim();
     if (bc.length < 2) return;
@@ -179,9 +142,9 @@ export default function InventaireScanPage() {
     enabled: scanMode === 'camera',
   });
 
-  const handleOpenCamera = useCallback(async () => {
+  const handleOpenCamera = useCallback(() => {
     setScanMode('camera');
-    await cameraScanner.startCamera();
+    cameraScanner.startCamera();
   }, [cameraScanner]);
 
   const handleCloseCamera = useCallback(() => {
@@ -364,13 +327,6 @@ export default function InventaireScanPage() {
                   </button>
                 </div>
 
-                {cameraScanner.status === 'requesting' && (
-                  <div className="flex flex-col items-center py-8 gap-3">
-                    <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                    <p className="text-sm text-muted-foreground">Accès caméra…</p>
-                  </div>
-                )}
-
                 {cameraScanner.status === 'denied' && (
                   <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-center">
                     <p className="text-sm font-600 text-red-700">Accès refusé</p>
@@ -378,68 +334,39 @@ export default function InventaireScanPage() {
                   </div>
                 )}
 
-                {/* iOS fallback: BarcodeDetector not available, use file capture */}
-                {cameraScanner.status === 'no-detector' && (
+                {/* Container rendered as soon as camera starts so Quagga can attach
+                    to the mounted div during the 'requesting' phase */}
+                {(cameraScanner.status === 'requesting' || cameraScanner.status === 'active' || cameraScanner.status === 'error') && (
                   <div className="space-y-3">
-                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-center">
-                      <Icon name="DevicePhoneMobileIcon" size={28} className="text-amber-600 mx-auto mb-2" />
-                      <p className="text-sm font-600 text-amber-800 mb-1">Mode iOS / Safari</p>
-                      <p className="text-xs text-amber-700 mb-3">
-                        La détection automatique n'est pas disponible sur ce navigateur.
-                        Prenez une photo du code-barres avec votre appareil photo.
-                      </p>
-                      <input
-                        ref={iosFileRef}
-                        type="file"
-                        accept="image/*"
-                        capture="environment"
-                        className="hidden"
-                        onChange={handleIOSPhoto}
+                    <div className="relative rounded-xl overflow-hidden bg-black" style={{ height: '300px' }}>
+                      {/* Quagga injects <video> + <canvas> into this div */}
+                      <div
+                        ref={cameraScanner.containerRef}
+                        className="absolute inset-0 [&_video]:w-full [&_video]:h-full [&_video]:object-cover"
                       />
-                      <button
-                        onClick={() => iosFileRef.current?.click()}
-                        disabled={iosDecoding}
-                        className="flex items-center gap-2 mx-auto px-5 py-2.5 bg-amber-600 text-white rounded-xl text-sm font-600 hover:bg-amber-700 transition-colors disabled:opacity-50"
-                      >
-                        {iosDecoding ? (
-                          <>
-                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                            Analyse en cours…
-                          </>
-                        ) : (
-                          <>
-                            <Icon name="CameraIcon" size={16} />
-                            Prendre une photo
-                          </>
-                        )}
-                      </button>
-                    </div>
-                    <p className="text-xs text-center text-muted-foreground">
-                      Ou saisissez le code-barres manuellement ci-dessous
-                    </p>
-                  </div>
-                )}
 
-                {(cameraScanner.status === 'active' || cameraScanner.status === 'error') && (
-                  <div className="space-y-3">
-                    <div className="relative rounded-xl overflow-hidden bg-black" style={{ aspectRatio: '4/3' }}>
-                      <video
-                        ref={cameraScanner.videoRef}
-                        autoPlay
-                        playsInline
-                        muted
-                        className="w-full h-full object-cover"
-                      />
-                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                        <div className="w-44 h-28 border-2 border-sky-400 rounded-lg relative">
-                          <span className="absolute -top-0.5 -left-0.5 w-4 h-4 border-t-2 border-l-2 border-sky-400 rounded-tl" />
-                          <span className="absolute -top-0.5 -right-0.5 w-4 h-4 border-t-2 border-r-2 border-sky-400 rounded-tr" />
-                          <span className="absolute -bottom-0.5 -left-0.5 w-4 h-4 border-b-2 border-l-2 border-sky-400 rounded-bl" />
-                          <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 border-b-2 border-r-2 border-sky-400 rounded-br" />
-                          <div className="absolute inset-x-0 top-1/2 h-px bg-sky-400/70 animate-pulse" />
+                      {/* Spinner overlay during camera initialisation */}
+                      {cameraScanner.status === 'requesting' && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 gap-3 z-10">
+                          <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          <p className="text-sm text-white">Accès caméra…</p>
                         </div>
-                      </div>
+                      )}
+
+                      {/* Scanning guide corners */}
+                      {cameraScanner.status === 'active' && (
+                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+                          <div className="w-44 h-28 border-2 border-sky-400 rounded-lg relative">
+                            <span className="absolute -top-0.5 -left-0.5 w-4 h-4 border-t-2 border-l-2 border-sky-400 rounded-tl" />
+                            <span className="absolute -top-0.5 -right-0.5 w-4 h-4 border-t-2 border-r-2 border-sky-400 rounded-tr" />
+                            <span className="absolute -bottom-0.5 -left-0.5 w-4 h-4 border-b-2 border-l-2 border-sky-400 rounded-bl" />
+                            <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 border-b-2 border-r-2 border-sky-400 rounded-br" />
+                            <div className="absolute inset-x-0 top-1/2 h-px bg-sky-400/70 animate-pulse" />
+                          </div>
+                        </div>
+                      )}
                     </div>
+
                     {cameraScanner.status === 'error' && (
                       <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-center">
                         <p className="text-xs text-red-700 font-600 mb-1">Erreur d'accès caméra</p>
