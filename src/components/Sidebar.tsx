@@ -14,7 +14,7 @@ interface NavItem {
   href: string;
   badge?: number;
   group?: string;
-  children?: { id: string; label: string; href: string; icon: string }[];
+  children?: { id: string; label: string; href: string; icon: string; badgeText?: string }[];
 }
 
 const navItems: NavItem[] = [
@@ -36,7 +36,18 @@ const navItems: NavItem[] = [
   },
   { id: 'nav-categories', label: 'Catégories', icon: 'RectangleGroupIcon', href: '/categories', group: 'catalogue' },
   { id: 'nav-stock', label: 'Stock', icon: 'ArchiveBoxIcon', href: '/stock', badge: 4, group: 'catalogue' },
-  { id: 'nav-inventory', label: 'Inventaire', icon: 'ClipboardDocumentListIcon', href: '/inventory', group: 'catalogue' },
+  {
+    id: 'nav-inventory',
+    label: 'Inventaire',
+    icon: 'ClipboardDocumentListIcon',
+    href: '/inventory',
+    group: 'catalogue',
+    children: [
+      { id: 'nav-inventory-main', label: 'Vue d\'ensemble', href: '/inventory', icon: 'ClipboardDocumentListIcon' },
+      { id: 'nav-inventory-scan', label: 'Inventaire par scan', href: '/inventory/scan', icon: 'QrCodeIcon', badgeText: 'NOUVEAU' },
+      { id: 'nav-inventory-historique', label: 'Historique', href: '/inventory/historique', icon: 'ClockIcon' },
+    ],
+  },
   { id: 'nav-suppliers', label: 'Fournisseurs', icon: 'TruckIcon', href: '/suppliers', group: 'catalogue' },
   {
     id: 'nav-commandes-fo',
@@ -90,6 +101,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({
     'nav-commandes-fo': pathname.startsWith('/commandes-fournisseurs'),
     'nav-products': pathname.startsWith('/product-management'),
+    'nav-inventory': pathname.startsWith('/inventory'),
   });
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
@@ -289,7 +301,12 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                                 size={13}
                                 className={childActive ? 'text-primary' : 'text-muted-foreground'}
                               />
-                              <span className="truncate">{child.label}</span>
+                              <span className="truncate flex-1">{child.label}</span>
+                              {child.badgeText && (
+                                <span className="ml-1 bg-emerald-500 text-white text-[8px] font-700 px-1.5 py-0.5 rounded-full shrink-0 leading-none">
+                                  {child.badgeText}
+                                </span>
+                              )}
                             </Link>
                           );
                         })}
