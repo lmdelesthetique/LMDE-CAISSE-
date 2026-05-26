@@ -452,35 +452,38 @@ function DemoCleanupModal({ onClose, onDone }: CleanupModalProps) {
 
 // ─── Export helpers ───────────────────────────────────────────────────────────
 
+// DB column names → CSV export label
+// Actual products table columns: ref, name, buy_price, transport, customs, other_fees,
+// sell_price_ht, sell_price_ttc, tva, stock, min_stock, structure_pct, gross_margin,
+// margin_rate, product_status, description, location
 const EXPORT_COLUMNS = [
-  { key: 'barcode', label: 'barcode' },
-  { key: 'ref', label: 'reference' },
-  { key: 'name', label: 'product_name' },
-  { key: 'category', label: 'category' },
-  { key: 'supplier', label: 'supplier' },
-  { key: 'buy_price', label: 'purchase_price' },
-  { key: 'sell_price_ttc', label: 'sell_price_ttc' },
-  { key: 'sell_price_ht', label: 'sell_price_ht' },
-  { key: 'vat_rate', label: 'vat_rate' },
-  { key: 'transport_cost', label: 'transport_cost' },
-  { key: 'customs_cost', label: 'customs_cost' },
-  { key: 'other_costs', label: 'other_costs' },
-  { key: 'structure_cost_pct', label: 'structure_pct' },
-  { key: 'total_real_cost', label: 'total_real_cost' },
-  { key: 'gross_margin', label: 'gross_margin' },
-  { key: 'margin_rate', label: 'margin_rate' },
-  { key: 'stock_quantity', label: 'stock_quantity' },
-  { key: 'min_stock', label: 'min_stock' },
-  { key: 'product_status', label: 'status' },
-  { key: 'description', label: 'description' },
-  { key: 'location', label: 'location' },
+  { key: 'barcode',         label: 'barcode' },
+  { key: 'ref',             label: 'reference' },
+  { key: 'name',            label: 'product_name' },
+  { key: 'category',        label: 'category' },
+  { key: 'supplier',        label: 'supplier' },
+  { key: 'buy_price',       label: 'purchase_price' },
+  { key: 'sell_price_ttc',  label: 'sell_price_ttc' },
+  { key: 'sell_price_ht',   label: 'sell_price_ht' },
+  { key: 'tva',             label: 'vat_rate' },
+  { key: 'transport',       label: 'transport_cost' },
+  { key: 'customs',         label: 'customs_cost' },
+  { key: 'other_fees',      label: 'other_fees' },
+  { key: 'structure_pct',   label: 'structure_cost_pct' },
+  { key: 'gross_margin',    label: 'gross_margin' },
+  { key: 'margin_rate',     label: 'margin_rate' },
+  { key: 'stock',           label: 'stock_quantity' },
+  { key: 'min_stock',       label: 'min_stock' },
+  { key: 'product_status',  label: 'status' },
+  { key: 'description',     label: 'description' },
+  { key: 'location',        label: 'location' },
 ];
 
 async function exportProductsCSV() {
   const client = createClient();
   const { data, error } = await client
     .from('products')
-    .select('barcode,ref,name,category,supplier,buy_price,sell_price_ttc,sell_price_ht,vat_rate,transport_cost,customs_cost,other_costs,structure_cost_pct,total_real_cost,gross_margin,margin_rate,stock_quantity,min_stock,product_status,description,location')
+    .select('barcode,ref,name,category,supplier,buy_price,sell_price_ttc,sell_price_ht,tva,transport,customs,other_fees,structure_pct,gross_margin,margin_rate,stock,min_stock,product_status,description,location')
     .order('name');
   if (error || !data) return;
 
@@ -506,10 +509,17 @@ async function exportProductsCSV() {
 
 function downloadTemplateCsv() {
   const headers = EXPORT_COLUMNS.map((c) => c.label);
+  // barcode, reference, product_name, category, supplier,
+  // purchase_price, sell_price_ttc, sell_price_ht, vat_rate,
+  // transport_cost, customs_cost, other_fees, structure_cost_pct,
+  // gross_margin, margin_rate, stock_quantity, min_stock, status,
+  // description, location
   const example = [
     '3760000000001', 'REF-001', 'Gel UV Rose Poudré', 'Onglerie', 'Fournisseur Chine',
-    '2.50', '12.90', '11.89', '8.5', '0.30', '0.10', '0', '5',
-    '', '', '', '10', '3', 'active', 'Gel UV longue durée couleur rose', 'Rayon A3',
+    '2.50', '12.90', '11.89', '8.5',
+    '0.30', '0.10', '0', '0',
+    '9.39', '375.6', '10', '3', 'active',
+    'Gel UV longue durée couleur rose', 'Rayon A3',
   ];
   const csv = [headers, example]
     .map((r) => r.map((v) => `"${v}"`).join(','))
@@ -868,7 +878,7 @@ export default function ProductImportPage() {
         }
         addLog(
           `❌ [${rowLabel}] ${errorType} — code: ${code || 'N/A'} — ${msg}` +
-          ` | Données: name="${payload.name}" ref="${payload.ref ?? ''}" barcode="${payload.barcode ?? ''}" prix_ttc=${payload.sell_price_ttc} statut=${payload.product_status ?? ''}`
+          ` | name="${payload.name}" ref="${payload.ref ?? ''}" barcode="${payload.barcode ?? ''}" sell_price_ttc=${payload.sell_price_ttc} buy_price=${payload.buy_price} tva=${payload.tva} statut=${payload.product_status ?? ''}`
         );
         console.error('CSV Import DB row error:', { rowLabel, errorType, code, message: msg, payload });
         return false;
@@ -886,28 +896,42 @@ export default function ProductImportPage() {
     // ── Batch INSERT in chunks of 100 ──
     const CHUNK = 100;
     const buildProductPayload = (product: MappedProduct, existingId?: string) => {
-      const sellHT = product.sell_price_ht > 0 ? product.sell_price_ht
-        : product.sell_price_ttc > 0 ? +(product.sell_price_ttc / (1 + (product.vat_rate > 0 ? product.vat_rate / 100 : 0.085))).toFixed(4) : 0;
+      // ── Resolved values ──
+      const vatRate = product.vat_rate > 0 ? product.vat_rate : 8.5;
+      const sellTTC = product.sell_price_ttc > 0 ? product.sell_price_ttc : 0;
+      const sellHT = product.sell_price_ht > 0
+        ? product.sell_price_ht
+        : sellTTC > 0 ? +(sellTTC / (1 + vatRate / 100)).toFixed(4) : 0;
+      const buyPrice = product.purchase_price > 0 ? product.purchase_price : 0;
+      const grossMargin = +(sellHT - buyPrice).toFixed(4);
+      const marginRate = buyPrice > 0 ? +((grossMargin / buyPrice) * 100).toFixed(4) : 0;
+      const prodStatus = product.status || 'active';
+
+      // ── Payload uses actual DB column names ──
       const payload: Record<string, any> = {
-        name: product.product_name,
-        ref: product.reference || null,
-        barcode: product.barcode || null,
-        sell_price_ttc: product.sell_price_ttc || null,
-        sell_price_ht: sellHT || null,
-        category: product.category || null,
-        product_status: product.status || 'active',
+        name:           product.product_name,
+        ref:            product.reference || null,
+        barcode:        product.barcode || null,
+        category:       product.category || null,
+        supplier:       product.supplier || null,
+        buy_price:      buyPrice,
+        transport:      product.transport_cost > 0 ? product.transport_cost : 0,
+        customs:        product.customs_cost > 0 ? product.customs_cost : 0,
+        other_fees:     0,
+        structure_pct:  product.structure_cost_pct > 0 ? product.structure_cost_pct : 0,
+        sell_price_ht:  sellHT,
+        sell_price_ttc: sellTTC,
+        tva:            vatRate,
+        stock:          product.stock_quantity >= 0 ? product.stock_quantity : 0,
+        min_stock:      product.min_stock >= 0 ? product.min_stock : 0,
+        gross_margin:   grossMargin,
+        margin_rate:    marginRate,
+        product_status: prodStatus,
+        status:         prodStatus,
+        description:    product.description || '',
+        location:       product.location || '',
       };
       if (existingId) payload.id = existingId;
-      if (product.purchase_price > 0) payload.buy_price = product.purchase_price;
-      if (product.transport_cost > 0) payload.transport_cost = product.transport_cost;
-      if (product.customs_cost > 0) payload.customs_cost = product.customs_cost;
-      if (product.structure_cost_pct > 0) payload.structure_cost_pct = product.structure_cost_pct;
-      if (product.vat_rate > 0) payload.vat_rate = product.vat_rate;
-      if (product.stock_quantity > 0) payload.stock_quantity = product.stock_quantity;
-      if (product.min_stock > 0) payload.min_stock = product.min_stock;
-      if (product.supplier) payload.supplier = product.supplier;
-      if (product.description) payload.description = product.description;
-      if (product.location) payload.location = product.location;
       return payload;
     };
 
@@ -982,18 +1006,79 @@ export default function ProductImportPage() {
 
     setImportResult({ created, updated, errors });
 
-    // Auto-create any new categories detected during import
+    // ── Post-import sync ──────────────────────────────────────────────────────
+
+    // 1. Auto-create categories
     const detectedCategories = Array.from(
       new Set(summary.products.map((i) => i.product.category).filter(Boolean))
-    );
+    ) as string[];
     if (detectedCategories.length > 0) {
-      addLog(`🏷️ Synchronisation des catégories (${detectedCategories.length} détectées)…`);
+      addLog(`🏷️ Synchronisation des catégories (${detectedCategories.length})…`);
       for (const catName of detectedCategories) {
         await categoryStore.ensureByName(catName);
       }
-      addLog(`✅ Catégories synchronisées`);
     }
 
+    // 2. Link suppliers by name → supplier_id
+    const detectedSuppliers = Array.from(
+      new Set(summary.products.map((i) => i.product.supplier).filter(Boolean))
+    ) as string[];
+    if (detectedSuppliers.length > 0) {
+      addLog(`🔗 Liaison fournisseurs (${detectedSuppliers.length} noms détectés)…`);
+      const { data: suppRows } = await supabase
+        .from('suppliers')
+        .select('id, company_name');
+      if (suppRows && suppRows.length > 0) {
+        let linked = 0;
+        for (const suppName of detectedSuppliers) {
+          const match = suppRows.find(
+            (s: any) => s.company_name?.toLowerCase().trim() === suppName.toLowerCase().trim()
+          );
+          if (match) {
+            await supabase
+              .from('products')
+              .update({ supplier_id: match.id })
+              .eq('supplier', suppName)
+              .is('supplier_id', null);
+            linked++;
+          }
+        }
+        if (linked > 0) addLog(`✅ ${linked} fournisseur(s) liés`);
+      }
+    }
+
+    // 3. Recalculate gross_margin + margin_rate for all imported products
+    const importedNames = summary.products
+      .filter((i) => i.action === 'create' || i.action === 'update')
+      .map((i) => i.product.product_name);
+    if (importedNames.length > 0) {
+      addLog(`📊 Recalcul des marges (${importedNames.length} produits)…`);
+      const { error: recalcErr } = await supabase.rpc('recalc_margins_batch', {
+        product_names: importedNames,
+      }).maybeSingle();
+      // If RPC not available, do it client-side in a single UPDATE
+      if (recalcErr) {
+        await supabase
+          .from('products')
+          .select('id, sell_price_ht, sell_price_ttc, tva, buy_price')
+          .in('name', importedNames.slice(0, 200))
+          .then(async ({ data: prods }) => {
+            if (!prods) return;
+            for (const p of prods) {
+              const tva = Number(p.tva) > 0 ? Number(p.tva) : 8.5;
+              const ht = Number(p.sell_price_ht) > 0
+                ? Number(p.sell_price_ht)
+                : Number(p.sell_price_ttc) / (1 + tva / 100);
+              const bp = Number(p.buy_price) || 0;
+              const gm = +(ht - bp).toFixed(4);
+              const mr = bp > 0 ? +((gm / bp) * 100).toFixed(4) : 0;
+              await supabase.from('products').update({ gross_margin: gm, margin_rate: mr }).eq('id', p.id);
+            }
+          });
+      }
+    }
+
+    addLog(`✅ Synchronisation terminée`);
     setStep('done');
   };
 
