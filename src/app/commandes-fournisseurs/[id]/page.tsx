@@ -4,7 +4,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
-import { supplierOrderService, FoOrder, FoOrderStatus, FoStatusHistory } from '@/lib/services/supplierOrderService';
+import { createClient } from '@/lib/supabase/client';
+import { supplierOrderService, FoOrder, FoOrderLine, FoOrderStatus, FoStatusHistory } from '@/lib/services/supplierOrderService';
 import { exportPurchaseOrderPDF } from '@/lib/utils/purchaseOrderPDF';
 import BarcodeLabelModal from '@/app/product-management/components/BarcodeLabelModal';
 import { type ProductRecord } from '@/app/product-management/components/mockProducts';
@@ -116,6 +117,19 @@ export default function OrderDetailPage() {
   const [bulkUpdateDone, setBulkUpdateDone] = useState(false);
   // Print labels from order state
   const [showOrderLabelModal, setShowOrderLabelModal] = useState(false);
+
+  // Draft edit mode
+  const [editMode, setEditMode] = useState(false);
+  const [editedLines, setEditedLines] = useState<FoOrderLine[]>([]);
+  const [editNotes, setEditNotes] = useState('');
+  const [editTransport, setEditTransport] = useState(0);
+  const [editCustoms, setEditCustoms] = useState(0);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [sendingOrder, setSendingOrder] = useState(false);
+  const [showAddLineModal, setShowAddLineModal] = useState(false);
+  const [productSearch, setProductSearch] = useState('');
+  const [productResults, setProductResults] = useState<any[]>([]);
+  const [searchingProducts, setSearchingProducts] = useState(false);
 
   // Load default structure % from localStorage (set in admin-config)
   useEffect(() => {
@@ -433,6 +447,122 @@ export default function OrderDetailPage() {
     setTimeout(() => setBulkUpdateDone(false), 4000);
   };
 
+  const enterEditMode = () => {
+    if (!order) return;
+    setEditedLines(order.lines ? [...order.lines] : []);
+    setEditNotes(order.notes || '');
+    setEditTransport(order.transportCost);
+    setEditCustoms(order.customsCost);
+    setEditMode(true);
+    setTab('lines');
+  };
+
+  const handleEditLineChange = (lineId: string, field: 'qtyOrdered' | 'unitPrice', value: number) => {
+    setEditedLines((prev) =>
+      prev.map((l) =>
+        l.id === lineId
+          ? { ...l, [field]: value, lineTotal: field === 'qtyOrdered' ? value * l.unitPrice : l.qtyOrdered * value }
+          : l
+      )
+    );
+  };
+
+  const handleRemoveEditLine = (lineId: string) => {
+    setEditedLines((prev) => prev.filter((l) => l.id !== lineId));
+  };
+
+  const searchProducts = async (q: string) => {
+    if (!q.trim()) { setProductResults([]); return; }
+    setSearchingProducts(true);
+    const supabase = createClient();
+    const { data } = await supabase
+      .from('products')
+      .select('id, name, ref, buy_price, sell_price_ttc')
+      .ilike('name', `%${q}%`)
+      .limit(10);
+    setProductResults(data || []);
+    setSearchingProducts(false);
+  };
+
+  const handleAddProductToOrder = (product: any) => {
+    const newLine: FoOrderLine = {
+      id: `new-${Date.now()}`,
+      orderId: order?.id ?? '',
+      productId: product.id,
+      productName: product.name,
+      productRef: product.ref ?? '',
+      qtyOrdered: 1,
+      qtyReceived: 0,
+      unitPrice: product.buy_price ?? 0,
+      lineTotal: product.buy_price ?? 0,
+      unitTransport: 0, unitCustoms: 0, unitVatImport: 0, unitFreight: 0, unitOther: 0,
+      unitRealCost: 0, salePrice: product.sell_price_ttc ?? 0,
+      grossMargin: 0, marginRate: 0, previousCost: 0,
+      qtyMissing: 0, qtyDamaged: 0, weightKg: 0, volumeM3: 0, customCostShare: 0,
+    };
+    setEditedLines((prev) => [...prev, newLine]);
+    setShowAddLineModal(false);
+    setProductSearch('');
+    setProductResults([]);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!order) return;
+    setSavingEdit(true);
+    const supabase = createClient();
+    const originalIds = new Set(order.lines?.map((l) => l.id) ?? []);
+
+    // Delete removed lines
+    for (const orig of order.lines ?? []) {
+      if (!editedLines.some((el) => el.id === orig.id)) {
+        await supplierOrderService.deleteLine(orig.id);
+      }
+    }
+
+    // Update existing lines
+    for (const el of editedLines.filter((l) => !l.id.startsWith('new-') && originalIds.has(l.id))) {
+      await supplierOrderService.updateLine(el.id, {
+        qtyOrdered: el.qtyOrdered,
+        unitPrice: el.unitPrice,
+        lineTotal: el.qtyOrdered * el.unitPrice,
+      });
+    }
+
+    // Add new lines
+    for (const nl of editedLines.filter((l) => l.id.startsWith('new-'))) {
+      await supplierOrderService.addLine({
+        orderId: order.id,
+        productId: nl.productId,
+        productName: nl.productName,
+        productRef: nl.productRef,
+        qtyOrdered: nl.qtyOrdered,
+        unitPrice: nl.unitPrice,
+        salePrice: nl.salePrice,
+      });
+    }
+
+    // Recalculate subtotal
+    const newSubtotal = editedLines.reduce((s, l) => s + l.qtyOrdered * l.unitPrice, 0);
+    await supplierOrderService.update(order.id, {
+      notes: editNotes,
+      transportCost: editTransport,
+      customsCost: editCustoms,
+      subtotal: newSubtotal,
+    });
+
+    setEditMode(false);
+    setSavingEdit(false);
+    load();
+  };
+
+  const handleSendOrder = async () => {
+    if (!order) return;
+    setSendingOrder(true);
+    await supplierOrderService.changeStatus(order.id, 'sent', 'Admin', 'Commande envoyée au fournisseur');
+    setSendingOrder(false);
+    load();
+  };
+
   const handleExportPDF = async () => {
     if (!order) return;
     setExportingPDF(true);
@@ -546,7 +676,32 @@ export default function OrderDetailPage() {
             </div>
             <p className="text-sm text-muted-foreground mt-0.5">{order.supplierName} · Créée le {new Date(order.createdAt).toLocaleDateString('fr-FR')}</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
+            {order.orderStatus === 'draft' && (
+              <>
+                {!editMode && (
+                  <button
+                    onClick={enterEditMode}
+                    className="flex items-center gap-2 px-3 py-2 border border-primary text-primary rounded-lg text-sm font-500 hover:bg-primary/5 transition-colors"
+                  >
+                    <Icon name="PencilIcon" size={15} />
+                    Modifier
+                  </button>
+                )}
+                <button
+                  onClick={handleSendOrder}
+                  disabled={sendingOrder}
+                  className="flex items-center gap-2 px-3 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-500 hover:bg-primary/90 transition-colors disabled:opacity-50"
+                >
+                  {sendingOrder ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Icon name="PaperAirplaneIcon" size={15} />
+                  )}
+                  Envoyer au fournisseur
+                </button>
+              </>
+            )}
             <button
               onClick={handleExportPDF}
               disabled={exportingPDF}
@@ -672,49 +827,220 @@ export default function OrderDetailPage() {
 
         {/* Lines */}
         {tab === 'lines' && (
-          <div className="bg-white border border-border rounded-xl shadow-card overflow-hidden">
-            {lines.length === 0 ? (
-              <div className="p-12 text-center">
-                <Icon name="ShoppingBagIcon" size={36} className="text-muted-foreground mx-auto mb-3" />
-                <p className="text-muted-foreground">Aucun produit dans cette commande</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border bg-muted/30">
-                      <th className="text-left px-4 py-3 font-600 text-muted-foreground text-xs uppercase">Produit</th>
-                      <th className="text-center px-4 py-3 font-600 text-muted-foreground text-xs uppercase">Qté</th>
-                      <th className="text-right px-4 py-3 font-600 text-muted-foreground text-xs uppercase">Prix achat</th>
-                      <th className="text-right px-4 py-3 font-600 text-muted-foreground text-xs uppercase">Total ligne</th>
-                      <th className="text-right px-4 py-3 font-600 text-muted-foreground text-xs uppercase">Coût réel unit.</th>
-                      <th className="text-right px-4 py-3 font-600 text-muted-foreground text-xs uppercase">Marge %</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {lines.map((line) => (
-                      <tr key={line.id} className="hover:bg-muted/20">
-                        <td className="px-4 py-3">
-                          <p className="font-500 text-foreground">{line.productName}</p>
-                          <p className="text-xs text-muted-foreground">{line.productRef}{line.color ? ` · ${line.color}` : ''}{line.size ? ` · ${line.size}` : ''}</p>
-                        </td>
-                        <td className="px-4 py-3 text-center font-600">{line.qtyOrdered}</td>
-                        <td className="px-4 py-3 text-right">{line.unitPrice.toFixed(2)} {order.currency}</td>
-                        <td className="px-4 py-3 text-right font-600">{line.lineTotal.toFixed(2)} {order.currency}</td>
-                        <td className="px-4 py-3 text-right">{line.unitRealCost > 0 ? `${line.unitRealCost.toFixed(2)} ${order.currency}` : '—'}</td>
-                        <td className="px-4 py-3 text-right">
-                          {line.marginRate > 0 ? (
-                            <span className={`font-600 ${line.marginRate >= 40 ? 'text-emerald-600' : line.marginRate >= 20 ? 'text-amber-600' : 'text-red-600'}`}>
-                              {line.marginRate.toFixed(1)}%
-                            </span>
-                          ) : '—'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+          <div className="space-y-4">
+            {/* Edit mode toolbar */}
+            {editMode && (
+              <>
+                {/* Notes + costs in edit mode */}
+                <div className="bg-white border border-primary/30 rounded-xl p-4 shadow-card space-y-3">
+                  <p className="text-sm font-600 text-foreground">Modifier la commande</p>
+                  <div>
+                    <label className="block text-xs text-muted-foreground mb-1">Notes</label>
+                    <textarea
+                      rows={2}
+                      value={editNotes}
+                      onChange={(e) => setEditNotes(e.target.value)}
+                      className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+                      placeholder="Notes de la commande…"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-muted-foreground mb-1">Transport ({order.currency})</label>
+                      <input
+                        type="number" min="0" step="0.01"
+                        value={editTransport}
+                        onChange={(e) => setEditTransport(parseFloat(e.target.value) || 0)}
+                        className="w-full px-3 py-1.5 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-muted-foreground mb-1">Douane ({order.currency})</label>
+                      <input
+                        type="number" min="0" step="0.01"
+                        value={editCustoms}
+                        onChange={(e) => setEditCustoms(parseFloat(e.target.value) || 0)}
+                        className="w-full px-3 py-1.5 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      onClick={handleSaveEdit}
+                      disabled={savingEdit}
+                      className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-500 hover:bg-primary/90 transition-colors disabled:opacity-50"
+                    >
+                      {savingEdit ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Icon name="CheckIcon" size={15} />}
+                      {savingEdit ? 'Enregistrement…' : 'Sauvegarder'}
+                    </button>
+                    <button
+                      onClick={() => setShowAddLineModal(true)}
+                      className="flex items-center gap-2 px-4 py-2 border border-border rounded-lg text-sm font-500 hover:bg-muted transition-colors"
+                    >
+                      <Icon name="PlusIcon" size={15} />
+                      Ajouter produit
+                    </button>
+                    <button
+                      onClick={() => setEditMode(false)}
+                      className="px-4 py-2 border border-border rounded-lg text-sm font-500 text-muted-foreground hover:bg-muted transition-colors"
+                    >
+                      Annuler
+                    </button>
+                  </div>
+                </div>
+              </>
             )}
+
+            {/* Lines table */}
+            <div className="bg-white border border-border rounded-xl shadow-card overflow-hidden">
+              {(!editMode ? lines : editedLines).length === 0 ? (
+                <div className="p-12 text-center">
+                  <Icon name="ShoppingBagIcon" size={36} className="text-muted-foreground mx-auto mb-3" />
+                  <p className="text-muted-foreground">Aucun produit dans cette commande</p>
+                  {editMode && (
+                    <button
+                      onClick={() => setShowAddLineModal(true)}
+                      className="mt-3 flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-500 hover:bg-primary/90 mx-auto"
+                    >
+                      <Icon name="PlusIcon" size={15} />
+                      Ajouter un produit
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border bg-muted/30">
+                        <th className="text-left px-4 py-3 font-600 text-muted-foreground text-xs uppercase">Produit</th>
+                        <th className="text-center px-4 py-3 font-600 text-muted-foreground text-xs uppercase">Qté</th>
+                        <th className="text-right px-4 py-3 font-600 text-muted-foreground text-xs uppercase">Prix achat</th>
+                        <th className="text-right px-4 py-3 font-600 text-muted-foreground text-xs uppercase">Total ligne</th>
+                        {!editMode && <th className="text-right px-4 py-3 font-600 text-muted-foreground text-xs uppercase">Coût réel unit.</th>}
+                        {!editMode && <th className="text-right px-4 py-3 font-600 text-muted-foreground text-xs uppercase">Marge %</th>}
+                        {editMode && <th className="w-10 px-4 py-3" />}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {(editMode ? editedLines : lines).map((line) => (
+                        <tr key={line.id} className={`hover:bg-muted/20 ${editMode ? 'bg-amber-50/20' : ''}`}>
+                          <td className="px-4 py-3">
+                            <p className="font-500 text-foreground">{line.productName}</p>
+                            <p className="text-xs text-muted-foreground">{line.productRef}{line.color ? ` · ${line.color}` : ''}{line.size ? ` · ${line.size}` : ''}</p>
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            {editMode ? (
+                              <input
+                                type="number" min="1"
+                                value={line.qtyOrdered}
+                                onChange={(e) => handleEditLineChange(line.id, 'qtyOrdered', parseInt(e.target.value) || 1)}
+                                className="w-16 text-center px-2 py-1 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                              />
+                            ) : (
+                              <span className="font-600">{line.qtyOrdered}</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            {editMode ? (
+                              <input
+                                type="number" min="0" step="0.01"
+                                value={line.unitPrice}
+                                onChange={(e) => handleEditLineChange(line.id, 'unitPrice', parseFloat(e.target.value) || 0)}
+                                className="w-24 text-right px-2 py-1 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                              />
+                            ) : (
+                              <span>{line.unitPrice.toFixed(2)} {order.currency}</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-right font-600">
+                            {(line.qtyOrdered * line.unitPrice).toFixed(2)} {order.currency}
+                          </td>
+                          {!editMode && (
+                            <td className="px-4 py-3 text-right">{line.unitRealCost > 0 ? `${line.unitRealCost.toFixed(2)} ${order.currency}` : '—'}</td>
+                          )}
+                          {!editMode && (
+                            <td className="px-4 py-3 text-right">
+                              {line.marginRate > 0 ? (
+                                <span className={`font-600 ${line.marginRate >= 40 ? 'text-emerald-600' : line.marginRate >= 20 ? 'text-amber-600' : 'text-red-600'}`}>
+                                  {line.marginRate.toFixed(1)}%
+                                </span>
+                              ) : '—'}
+                            </td>
+                          )}
+                          {editMode && (
+                            <td className="px-4 py-3 text-center">
+                              <button
+                                onClick={() => handleRemoveEditLine(line.id)}
+                                className="w-6 h-6 rounded-full bg-red-100 text-red-600 flex items-center justify-center hover:bg-red-200 transition-colors"
+                                title="Supprimer"
+                              >
+                                <Icon name="XMarkIcon" size={12} />
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                    {editMode && (
+                      <tfoot>
+                        <tr className="border-t border-border bg-muted/10">
+                          <td colSpan={3} className="px-4 py-2 text-sm text-muted-foreground">Sous-total</td>
+                          <td className="px-4 py-2 text-right font-700 text-foreground">
+                            {editedLines.reduce((s, l) => s + l.qtyOrdered * l.unitPrice, 0).toFixed(2)} {order.currency}
+                          </td>
+                          <td />
+                        </tr>
+                      </tfoot>
+                    )}
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Add line modal */}
+        {showAddLineModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-base font-700 text-foreground">Ajouter un produit</h2>
+                <button onClick={() => { setShowAddLineModal(false); setProductSearch(''); setProductResults([]); }} className="p-1 rounded-lg hover:bg-muted text-muted-foreground">
+                  <Icon name="XMarkIcon" size={18} />
+                </button>
+              </div>
+              <div className="relative mb-3">
+                <Icon name="MagnifyingGlassIcon" size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="text"
+                  value={productSearch}
+                  onChange={(e) => { setProductSearch(e.target.value); searchProducts(e.target.value); }}
+                  placeholder="Nom du produit…"
+                  autoFocus
+                  className="w-full pl-9 pr-4 py-2.5 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+              {searchingProducts && (
+                <div className="flex justify-center py-4">
+                  <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                </div>
+              )}
+              <div className="space-y-1 max-h-60 overflow-y-auto">
+                {productResults.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => handleAddProductToOrder(p)}
+                    className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-muted transition-colors border border-transparent hover:border-border"
+                  >
+                    <p className="text-sm font-500 text-foreground">{p.name}</p>
+                    <p className="text-xs text-muted-foreground">{p.ref ?? '—'} · Achat: {p.buy_price?.toFixed(2) ?? '—'} € · Vente: {p.sell_price_ttc?.toFixed(2) ?? '—'} €</p>
+                  </button>
+                ))}
+                {!searchingProducts && productSearch && productResults.length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-4">Aucun produit trouvé</p>
+                )}
+              </div>
+            </div>
           </div>
         )}
 

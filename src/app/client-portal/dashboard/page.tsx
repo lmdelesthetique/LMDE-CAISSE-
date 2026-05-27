@@ -72,7 +72,7 @@ const STATUS_COLOR: Record<OrderStatus, string> = {
   auto: 'bg-gray-50 text-gray-600 border-gray-200',
 };
 
-const WA_NUMBER = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? '';
+const WA_LINK = 'https://wa.me/message/QBWQFIG2EHXCI1';
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -266,47 +266,71 @@ export default function ClientDashboardPage() {
 
   // ── Add product ────────────────────────────────────────────────────────────
   const addProduct = useCallback(async (product: PortalProduct) => {
-    if (!clientUser) return;
-    if (isPastDeadline) { showToast('La date limite de commande est dépassée.', 'error'); return; }
-    if (product.sell_price_ttc > quotaRemaining) { showToast('Quota insuffisant pour ce produit.', 'error'); return; }
+    if (!clientUser) { console.warn('[addProduct] no clientUser'); return; }
+
+    console.log('[addProduct] called', {
+      subscriptionId: clientUser.subscriptionId,
+      productId: product.id,
+      productName: product.name,
+      price: product.sell_price_ttc,
+      quotaRemaining,
+      quotaAmount,
+      orderId: currentOrder?.id,
+      orderStatus: currentOrder?.status,
+      isPastDeadline,
+    });
+
+    if (isPastDeadline) { showToast('Date limite dépassée (après le 25).', 'error'); return; }
+
+    if (currentOrder?.status !== 'open' && currentOrder !== null) {
+      showToast('La commande est déjà confirmée.', 'error'); return;
+    }
+
+    if (product.sell_price_ttc > quotaRemaining) {
+      showToast(`Quota insuffisant (reste ${quotaRemaining.toFixed(2)} €, produit ${product.sell_price_ttc.toFixed(2)} €).`, 'error');
+      return;
+    }
 
     const supabase = createClient();
     let orderId = currentOrder?.id;
 
-    // Create order if needed
+    // Create order if not yet created this month
     if (!orderId) {
+      console.log('[addProduct] creating order for subscription', clientUser.subscriptionId);
       const sc = shippingFree ? 0 : shippingCost;
-      const { data: newOrder, error } = await supabase
+      const { data: newOrder, error: orderErr } = await supabase
         .from('subscription_orders')
         .insert({
           subscription_id: clientUser.subscriptionId,
           order_month: currentMonth,
           status: 'open',
           shipping_cost: sc,
-          deadline_date: deadlineDate.toISOString().slice(0, 10),
+          deadline_date: new Date(new Date().getFullYear(), new Date().getMonth(), 25).toISOString().slice(0, 10),
         })
         .select()
         .single();
-      if (error || !newOrder) { showToast('Erreur lors de la création de la commande.', 'error'); return; }
+      console.log('[addProduct] order creation result', { newOrder, error: orderErr });
+      if (orderErr || !newOrder) {
+        showToast(`Erreur création commande: ${orderErr?.message ?? 'inconnue'}.`, 'error');
+        return;
+      }
       setCurrentOrder(newOrder);
       orderId = newOrder.id;
-    }
-
-    if (currentOrder?.status !== 'open' && currentOrder !== null) {
-      showToast('La commande est déjà confirmée.', 'error'); return;
     }
 
     const existing = orderItems.find((i) => i.product_id === product.id && !i.color_variant);
     if (existing) {
       const newQty = existing.quantity + 1;
       const newTotal = product.sell_price_ttc * newQty;
+      console.log('[addProduct] updating existing item', { itemId: existing.id, newQty });
       const { error } = await supabase
         .from('subscription_order_items')
         .update({ quantity: newQty, total_sell_price: newTotal })
         .eq('id', existing.id);
-      if (error) { showToast('Erreur lors de la mise à jour.', 'error'); return; }
+      if (error) { showToast(`Erreur mise à jour: ${error.message}.`, 'error'); return; }
       setOrderItems((prev) => prev.map((i) => i.id === existing.id ? { ...i, quantity: newQty, total_sell_price: newTotal } : i));
     } else {
+      console.log('[addProduct] inserting new item', { orderId, productId: product.id });
       const { data: newItem, error } = await supabase
         .from('subscription_order_items')
         .insert({
@@ -319,11 +343,15 @@ export default function ClientDashboardPage() {
         })
         .select('*, product:products(id, name, image_url, sell_price_ttc, description)')
         .single();
-      if (error || !newItem) { showToast('Erreur lors de l\'ajout.', 'error'); return; }
+      console.log('[addProduct] insert result', { newItem, error });
+      if (error || !newItem) {
+        showToast(`Erreur ajout: ${error?.message ?? 'inconnue'}.`, 'error');
+        return;
+      }
       setOrderItems((prev) => [...prev, newItem]);
     }
-    showToast(`${product.name} ajouté ✓`);
-  }, [clientUser, currentOrder, orderItems, quotaRemaining, isPastDeadline, currentMonth, shippingFree, shippingCost]);
+    showToast('✓ Produit ajouté');
+  }, [clientUser, currentOrder, orderItems, quotaRemaining, quotaAmount, isPastDeadline, currentMonth, shippingFree, shippingCost]);
 
   // ── Remove product ─────────────────────────────────────────────────────────
   const removeProduct = useCallback(async (itemId: string) => {
@@ -416,7 +444,7 @@ export default function ClientDashboardPage() {
             </div>
             <div className="space-y-2">
               <a
-                href={`https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(`Bonjour, je souhaite passer à la formule ${upgradeTarget} pour mon abonnement box beauté.`)}`}
+                href={WA_LINK}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-center gap-2 w-full py-3 bg-green-500 text-white rounded-xl text-sm font-semibold hover:bg-green-600 transition-colors"
@@ -612,8 +640,7 @@ export default function ClientDashboardPage() {
                               });
                             }
                           }}
-                          disabled={item.unit_sell_price > quotaRemaining}
-                          className="w-7 h-7 rounded-full bg-rose-500 flex items-center justify-center text-white hover:bg-rose-600 disabled:opacity-30"
+                          className="w-7 h-7 rounded-full bg-rose-500 flex items-center justify-center text-white hover:bg-rose-600"
                         >
                           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
                         </button>
@@ -1037,16 +1064,16 @@ function ProductCard({ product, inCart, canAdd, canEdit, onAdd, onRemove, onDeta
           <span className="text-xs font-bold text-rose-600 tabular-nums">{product.sell_price_ttc.toFixed(2)} €</span>
           {inCart ? (
             <div className="flex items-center gap-1">
-              <button onClick={() => onRemove(inCart.id)} disabled={!canEdit} className="w-5 h-5 rounded-full border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-gray-50 disabled:opacity-30">
+              <button onClick={() => onRemove(inCart.id)} className="w-5 h-5 rounded-full border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-gray-50">
                 <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 12h-15" /></svg>
               </button>
               <span className="text-[10px] font-bold text-gray-700">{inCart.quantity}</span>
-              <button onClick={onAdd} disabled={!canAdd} className="w-5 h-5 rounded-full bg-rose-500 flex items-center justify-center text-white hover:bg-rose-600 disabled:opacity-30">
+              <button onClick={onAdd} className="w-5 h-5 rounded-full bg-rose-500 flex items-center justify-center text-white hover:bg-rose-600">
                 <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
               </button>
             </div>
           ) : (
-            <button onClick={onAdd} disabled={!canAdd} className="w-6 h-6 rounded-full bg-rose-500 flex items-center justify-center text-white hover:bg-rose-600 transition-colors disabled:opacity-30">
+            <button onClick={onAdd} className="w-6 h-6 rounded-full bg-rose-500 flex items-center justify-center text-white hover:bg-rose-600 transition-colors">
               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
             </button>
           )}

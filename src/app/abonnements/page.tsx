@@ -59,6 +59,7 @@ export default function AbonnementsPage() {
   const [generatingAuto, setGeneratingAuto] = useState(false);
   const [filterStatus, setFilterStatus] = useState<SubStatus | 'all'>('active');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [newConfirmToast, setNewConfirmToast] = useState<string | null>(null);
 
   const currentMonth = new Date().toISOString().slice(0, 7);
   const today = new Date();
@@ -109,6 +110,23 @@ export default function AbonnementsPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Real-time: when a client confirms their box, reload + show notification
+  useEffect(() => {
+    const supabase = createClient();
+    const channel = supabase
+      .channel('admin-subscription-confirmations')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'subscription_orders' }, (payload: any) => {
+        if (payload.new?.status === 'confirmed') {
+          const benefit = payload.new.benefit_amount ?? 0;
+          setNewConfirmToast(`Nouvelle box confirmée${benefit > 0 ? ` — Bénéfice: +${benefit.toFixed(0)} €` : ''}`);
+          setTimeout(() => setNewConfirmToast(null), 5000);
+          load();
+        }
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [load]);
+
   // KPIs
   const active = subscriptions.filter((s) => s.status === 'active');
   const mrr = active.reduce((sum, s) => sum + (s.plan?.price ?? 0), 0);
@@ -154,6 +172,15 @@ export default function AbonnementsPage() {
 
   return (
     <AppLayout>
+      {/* Real-time confirmation toast */}
+      {newConfirmToast && (
+        <div className="fixed top-4 right-4 z-50 flex items-center gap-2.5 px-4 py-3 bg-emerald-600 text-white rounded-xl shadow-lg text-sm font-medium">
+          <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+          </svg>
+          {newConfirmToast}
+        </div>
+      )}
       <div className="p-6 max-w-5xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -263,7 +290,9 @@ export default function AbonnementsPage() {
 
                     {/* Benefit */}
                     {benefit !== null && benefit > 0 ? (
-                      <span className="text-xs font-700 text-emerald-600 shrink-0 tabular-nums">+{benefit.toFixed(2)} €</span>
+                      <span className="text-xs font-700 text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full shrink-0 tabular-nums">
+                        Bénéfice: +{benefit.toFixed(0)} €
+                      </span>
                     ) : null}
 
                     {/* Chevron */}
