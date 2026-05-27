@@ -230,10 +230,12 @@ export default function ClientDashboardPage() {
       supabase
         .from('products')
         .select('id, name, image_url, sell_price_ttc, description, category, stock, product_status')
-        .eq('product_status', 'active')
+        .or('product_status.eq.active,product_status.eq.Active')
         .gt('stock', 0)
-        .order('name'),
+        .order('name')
+        .limit(1000),
     ]);
+    console.log('[loadProducts] cats:', cats?.length, 'prods:', prods?.length, 'error check — first prod:', prods?.[0]);
 
     const visibleNames = new Set((cats ?? []).map((c: any) => c.name));
     setVisibleCategories(cats ?? []);
@@ -812,19 +814,27 @@ export default function ClientDashboardPage() {
                         {/* Preview thumbnails */}
                         <div className="flex gap-0.5 h-20 bg-gray-50">
                           {previews.length > 0 ? (
-                            previews.map((p, i) => (
-                              <div key={p.id} className="flex-1 overflow-hidden" style={{ flexBasis: previews.length === 1 ? '100%' : '33.3%' }}>
+                            previews.map((p) => (
+                              <div key={p.id} className="flex-1 overflow-hidden relative" style={{ flexBasis: previews.length === 1 ? '100%' : '33.3%' }}>
                                 <img
                                   src={p.image_url!}
                                   alt={p.name}
                                   className="w-full h-full object-cover"
                                   loading="lazy"
+                                  onError={(e) => {
+                                    (e.currentTarget as HTMLImageElement).style.display = 'none';
+                                    const fb = e.currentTarget.nextElementSibling as HTMLElement | null;
+                                    if (fb) fb.style.display = 'flex';
+                                  }}
                                 />
+                                <div className="absolute inset-0 items-center justify-center hidden" style={{ backgroundColor: cat.color + '20' }}>
+                                  <div className="w-6 h-6 rounded-full opacity-50" style={{ backgroundColor: cat.color }} />
+                                </div>
                               </div>
                             ))
                           ) : (
-                            <div className="flex-1 flex items-center justify-center" style={{ backgroundColor: cat.color + '15' }}>
-                              <div className="w-8 h-8 rounded-full opacity-40" style={{ backgroundColor: cat.color }} />
+                            <div className="flex-1 flex items-center justify-center" style={{ background: `linear-gradient(135deg, ${cat.color}20, ${cat.color}05)` }}>
+                              <div className="w-10 h-10 rounded-full opacity-30" style={{ backgroundColor: cat.color }} />
                             </div>
                           )}
                         </div>

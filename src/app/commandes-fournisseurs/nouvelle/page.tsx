@@ -5,9 +5,16 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import Image from 'next/image';
+import { createClient } from '@/lib/supabase/client';
 import { supplierOrderService } from '@/lib/services/supplierOrderService';
 import { supplierService, Supplier } from '@/lib/services/supplierService';
 import { fetchProductsBySupplier, fetchStockProducts, StockProduct } from '@/lib/services/stockService';
+
+interface ColorVariant {
+  color_name: string;
+  color_hex: string;
+  quantity: number;
+}
 
 interface DraftLine {
   key: string;
@@ -29,6 +36,8 @@ interface DraftLine {
   sales30d: number;
   suggestedReorder: number;
   avgRestockDays: number;
+  hasColorVariants: boolean;
+  colorVariants: ColorVariant[];
 }
 
 function stockStatus(current: number, min: number) {
@@ -55,7 +64,25 @@ function productToLine(p: StockProduct): DraftLine {
     sales30d: p.sales30d,
     suggestedReorder: p.suggestedReorder,
     avgRestockDays: p.avgRestockDays,
+    hasColorVariants: false,
+    colorVariants: [],
   };
+}
+
+async function loadVariantsForProduct(productId: string): Promise<{ hasColorVariants: boolean; colorVariants: ColorVariant[] }> {
+  const supabase = createClient();
+  const { data: prod } = await supabase
+    .from('products')
+    .select('has_color_variants')
+    .eq('id', productId)
+    .single();
+  if (!prod?.has_color_variants) return { hasColorVariants: false, colorVariants: [] };
+  const { data: variants } = await supabase
+    .from('product_color_stock')
+    .select('color_name, color_hex, quantity')
+    .eq('product_id', productId)
+    .order('color_name');
+  return { hasColorVariants: true, colorVariants: (variants ?? []) as ColorVariant[] };
 }
 
 function NouvelleCommandeContent() {
@@ -127,28 +154,46 @@ function NouvelleCommandeContent() {
     setShowSearch(true);
   }, [allProducts, selectedSupplier, supplierProducts]);
 
-  const addProduct = (p: StockProduct) => {
-    // Avoid duplicates
+  const addProduct = async (p: StockProduct) => {
     if (lines.some(l => l.productId === p.id)) return;
-    setLines((prev) => [...prev, productToLine(p)]);
+    const line = productToLine(p);
+    setLines((prev) => [...prev, line]);
     setSearch('');
     setSearchResults([]);
     setShowSearch(false);
-  };
-
-  const toggleSupplierProduct = (p: StockProduct) => {
-    if (lines.some(l => l.productId === p.id)) {
-      setLines(prev => prev.filter(l => l.productId !== p.id));
-    } else {
-      setLines(prev => [...prev, productToLine(p)]);
+    if (p.id) {
+      const variantData = await loadVariantsForProduct(p.id);
+      setLines((prev) => prev.map((l) => l.key === line.key ? { ...l, ...variantData } : l));
     }
   };
 
-  const addAllRestock = () => {
+  const toggleSupplierProduct = async (p: StockProduct) => {
+    if (lines.some(l => l.productId === p.id)) {
+      setLines(prev => prev.filter(l => l.productId !== p.id));
+    } else {
+      const line = productToLine(p);
+      setLines(prev => [...prev, line]);
+      if (p.id) {
+        const variantData = await loadVariantsForProduct(p.id);
+        setLines((prev) => prev.map((l) => l.key === line.key ? { ...l, ...variantData } : l));
+      }
+    }
+  };
+
+  const addAllRestock = async () => {
     const toAdd = supplierProducts.filter(
       p => (p.stockStatus === 'rupture' || p.stockStatus === 'faible') && !lines.some(l => l.productId === p.id)
     );
-    setLines(prev => [...prev, ...toAdd.map(productToLine)]);
+    const newLines = toAdd.map(productToLine);
+    setLines(prev => [...prev, ...newLines]);
+    for (const line of newLines) {
+      if (line.productId) {
+        const variantData = await loadVariantsForProduct(line.productId);
+        if (variantData.hasColorVariants) {
+          setLines(prev => prev.map(l => l.key === line.key ? { ...l, ...variantData } : l));
+        }
+      }
+    }
   };
 
   const updateLine = (key: string, field: keyof DraftLine, value: unknown) => {
@@ -457,14 +502,53 @@ function NouvelleCommandeContent() {
                             />
                           </div>
                           <div>
-                            <label className="block text-[11px] text-muted-foreground mb-1">Variante / Couleur</label>
-                            <input
-                              type="text"
-                              value={line.color}
-                              onChange={(e) => updateLine(line.key, 'color', e.target.value)}
-                              placeholder="ex: Rouge, Taille M..."
-                              className="w-full px-2.5 py-1.5 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
-                            />
+                            {line.hasColorVariants ? (
+                              <>
+                                <label className="block text-[11px] text-muted-foreground mb-1">
+                                  Couleur / Variante *{' '}
+                                  {!line.color && <span className="text-red-500">requis</span>}
+                                </label>
+                                <select
+                                  value={line.color}
+                                  onChange={(e) => {
+                                    updateLine(line.key, 'color', e.target.value);
+                                    updateLine(line.key, 'variant', e.target.value);
+                                  }}
+                                  className={`w-full px-2.5 py-1.5 border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 ${!line.color ? 'border-red-300' : 'border-border'}`}
+                                >
+                                  <option value="">Sélectionner une couleur…</option>
+                                  {line.colorVariants.map((v) => (
+                                    <option key={v.color_name} value={v.color_name}>
+                                      {v.color_name}{v.quantity > 0 ? ` — Stock: ${v.quantity}` : ' — Rupture'}
+                                    </option>
+                                  ))}
+                                </select>
+                                {line.color && (() => {
+                                  const sel = line.colorVariants.find((v) => v.color_name === line.color);
+                                  return sel ? (
+                                    <div className="flex items-center gap-1.5 mt-1">
+                                      {sel.color_hex && (
+                                        <span className="w-3 h-3 rounded-full border border-border inline-block shrink-0" style={{ backgroundColor: sel.color_hex }} />
+                                      )}
+                                      <span className={`text-[10px] font-500 ${sel.quantity === 0 ? 'text-red-600' : sel.quantity < 3 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                                        Stock: {sel.quantity}
+                                      </span>
+                                    </div>
+                                  ) : null;
+                                })()}
+                              </>
+                            ) : (
+                              <>
+                                <label className="block text-[11px] text-muted-foreground mb-1">Variante / Couleur</label>
+                                <input
+                                  type="text"
+                                  value={line.color}
+                                  onChange={(e) => updateLine(line.key, 'color', e.target.value)}
+                                  placeholder="ex: Rouge, Taille M…"
+                                  className="w-full px-2.5 py-1.5 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                                />
+                              </>
+                            )}
                           </div>
                           <div>
                             <label className="block text-[11px] text-muted-foreground mb-1">Note</label>
