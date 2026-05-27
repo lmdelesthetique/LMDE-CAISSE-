@@ -1,9 +1,11 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { useClientAuth } from '@/contexts/ClientAuthContext';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type OrderStatus = 'open' | 'confirmed' | 'preparing' | 'shipped' | 'auto';
 
@@ -15,13 +17,7 @@ interface OrderItem {
   unit_buy_price: number;
   unit_sell_price: number;
   total_sell_price: number;
-  product?: {
-    id: string;
-    name: string;
-    image_url: string | null;
-    sell_price_ttc: number;
-    description: string | null;
-  } | null;
+  product?: { id: string; name: string; image_url: string | null; sell_price_ttc: number; description: string | null } | null;
 }
 
 interface SubscriptionOrder {
@@ -53,12 +49,20 @@ interface VisibleCategory {
   icon: string;
 }
 
+interface SubscriptionPlan {
+  id: string;
+  name: string;
+  price: number;
+  quota_amount: number;
+  shipping_cost: number;
+  shipping_free: boolean;
+  description: string | null;
+}
+
+type Tab = 'commande' | 'catalogue' | 'abonnement' | 'historique';
+
 const STATUS_LABEL: Record<OrderStatus, string> = {
-  open: 'En cours',
-  confirmed: 'Confirmée',
-  preparing: 'En préparation',
-  shipped: 'Expédiée',
-  auto: 'Générée auto',
+  open: 'En cours', confirmed: 'Confirmée', preparing: 'Préparation', shipped: 'Expédiée', auto: 'Générée auto',
 };
 const STATUS_COLOR: Record<OrderStatus, string> = {
   open: 'bg-amber-50 text-amber-700 border-amber-200',
@@ -68,22 +72,52 @@ const STATUS_COLOR: Record<OrderStatus, string> = {
   auto: 'bg-gray-50 text-gray-600 border-gray-200',
 };
 
-type Tab = 'commande' | 'catalogue' | 'abonnement' | 'historique';
+const WA_NUMBER = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? '';
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ClientDashboardPage() {
   const router = useRouter();
   const { clientUser, loading: authLoading, signOut } = useClientAuth();
 
   const [tab, setTab] = useState<Tab>('commande');
+  const [selectedCategory, setSelectedCategory] = useState<VisibleCategory | null>(null);
+
+  // Order state
   const [currentOrder, setCurrentOrder] = useState<SubscriptionOrder | null>(null);
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
+  const [loadingOrder, setLoadingOrder] = useState(true);
+  const [confirming, setConfirming] = useState(false);
+
+  // Catalog state
   const [products, setProducts] = useState<PortalProduct[]>([]);
   const [visibleCategories, setVisibleCategories] = useState<VisibleCategory[]>([]);
-  const [pastOrders, setPastOrders] = useState<SubscriptionOrder[]>([]);
-  const [loadingOrder, setLoadingOrder] = useState(true);
   const [loadingProducts, setLoadingProducts] = useState(false);
-  const [confirming, setConfirming] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Plan / shipping from DB (never cached value)
+  const [planData, setPlanData] = useState<SubscriptionPlan | null>(null);
+  const [allPlans, setAllPlans] = useState<SubscriptionPlan[]>([]);
+
+  // Past orders
+  const [pastOrders, setPastOrders] = useState<SubscriptionOrder[]>([]);
+
+  // Toast
+  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Upgrade modal
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [upgradeTarget, setUpgradeTarget] = useState('');
+
+  // Product detail modal
+  const [detailProduct, setDetailProduct] = useState<PortalProduct | null>(null);
+
+  const showToast = useCallback((msg: string, type: 'success' | 'error' = 'success') => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast({ msg, type });
+    toastTimerRef.current = setTimeout(() => setToast(null), 2500);
+  }, []);
 
   const currentMonth = new Date().toISOString().slice(0, 7);
   const today = new Date();
@@ -93,12 +127,34 @@ export default function ClientDashboardPage() {
   const daysLeft = isPastDeadline ? 0 : deadlineDay - today.getDate();
 
   const quotaUsed = orderItems.reduce((s, i) => s + i.unit_sell_price * i.quantity, 0);
-  const quotaRemaining = clientUser ? clientUser.quotaAmount - quotaUsed : 0;
+  const quotaAmount = planData?.quota_amount ?? clientUser?.quotaAmount ?? 0;
+  const quotaRemaining = quotaAmount - quotaUsed;
+  const shippingFree = planData?.shipping_free ?? clientUser?.shippingFree ?? false;
+  const shippingCost = planData?.shipping_cost ?? clientUser?.shippingCost ?? 0;
 
+  // ── Auth redirect ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!authLoading && !clientUser) router.replace('/client-portal/login');
   }, [authLoading, clientUser, router]);
 
+  // ── Load plan data + all plans from DB ───────────────────────────────────
+  useEffect(() => {
+    if (!clientUser) return;
+    const supabase = createClient();
+    supabase
+      .from('subscription_plans')
+      .select('*')
+      .eq('is_active', true)
+      .order('price')
+      .then(({ data }) => {
+        if (!data) return;
+        setAllPlans(data as SubscriptionPlan[]);
+        const current = (data as SubscriptionPlan[]).find((p) => p.name === clientUser.planName);
+        if (current) setPlanData(current);
+      });
+  }, [clientUser]);
+
+  // ── Load current month order + items ──────────────────────────────────────
   const loadCurrentOrder = useCallback(async () => {
     if (!clientUser) return;
     setLoadingOrder(true);
@@ -114,13 +170,14 @@ export default function ClientDashboardPage() {
     let order: SubscriptionOrder | null = existing?.[0] ?? null;
 
     if (!order && !isPastDeadline) {
+      const sc = planData?.shipping_free ? 0 : (planData?.shipping_cost ?? clientUser.shippingCost ?? 0);
       const { data: newOrder } = await supabase
         .from('subscription_orders')
         .insert({
           subscription_id: clientUser.subscriptionId,
           order_month: currentMonth,
           status: 'open',
-          shipping_cost: clientUser.shippingFree ? 0 : clientUser.shippingCost,
+          shipping_cost: sc,
           deadline_date: deadlineDate.toISOString().slice(0, 10),
         })
         .select()
@@ -137,10 +194,27 @@ export default function ClientDashboardPage() {
         .eq('order_id', order.id);
       setOrderItems(items ?? []);
     }
-
     setLoadingOrder(false);
-  }, [clientUser, currentMonth, isPastDeadline]);
+  }, [clientUser, currentMonth, isPastDeadline, planData]);
 
+  useEffect(() => {
+    if (clientUser) loadCurrentOrder();
+  }, [clientUser, loadCurrentOrder]);
+
+  // ── Load past orders ───────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!clientUser) return;
+    const supabase = createClient();
+    supabase
+      .from('subscription_orders')
+      .select('*')
+      .eq('subscription_id', clientUser.subscriptionId)
+      .neq('order_month', currentMonth)
+      .order('order_month', { ascending: false })
+      .then(({ data }) => setPastOrders(data ?? []));
+  }, [clientUser, currentMonth]);
+
+  // ── Load products + categories ─────────────────────────────────────────────
   const loadProducts = useCallback(async () => {
     if (!clientUser) return;
     setLoadingProducts(true);
@@ -161,54 +235,82 @@ export default function ClientDashboardPage() {
         .order('name'),
     ]);
 
-    const visibleCatNames = new Set((cats ?? []).map((c: any) => c.name));
-    const filtered = (prods ?? []).filter((p: any) => visibleCatNames.has(p.category));
-
+    const visibleNames = new Set((cats ?? []).map((c: any) => c.name));
     setVisibleCategories(cats ?? []);
-    setProducts(filtered as PortalProduct[]);
+    setProducts(((prods ?? []) as PortalProduct[]).filter((p) => visibleNames.has(p.category ?? '')));
     setLoadingProducts(false);
   }, [clientUser]);
-
-  const loadPastOrders = useCallback(async () => {
-    if (!clientUser) return;
-    const supabase = createClient();
-    const { data } = await supabase
-      .from('subscription_orders')
-      .select('*')
-      .eq('subscription_id', clientUser.subscriptionId)
-      .neq('order_month', currentMonth)
-      .order('order_month', { ascending: false });
-    setPastOrders(data ?? []);
-  }, [clientUser, currentMonth]);
-
-  useEffect(() => {
-    if (clientUser) { loadCurrentOrder(); loadPastOrders(); }
-  }, [clientUser, loadCurrentOrder, loadPastOrders]);
 
   useEffect(() => {
     if (tab === 'catalogue' && products.length === 0) loadProducts();
   }, [tab, products.length, loadProducts]);
 
-  const addProduct = async (product: PortalProduct) => {
-    if (!currentOrder || !clientUser) return;
-    if (product.sell_price_ttc > quotaRemaining) return;
+  // ── Real-time stock sync ───────────────────────────────────────────────────
+  useEffect(() => {
+    if (!clientUser || tab !== 'catalogue') return;
     const supabase = createClient();
-    const existing = orderItems.find((i) => i.product_id === product.id);
+    const channel = supabase
+      .channel('portal-stock-sync')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'products' }, (payload: any) => {
+        setProducts((prev) =>
+          prev.map((p) =>
+            p.id === payload.new.id
+              ? { ...p, stock: payload.new.stock, sell_price_ttc: payload.new.sell_price_ttc }
+              : p
+          ).filter((p) => p.stock > 0)
+        );
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [clientUser, tab]);
+
+  // ── Add product ────────────────────────────────────────────────────────────
+  const addProduct = useCallback(async (product: PortalProduct) => {
+    if (!clientUser) return;
+    if (isPastDeadline) { showToast('La date limite de commande est dépassée.', 'error'); return; }
+    if (product.sell_price_ttc > quotaRemaining) { showToast('Quota insuffisant pour ce produit.', 'error'); return; }
+
+    const supabase = createClient();
+    let orderId = currentOrder?.id;
+
+    // Create order if needed
+    if (!orderId) {
+      const sc = shippingFree ? 0 : shippingCost;
+      const { data: newOrder, error } = await supabase
+        .from('subscription_orders')
+        .insert({
+          subscription_id: clientUser.subscriptionId,
+          order_month: currentMonth,
+          status: 'open',
+          shipping_cost: sc,
+          deadline_date: deadlineDate.toISOString().slice(0, 10),
+        })
+        .select()
+        .single();
+      if (error || !newOrder) { showToast('Erreur lors de la création de la commande.', 'error'); return; }
+      setCurrentOrder(newOrder);
+      orderId = newOrder.id;
+    }
+
+    if (currentOrder?.status !== 'open' && currentOrder !== null) {
+      showToast('La commande est déjà confirmée.', 'error'); return;
+    }
+
+    const existing = orderItems.find((i) => i.product_id === product.id && !i.color_variant);
     if (existing) {
       const newQty = existing.quantity + 1;
       const newTotal = product.sell_price_ttc * newQty;
-      await supabase
+      const { error } = await supabase
         .from('subscription_order_items')
         .update({ quantity: newQty, total_sell_price: newTotal })
         .eq('id', existing.id);
-      setOrderItems((prev) =>
-        prev.map((i) => i.id === existing.id ? { ...i, quantity: newQty, total_sell_price: newTotal } : i)
-      );
+      if (error) { showToast('Erreur lors de la mise à jour.', 'error'); return; }
+      setOrderItems((prev) => prev.map((i) => i.id === existing.id ? { ...i, quantity: newQty, total_sell_price: newTotal } : i));
     } else {
-      const { data: newItem } = await supabase
+      const { data: newItem, error } = await supabase
         .from('subscription_order_items')
         .insert({
-          order_id: currentOrder.id,
+          order_id: orderId,
           product_id: product.id,
           quantity: 1,
           unit_buy_price: 0,
@@ -217,91 +319,174 @@ export default function ClientDashboardPage() {
         })
         .select('*, product:products(id, name, image_url, sell_price_ttc, description)')
         .single();
-      if (newItem) setOrderItems((prev) => [...prev, newItem]);
+      if (error || !newItem) { showToast('Erreur lors de l\'ajout.', 'error'); return; }
+      setOrderItems((prev) => [...prev, newItem]);
     }
-  };
+    showToast(`${product.name} ajouté ✓`);
+  }, [clientUser, currentOrder, orderItems, quotaRemaining, isPastDeadline, currentMonth, shippingFree, shippingCost]);
 
-  const removeProduct = async (itemId: string) => {
-    if (!currentOrder) return;
-    const supabase = createClient();
+  // ── Remove product ─────────────────────────────────────────────────────────
+  const removeProduct = useCallback(async (itemId: string) => {
     const item = orderItems.find((i) => i.id === itemId);
-    if (!item) return;
+    if (!item || !currentOrder) return;
+    const supabase = createClient();
     if (item.quantity > 1) {
       const newQty = item.quantity - 1;
       const newTotal = item.unit_sell_price * newQty;
-      await supabase
-        .from('subscription_order_items')
-        .update({ quantity: newQty, total_sell_price: newTotal })
-        .eq('id', itemId);
-      setOrderItems((prev) =>
-        prev.map((i) => i.id === itemId ? { ...i, quantity: newQty, total_sell_price: newTotal } : i)
-      );
+      await supabase.from('subscription_order_items').update({ quantity: newQty, total_sell_price: newTotal }).eq('id', itemId);
+      setOrderItems((prev) => prev.map((i) => i.id === itemId ? { ...i, quantity: newQty, total_sell_price: newTotal } : i));
     } else {
       await supabase.from('subscription_order_items').delete().eq('id', itemId);
       setOrderItems((prev) => prev.filter((i) => i.id !== itemId));
     }
-  };
+  }, [orderItems, currentOrder]);
 
+  // ── Confirm order ──────────────────────────────────────────────────────────
   const confirmOrder = async () => {
     if (!currentOrder || currentOrder.status !== 'open') return;
     setConfirming(true);
     const supabase = createClient();
-    const shippingCost = clientUser?.shippingFree ? 0 : (clientUser?.shippingCost ?? 0);
+    const sc = shippingFree ? 0 : shippingCost;
     const totalBuy = orderItems.reduce((s, i) => s + i.unit_buy_price * i.quantity, 0);
-    const benefit = (clientUser?.planPrice ?? 0) - totalBuy - shippingCost;
+    const benefit = Math.max(0, (clientUser?.planPrice ?? 0) - totalBuy - sc);
     await supabase
       .from('subscription_orders')
-      .update({
-        status: 'confirmed',
-        total_products_cost: totalBuy,
-        total_sell_price: quotaUsed,
-        benefit_amount: Math.max(0, benefit),
-        shipping_cost: shippingCost,
-      })
+      .update({ status: 'confirmed', total_products_cost: totalBuy, total_sell_price: quotaUsed, benefit_amount: benefit, shipping_cost: sc })
       .eq('id', currentOrder.id);
     setCurrentOrder((prev) => prev ? { ...prev, status: 'confirmed' } : prev);
+    showToast('Box confirmée ! 🎉');
     setConfirming(false);
   };
 
-  // Grouped products by visible category, filtered by search
+  // ── Catalog groups ─────────────────────────────────────────────────────────
   const groupedCatalog = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
-    return visibleCategories
-      .map((cat) => {
-        const catProducts = products.filter((p) => {
-          if (p.category !== cat.name) return false;
-          if (!q) return true;
-          return (
-            p.name.toLowerCase().includes(q) ||
-            (p.description ?? '').toLowerCase().includes(q)
-          );
-        });
-        return { cat, products: catProducts };
-      })
-      .filter((g) => g.products.length > 0);
+    return visibleCategories.map((cat) => ({
+      cat,
+      products: products.filter((p) => {
+        if (p.category !== cat.name) return false;
+        if (!q) return true;
+        return p.name.toLowerCase().includes(q) || (p.description ?? '').toLowerCase().includes(q);
+      }),
+      allProducts: products.filter((p) => p.category === cat.name),
+    })).filter((g) => g.products.length > 0);
   }, [visibleCategories, products, searchQuery]);
 
-  const canEdit = currentOrder?.status === 'open' && !isPastDeadline;
+  const canEdit = (!currentOrder || currentOrder.status === 'open') && !isPastDeadline;
+  const totalCartQty = orderItems.reduce((s, i) => s + i.quantity, 0);
+
+  // ── Upgrade section ────────────────────────────────────────────────────────
+  const currentPlanPrice = planData?.price ?? clientUser?.planPrice ?? 0;
+  const upgradePlans = allPlans.filter((p) => p.price > currentPlanPrice);
+  const isElite = upgradePlans.length === 0 && allPlans.length > 0;
+  const hasSurpriseGift = clientUser?.planName === 'Pro' || clientUser?.planName === 'Elite';
 
   if (authLoading || !clientUser) return <FullscreenSpinner />;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-rose-50 via-pink-50/30 to-stone-50">
-      {/* Header */}
-      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-sm border-b border-rose-100 px-4 py-3">
+      {/* Toast */}
+      {toast && (
+        <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl shadow-lg text-sm font-medium text-white flex items-center gap-2 transition-all ${toast.type === 'error' ? 'bg-red-500' : 'bg-emerald-500'}`}>
+          {toast.type === 'error'
+            ? <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+            : <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+          }
+          {toast.msg}
+        </div>
+      )}
+
+      {/* Upgrade modal */}
+      {showUpgradeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+            <div className="text-center mb-4">
+              <div className="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-3">
+                <svg className="w-6 h-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 20.25c4.97 0 9-3.694 9-8.25s-4.03-8.25-9-8.25S3 7.444 3 12c0 2.104.859 4.023 2.273 5.48.432.447.74 1.04.586 1.641a4.483 4.483 0 01-.923 1.785A5.969 5.969 0 006 21c1.282 0 2.47-.402 3.445-1.087.81.22 1.668.337 2.555.337z" />
+                </svg>
+              </div>
+              <h2 className="text-base font-bold text-gray-900">Passer à la formule {upgradeTarget}</h2>
+              <p className="text-sm text-gray-500 mt-2">
+                Pour changer de formule, contactez votre conseillère sur WhatsApp. Elle s'occupe de tout !
+              </p>
+              <p className="text-xs text-gray-400 mt-1">
+                Le changement de prélèvement nécessite une validation manuelle.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <a
+                href={`https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(`Bonjour, je souhaite passer à la formule ${upgradeTarget} pour mon abonnement box beauté.`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-2 w-full py-3 bg-green-500 text-white rounded-xl text-sm font-semibold hover:bg-green-600 transition-colors"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
+                  <path d="M12 0C5.373 0 0 5.373 0 12c0 2.125.549 4.122 1.509 5.858L.057 23.215a.75.75 0 00.933.933l5.357-1.452A11.946 11.946 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22.5c-1.923 0-3.727-.504-5.287-1.382l-.379-.214-3.933 1.067 1.067-3.933-.214-.379A10.44 10.44 0 011.5 12C1.5 6.201 6.201 1.5 12 1.5S22.5 6.201 22.5 12 17.799 22.5 12 22.5z"/>
+                </svg>
+                Contacter sur WhatsApp
+              </a>
+              <button
+                onClick={() => setShowUpgradeModal(false)}
+                className="w-full py-2.5 border border-gray-200 rounded-xl text-sm text-gray-500 hover:bg-gray-50 transition-colors"
+              >
+                Annuler
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Product detail modal */}
+      {detailProduct && (
+        <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-black/50 p-4" onClick={() => setDetailProduct(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            {detailProduct.image_url && (
+              <img src={detailProduct.image_url} alt={detailProduct.name} className="w-full h-52 object-cover" />
+            )}
+            <div className="p-5">
+              <h2 className="text-base font-bold text-gray-900 mb-1">{detailProduct.name}</h2>
+              {detailProduct.description && (
+                <p className="text-sm text-gray-500 mb-3 leading-relaxed">{detailProduct.description}</p>
+              )}
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-lg font-bold text-rose-600">{detailProduct.sell_price_ttc.toFixed(2)} €</span>
+                {detailProduct.stock <= 5 && (
+                  <span className="text-xs font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+                    {detailProduct.stock} restant{detailProduct.stock > 1 ? 's' : ''}
+                  </span>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => setDetailProduct(null)} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-500 hover:bg-gray-50">
+                  Fermer
+                </button>
+                {canEdit && (
+                  <button
+                    onClick={() => { addProduct(detailProduct); setDetailProduct(null); }}
+                    disabled={detailProduct.sell_price_ttc > quotaRemaining}
+                    className="flex-1 py-2.5 bg-rose-500 text-white rounded-xl text-sm font-semibold hover:bg-rose-600 disabled:opacity-30"
+                  >
+                    {detailProduct.sell_price_ttc > quotaRemaining ? 'Quota insuffisant' : 'Ajouter à la box'}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Header ── */}
+      <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-sm border-b border-rose-100 px-4 py-3">
         <div className="max-w-lg mx-auto flex items-center justify-between">
           <div>
-            <p className="text-xs text-gray-400">Bonjour,</p>
-            <h1 className="text-base font-semibold text-gray-900 leading-tight">{clientUser.clientName}</h1>
+            <p className="text-[10px] text-gray-400 uppercase tracking-wide">Bonjour</p>
+            <h1 className="text-sm font-bold text-gray-900 leading-tight">{clientUser.clientName}</h1>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-rose-100 text-rose-700">
-              {clientUser.planName}
-            </span>
-            <button
-              onClick={() => { signOut(); router.replace('/client-portal/login'); }}
-              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 transition-colors"
-            >
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-rose-100 text-rose-700">{clientUser.planName}</span>
+            <button onClick={() => { signOut(); router.replace('/client-portal/login'); }} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
               </svg>
@@ -310,45 +495,44 @@ export default function ClientDashboardPage() {
         </div>
       </header>
 
-      {/* Quota bar — always visible */}
-      <div className="sticky top-[57px] z-20 bg-white border-b border-gray-100 px-4 py-2.5">
+      {/* ── Quota bar (always visible) ── */}
+      <div className="sticky top-[53px] z-20 bg-white border-b border-gray-100 px-4 py-2">
         <div className="max-w-lg mx-auto">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-xs font-semibold text-gray-700">Quota {currentMonth}</span>
-            <span className="text-xs font-bold text-rose-600 tabular-nums">{quotaUsed.toFixed(2)} € / {clientUser.quotaAmount} €</span>
+            <span className="text-[11px] font-semibold text-gray-600">Quota {currentMonth}</span>
+            <span className="text-[11px] font-bold text-rose-600 tabular-nums">{quotaUsed.toFixed(2)} € / {quotaAmount} €</span>
           </div>
-          <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+          <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
             <div
-              className="h-full bg-gradient-to-r from-rose-400 to-pink-500 rounded-full transition-all"
-              style={{ width: `${Math.min(100, (quotaUsed / clientUser.quotaAmount) * 100)}%` }}
+              className="h-full rounded-full transition-all duration-300"
+              style={{
+                width: `${Math.min(100, (quotaUsed / quotaAmount) * 100)}%`,
+                background: quotaUsed / quotaAmount > 0.9 ? '#f43f5e' : 'linear-gradient(to right, #fb7185, #ec4899)',
+              }}
             />
           </div>
-          <p className="text-[10px] text-gray-400 mt-0.5 text-right">
-            {Math.max(0, quotaRemaining).toFixed(2)} € restant
-          </p>
+          <p className="text-[10px] text-gray-400 mt-0.5">{Math.max(0, quotaRemaining).toFixed(2)} € restant</p>
         </div>
       </div>
 
-      {/* Tab bar */}
-      <div className="sticky top-[106px] z-10 bg-white border-b border-gray-100 px-4">
+      {/* ── Tab bar ── */}
+      <div className="sticky top-[97px] z-10 bg-white border-b border-gray-100 px-4">
         <div className="max-w-lg mx-auto flex">
           {([
-            { id: 'commande', label: 'Ma commande' },
+            { id: 'commande', label: 'Ma box' },
             { id: 'catalogue', label: 'Catalogue' },
-            { id: 'abonnement', label: 'Abonnement' },
+            { id: 'abonnement', label: 'Formule' },
             { id: 'historique', label: 'Historique' },
           ] as { id: Tab; label: string }[]).map((t) => (
             <button
               key={t.id}
-              onClick={() => setTab(t.id)}
-              className={`flex-1 py-3 text-xs font-medium transition-all border-b-2 ${
-                tab === t.id ? 'border-rose-500 text-rose-600' : 'border-transparent text-gray-400 hover:text-gray-600'
-              }`}
+              onClick={() => { setTab(t.id); if (t.id !== 'catalogue') setSelectedCategory(null); }}
+              className={`flex-1 py-3 text-xs font-medium transition-all border-b-2 relative ${tab === t.id ? 'border-rose-500 text-rose-600' : 'border-transparent text-gray-400 hover:text-gray-600'}`}
             >
               {t.label}
-              {t.id === 'commande' && orderItems.length > 0 && (
-                <span className="ml-1 inline-flex items-center justify-center w-4 h-4 text-[10px] bg-rose-500 text-white rounded-full">
-                  {orderItems.reduce((s, i) => s + i.quantity, 0)}
+              {t.id === 'commande' && totalCartQty > 0 && (
+                <span className="absolute top-2 right-1 w-4 h-4 bg-rose-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+                  {totalCartQty > 9 ? '9+' : totalCartQty}
                 </span>
               )}
             </button>
@@ -356,27 +540,27 @@ export default function ClientDashboardPage() {
         </div>
       </div>
 
-      <div className="max-w-lg mx-auto px-4 py-5 space-y-4">
+      <div className="max-w-lg mx-auto px-4 py-4 space-y-4">
 
-        {/* ── COMMANDE ── */}
+        {/* ══ MA BOX (commande) ══════════════════════════════════════════════ */}
         {tab === 'commande' && (
           <>
-            {currentOrder && (
-              <div className="flex items-center justify-between px-1">
-                <span className="text-xs text-gray-400">Commande {currentMonth}</span>
-                <div className="flex items-center gap-2">
-                  {!isPastDeadline && (
-                    <span className="text-xs text-gray-400">{daysLeft} j avant clôture</span>
-                  )}
-                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${STATUS_COLOR[currentOrder.status]}`}>
-                    {STATUS_LABEL[currentOrder.status]}
-                  </span>
-                </div>
-              </div>
-            )}
+            {/* Deadline */}
+            <div className="flex items-center justify-between px-1">
+              <span className="text-xs text-gray-400">
+                {isPastDeadline ? 'Date limite dépassée' : `${daysLeft} jour${daysLeft > 1 ? 's' : ''} avant clôture`}
+              </span>
+              {currentOrder && (
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${STATUS_COLOR[currentOrder.status]}`}>
+                  {STATUS_LABEL[currentOrder.status]}
+                </span>
+              )}
+            </div>
 
             {loadingOrder ? (
-              <div className="flex justify-center py-10"><Spinner /></div>
+              <div className="space-y-2">
+                {[...Array(3)].map((_, i) => <SkeletonCard key={i} />)}
+              </div>
             ) : orderItems.length === 0 ? (
               <div className="bg-white rounded-2xl p-8 shadow-sm border border-gray-100 text-center">
                 <div className="w-14 h-14 rounded-full bg-rose-50 flex items-center justify-center mx-auto mb-3">
@@ -384,12 +568,9 @@ export default function ClientDashboardPage() {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007z" />
                   </svg>
                 </div>
-                <p className="text-sm font-medium text-gray-700 mb-1">Votre box est vide</p>
+                <p className="text-sm font-semibold text-gray-700 mb-1">Votre box est vide</p>
                 <p className="text-xs text-gray-400 mb-4">Parcourez le catalogue pour choisir vos produits</p>
-                <button
-                  onClick={() => setTab('catalogue')}
-                  className="px-4 py-2 bg-rose-500 text-white rounded-xl text-sm font-medium hover:bg-rose-600 transition-colors"
-                >
+                <button onClick={() => setTab('catalogue')} className="px-4 py-2 bg-rose-500 text-white rounded-xl text-sm font-semibold hover:bg-rose-600 transition-colors">
                   Parcourir le catalogue
                 </button>
               </div>
@@ -398,84 +579,97 @@ export default function ClientDashboardPage() {
                 {orderItems.map((item) => (
                   <div key={item.id} className="bg-white rounded-xl p-3 shadow-sm border border-gray-100 flex items-center gap-3">
                     {item.product?.image_url ? (
-                      <img src={item.product.image_url} alt={item.product.name} className="w-12 h-12 rounded-lg object-cover shrink-0" />
+                      <img src={item.product.image_url} alt={item.product.name} className="w-12 h-12 rounded-lg object-cover shrink-0" loading="lazy" />
                     ) : (
                       <div className="w-12 h-12 rounded-lg bg-rose-50 flex items-center justify-center shrink-0">
-                        <svg className="w-6 h-6 text-rose-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <svg className="w-5 h-5 text-rose-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909" />
                         </svg>
                       </div>
                     )}
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-800 truncate">{item.product?.name ?? 'Produit'}</p>
-                      {item.color_variant && <p className="text-xs text-gray-400">{item.color_variant}</p>}
-                      <p className="text-xs text-rose-600 font-semibold">{item.unit_sell_price.toFixed(2)} € TTC / unité</p>
+                      <p className="text-sm font-semibold text-gray-800 truncate">{item.product?.name ?? 'Produit'}</p>
+                      <p className="text-xs text-rose-600 font-semibold tabular-nums">{item.unit_sell_price.toFixed(2)} € TTC</p>
                     </div>
                     {canEdit ? (
                       <div className="flex items-center gap-2 shrink-0">
-                        <button onClick={() => removeProduct(item.id)} className="w-7 h-7 rounded-full border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-gray-50 transition-colors">
+                        <button onClick={() => removeProduct(item.id)} className="w-7 h-7 rounded-full border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-gray-50">
                           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 12h-15" /></svg>
                         </button>
-                        <span className="text-sm font-semibold text-gray-700 w-5 text-center">{item.quantity}</span>
+                        <span className="text-sm font-bold text-gray-700 w-5 text-center">{item.quantity}</span>
                         <button
-                          onClick={() => item.product && addProduct({ ...item.product, sell_price_ttc: item.unit_sell_price, category: null, stock: 99, product_status: 'active' })}
+                          onClick={() => {
+                            if (item.product) {
+                              addProduct({
+                                id: item.product.id,
+                                name: item.product.name,
+                                image_url: item.product.image_url,
+                                sell_price_ttc: item.unit_sell_price,
+                                description: item.product.description,
+                                category: null,
+                                stock: 99,
+                                product_status: 'active',
+                              });
+                            }
+                          }}
                           disabled={item.unit_sell_price > quotaRemaining}
-                          className="w-7 h-7 rounded-full bg-rose-500 flex items-center justify-center text-white hover:bg-rose-600 transition-colors disabled:opacity-30"
+                          className="w-7 h-7 rounded-full bg-rose-500 flex items-center justify-center text-white hover:bg-rose-600 disabled:opacity-30"
                         >
                           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
                         </button>
                       </div>
                     ) : (
-                      <span className="text-sm font-semibold text-gray-600 shrink-0">×{item.quantity}</span>
+                      <span className="text-sm font-bold text-gray-500 shrink-0">×{item.quantity}</span>
                     )}
                   </div>
                 ))}
               </div>
             )}
 
+            {/* Summary */}
             {orderItems.length > 0 && (
               <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 space-y-2">
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Produits ({orderItems.reduce((s, i) => s + i.quantity, 0)})</span>
-                  <span className="font-semibold">{quotaUsed.toFixed(2)} €</span>
+                  <span className="text-gray-500">Produits ({totalCartQty})</span>
+                  <span className="font-semibold tabular-nums">{quotaUsed.toFixed(2)} €</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500">Livraison</span>
-                  <span className={clientUser.shippingFree ? 'text-emerald-600 font-semibold' : 'font-semibold'}>
-                    {clientUser.shippingFree ? 'Offerte' : `${clientUser.shippingCost.toFixed(2)} €`}
+                  <span className={shippingFree ? 'text-emerald-600 font-semibold' : 'font-semibold tabular-nums'}>
+                    {shippingFree ? 'Offerte ✓' : `${shippingCost.toFixed(2)} €`}
                   </span>
                 </div>
                 <div className="pt-2 border-t border-gray-100 flex justify-between text-sm font-bold">
                   <span>Forfait abonnement</span>
-                  <span>{clientUser.planPrice.toFixed(2)} €</span>
+                  <span className="tabular-nums">{(clientUser.planPrice).toFixed(2)} €</span>
                 </div>
-                {canEdit && (
+
+                {canEdit ? (
                   <button
                     onClick={confirmOrder}
                     disabled={confirming || orderItems.length === 0}
-                    className="w-full mt-3 py-3 bg-rose-500 text-white rounded-xl text-sm font-semibold hover:bg-rose-600 transition-colors disabled:opacity-40 flex items-center justify-center gap-2"
+                    className="w-full mt-2 py-3 bg-rose-500 text-white rounded-xl text-sm font-bold hover:bg-rose-600 transition-colors disabled:opacity-40 flex items-center justify-center gap-2"
                   >
-                    {confirming ? <><Spinner sm />Confirmation…</> : <>
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
-                      Confirmer ma box
-                    </>}
+                    {confirming
+                      ? <><SmallSpinner />Confirmation…</>
+                      : <><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>Confirmer ma box</>
+                    }
                   </button>
-                )}
-                {currentOrder?.status === 'confirmed' && (
-                  <div className="flex items-center gap-2 p-3 bg-emerald-50 rounded-xl border border-emerald-100">
+                ) : currentOrder?.status === 'confirmed' ? (
+                  <div className="flex items-center gap-2 p-3 bg-emerald-50 rounded-xl border border-emerald-100 mt-2">
                     <svg className="w-4 h-4 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
-                    <p className="text-xs text-emerald-700 font-medium">Box confirmée ! Votre conseillère prépare votre commande.</p>
+                    <p className="text-xs text-emerald-700 font-semibold">Box confirmée ! Votre conseillère prépare votre commande.</p>
                   </div>
-                )}
+                ) : null}
               </div>
             )}
           </>
         )}
 
-        {/* ── CATALOGUE ── */}
+        {/* ══ CATALOGUE ══════════════════════════════════════════════════════ */}
         {tab === 'catalogue' && (
           <>
-            {/* Sticky search */}
+            {/* Search */}
             <div className="relative">
               <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
@@ -483,9 +677,9 @@ export default function ClientDashboardPage() {
               <input
                 type="text"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => { setSearchQuery(e.target.value); if (e.target.value) setSelectedCategory(null); }}
                 placeholder="Rechercher un produit…"
-                className="w-full pl-9 pr-3 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-200 shadow-sm"
+                className="w-full pl-9 pr-9 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-200 shadow-sm"
               />
               {searchQuery && (
                 <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500">
@@ -495,113 +689,143 @@ export default function ClientDashboardPage() {
             </div>
 
             {loadingProducts ? (
-              <div className="flex justify-center py-10"><Spinner /></div>
-            ) : groupedCatalog.length === 0 ? (
-              <div className="bg-white rounded-2xl p-8 shadow-sm border border-gray-100 text-center">
-                <p className="text-sm text-gray-400">
-                  {searchQuery ? 'Aucun produit ne correspond à votre recherche.' : 'Aucun produit disponible pour le moment.'}
-                </p>
+              // Skeleton
+              <div className="grid grid-cols-2 gap-3">
+                {[...Array(6)].map((_, i) => <SkeletonProductCard key={i} />)}
               </div>
-            ) : (
-              <div className="space-y-6">
-                {groupedCatalog.map(({ cat, products: catProducts }) => (
-                  <div key={cat.id}>
-                    {/* Category header */}
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: cat.color + '25' }}>
-                        <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: cat.color }} />
+            ) : searchQuery ? (
+              // Search results — flat list grouped
+              groupedCatalog.length === 0 ? (
+                <div className="bg-white rounded-2xl p-8 text-center shadow-sm border border-gray-100">
+                  <p className="text-sm text-gray-400">Aucun produit pour "{searchQuery}"</p>
+                </div>
+              ) : (
+                <div className="space-y-5">
+                  {groupedCatalog.map(({ cat, products: catProds }) => (
+                    <div key={cat.id}>
+                      <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">{cat.name}</p>
+                      <div className="grid grid-cols-3 gap-2">
+                        {catProds.map((p) => (
+                          <ProductCard
+                            key={p.id}
+                            product={p}
+                            inCart={orderItems.find((i) => i.product_id === p.id)}
+                            canAdd={canEdit && p.sell_price_ttc <= quotaRemaining}
+                            canEdit={canEdit}
+                            onAdd={() => addProduct(p)}
+                            onRemove={(id) => removeProduct(id)}
+                            onDetail={() => setDetailProduct(p)}
+                          />
+                        ))}
                       </div>
-                      <h3 className="text-sm font-bold text-gray-800">{cat.name}</h3>
-                      <span className="text-xs text-gray-400">({catProducts.length})</span>
                     </div>
+                  ))}
+                </div>
+              )
+            ) : selectedCategory ? (
+              // Category drill-down
+              <>
+                <button
+                  onClick={() => setSelectedCategory(null)}
+                  className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+                  </svg>
+                  Toutes les catégories
+                </button>
 
-                    {/* Product grid */}
-                    <div className="grid grid-cols-2 gap-3">
-                      {catProducts.map((product) => {
-                        const inCart = orderItems.find((i) => i.product_id === product.id);
-                        const canAdd = canEdit && product.sell_price_ttc <= quotaRemaining;
-                        const isLowStock = product.stock <= 3;
-
-                        return (
-                          <div key={product.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                            {/* Image */}
-                            <div className="relative">
-                              {product.image_url ? (
-                                <img src={product.image_url} alt={product.name} className="w-full h-32 object-cover" />
-                              ) : (
-                                <div className="w-full h-32 flex items-center justify-center" style={{ backgroundColor: cat.color + '10' }}>
-                                  <svg className="w-10 h-10" style={{ color: cat.color + '60' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909" />
-                                  </svg>
-                                </div>
-                              )}
-                              {isLowStock && (
-                                <span className="absolute top-1.5 left-1.5 text-[9px] font-bold bg-amber-400 text-white px-1.5 py-0.5 rounded-full">
-                                  {product.stock} restant{product.stock > 1 ? 's' : ''}
-                                </span>
-                              )}
-                              {inCart && (
-                                <span className="absolute top-1.5 right-1.5 w-5 h-5 bg-rose-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
-                                  {inCart.quantity}
-                                </span>
-                              )}
-                            </div>
-
-                            {/* Info */}
-                            <div className="p-3">
-                              <p className="text-xs font-semibold text-gray-800 leading-tight line-clamp-2 mb-1">{product.name}</p>
-                              {product.description && (
-                                <p className="text-[10px] text-gray-400 line-clamp-2 mb-2 leading-relaxed">{product.description}</p>
-                              )}
-                              <div className="flex items-center justify-between mt-auto">
-                                <span className="text-sm font-bold text-rose-600">{product.sell_price_ttc.toFixed(2)} €</span>
-                                {inCart ? (
-                                  <div className="flex items-center gap-1.5">
-                                    <button
-                                      onClick={() => removeProduct(inCart.id)}
-                                      disabled={!canEdit}
-                                      className="w-6 h-6 rounded-full border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-gray-50 disabled:opacity-30"
-                                    >
-                                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 12h-15" /></svg>
-                                    </button>
-                                    <span className="text-xs font-bold text-gray-700 w-4 text-center">{inCart.quantity}</span>
-                                    <button
-                                      onClick={() => addProduct(product)}
-                                      disabled={!canAdd}
-                                      className="w-6 h-6 rounded-full bg-rose-500 flex items-center justify-center text-white hover:bg-rose-600 disabled:opacity-30"
-                                    >
-                                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <button
-                                    onClick={() => addProduct(product)}
-                                    disabled={!canAdd}
-                                    className="w-7 h-7 rounded-full bg-rose-500 flex items-center justify-center text-white hover:bg-rose-600 transition-colors disabled:opacity-30"
-                                    title={!canAdd && !canEdit ? 'Commande clôturée' : !canAdd ? 'Quota insuffisant' : 'Ajouter'}
-                                  >
-                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-                                  </button>
-                                )}
-                              </div>
-                              {!canAdd && canEdit && product.sell_price_ttc > quotaRemaining && (
-                                <p className="text-[10px] text-amber-500 mt-1 text-right">Quota insuffisant</p>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ backgroundColor: selectedCategory.color + '25' }}>
+                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: selectedCategory.color }} />
                   </div>
-                ))}
-              </div>
+                  <h2 className="text-base font-bold text-gray-900">{selectedCategory.name}</h2>
+                  <span className="text-xs text-gray-400">
+                    ({products.filter((p) => p.category === selectedCategory.name).length} produits)
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  {products
+                    .filter((p) => p.category === selectedCategory.name)
+                    .map((p) => (
+                      <ProductCard
+                        key={p.id}
+                        product={p}
+                        inCart={orderItems.find((i) => i.product_id === p.id)}
+                        canAdd={canEdit && p.sell_price_ttc <= quotaRemaining}
+                        canEdit={canEdit}
+                        onAdd={() => addProduct(p)}
+                        onRemove={(id) => removeProduct(id)}
+                        onDetail={() => setDetailProduct(p)}
+                      />
+                    ))
+                  }
+                </div>
+              </>
+            ) : (
+              // Category grid
+              groupedCatalog.length === 0 ? (
+                <div className="bg-white rounded-2xl p-8 text-center shadow-sm border border-gray-100">
+                  <p className="text-sm text-gray-400">Aucune catégorie disponible pour le moment.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  {groupedCatalog.map(({ cat, allProducts: catProds }) => {
+                    const previews = catProds.filter((p) => p.image_url).slice(0, 3);
+                    return (
+                      <button
+                        key={cat.id}
+                        onClick={() => setSelectedCategory(cat)}
+                        className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow text-left active:scale-[0.98]"
+                      >
+                        {/* Color strip */}
+                        <div className="h-1.5 w-full" style={{ backgroundColor: cat.color }} />
+
+                        {/* Preview thumbnails */}
+                        <div className="flex gap-0.5 h-20 bg-gray-50">
+                          {previews.length > 0 ? (
+                            previews.map((p, i) => (
+                              <div key={p.id} className="flex-1 overflow-hidden" style={{ flexBasis: previews.length === 1 ? '100%' : '33.3%' }}>
+                                <img
+                                  src={p.image_url!}
+                                  alt={p.name}
+                                  className="w-full h-full object-cover"
+                                  loading="lazy"
+                                />
+                              </div>
+                            ))
+                          ) : (
+                            <div className="flex-1 flex items-center justify-center" style={{ backgroundColor: cat.color + '15' }}>
+                              <div className="w-8 h-8 rounded-full opacity-40" style={{ backgroundColor: cat.color }} />
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Info */}
+                        <div className="p-3">
+                          <p className="text-sm font-bold text-gray-800 leading-tight">{cat.name}</p>
+                          <p className="text-[11px] text-gray-400 mt-0.5">{catProds.length} produit{catProds.length > 1 ? 's' : ''}</p>
+                          <div className="flex items-center gap-1 mt-1.5">
+                            <span className="text-[11px] text-rose-500 font-semibold">Voir les produits</span>
+                            <svg className="w-3 h-3 text-rose-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                            </svg>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )
             )}
           </>
         )}
 
-        {/* ── ABONNEMENT ── */}
+        {/* ══ FORMULE (abonnement) ═══════════════════════════════════════════ */}
         {tab === 'abonnement' && (
           <div className="space-y-4">
+            {/* Current plan */}
             <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center">
@@ -613,83 +837,151 @@ export default function ClientDashboardPage() {
                   <h2 className="text-base font-bold text-gray-900">{clientUser.planName}</h2>
                   <p className="text-xs text-gray-400">Votre formule actuelle</p>
                 </div>
+                {isElite && (
+                  <span className="ml-auto text-xs font-bold px-2 py-0.5 rounded-full bg-gradient-to-r from-rose-500 to-pink-500 text-white">
+                    ✦ Elite
+                  </span>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-rose-50 rounded-xl p-3">
                   <p className="text-xs text-rose-400 mb-0.5">Forfait mensuel</p>
-                  <p className="text-lg font-bold text-rose-700">{clientUser.planPrice} €</p>
+                  <p className="text-lg font-bold text-rose-700 tabular-nums">{planData?.price ?? clientUser.planPrice} €</p>
                 </div>
                 <div className="bg-pink-50 rounded-xl p-3">
                   <p className="text-xs text-pink-400 mb-0.5">Quota produits</p>
-                  <p className="text-lg font-bold text-pink-700">{clientUser.quotaAmount} €</p>
+                  <p className="text-lg font-bold text-pink-700 tabular-nums">{quotaAmount} €</p>
                 </div>
                 <div className="bg-gray-50 rounded-xl p-3 col-span-2">
                   <p className="text-xs text-gray-400 mb-0.5">Livraison</p>
                   <p className="text-sm font-semibold text-gray-700">
-                    {clientUser.shippingFree ? 'Offerte' : `${clientUser.shippingCost} € par box`}
+                    {shippingFree ? '✓ Offerte' : `${shippingCost.toFixed(2)} € par box`}
                   </p>
                 </div>
               </div>
             </div>
+
+            {/* Gift surprise */}
+            {hasSurpriseGift ? (
+              <div className="bg-gradient-to-r from-rose-500 to-pink-500 rounded-2xl p-4 text-white shadow-sm">
+                <div className="flex items-center gap-3">
+                  <span className="text-3xl">🎁</span>
+                  <div>
+                    <p className="text-sm font-bold">Cadeau surprise offert chaque mois</p>
+                    <p className="text-xs opacity-80 mt-0.5">Inclus dans votre formule {clientUser.planName}</p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-rose-50 border border-rose-100 rounded-2xl p-4">
+                <div className="flex items-start gap-3">
+                  <span className="text-2xl mt-0.5">🎁</span>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">Cadeau surprise chaque mois</p>
+                    <p className="text-xs text-gray-500 mt-0.5">Passez en Pro pour recevoir un cadeau surprise chaque mois !</p>
+                    {upgradePlans.length > 0 && (
+                      <button
+                        onClick={() => { setUpgradeTarget(upgradePlans[0].name); setShowUpgradeModal(true); }}
+                        className="mt-2 text-xs font-bold text-rose-500 hover:text-rose-600"
+                      >
+                        Découvrir la formule Pro →
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* How it works */}
             <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
               <h3 className="text-sm font-semibold text-gray-800 mb-2">Comment ça marche ?</h3>
               <ul className="space-y-2 text-xs text-gray-500">
-                <li className="flex items-start gap-2">
-                  <span className="w-5 h-5 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center shrink-0 text-[10px] font-bold mt-0.5">1</span>
-                  Parcourez le catalogue et sélectionnez vos produits jusqu'au quota de {clientUser.quotaAmount} €.
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="w-5 h-5 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center shrink-0 text-[10px] font-bold mt-0.5">2</span>
-                  Confirmez votre box avant le {deadlineDay} du mois.
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="w-5 h-5 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center shrink-0 text-[10px] font-bold mt-0.5">3</span>
-                  Votre conseillère prépare et expédie votre box selon votre formule.
-                </li>
+                {[
+                  `Parcourez le catalogue et sélectionnez jusqu'à ${quotaAmount} € de produits.`,
+                  `Confirmez votre box avant le ${deadlineDay} du mois.`,
+                  'Votre conseillère prépare et expédie votre box.',
+                  hasSurpriseGift ? 'Un cadeau surprise est glissé dans chaque box !' : null,
+                ].filter(Boolean).map((step, i) => (
+                  <li key={i} className="flex items-start gap-2">
+                    <span className="w-5 h-5 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center shrink-0 text-[10px] font-bold">{i + 1}</span>
+                    {step}
+                  </li>
+                ))}
               </ul>
             </div>
+
+            {/* Upgrade section */}
+            {upgradePlans.length > 0 && (
+              <div>
+                <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Changer de formule</p>
+                <div className="space-y-3">
+                  {upgradePlans.map((plan) => (
+                    <div key={plan.id} className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex items-center gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <p className="text-sm font-bold text-gray-900">{plan.name}</p>
+                          {plan.name === 'Elite' && <span className="text-[10px] font-bold bg-gradient-to-r from-rose-500 to-pink-500 text-white px-1.5 py-0.5 rounded-full">TOP</span>}
+                        </div>
+                        <p className="text-xs text-gray-500">
+                          {plan.quota_amount} € de produits · {plan.shipping_free ? 'Livraison offerte' : `Livraison ${plan.shipping_cost} €`}
+                        </p>
+                        {plan.description && <p className="text-[11px] text-gray-400 mt-0.5 truncate">{plan.description}</p>}
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <p className="text-base font-bold text-rose-600 tabular-nums">{plan.price} €</p>
+                        <p className="text-[10px] text-gray-400">/mois</p>
+                        <button
+                          onClick={() => { setUpgradeTarget(plan.name); setShowUpgradeModal(true); }}
+                          className="mt-1.5 text-xs font-bold text-white bg-rose-500 px-2.5 py-1 rounded-lg hover:bg-rose-600 transition-colors"
+                        >
+                          Passer à {plan.name}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
-        {/* ── HISTORIQUE ── */}
+        {/* ══ HISTORIQUE ════════════════════════════════════════════════════ */}
         {tab === 'historique' && (
           <div className="space-y-3">
             {pastOrders.length === 0 ? (
               <div className="bg-white rounded-2xl p-8 shadow-sm border border-gray-100 text-center">
                 <p className="text-sm text-gray-400">Aucune commande passée</p>
               </div>
-            ) : (
-              pastOrders.map((order) => (
-                <div key={order.id} className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-semibold text-gray-800">
-                      {new Date(order.order_month + '-01').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}
-                    </span>
-                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${STATUS_COLOR[order.status]}`}>
-                      {STATUS_LABEL[order.status]}
-                    </span>
+            ) : pastOrders.map((order) => (
+              <div key={order.id} className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-semibold text-gray-800">
+                    {new Date(order.order_month + '-01').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}
+                  </span>
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${STATUS_COLOR[order.status]}`}>
+                    {STATUS_LABEL[order.status]}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div>
+                    <p className="text-[10px] text-gray-400">Produits</p>
+                    <p className="text-sm font-bold text-gray-700 tabular-nums">{order.total_sell_price.toFixed(2)} €</p>
                   </div>
-                  <div className="grid grid-cols-3 gap-2 text-center">
-                    <div>
-                      <p className="text-[10px] text-gray-400">Produits</p>
-                      <p className="text-sm font-bold text-gray-700">{order.total_sell_price.toFixed(2)} €</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-gray-400">Livraison</p>
-                      <p className="text-sm font-bold text-gray-700">
-                        {order.shipping_cost === 0
-                          ? <span className="text-emerald-600">Offerte</span>
-                          : `${order.shipping_cost.toFixed(2)} €`}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-gray-400">Forfait</p>
-                      <p className="text-sm font-bold text-rose-600">{clientUser.planPrice.toFixed(2)} €</p>
-                    </div>
+                  <div>
+                    <p className="text-[10px] text-gray-400">Livraison</p>
+                    <p className="text-sm font-bold">
+                      {order.shipping_cost === 0
+                        ? <span className="text-emerald-600">Offerte</span>
+                        : <span className="text-gray-700 tabular-nums">{order.shipping_cost.toFixed(2)} €</span>}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-gray-400">Forfait</p>
+                    <p className="text-sm font-bold text-rose-600 tabular-nums">{clientUser.planPrice.toFixed(2)} €</p>
                   </div>
                 </div>
-              ))
-            )}
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -697,9 +989,101 @@ export default function ClientDashboardPage() {
   );
 }
 
-function Spinner({ sm }: { sm?: boolean }) {
+// ─── Sub-components ──────────────────────────────────────────────────────────
+
+interface ProductCardProps {
+  product: PortalProduct;
+  inCart: OrderItem | undefined;
+  canAdd: boolean;
+  canEdit: boolean;
+  onAdd: () => void;
+  onRemove: (id: string) => void;
+  onDetail: () => void;
+}
+
+function ProductCard({ product, inCart, canAdd, canEdit, onAdd, onRemove, onDetail }: ProductCardProps) {
   return (
-    <svg className={`animate-spin text-rose-400 ${sm ? 'w-4 h-4' : 'w-6 h-6'}`} fill="none" viewBox="0 0 24 24">
+    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
+      {/* Image */}
+      <div className="relative cursor-pointer" onClick={onDetail}>
+        {product.image_url ? (
+          <img src={product.image_url} alt={product.name} className="w-full h-24 object-cover" loading="lazy" />
+        ) : (
+          <div className="w-full h-24 bg-rose-50 flex items-center justify-center">
+            <svg className="w-7 h-7 text-rose-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909" />
+            </svg>
+          </div>
+        )}
+        {product.stock > 0 && product.stock <= 4 && (
+          <span className="absolute top-1 left-1 text-[8px] font-bold bg-amber-400 text-white px-1 py-0.5 rounded leading-none">
+            {product.stock} left
+          </span>
+        )}
+        {inCart && (
+          <span className="absolute top-1 right-1 w-4 h-4 bg-rose-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+            {inCart.quantity}
+          </span>
+        )}
+      </div>
+
+      {/* Info */}
+      <div className="p-2 flex flex-col flex-1">
+        <p className="text-[11px] font-bold text-gray-800 leading-tight line-clamp-2 flex-1">{product.name}</p>
+        {product.description && (
+          <p className="text-[10px] text-gray-400 line-clamp-1 mt-0.5">{product.description}</p>
+        )}
+        <div className="flex items-center justify-between mt-1.5">
+          <span className="text-xs font-bold text-rose-600 tabular-nums">{product.sell_price_ttc.toFixed(2)} €</span>
+          {inCart ? (
+            <div className="flex items-center gap-1">
+              <button onClick={() => onRemove(inCart.id)} disabled={!canEdit} className="w-5 h-5 rounded-full border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-gray-50 disabled:opacity-30">
+                <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 12h-15" /></svg>
+              </button>
+              <span className="text-[10px] font-bold text-gray-700">{inCart.quantity}</span>
+              <button onClick={onAdd} disabled={!canAdd} className="w-5 h-5 rounded-full bg-rose-500 flex items-center justify-center text-white hover:bg-rose-600 disabled:opacity-30">
+                <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+              </button>
+            </div>
+          ) : (
+            <button onClick={onAdd} disabled={!canAdd} className="w-6 h-6 rounded-full bg-rose-500 flex items-center justify-center text-white hover:bg-rose-600 transition-colors disabled:opacity-30">
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SkeletonCard() {
+  return (
+    <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100 flex items-center gap-3 animate-pulse">
+      <div className="w-12 h-12 rounded-lg bg-gray-100 shrink-0" />
+      <div className="flex-1 space-y-2">
+        <div className="h-3 bg-gray-100 rounded w-3/4" />
+        <div className="h-2.5 bg-gray-100 rounded w-1/2" />
+      </div>
+    </div>
+  );
+}
+
+function SkeletonProductCard() {
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden animate-pulse">
+      <div className="w-full h-24 bg-gray-100" />
+      <div className="p-2 space-y-1.5">
+        <div className="h-3 bg-gray-100 rounded" />
+        <div className="h-2.5 bg-gray-100 rounded w-2/3" />
+        <div className="h-4 bg-gray-100 rounded w-1/2" />
+      </div>
+    </div>
+  );
+}
+
+function SmallSpinner() {
+  return (
+    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
     </svg>
@@ -709,7 +1093,10 @@ function Spinner({ sm }: { sm?: boolean }) {
 function FullscreenSpinner() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-rose-50">
-      <Spinner />
+      <svg className="w-7 h-7 animate-spin text-rose-400" fill="none" viewBox="0 0 24 24">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+      </svg>
     </div>
   );
 }
