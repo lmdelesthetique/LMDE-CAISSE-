@@ -9,6 +9,7 @@ export interface Category {
   image_url?: string;
   is_active: boolean;
   sort_order: number;
+  visible_in_client_portal: boolean;
   created_at: string;
   updated_at: string;
   // computed stats (from products)

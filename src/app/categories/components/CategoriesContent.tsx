@@ -784,6 +784,13 @@ export default function CategoriesContent() {
     setDeleteConfirm(null);
   };
 
+  const handleTogglePortal = async (cat: Category, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const next = !cat.visible_in_client_portal;
+    await supabase.from('categories').update({ visible_in_client_portal: next }).eq('id', cat.id);
+    setCategories((prev) => prev.map((c) => c.id === cat.id ? { ...c, visible_in_client_portal: next } : c));
+  };
+
   const openCreate = () => { setEditCategory(null); setShowModal(true); };
   const openEdit = (c: Category) => { setEditCategory(c); setShowModal(true); };
 
@@ -902,6 +909,13 @@ export default function CategoriesContent() {
                         </div>
                       </div>
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={(e) => handleTogglePortal(cat, e)}
+                          title={cat.visible_in_client_portal ? 'Visible portail client' : 'Masqué du portail client'}
+                          className={`p-1.5 rounded-lg transition-colors ${cat.visible_in_client_portal ? 'bg-rose-50 text-rose-500' : 'hover:bg-muted text-muted-foreground hover:text-foreground'}`}
+                        >
+                          <Icon name="HeartIcon" size={13} />
+                        </button>
                         <button onClick={(e) => { e.stopPropagation(); openEdit(cat); }}
                           className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
                           <Icon name="PencilIcon" size={13} />
@@ -945,6 +959,7 @@ export default function CategoriesContent() {
                     <th className="px-4 py-3 text-center text-xs font-600 text-muted-foreground uppercase tracking-wide">Produits</th>
                     <th className="px-4 py-3 text-center text-xs font-600 text-muted-foreground uppercase tracking-wide">Stock</th>
                     <th className="px-4 py-3 text-center text-xs font-600 text-muted-foreground uppercase tracking-wide">Statut</th>
+                    <th className="px-4 py-3 text-center text-xs font-600 text-muted-foreground uppercase tracking-wide">Portail</th>
                     <th className="px-4 py-3 w-20" />
                   </tr>
                 </thead>
@@ -969,6 +984,16 @@ export default function CategoriesContent() {
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-600 ${cat.is_active ? 'bg-green-50 text-green-700' : 'bg-orange-50 text-orange-700'}`}>
                             {cat.is_active ? 'Active' : 'Inactive'}
                           </span>
+                        </td>
+                        <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={(e) => handleTogglePortal(cat, e)}
+                            title={cat.visible_in_client_portal ? 'Visible portail — cliquer pour masquer' : 'Masqué du portail — cliquer pour activer'}
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-600 transition-colors ${cat.visible_in_client_portal ? 'bg-rose-50 text-rose-600 hover:bg-rose-100' : 'bg-gray-50 text-gray-400 hover:bg-gray-100'}`}
+                          >
+                            <Icon name="HeartIcon" size={11} />
+                            {cat.visible_in_client_portal ? 'Visible' : 'Masqué'}
+                          </button>
                         </td>
                         <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center justify-end gap-1">
