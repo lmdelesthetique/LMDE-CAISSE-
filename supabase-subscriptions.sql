@@ -109,11 +109,13 @@ alter table subscription_order_items enable row level security;
 alter table pin_reset_requests       enable row level security;
 
 -- Lecture publique des formules (affichage dans le portail)
-create policy if not exists "Plans — lecture publique"
+drop policy if exists "Plans — lecture publique" on subscription_plans;
+create policy "Plans — lecture publique"
   on subscription_plans for select using (is_active = true);
 
 -- Insertion anon pour les demandes reset PIN
-create policy if not exists "Reset PIN — insertion anon"
+drop policy if exists "Reset PIN — insertion anon" on pin_reset_requests;
+create policy "Reset PIN — insertion anon"
   on pin_reset_requests for insert with check (true);
 
 -- Les orders/items sont accédés via RPC depuis le portail (service_role depuis Next.js si besoin)
