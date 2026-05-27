@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef, useCallback, useState } from 'react';
-import Quagga, { QuaggaJSResultObject } from '@ericblade/quagga2';
 
 interface UseBarcodeScannerOptions {
   onScan: (barcode: string) => void;
@@ -11,11 +10,6 @@ interface UseBarcodeScannerOptions {
   scanSpeed?: number;
 }
 
-/**
- * Listens for barcode scanner input on the document.
- * Barcode scanners type characters very quickly (< 50ms between keystrokes)
- * and end with an Enter key press.
- */
 export function useBarcodeScanner({
   onScan,
   enabled = true,
@@ -86,13 +80,6 @@ interface UseCameraBarcodeScannerReturn {
   isActive: boolean;
 }
 
-/**
- * Camera-based barcode scanner using @ericblade/quagga2.
- * Works natively on iOS Safari — pure JS decoding, no BarcodeDetector needed.
- *
- * Flow: startCamera() → status='requesting' → React renders the container div
- * → useEffect attaches Quagga to the mounted ref → status='active'.
- */
 export function useCameraBarcodeScanner({
   onScan,
   enabled = true,
@@ -113,8 +100,6 @@ export function useCameraBarcodeScanner({
     setStatus('idle');
   }, []);
 
-  // Just flips the running flag — Quagga starts in the useEffect below
-  // after React has committed the render that mounted the container div.
   const startCamera = useCallback(() => {
     if (!enabled) return;
     setStatus('requesting');
@@ -127,74 +112,81 @@ export function useCameraBarcodeScanner({
     const container = containerRef.current;
     let active = true;
     let quaggaStarted = false;
+    let QuaggaInstance: any = null;
 
-    const handleDetected = (result: QuaggaJSResultObject) => {
+    // Dynamic import — Quagga is never loaded on the server (avoids sharp/ndarray build errors)
+    import('@ericblade/quagga2').then(({ default: Quagga }) => {
       if (!active) return;
-      const code = result?.codeResult?.code;
-      if (!code) return;
-      const now = Date.now();
-      // Debounce: ignore same code within 2 s
-      if (code !== lastScannedRef.current || now - lastScannedTimeRef.current > 2000) {
-        lastScannedRef.current = code;
-        lastScannedTimeRef.current = now;
-        onScanRef.current(code);
-      }
-    };
+      QuaggaInstance = Quagga;
 
-    Quagga.init(
-      {
-        inputStream: {
-          type: 'LiveStream',
-          target: container,
-          constraints: {
-            facingMode: 'environment',
-            width: { min: 640 },
-            height: { min: 480 },
+      const handleDetected = (result: any) => {
+        if (!active) return;
+        const code = result?.codeResult?.code;
+        if (!code) return;
+        const now = Date.now();
+        if (code !== lastScannedRef.current || now - lastScannedTimeRef.current > 2000) {
+          lastScannedRef.current = code;
+          lastScannedTimeRef.current = now;
+          onScanRef.current(code);
+        }
+      };
+
+      Quagga.init(
+        {
+          inputStream: {
+            type: 'LiveStream',
+            target: container,
+            constraints: {
+              facingMode: 'environment',
+              width: { min: 640 },
+              height: { min: 480 },
+            },
           },
+          decoder: {
+            readers: [
+              'ean_reader',
+              'ean_8_reader',
+              'code_128_reader',
+              'code_39_reader',
+              'upc_reader',
+              'upc_e_reader',
+            ],
+          },
+          locate: true,
         },
-        decoder: {
-          readers: [
-            'ean_reader',
-            'ean_8_reader',
-            'code_128_reader',
-            'code_39_reader',
-            'upc_reader',
-            'upc_e_reader',
-          ],
-        },
-        locate: true,
-      },
-      (err: any) => {
-        // If cleanup already ran (React strict-mode double-invoke), stop immediately
-        if (!active) {
-          try { Quagga.stop(); } catch { /* ignore */ }
-          return;
+        (err: any) => {
+          if (!active) {
+            try { Quagga.stop(); } catch { /* ignore */ }
+            return;
+          }
+          if (err) {
+            const name: string = err?.name ?? String(err);
+            setStatus(
+              name === 'NotAllowedError' || name === 'PermissionDeniedError' ? 'denied' : 'error'
+            );
+            return;
+          }
+          Quagga.start();
+          quaggaStarted = true;
+          Quagga.onDetected(handleDetected);
+          setStatus('active');
         }
-        if (err) {
-          const name: string = err?.name ?? String(err);
-          setStatus(
-            name === 'NotAllowedError' || name === 'PermissionDeniedError' ? 'denied' : 'error'
-          );
-          return;
-        }
-        Quagga.start();
-        quaggaStarted = true;
-        Quagga.onDetected(handleDetected);
-        setStatus('active');
-      }
-    );
+      );
+
+      return () => {
+        Quagga.offDetected(handleDetected);
+      };
+    });
 
     return () => {
       active = false;
-      Quagga.offDetected(handleDetected);
-      if (quaggaStarted) {
-        try { Quagga.stop(); } catch { /* ignore */ }
+      if (quaggaStarted && QuaggaInstance) {
+        try { QuaggaInstance.stop(); } catch { /* ignore */ }
         quaggaStarted = false;
       }
     };
   }, [isRunning]);
 
-  // Cleanup on unmount
   useEffect(() => () => { stopCamera(); }, [stopCamera]);
 
   return { status, containerRef, startCamera, stopCamera, isActive: status === 'active' };
