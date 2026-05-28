@@ -10,6 +10,8 @@ interface VariantRow { colorName: string; colorHex: string; quantity: number; }
 interface BarcodeLabelModalProps {
   products: ProductRecord[];
   onClose: () => void;
+  initialQtys?: Record<string, number>;
+  orderRef?: string;
 }
 
 // ─── Sheet constants (50×25 mm labels, A4 portrait) ────────────────────────
@@ -330,13 +332,13 @@ async function preRenderBarcodes(values: string[]): Promise<Record<string, strin
 }
 
 // ─── Main modal ─────────────────────────────────────────────────────────────
-export default function BarcodeLabelModal({ products, onClose }: BarcodeLabelModalProps) {
+export default function BarcodeLabelModal({ products, onClose, initialQtys, orderRef }: BarcodeLabelModalProps) {
   const printFrameRef = useRef<HTMLIFrameElement>(null);
 
   const [cfg, setCfg] = useState<ContentConfig>(DEFAULT_CONFIG);
   const [productQtys, setProductQtys] = useState<Record<string, number>>(() => {
     const init: Record<string, number> = {};
-    products.forEach((p) => { init[p.id] = 1; });
+    products.forEach((p) => { init[p.id] = initialQtys?.[p.id] ?? 1; });
     return init;
   });
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(products.map((p) => p.id)));
@@ -578,9 +580,17 @@ window.addEventListener('load', function() { window.print(); });
             </div>
             <div>
               <h2 className="text-lg font-700 text-foreground">Impression étiquettes — Format 50×25 mm</h2>
-              <p className="text-xs text-muted-foreground">
-                4 colonnes · 11 lignes · <strong>44 étiquettes/page</strong> · Codes-barres CODE128/EAN13 scannables · {totalPages} page{totalPages > 1 ? 's' : ''} · {totalLabels} étiquette{totalLabels > 1 ? 's' : ''}
-              </p>
+              {orderRef ? (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  <span className="font-600 text-primary">{totalLabels} étiquette{totalLabels > 1 ? 's' : ''}</span>
+                  {' '}depuis commande <span className="font-600 text-foreground">{orderRef}</span>
+                  {' · '}{totalPages} page{totalPages > 1 ? 's' : ''} · quantités pré-remplies, ajustables ci-dessous
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  4 colonnes · 11 lignes · <strong>44 étiquettes/page</strong> · Codes-barres CODE128/EAN13 scannables · {totalPages} page{totalPages > 1 ? 's' : ''} · {totalLabels} étiquette{totalLabels > 1 ? 's' : ''}
+                </p>
+              )}
             </div>
           </div>
           <button onClick={onClose} className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">

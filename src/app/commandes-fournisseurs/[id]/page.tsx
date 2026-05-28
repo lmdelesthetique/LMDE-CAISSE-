@@ -1258,7 +1258,12 @@ export default function OrderDetailPage() {
                       className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg text-sm font-500 hover:bg-violet-700 transition-colors"
                     >
                       <Icon name="PrinterIcon" size={15} />
-                      Imprimer les étiquettes de cette commande
+                      🏷️ Imprimer les étiquettes
+                      {lines.length > 0 && (
+                        <span className="ml-1 bg-white/20 rounded px-1.5 py-0.5 text-[11px] font-700">
+                          {lines.reduce((s, l) => s + Math.max(1, l.qtyReceived ?? l.qtyOrdered), 0)} étiq.
+                        </span>
+                      )}
                     </button>
                   </div>
                 </div>
@@ -2044,23 +2049,43 @@ export default function OrderDetailPage() {
         )}
       </div>
 
-      {/* Print labels from order modal */}
-      {showOrderLabelModal && lines.length > 0 && (
-        <BarcodeLabelModal
-          products={lines.map((line) => ({
-            id: line.id,
-            name: line.productName,
-            ref: line.productRef,
-            barcode: line.productRef || line.id,
-            category: line.color ? `${line.color}${line.size ? ' · ' + line.size : ''}` : (line.size || ''),
-            sellPriceTTC: line.salePrice || 0,
-            stock: line.qtyReceived || line.qtyOrdered,
-            minStock: 0,
-            imageUrl: '',
-          } as ProductRecord))}
-          onClose={() => setShowOrderLabelModal(false)}
-        />
-      )}
+      {/* Print labels from order modal — quantities pre-filled from order */}
+      {showOrderLabelModal && lines.length > 0 && (() => {
+        const labelProducts = lines.map((line) => ({
+          id: line.id,
+          name: line.color
+            ? `${line.productName} — ${line.color}${line.size ? ' · ' + line.size : ''}`
+            : `${line.productName}${line.size ? ' · ' + line.size : ''}`,
+          ref: line.productRef,
+          barcode: line.productRef || line.id,
+          category: line.color || line.size || '',
+          sellPriceTTC: line.salePrice || 0,
+          stock: line.qtyReceived ?? line.qtyOrdered,
+          minStock: 0,
+          imageUrl: line.productImageUrl || '',
+          variants: false,
+          shopify: false,
+          supplier: order.supplierName || '',
+          buyPrice: line.unitPrice || 0,
+          costPrice: line.unitPrice || 0,
+          sellPriceHT: line.salePrice || 0,
+          marginAmount: 0,
+          marginPct: 0,
+          status: 'active' as const,
+        } as ProductRecord));
+        const initialQtys: Record<string, number> = {};
+        lines.forEach((line) => {
+          initialQtys[line.id] = Math.max(1, line.qtyReceived ?? line.qtyOrdered);
+        });
+        return (
+          <BarcodeLabelModal
+            products={labelProducts}
+            initialQtys={initialQtys}
+            orderRef={order.orderNumber}
+            onClose={() => setShowOrderLabelModal(false)}
+          />
+        );
+      })()}
 
       {/* Status change modal */}
       {showStatusModal && (
