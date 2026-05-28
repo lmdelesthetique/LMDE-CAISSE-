@@ -290,7 +290,7 @@ function PagePreview({
   );
 }
 
-// ─── Pre-render barcodes to SVG data URLs (client-side, no CDN) ─────────────
+// ─── Pre-render barcodes to PNG data URLs via canvas (print-safe, no CDN) ────
 async function preRenderBarcodes(values: string[]): Promise<Record<string, string>> {
   const mod = await import('jsbarcode');
   const JsBarcode = mod.default || mod;
@@ -298,31 +298,33 @@ async function preRenderBarcodes(values: string[]): Promise<Record<string, strin
   const unique = [...new Set(values.filter(Boolean))];
   for (const val of unique) {
     const format = chooseBarcodeFormat(val);
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.style.position = 'absolute';
-    svg.style.left = '-9999px';
-    document.body.appendChild(svg);
+    const canvas = document.createElement('canvas');
     try {
-      (JsBarcode as any)(svg, val, {
+      (JsBarcode as any)(canvas, val, {
         format,
-        width: 1.5,
-        height: 40,
+        width: 2,
+        height: 60,
         displayValue: false,
-        margin: 4,
+        margin: 6,
         background: '#ffffff',
         lineColor: '#000000',
         flat: false,
       });
+      result[val] = canvas.toDataURL('image/png');
     } catch {
       try {
-        (JsBarcode as any)(svg, val, { format: 'CODE128', width: 1.5, height: 40, displayValue: false, margin: 4, background: '#ffffff', lineColor: '#000000' });
+        (JsBarcode as any)(canvas, val, {
+          format: 'CODE128',
+          width: 2,
+          height: 60,
+          displayValue: false,
+          margin: 6,
+          background: '#ffffff',
+          lineColor: '#000000',
+        });
+        result[val] = canvas.toDataURL('image/png');
       } catch { /* skip */ }
     }
-    try {
-      const svgStr = new XMLSerializer().serializeToString(svg);
-      result[val] = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgStr)));
-    } catch { /* skip */ }
-    document.body.removeChild(svg);
   }
   return result;
 }
@@ -474,7 +476,7 @@ export default function BarcodeLabelModal({ products, onClose }: BarcodeLabelMod
     ${cfg.showName ? `<p class="name">${escapeXml(product.name)}</p>` : ''}
     ${cfg.showRef ? `<p class="small">${escapeXml(product.ref)}</p>` : ''}
     ${cfg.showCategory ? `<p class="tiny">${escapeXml(product.category)}</p>` : ''}
-    ${cfg.showBarcode && barcodeValue && dataUrl ? `<div class="bc-wrap"><img src="${dataUrl}" style="display:block;max-width:100%;height:${barcodeHpx}px;" /><p class="bc-num">${escapeXml(barcodeValue)}</p></div>` : ''}
+    ${cfg.showBarcode && barcodeValue && dataUrl ? `<div class="bc-wrap"><img src="${dataUrl}" style="display:block;width:100%;height:auto;max-height:${barcodeHpx}px;object-fit:contain;" /><p class="bc-num">${escapeXml(barcodeValue)}</p></div>` : ''}
     ${cfg.showPrice ? `<p class="price">${product.sellPriceTTC.toFixed(2)} €</p>` : ''}
   </div>
 </div>`;
