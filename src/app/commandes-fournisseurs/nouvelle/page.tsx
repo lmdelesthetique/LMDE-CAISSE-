@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
@@ -105,6 +105,8 @@ function NouvelleCommandeContent() {
   const [supplierProductsLoading, setSupplierProductsLoading] = useState(false);
   const [allProducts, setAllProducts] = useState<StockProduct[]>([]);
   const [showSupplierPanel, setShowSupplierPanel] = useState(false);
+  const [supplierPanelSearch, setSupplierPanelSearch] = useState('');
+  const [supplierDisplayCount, setSupplierDisplayCount] = useState(100);
 
   useEffect(() => {
     supplierService.getAll().then(setSuppliers).catch(() => {});
@@ -116,17 +118,22 @@ function NouvelleCommandeContent() {
     if (!selectedSupplier) {
       setSupplierProducts([]);
       setShowSupplierPanel(false);
+      setSupplierPanelSearch('');
+      setSupplierDisplayCount(100);
       return;
     }
     setSupplierProductsLoading(true);
     setShowSupplierPanel(true);
-    fetchProductsBySupplier(selectedSupplier)
+    setSupplierPanelSearch('');
+    setSupplierDisplayCount(100);
+    const supplierName = suppliers.find(s => s.id === selectedSupplier)?.companyName;
+    fetchProductsBySupplier(selectedSupplier, supplierName)
       .then(prods => {
         setSupplierProducts(prods);
         setSupplierProductsLoading(false);
       })
       .catch(() => setSupplierProductsLoading(false));
-  }, [selectedSupplier]);
+  }, [selectedSupplier, suppliers]);
 
   // Pre-fill from URL params (coming from stock page)
   useEffect(() => {
@@ -267,6 +274,17 @@ function NouvelleCommandeContent() {
   const ruptureCount = supplierProducts.filter(p => p.stockStatus === 'rupture').length;
   const faibleCount = supplierProducts.filter(p => p.stockStatus === 'faible').length;
 
+  const filteredSupplierProducts = useMemo(() => {
+    if (!supplierPanelSearch.trim()) return supplierProducts;
+    const q = supplierPanelSearch.toLowerCase();
+    return supplierProducts.filter(p =>
+      p.name.toLowerCase().includes(q) || p.ref.toLowerCase().includes(q)
+    );
+  }, [supplierProducts, supplierPanelSearch]);
+
+  const displayedSupplierProducts = filteredSupplierProducts.slice(0, supplierDisplayCount);
+  const hasMoreSupplierProducts = filteredSupplierProducts.length > supplierDisplayCount;
+
   return (
     <AppLayout>
       <div className="p-6 max-w-screen-xl mx-auto">
@@ -326,11 +344,13 @@ function NouvelleCommandeContent() {
                   <div>
                     <h2 className="font-600 text-foreground flex items-center gap-2">
                       <Icon name="TagIcon" size={16} className="text-primary" />
-                      Produits de {selectedSupplierObj?.companyName || 'ce fournisseur'}
+                      {selectedSupplierObj?.companyName || 'Produits fournisseur'}
                     </h2>
                     {!supplierProductsLoading && (
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        {supplierProducts.length} produit(s) · {ruptureCount > 0 && <span className="text-red-600 font-500">{ruptureCount} rupture(s)</span>}{ruptureCount > 0 && faibleCount > 0 && ' · '}{faibleCount > 0 && <span className="text-amber-600 font-500">{faibleCount} faible(s)</span>}
+                        <span className="font-600 text-foreground">{supplierProducts.length}</span> produit{supplierProducts.length > 1 ? 's' : ''} trouvé{supplierProducts.length > 1 ? 's' : ''}
+                        {ruptureCount > 0 && <> · <span className="text-red-600 font-500">{ruptureCount} rupture{ruptureCount > 1 ? 's' : ''}</span></>}
+                        {faibleCount > 0 && <> · <span className="text-amber-600 font-500">{faibleCount} faible{faibleCount > 1 ? 's' : ''}</span></>}
                       </p>
                     )}
                   </div>
@@ -345,9 +365,34 @@ function NouvelleCommandeContent() {
                   )}
                 </div>
 
+                {/* Search bar — shown when > 100 products */}
+                {!supplierProductsLoading && supplierProducts.length > 100 && (
+                  <div className="px-4 py-2 border-b border-border bg-muted/20">
+                    <div className="relative">
+                      <Icon name="MagnifyingGlassIcon" size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        type="text"
+                        value={supplierPanelSearch}
+                        onChange={(e) => { setSupplierPanelSearch(e.target.value); setSupplierDisplayCount(100); }}
+                        placeholder={`Filtrer les ${supplierProducts.length} produits…`}
+                        className="w-full pl-8 pr-3 py-1.5 border border-border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      />
+                      {supplierPanelSearch && (
+                        <button onClick={() => { setSupplierPanelSearch(''); setSupplierDisplayCount(100); }} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                          <Icon name="XMarkIcon" size={13} />
+                        </button>
+                      )}
+                    </div>
+                    {supplierPanelSearch && (
+                      <p className="text-[10px] text-muted-foreground mt-1">{filteredSupplierProducts.length} résultat{filteredSupplierProducts.length > 1 ? 's' : ''}</p>
+                    )}
+                  </div>
+                )}
+
                 {supplierProductsLoading ? (
                   <div className="flex items-center justify-center py-8">
                     <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                    <span className="ml-2 text-sm text-muted-foreground">Chargement des produits…</span>
                   </div>
                 ) : supplierProducts.length === 0 ? (
                   <div className="p-6 text-center">
@@ -355,60 +400,76 @@ function NouvelleCommandeContent() {
                     <p className="text-sm text-muted-foreground">Aucun produit rattaché à ce fournisseur</p>
                     <p className="text-xs text-muted-foreground mt-1">Rattachez des produits à ce fournisseur dans la gestion des produits</p>
                   </div>
-                ) : (
-                  <div className="divide-y divide-border max-h-80 overflow-y-auto">
-                    {supplierProducts.map(p => {
-                      const st = stockStatus(p.stock, p.minStock);
-                      const linesForProduct = lines.filter(l => l.productId === p.id);
-                      const isAdded = linesForProduct.length > 0;
-                      const isVariantProduct = isAdded && linesForProduct[0].hasColorVariants;
-                      return (
-                        <div key={p.id} className={`flex items-center gap-3 px-4 py-3 transition-colors ${isAdded ? 'bg-primary/5' : 'hover:bg-muted/30'}`}>
-                          <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center shrink-0 overflow-hidden">
-                            {p.imageUrl ? (
-                              <Image src={p.imageUrl} alt={p.name} width={40} height={40} className="rounded-lg object-cover" />
-                            ) : (
-                              <Icon name="PhotoIcon" size={16} className="text-muted-foreground" />
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-500 text-foreground truncate">{p.name}</p>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <span className="text-xs text-muted-foreground">{p.ref}</span>
-                              <span className={`text-[10px] font-500 px-1.5 py-0.5 rounded-full ${st.color}`}>{st.label}</span>
-                              {p.sales30d > 0 && <span className="text-[10px] text-muted-foreground">{p.sales30d} ventes/30j</span>}
-                            </div>
-                          </div>
-                          <div className="text-right shrink-0 mr-2">
-                            <p className="text-xs font-600 text-foreground">Stock: {p.stock}</p>
-                            <p className="text-[10px] text-muted-foreground">Min: {p.minStock}</p>
-                            {p.purchasePriceSupplier > 0 && (
-                              <p className="text-[10px] text-muted-foreground">{p.purchasePriceSupplier.toFixed(2)} {currency}</p>
-                            )}
-                          </div>
-                          {p.suggestedReorder > 0 && (
-                            <div className="text-center shrink-0 mr-2">
-                              <p className="text-[10px] text-amber-600 font-500">Suggéré</p>
-                              <p className="text-sm font-700 text-amber-700">{p.suggestedReorder}</p>
-                            </div>
-                          )}
-                          <button
-                            onClick={() => toggleSupplierProduct(p)}
-                            className={`shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-600 transition-colors ${
-                              isVariantProduct
-                                ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                                : isAdded
-                                ? 'bg-primary text-primary-foreground hover:bg-primary/90'
-                                : 'bg-muted text-foreground hover:bg-muted/80'
-                            }`}
-                          >
-                            <Icon name={isAdded && !isVariantProduct ? 'CheckIcon' : 'PlusIcon'} size={12} />
-                            {isVariantProduct ? `+ variante (${linesForProduct.length})` : isAdded ? 'Ajouté' : 'Ajouter'}
-                          </button>
-                        </div>
-                      );
-                    })}
+                ) : filteredSupplierProducts.length === 0 ? (
+                  <div className="p-4 text-center text-sm text-muted-foreground">
+                    Aucun produit ne correspond à &ldquo;{supplierPanelSearch}&rdquo;
                   </div>
+                ) : (
+                  <>
+                    <div className="divide-y divide-border max-h-80 overflow-y-auto">
+                      {displayedSupplierProducts.map(p => {
+                        const st = stockStatus(p.stock, p.minStock);
+                        const linesForProduct = lines.filter(l => l.productId === p.id);
+                        const isAdded = linesForProduct.length > 0;
+                        const isVariantProduct = isAdded && linesForProduct[0].hasColorVariants;
+                        return (
+                          <div key={p.id} className={`flex items-center gap-3 px-4 py-3 transition-colors ${isAdded ? 'bg-primary/5' : 'hover:bg-muted/30'}`}>
+                            <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center shrink-0 overflow-hidden">
+                              {p.imageUrl ? (
+                                <Image src={p.imageUrl} alt={p.name} width={40} height={40} className="rounded-lg object-cover" />
+                              ) : (
+                                <Icon name="PhotoIcon" size={16} className="text-muted-foreground" />
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-500 text-foreground truncate">{p.name}</p>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className="text-xs text-muted-foreground">{p.ref}</span>
+                                <span className={`text-[10px] font-500 px-1.5 py-0.5 rounded-full ${st.color}`}>{st.label}</span>
+                                {p.sales30d > 0 && <span className="text-[10px] text-muted-foreground">{p.sales30d} ventes/30j</span>}
+                              </div>
+                            </div>
+                            <div className="text-right shrink-0 mr-2">
+                              <p className="text-xs font-600 text-foreground">Stock: {p.stock}</p>
+                              <p className="text-[10px] text-muted-foreground">Min: {p.minStock}</p>
+                              {p.purchasePriceSupplier > 0 && (
+                                <p className="text-[10px] text-muted-foreground">{p.purchasePriceSupplier.toFixed(2)} {currency}</p>
+                              )}
+                            </div>
+                            {p.suggestedReorder > 0 && (
+                              <div className="text-center shrink-0 mr-2">
+                                <p className="text-[10px] text-amber-600 font-500">Suggéré</p>
+                                <p className="text-sm font-700 text-amber-700">{p.suggestedReorder}</p>
+                              </div>
+                            )}
+                            <button
+                              onClick={() => toggleSupplierProduct(p)}
+                              className={`shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-600 transition-colors ${
+                                isVariantProduct
+                                  ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                  : isAdded
+                                  ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+                                  : 'bg-muted text-foreground hover:bg-muted/80'
+                              }`}
+                            >
+                              <Icon name={isAdded && !isVariantProduct ? 'CheckIcon' : 'PlusIcon'} size={12} />
+                              {isVariantProduct ? `+ variante (${linesForProduct.length})` : isAdded ? 'Ajouté' : 'Ajouter'}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {hasMoreSupplierProducts && (
+                      <div className="px-4 py-3 border-t border-border bg-muted/20 text-center">
+                        <button
+                          onClick={() => setSupplierDisplayCount(c => c + 100)}
+                          className="text-sm text-primary font-600 hover:underline"
+                        >
+                          Charger 100 de plus ({filteredSupplierProducts.length - supplierDisplayCount} restants)
+                        </button>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )}

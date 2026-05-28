@@ -425,12 +425,17 @@ export async function markProductAsOrdered(
   return true;
 }
 
-export async function fetchProductsBySupplier(supplierId: string): Promise<StockProduct[]> {
+export async function fetchProductsBySupplier(supplierId: string, supplierName?: string): Promise<StockProduct[]> {
+  // Match by UUID column OR by text name column (case-insensitive) — whichever has data
+  const orFilter = supplierName
+    ? `supplier_id.eq.${supplierId},supplier.ilike.${supplierName}`
+    : `supplier_id.eq.${supplierId}`;
+
   return fetchAll<Record<string, unknown>>((from, to) =>
     supabase
       .from('products')
       .select('*')
-      .eq('supplier_id', supplierId)
+      .or(orFilter)
       .order('name')
       .range(from, to)
   ).then(data => data.map(mapProduct)).catch(e => { console.error('fetchProductsBySupplier', e); return []; });
