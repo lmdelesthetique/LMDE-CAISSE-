@@ -57,6 +57,7 @@ function mapDbProduct(r: any): ProductRecord {
     imageUrl: r.image_url || undefined,
     colorVariants: undefined,
     isKit: Boolean(r.is_kit),
+    isFavorite: Boolean(r.is_favorite),
   };
 }
 
@@ -210,6 +211,11 @@ export default function ProductManagementContent() {
     const selected = filtered.filter((p) => selectedIds.has(p.id));
     setBarcodePrintProducts(selected.length > 0 ? selected : filtered);
     setShowBarcodeModal(true);
+  };
+
+  const toggleFavorite = async (id: string, current: boolean) => {
+    await supabase.from('products').update({ is_favorite: !current }).eq('id', id);
+    setProducts(prev => prev.map(p => p.id === id ? { ...p, isFavorite: !current } : p));
   };
 
   const handleDelete = async (id: string, name: string) => {
@@ -615,6 +621,13 @@ export default function ProductManagementContent() {
                       )}
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            title={product.isFavorite ? 'Retirer des favoris POS' : 'Ajouter aux favoris POS'}
+                            onClick={() => toggleFavorite(product.id, Boolean(product.isFavorite))}
+                            className={`p-1.5 rounded-lg transition-colors ${product.isFavorite ? 'text-amber-400 hover:bg-amber-50' : 'text-muted-foreground hover:bg-amber-50 hover:text-amber-400'}`}
+                          >
+                            <Icon name="StarIcon" size={14} />
+                          </button>
                           <button title="Imprimer étiquette" onClick={() => openBarcodeForProduct(product)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
                             <Icon name="PrinterIcon" size={14} />
                           </button>

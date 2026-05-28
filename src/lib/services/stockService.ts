@@ -426,13 +426,14 @@ export async function markProductAsOrdered(
 }
 
 export async function fetchProductsBySupplier(supplierId: string): Promise<StockProduct[]> {
-  const { data, error } = await supabase
-    .from('products')
-    .select('*')
-    .eq('supplier_id', supplierId)
-    .order('name');
-  if (error) { console.error('fetchProductsBySupplier', error); return []; }
-  return (data || []).map(mapProduct);
+  return fetchAll<Record<string, unknown>>((from, to) =>
+    supabase
+      .from('products')
+      .select('*')
+      .eq('supplier_id', supplierId)
+      .order('name')
+      .range(from, to)
+  ).then(data => data.map(mapProduct)).catch(e => { console.error('fetchProductsBySupplier', e); return []; });
 }
 
 export async function updateProductSupplier(
@@ -500,9 +501,9 @@ export async function deductStockForSale(
     if (isKit) {
       // For kits: deduct each kit component
       const { data: kitComponents } = await supabase
-        .from('kit_components')
-        .select('component_product_id, quantity, products(id, name, stock)')
-        .eq('kit_product_id', item.productId);
+        .from('product_kits')
+        .select('component_id, quantity, products!product_kits_component_id_fkey(id, name, stock)')
+        .eq('product_id', item.productId);
 
       if (kitComponents && kitComponents.length > 0) {
         for (const comp of kitComponents as any[]) {
@@ -515,7 +516,7 @@ export async function deductStockForSale(
           const { error: compUpdateError } = await supabase
             .from('products')
             .update({ stock: compNewStock, updated_at: new Date().toISOString() })
-            .eq('id', comp.component_product_id);
+            .eq('id', comp.component_id);
 
           if (compUpdateError) {
             errors.push(`Erreur décompte composant kit: ${compProduct.name}`);
@@ -523,7 +524,7 @@ export async function deductStockForSale(
           }
 
           await supabase.from('stock_movements_log').insert({
-            product_id: comp.component_product_id,
+            product_id: comp.component_id,
             product_name: compProduct.name,
             movement_type: 'sale',
             quantity_before: compCurrentStock,
@@ -537,7 +538,7 @@ export async function deductStockForSale(
 
           // Update status if stock reaches 0
           if (compNewStock === 0) {
-            await supabase.from('products').update({ status: 'rupture' }).eq('id', comp.component_product_id);
+            await supabase.from('products').update({ status: 'rupture' }).eq('id', comp.component_id);
           }
         }
       }

@@ -24,6 +24,7 @@ export interface ProductRecord {
   imageUrl?: string;
   colorVariants?: ColorVariant[];
   isKit?: boolean;
+  isFavorite?: boolean;
 }
 
 export interface ColorVariant {

@@ -30,6 +30,7 @@ interface DBProduct {
   product_status?: string;
   is_kit?: boolean;
   has_color_variants?: boolean;
+  is_favorite?: boolean;
 }
 
 interface ColorVariantRow {
@@ -71,7 +72,6 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
   const [activeTab, setActiveTab] = useState<'all' | 'favourites'>('all');
   const [products, setProducts] = useState<DBProduct[]>([]);
   const [categories, setCategories] = useState<{ id: string; label: string }[]>([]);
-  const [favouriteIds, setFavouriteIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [showFavManager, setShowFavManager] = useState(false);
   const [variantPickerProduct, setVariantPickerProduct] = useState<DBProduct | null>(null);
@@ -92,32 +92,28 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
 
   const loadData = useCallback(async () => {
     setLoading(true);
-    const [allProds, favsResult] = await Promise.all([
-      fetchAll<DBProduct>((from, to) =>
-        supabase
-          .from('products')
-          .select('id, name, ref, barcode, sell_price_ttc, sell_price_ht, buy_price, transport, customs, other_fees, structure_pct, stock, min_stock, category, image_url, status, product_status, is_kit, has_color_variants')
-          .in('status', ['active', 'rupture'])
-          .order('name')
-          .range(from, to)
-      ),
+    const allProds = await fetchAll<DBProduct>((from, to) =>
       supabase
-        .from('pos_favourites')
-        .select('product_id, sort_order')
-        .order('sort_order'),
-    ]);
-
+        .from('products')
+        .select('id, name, ref, barcode, sell_price_ttc, sell_price_ht, buy_price, transport, customs, other_fees, structure_pct, stock, min_stock, category, image_url, status, product_status, is_kit, has_color_variants, is_favorite')
+        .in('status', ['active', 'rupture'])
+        .order('name')
+        .range(from, to)
+    );
     setProducts(allProds);
     const cats = Array.from(new Set(allProds.map((p) => p.category).filter(Boolean))).sort() as string[];
     setCategories([
       { id: '__all__', label: 'Tous' },
       ...cats.map((c) => ({ id: c, label: c })),
     ]);
-    if (favsResult.data) {
-      const sorted = (favsResult.data as FavouriteRow[]).sort((a, b) => a.sort_order - b.sort_order);
-      setFavouriteIds(sorted.map((f) => f.product_id));
-    }
     setLoading(false);
+  }, []);
+
+  const toggleFavorite = useCallback(async (product: DBProduct, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newVal = !product.is_favorite;
+    await supabase.from('products').update({ is_favorite: newVal }).eq('id', product.id);
+    setProducts(prev => prev.map(p => p.id === product.id ? { ...p, is_favorite: newVal } : p));
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
@@ -126,7 +122,7 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
   useRealtimeSync({ tables: ['products', 'stock_movements'], onRefresh: loadData });
 
   const allFiltered = useMemo(() => {
-    return products.filter((p) => {
+    const filtered = products.filter((p) => {
       const matchCat = activeCategory === '__all__' || p.category === activeCategory;
       const matchSearch =
         p.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -134,17 +130,18 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
         (p.barcode || '').includes(search);
       return matchCat && matchSearch;
     });
+    // Favorites appear first
+    return [...filtered.filter(p => p.is_favorite), ...filtered.filter(p => !p.is_favorite)];
   }, [products, search, activeCategory]);
 
   const favouriteProducts = useMemo(() => {
-    return favouriteIds
-      .map((fid) => products.find((p) => p.id === fid))
-      .filter((p): p is DBProduct => !!p)
-      .filter((p) => {
+    return products
+      .filter(p => p.is_favorite)
+      .filter(p => {
         if (!search) return true;
         return p.name.toLowerCase().includes(search.toLowerCase()) || (p.ref || '').toLowerCase().includes(search.toLowerCase());
       });
-  }, [favouriteIds, products, search]);
+  }, [products, search]);
 
   const displayedProducts = activeTab === 'favourites' ? favouriteProducts : allFiltered;
 
@@ -200,7 +197,7 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-600 transition-colors ${activeTab === 'favourites' ? 'bg-amber-500 text-white' : 'text-muted-foreground hover:text-foreground hover:bg-muted'}`}
           >
             <Icon name="StarIcon" size={13} />
-            Favoris ({favouriteIds.length})
+            Favoris ({products.filter(p => p.is_favorite).length})
           </button>
         </div>
 
@@ -246,7 +243,7 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
         ) : (
           <div className="grid grid-cols-3 md:grid-cols-5 gap-1.5">
             {displayedProducts.map((product) => {
-              const isFav = favouriteIds.includes(product.id);
+              const isFav = Boolean(product.is_favorite);
               const isOutOfStock = product.stock === 0;
               const minStock = product.min_stock || 3;
               const isLowStock = !isOutOfStock && product.stock <= minStock;
@@ -296,11 +293,13 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
                         <Icon name="PhotoIcon" size={20} className="text-muted-foreground/40" />
                       </div>
                     )}
-                    {isFav && (
-                      <span className="absolute top-1 left-1 w-3.5 h-3.5 bg-amber-400 rounded-full flex items-center justify-center">
-                        <Icon name="StarIcon" size={8} className="text-white" />
-                      </span>
-                    )}
+                    <button
+                      onClick={(e) => toggleFavorite(product, e)}
+                      title={isFav ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+                      className={`absolute top-1 left-1 w-4 h-4 rounded-full flex items-center justify-center transition-colors ${isFav ? 'bg-amber-400' : 'bg-black/20 hover:bg-amber-300'}`}
+                    >
+                      <Icon name="StarIcon" size={9} className="text-white" />
+                    </button>
                     {product.is_kit && (
                       <span className="absolute top-1 right-1 bg-violet-500 text-white text-[7px] font-700 px-1 py-0.5 rounded-full leading-none">Kit</span>
                     )}
