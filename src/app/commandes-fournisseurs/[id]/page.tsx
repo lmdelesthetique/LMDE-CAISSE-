@@ -118,6 +118,21 @@ export default function OrderDetailPage() {
   // Print labels from order state
   const [showOrderLabelModal, setShowOrderLabelModal] = useState(false);
 
+  // Stock update on reception
+  const [receivedQtys, setReceivedQtys] = useState<Record<string, number>>({});
+  const [stockUpdateBanner, setStockUpdateBanner] = useState<string | null>(null);
+  const [updatingStock, setUpdatingStock] = useState(false);
+
+  // Cost modes: 'eur' (fixed amount) | 'pct' (% of product subtotal)
+  const [costModes, setCostModes] = useState<Record<string, 'eur' | 'pct'>>({
+    transport: 'eur', customs: 'eur', vat: 'eur', freight: 'eur',
+    bank: 'eur', exchange: 'eur', local: 'eur', other: 'eur',
+  });
+  const [costPcts, setCostPcts] = useState<Record<string, number>>({
+    transport: 0, customs: 0, vat: 0, freight: 0,
+    bank: 0, exchange: 0, local: 0, other: 0,
+  });
+
   // Draft edit mode
   const [editMode, setEditMode] = useState(false);
   const [editedLines, setEditedLines] = useState<FoOrderLine[]>([]);
@@ -154,6 +169,15 @@ export default function OrderDetailPage() {
     if (storedCostHistory) {
       try { setCostHistory(JSON.parse(storedCostHistory)); } catch { /* ignore */ }
     }
+    // Load cost modes/pcts (EUR vs %)
+    const storedCostModes = localStorage.getItem(`beautypos_cost_modes_${id}`);
+    if (storedCostModes) {
+      try { setCostModes(JSON.parse(storedCostModes)); } catch { /* ignore */ }
+    }
+    const storedCostPcts = localStorage.getItem(`beautypos_cost_pcts_${id}`);
+    if (storedCostPcts) {
+      try { setCostPcts(JSON.parse(storedCostPcts)); } catch { /* ignore */ }
+    }
   }, [id]);
 
   const load = useCallback(async () => {
@@ -176,6 +200,12 @@ export default function OrderDetailPage() {
         // Load saved structure pct for this order if exists
         const savedPct = localStorage.getItem(`beautypos_structure_pct_${id}`);
         if (savedPct !== null) setStructurePct(parseFloat(savedPct));
+        // Init received quantities per line
+        if (o.lines) {
+          const rq: Record<string, number> = {};
+          o.lines.forEach(l => { rq[l.id] = l.qtyReceived || 0; });
+          setReceivedQtys(rq);
+        }
       }
     } finally {
       setLoading(false);
@@ -184,9 +214,54 @@ export default function OrderDetailPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  const updateStockForReception = useCallback(async (qtysToAdd: Record<string, number>) => {
+    if (!order) return;
+    setUpdatingStock(true);
+    const supabase = createClient();
+    let updatedCount = 0;
+    for (const line of (order.lines || [])) {
+      const qty = qtysToAdd[line.id] || 0;
+      if (qty <= 0) continue;
+      const { data: product } = await supabase
+        .from('products').select('id, stock').eq('ref', line.productRef).maybeSingle();
+      if (!product) continue;
+      const stockBefore = Number(product.stock) || 0;
+      const stockAfter = stockBefore + qty;
+      await supabase.from('products').update({ stock: stockAfter, updated_at: new Date().toISOString() }).eq('id', product.id);
+      if (line.color) {
+        const { data: varRow } = await supabase
+          .from('product_color_stock').select('id, quantity')
+          .eq('product_id', product.id).ilike('color_name', line.color).maybeSingle();
+        if (varRow) {
+          await supabase.from('product_color_stock').update({ quantity: Number(varRow.quantity || 0) + qty }).eq('id', varRow.id);
+        }
+      }
+      try {
+        await supabase.from('stock_movements').insert({
+          product_id: product.id, type: 'reception',
+          reason: `Commande fournisseur ${order.orderNumber}`,
+          quantity: qty, stock_before: stockBefore, stock_after: stockAfter,
+        });
+      } catch { /* non-blocking if table schema differs */ }
+      updatedCount++;
+    }
+    setUpdatingStock(false);
+    setStockUpdateBanner(`✅ Stock mis à jour — ${updatedCount} produit${updatedCount > 1 ? 's' : ''} réapprovisionnés`);
+    setTimeout(() => setStockUpdateBanner(null), 6000);
+  }, [order]);
+
   const handleStatusChange = async () => {
     if (!targetStatus || !order) return;
     await supplierOrderService.changeStatus(order.id, targetStatus, 'Sophie Fontaine', statusComment || undefined);
+    if (targetStatus === 'fully_received') {
+      const qtys: Record<string, number> = {};
+      (order.lines || []).forEach(l => { qtys[l.id] = l.qtyOrdered; });
+      await updateStockForReception(qtys);
+    } else if (targetStatus === 'partially_received') {
+      const qtys: Record<string, number> = {};
+      (order.lines || []).forEach(l => { qtys[l.id] = receivedQtys[l.id] ?? l.qtyReceived ?? 0; });
+      await updateStockForReception(qtys);
+    }
     setShowStatusModal(false);
     setStatusComment('');
     setTargetStatus(null);
@@ -197,7 +272,10 @@ export default function OrderDetailPage() {
     if (!order) return;
     setSavingCosts(true);
 
-    const importCost = order.subtotal + costs.transport + costs.customs + costs.vat + costs.freight + costs.bank + costs.exchange + costs.local + costs.other;
+    const getEC = (key: string): number =>
+      costModes[key] === 'pct' ? order.subtotal * (costPcts[key] || 0) / 100 : (costs as any)[key] || 0;
+
+    const importCost = order.subtotal + getEC('transport') + getEC('customs') + getEC('vat') + getEC('freight') + getEC('bank') + getEC('exchange') + getEC('local') + getEC('other');
     const structureAmount = importCost * (structurePct / 100);
     const businessCost = importCost + structureAmount;
 
@@ -217,8 +295,10 @@ export default function OrderDetailPage() {
       localStorage.setItem(`beautypos_structure_history_${order.id}`, JSON.stringify(newHistory));
     }
     localStorage.setItem(`beautypos_structure_pct_${order.id}`, String(structurePct));
-    // Save supplier includes
+    // Save supplier includes + cost modes
     localStorage.setItem(`beautypos_supplier_includes_${order.id}`, JSON.stringify(supplierIncludes));
+    localStorage.setItem(`beautypos_cost_modes_${order.id}`, JSON.stringify(costModes));
+    localStorage.setItem(`beautypos_cost_pcts_${order.id}`, JSON.stringify(costPcts));
 
     // Record cost history per product line
     const lines = order.lines || [];
@@ -250,12 +330,22 @@ export default function OrderDetailPage() {
     localStorage.setItem(`beautypos_cost_history_${order.id}`, JSON.stringify(allCostHistory));
 
     await supplierOrderService.update(order.id, {
-      transportCost: costs.transport, customsCost: costs.customs, vatImport: costs.vat,
-      freightForwarderCost: costs.freight, bankFees: costs.bank, exchangeFees: costs.exchange,
-      localDelivery: costs.local, otherCosts: costs.other,
+      transportCost: getEC('transport'), customsCost: getEC('customs'), vatImport: getEC('vat'),
+      freightForwarderCost: getEC('freight'), bankFees: getEC('bank'), exchangeFees: getEC('exchange'),
+      localDelivery: getEC('local'), otherCosts: getEC('other'),
       totalRealCost: businessCost, costMethod, costsValidated: true,
       orderStatus: 'costs_recorded',
     });
+
+    // Auto-update stock if order was already received and not yet updated
+    const stockKey = `beautypos_stock_updated_${order.id}`;
+    if (['fully_received', 'partially_received', 'costs_recorded', 'stock_integrated'].includes(order.orderStatus) && !localStorage.getItem(stockKey)) {
+      const qtys: Record<string, number> = {};
+      (order.lines || []).forEach(l => { qtys[l.id] = l.qtyOrdered; });
+      await updateStockForReception(qtys);
+      localStorage.setItem(stockKey, '1');
+    }
+
     setSavingCosts(false);
     load();
   };
@@ -265,18 +355,18 @@ export default function OrderDetailPage() {
     setSavingPayment(true);
     const amt = parseFloat(paymentAmount) || 0;
 
-    // Calculate supplierPaymentAmount inline here
-    const supplierIncludesLocal = supplierIncludes;
-    const costsLocal = costs;
+    // Calculate supplierPaymentAmount inline here using effective costs
+    const getECLocal = (key: string): number =>
+      costModes[key] === 'pct' ? order.subtotal * (costPcts[key] || 0) / 100 : (costs as any)[key] || 0;
     const supplierExtraFeesLocal =
-      (supplierIncludesLocal.transport ? costsLocal.transport : 0) +
-      (supplierIncludesLocal.customs ? costsLocal.customs : 0) +
-      (supplierIncludesLocal.vat ? costsLocal.vat : 0) +
-      (supplierIncludesLocal.freight ? costsLocal.freight : 0) +
-      (supplierIncludesLocal.bank ? costsLocal.bank : 0) +
-      (supplierIncludesLocal.exchange ? costsLocal.exchange : 0) +
-      (supplierIncludesLocal.local ? costsLocal.local : 0) +
-      (supplierIncludesLocal.other ? costsLocal.other : 0);
+      (supplierIncludes.transport ? getECLocal('transport') : 0) +
+      (supplierIncludes.customs ? getECLocal('customs') : 0) +
+      (supplierIncludes.vat ? getECLocal('vat') : 0) +
+      (supplierIncludes.freight ? getECLocal('freight') : 0) +
+      (supplierIncludes.bank ? getECLocal('bank') : 0) +
+      (supplierIncludes.exchange ? getECLocal('exchange') : 0) +
+      (supplierIncludes.local ? getECLocal('local') : 0) +
+      (supplierIncludes.other ? getECLocal('other') : 0);
     const supplierPaymentAmountLocal = order.subtotal + supplierExtraFeesLocal;
 
     const newBalance = Math.max(0, supplierPaymentAmountLocal - amt);
@@ -327,8 +417,10 @@ export default function OrderDetailPage() {
     const newPrice = parseFloat(newSellPrice) || 0;
     const oldPrice = line.salePrice;
 
-    // Calculate avgCostPerProduct inline here
-    const totalFeesLocal = costs.transport + costs.customs + costs.vat + costs.freight + costs.bank + costs.exchange + costs.local + costs.other;
+    // Calculate avgCostPerProduct inline here using effective costs
+    const getECQ = (key: string): number =>
+      costModes[key] === 'pct' ? order.subtotal * (costPcts[key] || 0) / 100 : (costs as any)[key] || 0;
+    const totalFeesLocal = getECQ('transport') + getECQ('customs') + getECQ('vat') + getECQ('freight') + getECQ('bank') + getECQ('exchange') + getECQ('local') + getECQ('other');
     const importCostLocal = order.subtotal + totalFeesLocal;
     const structureAmountLocal = importCostLocal * (structurePct / 100);
     const businessCostLocal = importCostLocal + structureAmountLocal;
@@ -422,8 +514,10 @@ export default function OrderDetailPage() {
     // Simulate bulk update of all products with new costs
     const lines = order.lines || [];
 
-    // Calculate avgCostPerProduct inline here
-    const totalFeesLocal2 = costs.transport + costs.customs + costs.vat + costs.freight + costs.bank + costs.exchange + costs.local + costs.other;
+    // Calculate avgCostPerProduct inline here using effective costs
+    const getECB = (key: string): number =>
+      costModes[key] === 'pct' ? order.subtotal * (costPcts[key] || 0) / 100 : (costs as any)[key] || 0;
+    const totalFeesLocal2 = getECB('transport') + getECB('customs') + getECB('vat') + getECB('freight') + getECB('bank') + getECB('exchange') + getECB('local') + getECB('other');
     const importCostLocal2 = order.subtotal + totalFeesLocal2;
     const structureAmountLocal2 = importCostLocal2 * (structurePct / 100);
     const businessCostLocal2 = importCostLocal2 + structureAmountLocal2;
@@ -563,6 +657,27 @@ export default function OrderDetailPage() {
     load();
   };
 
+  const handleFullReception = async () => {
+    if (!order) return;
+    const stockKey = `beautypos_stock_updated_${order.id}`;
+    await supplierOrderService.changeStatus(order.id, 'fully_received', 'Sophie Fontaine', 'Réception totale');
+    if (!localStorage.getItem(stockKey)) {
+      const qtys: Record<string, number> = {};
+      (order.lines || []).forEach(l => { qtys[l.id] = l.qtyOrdered; });
+      await updateStockForReception(qtys);
+      localStorage.setItem(stockKey, '1');
+    }
+    load();
+  };
+
+  const handlePartialReception = async () => {
+    if (!order) return;
+    await supplierOrderService.changeStatus(order.id, 'partially_received', 'Sophie Fontaine', 'Réception partielle');
+    const qtys = { ...receivedQtys };
+    await updateStockForReception(qtys);
+    load();
+  };
+
   const handleExportPDF = async () => {
     if (!order) return;
     setExportingPDF(true);
@@ -592,20 +707,24 @@ export default function OrderDetailPage() {
 
   // ─── CALCULATIONS ───────────────────────────────────────────────────────────
 
+  // Effective cost helper: if mode is '%', compute EUR from subtotal × pct
+  const getEC = (key: string): number =>
+    costModes[key] === 'pct' ? order.subtotal * (costPcts[key] || 0) / 100 : (costs as any)[key] || 0;
+
   // Supplier payment amount = products + only the cost lines checked as "include in supplier payment"
   const supplierExtraFees =
-    (supplierIncludes.transport ? costs.transport : 0) +
-    (supplierIncludes.customs ? costs.customs : 0) +
-    (supplierIncludes.vat ? costs.vat : 0) +
-    (supplierIncludes.freight ? costs.freight : 0) +
-    (supplierIncludes.bank ? costs.bank : 0) +
-    (supplierIncludes.exchange ? costs.exchange : 0) +
-    (supplierIncludes.local ? costs.local : 0) +
-    (supplierIncludes.other ? costs.other : 0);
+    (supplierIncludes.transport ? getEC('transport') : 0) +
+    (supplierIncludes.customs ? getEC('customs') : 0) +
+    (supplierIncludes.vat ? getEC('vat') : 0) +
+    (supplierIncludes.freight ? getEC('freight') : 0) +
+    (supplierIncludes.bank ? getEC('bank') : 0) +
+    (supplierIncludes.exchange ? getEC('exchange') : 0) +
+    (supplierIncludes.local ? getEC('local') : 0) +
+    (supplierIncludes.other ? getEC('other') : 0);
   const supplierPaymentAmount = order.subtotal + supplierExtraFees;
 
   // Internal business cost = products + ALL fees + structure %
-  const totalFees = costs.transport + costs.customs + costs.vat + costs.freight + costs.bank + costs.exchange + costs.local + costs.other;
+  const totalFees = getEC('transport') + getEC('customs') + getEC('vat') + getEC('freight') + getEC('bank') + getEC('exchange') + getEC('local') + getEC('other');
   const importCost = order.subtotal + totalFees;
   const structureAmount = importCost * (structurePct / 100);
   const businessCost = importCost + structureAmount;
@@ -1070,8 +1189,11 @@ export default function OrderDetailPage() {
                       <div className="grid grid-cols-3 gap-3">
                         <div>
                           <label className="block text-xs text-muted-foreground mb-1">Qté reçue</label>
-                          <input type="number" min="0" max={line.qtyOrdered} defaultValue={line.qtyReceived}
-                            className="w-full px-2.5 py-1.5 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                          <input
+                            type="number" min="0" max={line.qtyOrdered}
+                            value={receivedQtys[line.id] ?? line.qtyReceived ?? 0}
+                            onChange={(e) => setReceivedQtys(prev => ({ ...prev, [line.id]: parseInt(e.target.value) || 0 }))}
+                            className="w-full px-2.5 py-1.5 border border-primary/40 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 bg-primary/5" />
                         </div>
                         <div>
                           <label className="block text-xs text-muted-foreground mb-1">Manquants</label>
@@ -1086,20 +1208,30 @@ export default function OrderDetailPage() {
                       </div>
                     </div>
                   ))}
+                  {stockUpdateBanner && (
+                    <div className="flex items-center gap-3 px-4 py-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-700 font-500 text-sm">
+                      <span className="flex-1">{stockUpdateBanner}</span>
+                      <button onClick={() => setStockUpdateBanner(null)} className="text-emerald-500 hover:text-emerald-700 shrink-0">
+                        <Icon name="XMarkIcon" size={14} />
+                      </button>
+                    </div>
+                  )}
                   <div className="flex flex-wrap gap-3">
                     <button
-                      onClick={() => supplierOrderService.changeStatus(order.id, 'fully_received', 'Sophie Fontaine', 'Réception totale').then(load)}
-                      className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-500 hover:bg-emerald-700 transition-colors"
+                      onClick={handleFullReception}
+                      disabled={updatingStock}
+                      className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-500 hover:bg-emerald-700 transition-colors disabled:opacity-60"
                     >
-                      <Icon name="CheckCircleIcon" size={15} />
+                      {updatingStock ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Icon name="CheckCircleIcon" size={15} />}
                       Réception totale
                     </button>
                     <button
-                      onClick={() => supplierOrderService.changeStatus(order.id, 'partially_received', 'Sophie Fontaine', 'Réception partielle').then(load)}
-                      className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-lg text-sm font-500 hover:bg-amber-600 transition-colors"
+                      onClick={handlePartialReception}
+                      disabled={updatingStock}
+                      className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-lg text-sm font-500 hover:bg-amber-600 transition-colors disabled:opacity-60"
                     >
-                      <Icon name="ExclamationCircleIcon" size={15} />
-                      Réception partielle
+                      {updatingStock ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Icon name="ExclamationCircleIcon" size={15} />}
+                      Réception partielle (qtés saisies)
                     </button>
                     <button
                       onClick={() => setShowOrderLabelModal(true)}
@@ -1128,38 +1260,67 @@ export default function OrderDetailPage() {
                 <p className="text-xs text-muted-foreground mb-4">Cochez ✓ pour inclure un frais dans le montant à payer au fournisseur</p>
 
                 {/* Column headers */}
-                <div className="flex items-center gap-3 mb-2 px-0.5">
-                  <div className="w-36 shrink-0" />
+                <div className="flex items-center gap-2 mb-2 px-0.5">
+                  <div className="w-28 shrink-0" />
+                  <div className="w-14 shrink-0" />
                   <div className="flex-1 text-xs text-muted-foreground font-500">Montant</div>
-                  <div className="w-10 text-xs text-muted-foreground font-500 text-center">Devise</div>
                   <div className="w-32 text-xs text-blue-600 font-600 text-center">Inclure fournisseur</div>
                 </div>
 
-                <div className="space-y-2.5">
-                  {COST_LINES.map(({ key, label }) => (
-                    <div key={key} className="flex items-center gap-3">
-                      <label className="w-36 text-sm text-muted-foreground shrink-0">{label}</label>
-                      <input
-                        type="number" min="0" step="0.01"
-                        value={(costs as any)[key]}
-                        onChange={(e) => setCosts((prev) => ({ ...prev, [key]: parseFloat(e.target.value) || 0 }))}
-                        className="flex-1 px-3 py-1.5 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
-                      />
-                      <span className="text-xs text-muted-foreground w-10">{order.currency}</span>
-                      <div className="w-32 flex items-center justify-center gap-1.5">
-                        <input
-                          type="checkbox"
-                          id={`include_${key}`}
-                          checked={(supplierIncludes as any)[key]}
-                          onChange={(e) => setSupplierIncludes((prev) => ({ ...prev, [key]: e.target.checked }))}
-                          className="w-4 h-4 rounded border-border text-blue-600 focus:ring-blue-500 cursor-pointer"
-                        />
-                        <label htmlFor={`include_${key}`} className="text-xs text-blue-600 cursor-pointer select-none">
-                          {(supplierIncludes as any)[key] ? 'Inclus' : 'Exclure'}
-                        </label>
+                <div className="space-y-2">
+                  {COST_LINES.map(({ key, label }) => {
+                    const mode = costModes[key] || 'eur';
+                    const pct = costPcts[key] || 0;
+                    const computedEur = order.subtotal * pct / 100;
+                    return (
+                      <div key={key} className="flex items-center gap-2">
+                        <label className="w-28 text-sm text-muted-foreground shrink-0">{label}</label>
+                        {/* EUR / % toggle */}
+                        <div className="flex border border-border rounded-md overflow-hidden shrink-0 w-14">
+                          <button
+                            type="button"
+                            onClick={() => setCostModes(prev => ({ ...prev, [key]: 'eur' }))}
+                            className={`flex-1 py-1 text-[11px] font-700 transition-colors ${mode === 'eur' ? 'bg-primary text-primary-foreground' : 'bg-white text-muted-foreground hover:bg-muted'}`}
+                          >EUR</button>
+                          <button
+                            type="button"
+                            onClick={() => setCostModes(prev => ({ ...prev, [key]: 'pct' }))}
+                            className={`flex-1 py-1 text-[11px] font-700 transition-colors ${mode === 'pct' ? 'bg-primary text-primary-foreground' : 'bg-white text-muted-foreground hover:bg-muted'}`}
+                          >%</button>
+                        </div>
+                        {mode === 'eur' ? (
+                          <input
+                            type="number" min="0" step="0.01"
+                            value={(costs as any)[key]}
+                            onChange={(e) => setCosts((prev) => ({ ...prev, [key]: parseFloat(e.target.value) || 0 }))}
+                            className="flex-1 px-3 py-1.5 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                          />
+                        ) : (
+                          <div className="flex-1 flex items-center gap-2">
+                            <input
+                              type="number" min="0" max="100" step="0.1"
+                              value={pct}
+                              onChange={(e) => setCostPcts(prev => ({ ...prev, [key]: parseFloat(e.target.value) || 0 }))}
+                              className="w-20 px-3 py-1.5 border border-primary/40 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 bg-primary/5"
+                            />
+                            <span className="text-xs text-muted-foreground whitespace-nowrap">= <strong>{computedEur.toFixed(2)}</strong> {order.currency}</span>
+                          </div>
+                        )}
+                        <div className="w-32 flex items-center justify-center gap-1.5 shrink-0">
+                          <input
+                            type="checkbox"
+                            id={`include_${key}`}
+                            checked={(supplierIncludes as any)[key]}
+                            onChange={(e) => setSupplierIncludes((prev) => ({ ...prev, [key]: e.target.checked }))}
+                            className="w-4 h-4 rounded border-border text-blue-600 focus:ring-blue-500 cursor-pointer"
+                          />
+                          <label htmlFor={`include_${key}`} className="text-xs text-blue-600 cursor-pointer select-none">
+                            {(supplierIncludes as any)[key] ? 'Inclus' : 'Exclure'}
+                          </label>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 {/* Structure fees field */}
@@ -1219,10 +1380,10 @@ export default function OrderDetailPage() {
                       <span className="text-muted-foreground">Montant produits</span>
                       <span className="font-600">{order.subtotal.toFixed(2)} {order.currency}</span>
                     </div>
-                    {COST_LINES.map(({ key, label }) => (supplierIncludes as any)[key] && (costs as any)[key] > 0 ? (
+                    {COST_LINES.map(({ key, label }) => (supplierIncludes as any)[key] && getEC(key) > 0 ? (
                       <div key={key} className="flex justify-between text-blue-700">
                         <span>+ {label} <span className="text-[10px] bg-blue-50 px-1 rounded">inclus</span></span>
-                        <span>{((costs as any)[key] as number).toFixed(2)}</span>
+                        <span>{getEC(key).toFixed(2)}</span>
                       </div>
                     ) : null)}
                     <div className="border-t-2 border-blue-200 pt-2 flex justify-between font-700 text-blue-800 text-base">
@@ -1259,9 +1420,10 @@ export default function OrderDetailPage() {
                   <div className="space-y-1.5 text-sm">
                     <p className="text-[10px] font-600 text-muted-foreground uppercase tracking-wide">Coût import réel</p>
                     <div className="flex justify-between"><span className="text-muted-foreground">Montant produits</span><span>{order.subtotal.toFixed(2)}</span></div>
-                    {COST_LINES.map(({ key, label }) => (costs as any)[key] > 0 ? (
+                    {COST_LINES.map(({ key, label }) => getEC(key) > 0 ? (
                       <div key={key} className="flex justify-between text-muted-foreground">
-                        <span>+ {label}</span><span>{((costs as any)[key] as number).toFixed(2)}</span>
+                        <span>+ {label}{costModes[key] === 'pct' ? ` (${costPcts[key]}%)` : ''}</span>
+                        <span>{getEC(key).toFixed(2)}</span>
                       </div>
                     ) : null)}
                     <div className="border-t border-purple-100 pt-1.5 flex justify-between font-600 text-blue-700">
@@ -1302,12 +1464,20 @@ export default function OrderDetailPage() {
 
                 <button
                   onClick={handleSaveCosts}
-                  disabled={savingCosts}
+                  disabled={savingCosts || updatingStock}
                   className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-500 hover:bg-primary/90 transition-colors disabled:opacity-50"
                 >
-                  <Icon name="CheckIcon" size={15} />
-                  {savingCosts ? 'Enregistrement...' : 'Valider les frais'}
+                  {savingCosts || updatingStock ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Icon name="CheckIcon" size={15} />}
+                  {savingCosts ? 'Enregistrement...' : updatingStock ? 'Mise à jour stock...' : 'Valider les frais'}
                 </button>
+                {stockUpdateBanner && (
+                  <div className="flex items-center gap-3 px-4 py-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-700 font-500 text-sm mt-2">
+                    <span className="flex-1">{stockUpdateBanner}</span>
+                    <button onClick={() => setStockUpdateBanner(null)} className="text-emerald-500 hover:text-emerald-700 shrink-0">
+                      <Icon name="XMarkIcon" size={14} />
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
