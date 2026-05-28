@@ -4,7 +4,6 @@ import React, { useRef, useState } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import Image from 'next/image';
 import { type Reservation, RECOVERY_MODE_CONFIG } from '@/lib/services/reservationService';
-import { createClient } from '@/lib/supabase/client';
 
 interface ReservationTicketProps {
   reservation: Reservation;
@@ -207,9 +206,10 @@ export default function ReservationTicket({ reservation, onClose }: ReservationT
     setSendingEmail(true);
     setEmailResult(null);
     try {
-      const supabase = createClient();
-      const { data, error } = await supabase.functions.invoke('send-email', {
-        body: {
+      const res = await fetch('/api/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           type: 'reservation',
           to: emailInput.trim(),
           data: {
@@ -249,16 +249,20 @@ export default function ReservationTicket({ reservation, onClose }: ReservationT
               logo: company.logo || undefined,
             },
           },
-        },
+        }),
       });
-      if (error || data?.error) {
-        setEmailResult({ ok: false, msg: error?.message ?? data?.error ?? 'Erreur lors de l\'envoi' });
+
+      const json = await res.json().catch(() => ({}));
+
+      if (!res.ok || json?.error) {
+        const reason = json?.error ?? json?.details?.message ?? `HTTP ${res.status}`;
+        setEmailResult({ ok: false, msg: `Erreur envoi email : ${reason}` });
       } else {
         setEmailResult({ ok: true, msg: 'Email envoyé avec succès !' });
         setShowEmailForm(false);
       }
     } catch (e: any) {
-      setEmailResult({ ok: false, msg: e?.message ?? 'Erreur réseau' });
+      setEmailResult({ ok: false, msg: `Erreur réseau : ${e?.message ?? 'inconnue'}` });
     }
     setSendingEmail(false);
   };
