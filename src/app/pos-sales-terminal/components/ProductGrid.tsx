@@ -244,7 +244,7 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
             </p>
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: '5px' }}>
+          <div className="grid grid-cols-3 md:grid-cols-5 gap-1.5">
             {displayedProducts.map((product) => {
               const isFav = favouriteIds.includes(product.id);
               const isOutOfStock = product.stock === 0;

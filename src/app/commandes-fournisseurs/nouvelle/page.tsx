@@ -155,29 +155,48 @@ function NouvelleCommandeContent() {
   }, [allProducts, selectedSupplier, supplierProducts]);
 
   const addProduct = async (p: StockProduct) => {
-    if (lines.some(l => l.productId === p.id)) return;
-    const line = productToLine(p);
+    if (!p.id) return;
+    const variantData = await loadVariantsForProduct(p.id);
+    // Block duplicate only for non-variant products
+    if (!variantData.hasColorVariants && lines.some(l => l.productId === p.id)) return;
+    const line = { ...productToLine(p), ...variantData };
     setLines((prev) => [...prev, line]);
     setSearch('');
     setSearchResults([]);
     setShowSearch(false);
-    if (p.id) {
-      const variantData = await loadVariantsForProduct(p.id);
-      setLines((prev) => prev.map((l) => l.key === line.key ? { ...l, ...variantData } : l));
-    }
   };
 
   const toggleSupplierProduct = async (p: StockProduct) => {
-    if (lines.some(l => l.productId === p.id)) {
+    if (!p.id) return;
+    const existingLines = lines.filter(l => l.productId === p.id);
+    // Non-variant product already added: toggle off
+    if (existingLines.length > 0 && !existingLines[0].hasColorVariants) {
       setLines(prev => prev.filter(l => l.productId !== p.id));
-    } else {
-      const line = productToLine(p);
-      setLines(prev => [...prev, line]);
-      if (p.id) {
-        const variantData = await loadVariantsForProduct(p.id);
-        setLines((prev) => prev.map((l) => l.key === line.key ? { ...l, ...variantData } : l));
-      }
+      return;
     }
+    // Variant product or first add: always add new line, reuse variant data if available
+    const variantData = existingLines.length > 0
+      ? { hasColorVariants: existingLines[0].hasColorVariants, colorVariants: existingLines[0].colorVariants }
+      : await loadVariantsForProduct(p.id);
+    const line = { ...productToLine(p), ...variantData };
+    setLines(prev => [...prev, line]);
+  };
+
+  const addVariantLine = (existingLine: DraftLine) => {
+    const newLine: DraftLine = {
+      ...existingLine,
+      key: `${existingLine.productId}-${Date.now()}`,
+      color: '',
+      variant: '',
+      qtyOrdered: 1,
+      note: '',
+    };
+    setLines(prev => {
+      const idx = prev.findIndex(l => l.key === existingLine.key);
+      const next = [...prev];
+      next.splice(idx + 1, 0, newLine);
+      return next;
+    });
   };
 
   const addAllRestock = async () => {
@@ -340,7 +359,9 @@ function NouvelleCommandeContent() {
                   <div className="divide-y divide-border max-h-80 overflow-y-auto">
                     {supplierProducts.map(p => {
                       const st = stockStatus(p.stock, p.minStock);
-                      const isAdded = lines.some(l => l.productId === p.id);
+                      const linesForProduct = lines.filter(l => l.productId === p.id);
+                      const isAdded = linesForProduct.length > 0;
+                      const isVariantProduct = isAdded && linesForProduct[0].hasColorVariants;
                       return (
                         <div key={p.id} className={`flex items-center gap-3 px-4 py-3 transition-colors ${isAdded ? 'bg-primary/5' : 'hover:bg-muted/30'}`}>
                           <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center shrink-0 overflow-hidden">
@@ -374,13 +395,15 @@ function NouvelleCommandeContent() {
                           <button
                             onClick={() => toggleSupplierProduct(p)}
                             className={`shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-600 transition-colors ${
-                              isAdded
+                              isVariantProduct
+                                ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                : isAdded
                                 ? 'bg-primary text-primary-foreground hover:bg-primary/90'
                                 : 'bg-muted text-foreground hover:bg-muted/80'
                             }`}
                           >
-                            <Icon name={isAdded ? 'CheckIcon' : 'PlusIcon'} size={12} />
-                            {isAdded ? 'Ajouté' : 'Ajouter'}
+                            <Icon name={isAdded && !isVariantProduct ? 'CheckIcon' : 'PlusIcon'} size={12} />
+                            {isVariantProduct ? `+ variante (${linesForProduct.length})` : isAdded ? 'Ajouté' : 'Ajouter'}
                           </button>
                         </div>
                       );
@@ -478,6 +501,15 @@ function NouvelleCommandeContent() {
                               {line.avgRestockDays > 0 && <span>Délai: {line.avgRestockDays}j</span>}
                             </div>
                           </div>
+                          {line.hasColorVariants && (
+                            <button
+                              onClick={() => addVariantLine(line)}
+                              title="Ajouter une variante de ce produit"
+                              className="p-1.5 rounded-lg hover:bg-emerald-50 text-muted-foreground hover:text-emerald-600 transition-colors"
+                            >
+                              <Icon name="PlusIcon" size={15} />
+                            </button>
+                          )}
                           <button onClick={() => removeLine(line.key)} className="p-1.5 rounded-lg hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors">
                             <Icon name="TrashIcon" size={15} />
                           </button>
