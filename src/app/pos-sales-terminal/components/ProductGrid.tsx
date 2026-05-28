@@ -70,6 +70,14 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState('__all__');
   const [activeTab, setActiveTab] = useState<'all' | 'favourites'>('all');
+  const [gridCols, setGridCols] = useState(5);
+
+  useEffect(() => {
+    const update = () => setGridCols(window.innerWidth < 768 ? 3 : 5);
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
   const [products, setProducts] = useState<DBProduct[]>([]);
   const [categories, setCategories] = useState<{ id: string; label: string }[]>([]);
   const [loading, setLoading] = useState(true);
@@ -183,33 +191,34 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
       </div>
 
       {/* Tab: All / Favourites */}
-      <div className="px-4 pt-2 pb-0 bg-white border-b border-border">
-        <div className="flex items-center gap-1 mb-2">
+      <div className="bg-white border-b border-border" style={{ width: '100%', overflow: 'hidden' }}>
+        <div className="px-4 pt-2 pb-1 flex items-center gap-1">
           <button
             onClick={() => setActiveTab('all')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-600 transition-colors ${activeTab === 'all' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted'}`}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-600 transition-colors whitespace-nowrap ${activeTab === 'all' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted'}`}
           >
             <Icon name="Squares2X2Icon" size={13} />
             Tous les produits
           </button>
           <button
             onClick={() => setActiveTab('favourites')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-600 transition-colors ${activeTab === 'favourites' ? 'bg-amber-500 text-white' : 'text-muted-foreground hover:text-foreground hover:bg-muted'}`}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-600 transition-colors whitespace-nowrap ${activeTab === 'favourites' ? 'bg-amber-500 text-white' : 'text-muted-foreground hover:text-foreground hover:bg-muted'}`}
           >
             <Icon name="StarIcon" size={13} />
             Favoris ({products.filter(p => p.is_favorite).length})
           </button>
         </div>
 
-        {/* Category tabs — only in "all" mode */}
+        {/* Category tabs — horizontal scroll, independent of grid width */}
         {activeTab === 'all' && (
-          <div className="overflow-x-auto scrollbar-thin pb-2">
-            <div className="flex items-center gap-1.5 min-w-max">
+          <div style={{ width: '100%', overflowX: 'auto', overflowY: 'hidden', paddingBottom: '8px' }}>
+            <div style={{ display: 'inline-flex', gap: '6px', paddingLeft: '16px', paddingRight: '16px', whiteSpace: 'nowrap' }}>
               {categories.map((cat) => (
                 <button
                   key={cat.id}
                   onClick={() => setActiveCategory(cat.id)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-600 whitespace-nowrap transition-all duration-150 ${
+                  style={{ flexShrink: 0, whiteSpace: 'nowrap' }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-600 transition-all duration-150 ${
                     activeCategory === cat.id
                       ? 'bg-primary text-primary-foreground'
                       : 'bg-muted text-muted-foreground hover:text-foreground hover:bg-secondary'
@@ -223,8 +232,8 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
         )}
       </div>
 
-      {/* Product grid */}
-      <div className="flex-1 overflow-y-auto scrollbar-thin p-2">
+      {/* Product grid — width completely independent of tabs */}
+      <div className="flex-1 overflow-y-auto p-2" style={{ overflowX: 'hidden' }}>
         {loading ? (
           <div className="flex flex-col items-center justify-center h-48 gap-3">
             <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -241,7 +250,7 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-3 md:grid-cols-5 gap-1.5">
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`, gap: '6px' }}>
             {displayedProducts.map((product) => {
               const isFav = Boolean(product.is_favorite);
               const isOutOfStock = product.stock === 0;
@@ -278,8 +287,8 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
                         : 'hover:shadow-md hover:border-primary/40 active:scale-95 border-border'
                     }`}
                 >
-                  {/* Image — fixed height */}
-                  <div className="relative overflow-hidden bg-muted/30 shrink-0 w-full" style={{ height: '70px' }}>
+                  {/* Image — ~65% of card height via aspect ratio */}
+                  <div className="relative overflow-hidden bg-muted/30 shrink-0 w-full" style={{ aspectRatio: '4/3' }}>
                     {product.image_url ? (
                       <AppImage
                         src={product.image_url}
