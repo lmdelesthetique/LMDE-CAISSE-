@@ -290,6 +290,43 @@ function PagePreview({
   );
 }
 
+// ─── Pre-render barcodes to SVG data URLs (client-side, no CDN) ─────────────
+async function preRenderBarcodes(values: string[]): Promise<Record<string, string>> {
+  const mod = await import('jsbarcode');
+  const JsBarcode = mod.default || mod;
+  const result: Record<string, string> = {};
+  const unique = [...new Set(values.filter(Boolean))];
+  for (const val of unique) {
+    const format = chooseBarcodeFormat(val);
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.style.position = 'absolute';
+    svg.style.left = '-9999px';
+    document.body.appendChild(svg);
+    try {
+      (JsBarcode as any)(svg, val, {
+        format,
+        width: 1.5,
+        height: 40,
+        displayValue: false,
+        margin: 4,
+        background: '#ffffff',
+        lineColor: '#000000',
+        flat: false,
+      });
+    } catch {
+      try {
+        (JsBarcode as any)(svg, val, { format: 'CODE128', width: 1.5, height: 40, displayValue: false, margin: 4, background: '#ffffff', lineColor: '#000000' });
+      } catch { /* skip */ }
+    }
+    try {
+      const svgStr = new XMLSerializer().serializeToString(svg);
+      result[val] = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgStr)));
+    } catch { /* skip */ }
+    document.body.removeChild(svg);
+  }
+  return result;
+}
+
 // ─── Main modal ─────────────────────────────────────────────────────────────
 export default function BarcodeLabelModal({ products, onClose }: BarcodeLabelModalProps) {
   const printFrameRef = useRef<HTMLIFrameElement>(null);
@@ -419,39 +456,25 @@ export default function BarcodeLabelModal({ products, onClose }: BarcodeLabelMod
     setProductQtys(updated);
   };
 
-  // ─── Generate print HTML with JsBarcode ──────────────────────────────────
-  // Uses fixed pixel heights for JsBarcode — avoids CSS mm parsing issues
-  const generatePrintHTML = useCallback(() => {
+  // ─── Generate print HTML using pre-rendered barcode data URLs ───────────────
+  const generatePrintHTML = useCallback((barcodeDataUrls: Record<string, string>) => {
     const fsMap = { small: 5.5, medium: 6.5, large: 7.5 };
     const fs = fsMap[cfg.fontSize];
 
-    // At 96dpi: 1mm = 3.7795px. At 300dpi (print): 1mm = 11.811px
-    // We use 96dpi for the HTML layout, JsBarcode gets explicit pixel heights
     const PX_PER_MM = 3.7795;
-    const labelWpx = Math.round(SHEET.labelW * PX_PER_MM);
-    const labelHpx = Math.round(SHEET.labelH * PX_PER_MM);
-    const safeTop = SAFE.top * PX_PER_MM;
-    const safeLeft = SAFE.left * PX_PER_MM;
-    const innerWpx = Math.round((SHEET.labelW - SAFE.left - SAFE.right) * PX_PER_MM);
     const innerHpx = Math.round((SHEET.labelH - SAFE.top - SAFE.bottom) * PX_PER_MM);
-    // Barcode height: 42% of inner height, minimum 18px for scannability
     const barcodeHpx = Math.max(18, Math.round(innerHpx * 0.42));
-    // Bar width: 1.5px at screen resolution — renders as ~4.5px at 300dpi print
-    const barWidth = 1.5;
-
-    let labelCounter = 0;
 
     const labelHTML = (product: ProductRecord) => {
       const barcodeValue = product.barcode || product.ref || '';
-      const bcId = `bc${labelCounter++}`;
-      const format = chooseBarcodeFormat(barcodeValue);
+      const dataUrl = barcodeDataUrls[barcodeValue] || '';
       return `
 <div class="label">
   <div class="inner">
     ${cfg.showName ? `<p class="name">${escapeXml(product.name)}</p>` : ''}
     ${cfg.showRef ? `<p class="small">${escapeXml(product.ref)}</p>` : ''}
     ${cfg.showCategory ? `<p class="tiny">${escapeXml(product.category)}</p>` : ''}
-    ${cfg.showBarcode && barcodeValue ? `<div class="bc-wrap"><svg id="${bcId}" class="barcode" data-value="${escapeAttr(barcodeValue)}" data-format="${format}" data-height="${barcodeHpx}" data-width="${barWidth}" style="display:block;max-width:100%;"></svg><p class="bc-num">${escapeXml(barcodeValue)}</p></div>` : ''}
+    ${cfg.showBarcode && barcodeValue && dataUrl ? `<div class="bc-wrap"><img src="${dataUrl}" style="display:block;max-width:100%;height:${barcodeHpx}px;" /><p class="bc-num">${escapeXml(barcodeValue)}</p></div>` : ''}
     ${cfg.showPrice ? `<p class="price">${product.sellPriceTTC.toFixed(2)} €</p>` : ''}
   </div>
 </div>`;
@@ -508,85 +531,36 @@ body { font-family: 'Courier New', monospace; background: white; }
 .bc-num { font-size: ${(fs * 0.75).toFixed(1)}pt; font-family: 'Courier New', monospace; color: #000000; line-height: 1; letter-spacing: 0.5px; }
 .price { font-size: ${(fs * 1.2).toFixed(1)}pt; font-weight: 700; text-align: center; width: 100%; color: #000000; line-height: 1.2; }
 @media print {
-  body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
   .page { page-break-after: always; }
+  img { display: block !important; max-width: 100%; }
 }
 </style>
 </head>
 <body>
 ${pagesHTML}
-<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.12.6/dist/JsBarcode.all.min.js"></script>
 <script>
-(function() {
-  function renderBarcodes() {
-    var svgs = document.querySelectorAll('svg.barcode[data-value]');
-    var rendered = 0;
-    svgs.forEach(function(svg) {
-      var val = svg.getAttribute('data-value');
-      var fmt = svg.getAttribute('data-format') || 'CODE128';
-      var h = parseInt(svg.getAttribute('data-height') || '20', 10);
-      var w = parseFloat(svg.getAttribute('data-width') || '1.5');
-      if (!val) return;
-      try {
-        JsBarcode(svg, val, {
-          format: fmt,
-          width: w,
-          height: h,
-          displayValue: false,
-          margin: 4,
-          background: '#ffffff',
-          lineColor: '#000000',
-          flat: false
-        });
-        rendered++;
-      } catch(e) {
-        // Fallback to CODE128
-        try {
-          JsBarcode(svg, val, {
-            format: 'CODE128',
-            width: w,
-            height: h,
-            displayValue: false,
-            margin: 4,
-            background: '#ffffff',
-            lineColor: '#000000'
-          });
-          rendered++;
-        } catch(e2) {
-          svg.innerHTML = '<text x="50%" y="50%" text-anchor="middle" font-size="8" fill="#999">ERR</text>';
-        }
-      }
-    });
-    return rendered;
-  }
-
-  function tryPrint() {
-    var count = renderBarcodes();
-    // Wait for SVG rendering to complete before printing
-    setTimeout(function() { window.print(); }, count > 0 ? 600 : 200);
-  }
-
-  if (document.readyState === 'complete') {
-    tryPrint();
-  } else {
-    window.addEventListener('load', tryPrint);
-  }
-})();
+window.addEventListener('load', function() { window.print(); });
 </script>
 </body>
 </html>`;
   }, [cfg, pages]);
 
-  const handlePrint = useCallback(() => {
+  const handlePrint = useCallback(async () => {
     setIsPrinting(true);
-    const html = generatePrintHTML();
-    const iframe = printFrameRef.current;
-    if (!iframe) { setIsPrinting(false); return; }
-    const doc = iframe.contentDocument || iframe.contentWindow?.document;
-    if (!doc) { setIsPrinting(false); return; }
-    doc.open(); doc.write(html); doc.close();
-    setTimeout(() => { setIsPrinting(false); }, 3000);
-  }, [generatePrintHTML]);
+    try {
+      const barcodeValues = allLabels.map(p => p.barcode || p.ref || '').filter(Boolean);
+      const barcodeDataUrls = await preRenderBarcodes(barcodeValues);
+      const html = generatePrintHTML(barcodeDataUrls);
+      const iframe = printFrameRef.current;
+      if (!iframe) return;
+      const doc = iframe.contentDocument || iframe.contentWindow?.document;
+      if (!doc) return;
+      doc.open(); doc.write(html); doc.close();
+    } finally {
+      setTimeout(() => { setIsPrinting(false); }, 1000);
+    }
+  }, [generatePrintHTML, allLabels]);
 
   const currentPage = pages[activePreviewPage] ?? [];
 
