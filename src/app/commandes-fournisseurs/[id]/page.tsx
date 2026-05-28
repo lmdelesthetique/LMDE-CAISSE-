@@ -257,7 +257,10 @@ export default function OrderDetailPage() {
     }
 
     // Mark as done in DB — prevents any subsequent call from running again
-    await supabase.from('fo_orders').update({ stock_updated: true }).eq('id', order.id);
+    await supabase.from('fo_orders').update({
+      stock_updated: true,
+      stock_updated_at: new Date().toISOString(),
+    }).eq('id', order.id);
 
     setUpdatingStock(false);
     setStockUpdateBanner(`✅ Stock mis à jour — ${updatedCount} produit${updatedCount > 1 ? 's' : ''} réapprovisionnés`);
@@ -1209,7 +1212,21 @@ export default function OrderDetailPage() {
                       </div>
                     </div>
                   ))}
-                  {stockUpdateBanner && (
+                  {/* Persistent stock-updated badge */}
+                  {order.stockUpdated ? (
+                    <div className="flex items-center gap-3 px-4 py-3 bg-emerald-50 border border-emerald-300 rounded-xl text-emerald-800">
+                      <Icon name="CheckCircleIcon" size={18} className="text-emerald-600 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-600">✅ Stock mis à jour</p>
+                        {(order.stockUpdatedAt || order.updatedAt) && (
+                          <p className="text-xs text-emerald-600 mt-0.5">
+                            le {new Date(order.stockUpdatedAt || order.updatedAt).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        )}
+                      </div>
+                      <span className="shrink-0 text-[10px] font-700 uppercase tracking-wide bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full">Verrouillé</span>
+                    </div>
+                  ) : stockUpdateBanner && (
                     <div className="flex items-center gap-3 px-4 py-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-700 font-500 text-sm">
                       <span className="flex-1">{stockUpdateBanner}</span>
                       <button onClick={() => setStockUpdateBanner(null)} className="text-emerald-500 hover:text-emerald-700 shrink-0">
@@ -1220,16 +1237,18 @@ export default function OrderDetailPage() {
                   <div className="flex flex-wrap gap-3">
                     <button
                       onClick={handleFullReception}
-                      disabled={updatingStock}
-                      className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-500 hover:bg-emerald-700 transition-colors disabled:opacity-60"
+                      disabled={updatingStock || order.stockUpdated}
+                      title={order.stockUpdated ? 'Stock déjà mis à jour pour cette commande' : undefined}
+                      className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-500 hover:bg-emerald-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       {updatingStock ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Icon name="CheckCircleIcon" size={15} />}
                       Réception totale
                     </button>
                     <button
                       onClick={handlePartialReception}
-                      disabled={updatingStock}
-                      className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-lg text-sm font-500 hover:bg-amber-600 transition-colors disabled:opacity-60"
+                      disabled={updatingStock || order.stockUpdated}
+                      title={order.stockUpdated ? 'Stock déjà mis à jour pour cette commande' : undefined}
+                      className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-lg text-sm font-500 hover:bg-amber-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       {updatingStock ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Icon name="ExclamationCircleIcon" size={15} />}
                       Réception partielle (qtés saisies)
@@ -1471,7 +1490,20 @@ export default function OrderDetailPage() {
                   {savingCosts || updatingStock ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Icon name="CheckIcon" size={15} />}
                   {savingCosts ? 'Enregistrement...' : updatingStock ? 'Mise à jour stock...' : 'Valider les frais'}
                 </button>
-                {stockUpdateBanner && (
+                {order.stockUpdated ? (
+                  <div className="flex items-center gap-3 px-4 py-3 bg-emerald-50 border border-emerald-300 rounded-xl text-emerald-800 mt-2">
+                    <Icon name="CheckCircleIcon" size={16} className="text-emerald-600 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-600">✅ Stock mis à jour</p>
+                      {(order.stockUpdatedAt || order.updatedAt) && (
+                        <p className="text-xs text-emerald-600 mt-0.5">
+                          le {new Date(order.stockUpdatedAt || order.updatedAt).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      )}
+                    </div>
+                    <span className="shrink-0 text-[10px] font-700 uppercase tracking-wide bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full">Verrouillé</span>
+                  </div>
+                ) : stockUpdateBanner && (
                   <div className="flex items-center gap-3 px-4 py-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-700 font-500 text-sm mt-2">
                     <span className="flex-1">{stockUpdateBanner}</span>
                     <button onClick={() => setStockUpdateBanner(null)} className="text-emerald-500 hover:text-emerald-700 shrink-0">

@@ -77,6 +77,8 @@ export interface FoOrder {
   costMethod: FoCostMethod;
   costsValidated: boolean;
   stockIntegrated: boolean;
+  stockUpdated: boolean;
+  stockUpdatedAt?: string;
   paymentStatus: FoPaymentStatus;
   paymentMethod?: string;
   paymentAmount?: number;
@@ -169,6 +171,8 @@ function mapOrder(row: any): FoOrder {
     costMethod: row.cost_method,
     costsValidated: row.costs_validated,
     stockIntegrated: row.stock_integrated,
+    stockUpdated: Boolean(row.stock_updated),
+    stockUpdatedAt: (row.stock_updated_at as string) || undefined,
     paymentStatus: row.payment_status,
     paymentMethod: row.payment_method,
     paymentAmount: row.payment_amount ? Number(row.payment_amount) : undefined,
@@ -353,6 +357,7 @@ export const supplierOrderService = {
       if (payload.costMethod !== undefined) u.cost_method = payload.costMethod;
       if (payload.costsValidated !== undefined) u.costs_validated = payload.costsValidated;
       if (payload.stockIntegrated !== undefined) u.stock_integrated = payload.stockIntegrated;
+      if (payload.stockUpdated !== undefined) u.stock_updated = payload.stockUpdated;
       if (payload.paymentStatus !== undefined) u.payment_status = payload.paymentStatus;
       if (payload.paymentMethod !== undefined) u.payment_method = payload.paymentMethod;
       if (payload.paymentAmount !== undefined) u.payment_amount = payload.paymentAmount;
