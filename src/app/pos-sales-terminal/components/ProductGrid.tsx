@@ -40,13 +40,17 @@ interface ColorVariantRow {
   quantity: number;
 }
 
-interface FavouriteRow {
-  product_id: string;
-  sort_order: number;
-}
-
 interface ProductGridProps {
-  onAddToCart: (product: { id: string; name: string; sku: string; price: number; imageUrl?: string; stock: number; variantName?: string; costPrice?: number }) => void;
+  onAddToCart: (product: {
+    id: string;
+    name: string;
+    sku: string;
+    price: number;
+    imageUrl?: string;
+    stock: number;
+    variantName?: string;
+    costPrice?: number;
+  }) => void;
 }
 
 function computeCostPrice(p: DBProduct): number {
@@ -59,27 +63,11 @@ function computeCostPrice(p: DBProduct): number {
   return baseCost + baseCost * (structurePct / 100);
 }
 
-function getStockBadge(stock: number, minStock: number, isKit: boolean): { label: string; color: string } | null {
-  if (isKit) return null;
-  if (stock === 0) return { label: 'Rupture', color: 'bg-red-500 text-white' };
-  if (stock <= (minStock || 3)) return { label: `Stock: ${stock}`, color: 'bg-amber-500 text-white' };
-  return { label: `Stock: ${stock}`, color: 'bg-emerald-500 text-white' };
-}
-
 export default function ProductGrid({ onAddToCart }: ProductGridProps) {
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState('__all__');
-  const [activeTab, setActiveTab] = useState<'all' | 'favourites'>('all');
-  const [gridCols, setGridCols] = useState(5);
-
-  useEffect(() => {
-    const update = () => setGridCols(window.innerWidth < 768 ? 3 : 5);
-    update();
-    window.addEventListener('resize', update);
-    return () => window.removeEventListener('resize', update);
-  }, []);
   const [products, setProducts] = useState<DBProduct[]>([]);
-  const [categories, setCategories] = useState<{ id: string; label: string }[]>([]);
+  const [rawCategories, setRawCategories] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [showFavManager, setShowFavManager] = useState(false);
   const [variantPickerProduct, setVariantPickerProduct] = useState<DBProduct | null>(null);
@@ -110,10 +98,7 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
     );
     setProducts(allProds);
     const cats = Array.from(new Set(allProds.map((p) => p.category).filter(Boolean))).sort() as string[];
-    setCategories([
-      { id: '__all__', label: 'Tous' },
-      ...cats.map((c) => ({ id: c, label: c })),
-    ]);
+    setRawCategories(cats);
     setLoading(false);
   }, []);
 
@@ -125,238 +110,327 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
-
-  // Real-time sync: refresh products when products or stock_movements change
   useRealtimeSync({ tables: ['products', 'stock_movements'], onRefresh: loadData });
 
-  const allFiltered = useMemo(() => {
+  const favCount = useMemo(() => products.filter(p => p.is_favorite).length, [products]);
+
+  const displayedProducts = useMemo(() => {
     const filtered = products.filter((p) => {
-      const matchCat = activeCategory === '__all__' || p.category === activeCategory;
-      const matchSearch =
-        p.name.toLowerCase().includes(search.toLowerCase()) ||
-        (p.ref || '').toLowerCase().includes(search.toLowerCase()) ||
-        (p.barcode || '').includes(search);
-      return matchCat && matchSearch;
+      if (activeCategory === '__fav__') {
+        if (!p.is_favorite) return false;
+      } else if (activeCategory !== '__all__') {
+        if (p.category !== activeCategory) return false;
+      }
+      if (search) {
+        const q = search.toLowerCase();
+        if (
+          !p.name.toLowerCase().includes(q) &&
+          !(p.ref || '').toLowerCase().includes(q) &&
+          !(p.barcode || '').includes(search)
+        ) return false;
+      }
+      return true;
     });
-    // Favorites appear first
     return [...filtered.filter(p => p.is_favorite), ...filtered.filter(p => !p.is_favorite)];
   }, [products, search, activeCategory]);
 
-  const favouriteProducts = useMemo(() => {
-    return products
-      .filter(p => p.is_favorite)
-      .filter(p => {
-        if (!search) return true;
-        return p.name.toLowerCase().includes(search.toLowerCase()) || (p.ref || '').toLowerCase().includes(search.toLowerCase());
-      });
-  }, [products, search]);
-
-  const displayedProducts = activeTab === 'favourites' ? favouriteProducts : allFiltered;
+  const categoryList = useMemo(() => [
+    { id: '__all__', label: 'Tous' },
+    { id: '__fav__', label: `⭐ Favoris${favCount > 0 ? ` (${favCount})` : ''}` },
+    ...rawCategories.map(c => ({ id: c, label: c })),
+  ], [rawCategories, favCount]);
 
   return (
-    <div className="flex flex-col h-full bg-background overflow-hidden">
-      {/* Search bar */}
-      <div className="px-4 pt-3 pb-2 bg-white border-b border-border">
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1">
-            <Icon name="MagnifyingGlassIcon" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Rechercher un produit ou scanner un code-barres…"
-              className="w-full pl-9 pr-10 py-2 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-colors"
-            />
-            {search && (
-              <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                <Icon name="XMarkIcon" size={14} />
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', background: '#f9fafb' }}>
+
+      {/* ── Search bar ── */}
+      <div style={{
+        background: '#ffffff',
+        borderBottom: '1px solid #e5e7eb',
+        padding: '8px 10px',
+        flexShrink: 0,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+      }}>
+        <div style={{ position: 'relative', flex: 1 }}>
+          <div style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
+            <Icon name="MagnifyingGlassIcon" size={15} className="text-muted-foreground" />
+          </div>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Rechercher un produit…"
+            style={{
+              width: '100%',
+              paddingLeft: 32,
+              paddingRight: search ? 32 : 12,
+              paddingTop: 7,
+              paddingBottom: 7,
+              border: '1px solid #e5e7eb',
+              borderRadius: 8,
+              fontSize: 13,
+              outline: 'none',
+              background: '#f9fafb',
+              color: '#111827',
+            }}
+          />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}
+            >
+              <Icon name="XMarkIcon" size={14} className="text-muted-foreground" />
+            </button>
+          )}
+        </div>
+        <button
+          onClick={() => setShowFavManager(true)}
+          title="Gérer les favoris"
+          style={{ padding: 7, border: '1px solid #e5e7eb', borderRadius: 8, background: '#fff', cursor: 'pointer', flexShrink: 0 }}
+        >
+          <Icon name="StarIcon" size={16} className="text-amber-500" />
+        </button>
+        <button
+          onClick={loadData}
+          title="Actualiser"
+          style={{ padding: 7, border: '1px solid #e5e7eb', borderRadius: 8, background: '#fff', cursor: 'pointer', flexShrink: 0 }}
+        >
+          <Icon name="ArrowPathIcon" size={16} className="text-muted-foreground" />
+        </button>
+      </div>
+
+      {/* ── Body: categories (left) + products (right) ── */}
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+
+        {/* LEFT: Category list — 130px fixed width */}
+        <div style={{
+          width: 130,
+          flexShrink: 0,
+          background: '#ffffff',
+          borderRight: '1px solid #e5e7eb',
+          overflowY: 'auto',
+          overflowX: 'hidden',
+        }}>
+          {categoryList.map((cat) => {
+            const isActive = activeCategory === cat.id;
+            return (
+              <button
+                key={cat.id}
+                onClick={() => setActiveCategory(cat.id)}
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '9px 10px',
+                  fontSize: 12,
+                  fontWeight: isActive ? 700 : 400,
+                  background: isActive ? 'hsl(var(--primary))' : 'transparent',
+                  color: isActive ? 'hsl(var(--primary-foreground))' : '#374151',
+                  border: 'none',
+                  borderBottom: '1px solid #f3f4f6',
+                  cursor: 'pointer',
+                  lineHeight: 1.3,
+                  wordBreak: 'break-word',
+                  transition: 'background 0.1s, color 0.1s',
+                }}
+              >
+                {cat.label}
               </button>
-            )}
-          </div>
-          <button
-            onClick={() => setShowFavManager(true)}
-            title="Gérer les favoris"
-            className="p-2 rounded-lg border border-border bg-white hover:bg-amber-50 hover:border-amber-200 text-muted-foreground hover:text-amber-600 transition-colors shrink-0"
-          >
-            <Icon name="StarIcon" size={16} />
-          </button>
-          <button
-            onClick={loadData}
-            title="Actualiser"
-            className="p-2 rounded-lg border border-border bg-white hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shrink-0"
-          >
-            <Icon name="ArrowPathIcon" size={16} />
-          </button>
-        </div>
-      </div>
-
-      {/* Tab: All / Favourites */}
-      <div className="bg-white border-b border-border" style={{ width: '100%', overflow: 'hidden' }}>
-        <div className="px-4 pt-2 pb-1 flex items-center gap-1">
-          <button
-            onClick={() => setActiveTab('all')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-600 transition-colors whitespace-nowrap ${activeTab === 'all' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted'}`}
-          >
-            <Icon name="Squares2X2Icon" size={13} />
-            Tous les produits
-          </button>
-          <button
-            onClick={() => setActiveTab('favourites')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-600 transition-colors whitespace-nowrap ${activeTab === 'favourites' ? 'bg-amber-500 text-white' : 'text-muted-foreground hover:text-foreground hover:bg-muted'}`}
-          >
-            <Icon name="StarIcon" size={13} />
-            Favoris ({products.filter(p => p.is_favorite).length})
-          </button>
+            );
+          })}
         </div>
 
-        {/* Category tabs — horizontal scroll, independent of grid width */}
-        {activeTab === 'all' && (
-          <div style={{ width: '100%', overflowX: 'auto', overflowY: 'hidden', paddingBottom: '8px' }}>
-            <div style={{ display: 'inline-flex', gap: '6px', paddingLeft: '16px', paddingRight: '16px', whiteSpace: 'nowrap' }}>
-              {categories.map((cat) => (
-                <button
-                  key={cat.id}
-                  onClick={() => setActiveCategory(cat.id)}
-                  style={{ flexShrink: 0, whiteSpace: 'nowrap' }}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-600 transition-all duration-150 ${
-                    activeCategory === cat.id
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-muted text-muted-foreground hover:text-foreground hover:bg-secondary'
-                  }`}
-                >
-                  {cat.label}
-                </button>
-              ))}
+        {/* RIGHT: Product grid */}
+        <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: 8 }}>
+          {loading ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 200, gap: 12 }}>
+              <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              <p className="text-sm text-muted-foreground">Chargement des produits…</p>
             </div>
-          </div>
-        )}
-      </div>
+          ) : displayedProducts.length === 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 200, textAlign: 'center', gap: 8 }}>
+              <Icon name={activeCategory === '__fav__' ? 'StarIcon' : 'MagnifyingGlassIcon'} size={32} className="text-muted-foreground" />
+              <p className="text-sm font-500 text-foreground">
+                {activeCategory === '__fav__' ? 'Aucun favori configuré' : 'Aucun produit trouvé'}
+              </p>
+              {activeCategory === '__fav__' && (
+                <p className="text-xs text-muted-foreground">Cliquez sur ⭐ pour gérer les favoris</p>
+              )}
+            </div>
+          ) : (
+            /* Fixed 100px cards — auto-fill, no stretching */
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, 100px)', gap: 6 }}>
+              {displayedProducts.map((product) => {
+                const isFav = Boolean(product.is_favorite);
+                const isOutOfStock = product.stock === 0;
+                const minStock = product.min_stock || 3;
+                const isLowStock = !isOutOfStock && product.stock <= minStock;
 
-      {/* Product grid — width completely independent of tabs */}
-      <div className="flex-1 overflow-y-auto p-2" style={{ overflowX: 'hidden' }}>
-        {loading ? (
-          <div className="flex flex-col items-center justify-center h-48 gap-3">
-            <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-            <p className="text-sm text-muted-foreground">Chargement des produits…</p>
-          </div>
-        ) : displayedProducts.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-48 text-center">
-            <Icon name={activeTab === 'favourites' ? 'StarIcon' : 'MagnifyingGlassIcon'} size={32} className="text-muted-foreground mb-3" />
-            <p className="text-sm font-500 text-foreground">
-              {activeTab === 'favourites' ? 'Aucun favori configuré' : 'Aucun produit trouvé'}
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {activeTab === 'favourites' ? 'Cliquez sur ⭐ pour gérer vos favoris caisse' : 'Essayez un autre terme ou catégorie'}
-            </p>
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`, gap: '6px' }}>
-            {displayedProducts.map((product) => {
-              const isFav = Boolean(product.is_favorite);
-              const isOutOfStock = product.stock === 0;
-              const minStock = product.min_stock || 3;
-              const isLowStock = !isOutOfStock && product.stock <= minStock;
-
-              return (
-                <button
-                  key={product.id}
-                  onClick={() => {
-                    if (!isOutOfStock) {
-                      if (product.has_color_variants) {
-                        openVariantPicker(product);
-                      } else {
-                        onAddToCart({
-                          id: product.id,
-                          name: product.name,
-                          sku: product.ref || product.id,
-                          price: Number(product.sell_price_ttc),
-                          imageUrl: product.image_url,
-                          stock: product.stock,
-                          costPrice: computeCostPrice(product),
-                        });
+                return (
+                  <button
+                    key={product.id}
+                    onClick={() => {
+                      if (!isOutOfStock) {
+                        if (product.has_color_variants) {
+                          openVariantPicker(product);
+                        } else {
+                          onAddToCart({
+                            id: product.id,
+                            name: product.name,
+                            sku: product.ref || product.id,
+                            price: Number(product.sell_price_ttc),
+                            imageUrl: product.image_url,
+                            stock: product.stock,
+                            costPrice: computeCostPrice(product),
+                          });
+                        }
                       }
-                    }
-                  }}
-                  disabled={isOutOfStock}
-                  title={product.name}
-                  className={`group relative flex flex-col rounded-lg border bg-white text-left transition-all duration-150 overflow-hidden
-                    ${isOutOfStock
-                      ? 'opacity-60 cursor-not-allowed border-red-200 bg-red-50/20'
-                      : isLowStock
-                        ? 'hover:shadow-md hover:border-amber-300 active:scale-95 border-amber-200'
-                        : 'hover:shadow-md hover:border-primary/40 active:scale-95 border-border'
-                    }`}
-                >
-                  {/* Image — ~65% of card height via aspect ratio */}
-                  <div className="relative overflow-hidden bg-muted/30 shrink-0 w-full" style={{ aspectRatio: '4/3' }}>
-                    {product.image_url ? (
-                      <AppImage
-                        src={product.image_url}
-                        alt={product.name}
-                        width={110}
-                        height={70}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <Icon name="PhotoIcon" size={20} className="text-muted-foreground/40" />
-                      </div>
-                    )}
-                    <button
-                      onClick={(e) => toggleFavorite(product, e)}
-                      title={isFav ? 'Retirer des favoris' : 'Ajouter aux favoris'}
-                      className={`absolute top-1 left-1 w-4 h-4 rounded-full flex items-center justify-center transition-colors ${isFav ? 'bg-amber-400' : 'bg-black/20 hover:bg-amber-300'}`}
-                    >
-                      <Icon name="StarIcon" size={9} className="text-white" />
-                    </button>
-                    {product.is_kit && (
-                      <span className="absolute top-1 right-1 bg-violet-500 text-white text-[7px] font-700 px-1 py-0.5 rounded-full leading-none">Kit</span>
-                    )}
-                    {isOutOfStock && (
-                      <div className="absolute inset-0 bg-red-900/25 flex items-center justify-center">
-                        <span className="bg-red-600 text-white text-[8px] font-700 px-1.5 py-0.5 rounded-full shadow">Rupture</span>
-                      </div>
-                    )}
-                  </div>
+                    }}
+                    disabled={isOutOfStock}
+                    title={product.name}
+                    style={{
+                      width: 100,
+                      height: 120,
+                      position: 'relative',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      borderRadius: 8,
+                      border: `1px solid ${isOutOfStock ? '#fecaca' : isLowStock ? '#fde68a' : '#e5e7eb'}`,
+                      background: isOutOfStock ? '#fff5f5' : '#ffffff',
+                      cursor: isOutOfStock ? 'not-allowed' : 'pointer',
+                      overflow: 'hidden',
+                      padding: 0,
+                      opacity: isOutOfStock ? 0.65 : 1,
+                      textAlign: 'left',
+                      flexShrink: 0,
+                      transition: 'box-shadow 0.12s, transform 0.1s',
+                    }}
+                    className="group hover:shadow-md active:scale-95"
+                  >
+                    {/* ── Image: 60px height ── */}
+                    <div style={{ height: 60, flexShrink: 0, overflow: 'hidden', background: '#f3f4f6', position: 'relative' }}>
+                      {product.image_url ? (
+                        <AppImage
+                          src={product.image_url}
+                          alt={product.name}
+                          width={100}
+                          height={60}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                        />
+                      ) : (
+                        <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <Icon name="PhotoIcon" size={20} className="text-muted-foreground/40" />
+                        </div>
+                      )}
 
-                  {/* Info */}
-                  <div className="px-1.5 pt-1 pb-1.5 flex flex-col gap-0.5 flex-1">
-                    <p className="text-[10px] font-600 text-foreground leading-[13px] line-clamp-2 flex-1">{product.name}</p>
-                    <div className="flex items-center justify-between gap-0.5 mt-0.5">
-                      <p className="text-[11px] font-700 text-primary tabular-nums shrink-0">{Number(product.sell_price_ttc).toFixed(2)} €</p>
-                      {!product.is_kit && (
-                        <span className={`text-[8px] font-600 px-1 py-0.5 rounded-full leading-none shrink-0 ${
-                          isOutOfStock ? 'bg-red-100 text-red-700' :
-                          isLowStock ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
-                        }`}>
-                          {isOutOfStock ? '0' : isLowStock ? product.stock : '✓'}
+                      {/* Rupture badge — top right */}
+                      {isOutOfStock && (
+                        <span style={{
+                          position: 'absolute', top: 2, right: 2,
+                          background: '#ef4444', color: '#fff',
+                          fontSize: 7, fontWeight: 700,
+                          padding: '1px 3px', borderRadius: 3, lineHeight: 1.4,
+                        }}>
+                          Rupture
                         </span>
                       )}
-                    </div>
-                  </div>
+                      {/* Low stock badge */}
+                      {isLowStock && !isOutOfStock && (
+                        <span style={{
+                          position: 'absolute', top: 2, right: 2,
+                          background: '#f59e0b', color: '#fff',
+                          fontSize: 7, fontWeight: 700,
+                          padding: '1px 3px', borderRadius: 3, lineHeight: 1.4,
+                        }}>
+                          {product.stock}
+                        </span>
+                      )}
+                      {/* Kit badge */}
+                      {product.is_kit && !isOutOfStock && !isLowStock && (
+                        <span style={{
+                          position: 'absolute', top: 2, right: 2,
+                          background: '#8b5cf6', color: '#fff',
+                          fontSize: 7, fontWeight: 700,
+                          padding: '1px 3px', borderRadius: 3, lineHeight: 1.4,
+                        }}>
+                          Kit
+                        </span>
+                      )}
 
-                  {/* Add overlay */}
-                  {!isOutOfStock && (
-                    <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
-                      <div className="w-6 h-6 bg-primary rounded-full flex items-center justify-center shadow">
-                        <Icon name="PlusIcon" size={12} className="text-white" />
-                      </div>
+                      {/* Star (favorite) toggle — top left */}
+                      <button
+                        onClick={(e) => toggleFavorite(product, e)}
+                        title={isFav ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+                        style={{
+                          position: 'absolute', top: 2, left: 2,
+                          width: 16, height: 16, borderRadius: '50%',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          background: isFav ? '#f59e0b' : 'rgba(0,0,0,0.18)',
+                          border: 'none', cursor: 'pointer', padding: 0,
+                          flexShrink: 0,
+                        }}
+                      >
+                        <Icon name="StarIcon" size={9} className="text-white" />
+                      </button>
                     </div>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        )}
+
+                    {/* ── Info: name + price ── */}
+                    <div style={{
+                      flex: 1, padding: '3px 5px 3px 5px',
+                      display: 'flex', flexDirection: 'column',
+                      justifyContent: 'space-between', overflow: 'hidden',
+                    }}>
+                      <p style={{
+                        fontSize: 10, fontWeight: 600, lineHeight: 1.3,
+                        margin: 0, color: '#111827',
+                        overflow: 'hidden',
+                        display: '-webkit-box',
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: 'vertical',
+                      } as React.CSSProperties}>
+                        {product.name}
+                      </p>
+                      <p style={{ fontSize: 11, fontWeight: 700, margin: 0, color: 'hsl(var(--primary))', paddingTop: 2 }}>
+                        {Number(product.sell_price_ttc).toFixed(2)} €
+                      </p>
+                    </div>
+
+                    {/* Hover add-to-cart overlay */}
+                    {!isOutOfStock && (
+                      <div style={{
+                        position: 'absolute', inset: 0,
+                        background: 'rgba(var(--primary), 0.06)',
+                        opacity: 0, transition: 'opacity 0.15s',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        pointerEvents: 'none',
+                      }} className="group-hover:opacity-100">
+                        <div style={{
+                          width: 22, height: 22, borderRadius: '50%',
+                          background: 'hsl(var(--primary))',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>
+                          <Icon name="PlusIcon" size={11} className="text-white" />
+                        </div>
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
+      {/* ── Favourites Manager Modal ── */}
       {showFavManager && (
         <POSFavouritesManager
           onClose={() => { setShowFavManager(false); loadData(); }}
         />
       )}
 
-      {/* Variant picker modal */}
+      {/* ── Variant picker modal ── */}
       {variantPickerProduct && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
