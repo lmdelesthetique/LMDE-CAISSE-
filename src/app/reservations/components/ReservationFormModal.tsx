@@ -151,6 +151,7 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [clientSyncMsg, setClientSyncMsg] = useState<string | null>(null);
   const [showProductSearch, setShowProductSearch] = useState(false);
   const [activeItemIdx, setActiveItemIdx] = useState<number | null>(null);
   const [outOfStockWarning, setOutOfStockWarning] = useState<{ idx: number; productName: string; stock: number } | null>(null);
@@ -279,6 +280,22 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
     if (items.some((it) => !it.name.trim())) { setError('Tous les articles doivent avoir un nom.'); return; }
     setSaving(true);
     setError(null);
+    setClientSyncMsg(null);
+
+    // Resolve client_id via phone lookup / creation
+    let resolvedClientId: string | undefined = undefined;
+    if (clientPhone.trim()) {
+      const sync = await reservationService.upsertClientByPhone(
+        clientPhone.trim(),
+        clientName.trim(),
+        clientEmail.trim() || undefined,
+      );
+      if (sync) {
+        resolvedClientId = sync.id;
+        if (sync.created) setClientSyncMsg('✅ Client ajouté à votre base');
+        else if (sync.emailUpdated) setClientSyncMsg('✅ Email mis à jour dans votre base');
+      }
+    }
 
     const itemsPayload: ReservationItem[] = items.map((it) => ({
       name: it.name,
@@ -296,6 +313,7 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
     }));
 
     const commonInput: Partial<CreateReservationInput> = {
+      clientId: resolvedClientId,
       clientName: clientName.trim(),
       clientPhone: clientPhone.trim() || undefined,
       clientEmail: clientEmail.trim() || undefined,
@@ -317,16 +335,19 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
       cashierName: 'Sophie Fontaine',
     };
 
-    if (isEditMode && reservation) {
-      const updated = await reservationService.update(reservation.id, commonInput as any);
+    try {
+      if (isEditMode && reservation) {
+        const updated = await reservationService.update(reservation.id, commonInput as any);
+        setSaving(false);
+        onSaved(updated);
+      } else {
+        const saved = await reservationService.create(commonInput as CreateReservationInput);
+        setSaving(false);
+        onSaved(saved);
+      }
+    } catch (err: any) {
       setSaving(false);
-      if (!updated) { setError('Erreur lors de la mise à jour. Veuillez réessayer.'); return; }
-      onSaved(updated);
-    } else {
-      const saved = await reservationService.create(commonInput as CreateReservationInput);
-      setSaving(false);
-      if (!saved) { setError('Erreur lors de la création. Veuillez réessayer.'); return; }
-      onSaved(saved);
+      setError(`Erreur de sauvegarde : ${err.message}`);
     }
   };
 
@@ -658,6 +679,12 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
               </div>
             </section>
 
+            {clientSyncMsg && (
+              <div className="flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                <Icon name="CheckCircleIcon" size={16} />
+                {clientSyncMsg}
+              </div>
+            )}
             {error && (
               <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                 <Icon name="ExclamationTriangleIcon" size={16} />

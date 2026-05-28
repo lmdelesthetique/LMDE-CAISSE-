@@ -14,6 +14,7 @@ import {
   RESERVATION_TYPE_CONFIG,
   RECOVERY_MODE_CONFIG,
 } from '@/lib/services/reservationService';
+import { saveReceipt } from '@/lib/services/posService';
 import ReservationFormModal from './components/ReservationFormModal';
 import DepositModal from './components/DepositModal';
 import ReservationTicket from './components/ReservationTicket';
@@ -100,6 +101,8 @@ export default function ReservationsPage() {
   const [depositTarget, setDepositTarget] = useState<Reservation | null>(null);
   const [ticketTarget, setTicketTarget] = useState<Reservation | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [invoiceLoading, setInvoiceLoading] = useState<string | null>(null);
+  const [invoiceSuccess, setInvoiceSuccess] = useState<{ resId: string; ticketNumber: string } | null>(null);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -157,6 +160,59 @@ export default function ReservationsPage() {
     setEditTarget(null);
     setReservations((prev) => prev.map((r) => r.id === updated.id ? updated : r));
     reservationService.getStats().then(setStats);
+  };
+
+  const handleConvertToInvoice = async (res: Reservation) => {
+    setInvoiceLoading(res.id);
+    try {
+      const totalTTC = res.totalAmount;
+      const totalHT = Math.round((totalTTC / 1.2) * 100) / 100;
+      const totalTVA = Math.round((totalTTC - totalHT) * 100) / 100;
+
+      const receipt = await saveReceipt({
+        items: res.items.map((item) => ({
+          productId: (item as any).productId || '',
+          name: item.name,
+          sku: item.sku || '',
+          price: item.price,
+          qty: item.qty,
+          discount: 0,
+          discountType: 'percent' as const,
+          tva: 20,
+          imageUrl: (item as any).imageUrl || undefined,
+        })),
+        subtotalHT: totalHT,
+        totalTVA,
+        totalTTC,
+        discountAmount: 0,
+        paymentMethod: res.depositPaymentMethod || 'cash',
+        paymentType: 'sale',
+        clientId: res.clientId || undefined,
+        clientName: res.clientName,
+        cashierName: res.cashierName || undefined,
+        notes: `Converti depuis réservation ${res.reservationNumber}`,
+      });
+
+      if (!receipt) throw new Error('Échec de création de la facture');
+
+      const { createClient } = await import('@/lib/supabase/client');
+      const supabase = createClient();
+      await supabase
+        .from('reservations')
+        .update({ reservation_status: 'completed', completed_at: new Date().toISOString(), pos_sale_id: receipt.id })
+        .eq('id', res.id);
+
+      setReservations((prev) =>
+        prev.map((r) => r.id === res.id ? { ...r, reservationStatus: 'completed' as ReservationStatus, posSaleId: receipt.id } : r)
+      );
+      setInvoiceSuccess({ resId: res.id, ticketNumber: receipt.ticketNumber });
+      setTimeout(() => setInvoiceSuccess(null), 6000);
+      reservationService.getStats().then(setStats);
+    } catch (err: any) {
+      alert(`Erreur lors de la conversion : ${err.message}`);
+    } finally {
+      setInvoiceLoading(null);
+    }
   };
 
   const filtered = reservations.filter((r) => {
@@ -542,6 +598,22 @@ export default function ReservationsPage() {
                               </button>
                             )}
 
+                            {/* Convert to invoice — only when fully paid */}
+                            {res.totalAmount > 0 && res.depositPaid > 0 && Math.abs(res.totalAmount - res.depositPaid) < 0.01 && res.reservationStatus !== 'completed' && res.reservationStatus !== 'cancelled' && (
+                              <button
+                                onClick={() => handleConvertToInvoice(res)}
+                                disabled={invoiceLoading === res.id}
+                                title="Convertir en facture"
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100 text-xs font-500 transition-colors disabled:opacity-60"
+                              >
+                                {invoiceLoading === res.id
+                                  ? <Icon name="ArrowPathIcon" size={13} className="animate-spin" />
+                                  : <Icon name="DocumentTextIcon" size={13} />
+                                }
+                                <span className="hidden xl:inline">Facturer</span>
+                              </button>
+                            )}
+
                             {nextAction && (
                               <button
                                 onClick={() => handleAction(res, nextAction.action)}
@@ -574,6 +646,22 @@ export default function ReservationsPage() {
           )}
         </div>
       </div>
+
+      {/* Invoice success toast */}
+      {invoiceSuccess && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-4 bg-white border border-emerald-300 rounded-xl shadow-xl animate-fade-in">
+          <div className="w-9 h-9 rounded-full bg-emerald-100 flex items-center justify-center shrink-0">
+            <Icon name="CheckCircleIcon" size={20} className="text-emerald-600" />
+          </div>
+          <div>
+            <p className="text-sm font-600 text-foreground">Facture créée</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Ticket #{invoiceSuccess.ticketNumber}</p>
+          </div>
+          <button onClick={() => setInvoiceSuccess(null)} className="ml-2 p-1 rounded hover:bg-muted text-muted-foreground">
+            <Icon name="XMarkIcon" size={14} />
+          </button>
+        </div>
+      )}
 
       {/* Modals */}
       {showForm && (

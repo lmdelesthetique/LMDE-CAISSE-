@@ -313,54 +313,92 @@ export const reservationService = {
     } catch (e: any) { console.log('reservationService.searchProducts exception:', e.message); return []; }
   },
 
-  async create(input: CreateReservationInput): Promise<Reservation | null> {
+  async upsertClientByPhone(phone: string, name: string, email?: string): Promise<{ id: string; created: boolean; emailUpdated: boolean } | null> {
     const supabase = createClient();
     try {
-      const { data, error } = await supabase
-        .from('reservations')
-        .insert({
-          reservation_number: generateReservationNumber(),
-          client_id: input.clientId || null,
-          client_name: input.clientName,
-          client_phone: input.clientPhone || null,
-          client_email: input.clientEmail || null,
-          items: input.items,
-          total_amount: input.totalAmount,
-          deposit_amount: input.depositAmount,
-          deposit_paid: 0,
-          balance_paid: 0,
-          deposit_percent: input.depositPercent ?? null,
-          reservation_status: 'pending',
-          reservation_type: input.reservationType || null,
-          recovery_mode: input.recoveryMode || 'sur_place',
-          notes: input.notes || null,
-          seller_comment: input.sellerComment || null,
-          client_comment: input.clientComment || null,
-          pickup_date: input.pickupDate || null,
-          estimated_arrival_date: input.estimatedArrivalDate || null,
-          delivery_address: input.deliveryAddress || null,
-          delivery_phone: input.deliveryPhone || null,
-          delivery_contact: input.deliveryContact || null,
-          delivery_notes: input.deliveryNotes || null,
-          cashier_name: input.cashierName || null,
-        })
-        .select()
-        .single();
-      if (error) { console.log('reservationService.create error:', error.message); return null; }
+      const { data: existing } = await supabase
+        .from('clients')
+        .select('id, email')
+        .eq('phone', phone.trim())
+        .maybeSingle();
 
-      if (data) {
-        for (const item of input.items) {
-          if (item.productId) {
-            await supabase.rpc('deduct_stock_on_reservation', {
-              p_product_id: item.productId,
-              p_qty: item.qty,
-            });
-          }
+      if (existing) {
+        if (!existing.email && email) {
+          await supabase.from('clients').update({ email }).eq('id', existing.id);
+          return { id: existing.id, created: false, emailUpdated: true };
         }
+        return { id: existing.id, created: false, emailUpdated: false };
       }
 
-      return data ? mapReservation(data) : null;
-    } catch (e: any) { console.log('reservationService.create exception:', e.message); return null; }
+      const parts = name.trim().split(' ');
+      const firstName = parts[0] || name;
+      const lastName = parts.slice(1).join(' ') || '';
+      const { data: newClient, error } = await supabase
+        .from('clients')
+        .insert({
+          first_name: firstName,
+          last_name: lastName,
+          phone: phone.trim(),
+          email: email || null,
+          client_type: 'particulier',
+          gender: 'not_specified',
+          country: 'France',
+          is_active: true,
+        })
+        .select('id')
+        .single();
+      if (error || !newClient) return null;
+      return { id: newClient.id, created: true, emailUpdated: false };
+    } catch (e: any) { console.log('upsertClientByPhone error:', e.message); return null; }
+  },
+
+  async create(input: CreateReservationInput): Promise<Reservation> {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from('reservations')
+      .insert({
+        reservation_number: generateReservationNumber(),
+        client_id: input.clientId || null,
+        client_name: input.clientName,
+        client_phone: input.clientPhone || null,
+        client_email: input.clientEmail || null,
+        items: input.items,
+        total_amount: input.totalAmount,
+        deposit_amount: input.depositAmount,
+        deposit_paid: 0,
+        balance_paid: 0,
+        deposit_percent: input.depositPercent ?? null,
+        reservation_status: 'pending',
+        reservation_type: input.reservationType || null,
+        recovery_mode: input.recoveryMode || 'sur_place',
+        notes: input.notes || null,
+        seller_comment: input.sellerComment || null,
+        client_comment: input.clientComment || null,
+        pickup_date: input.pickupDate || null,
+        estimated_arrival_date: input.estimatedArrivalDate || null,
+        delivery_address: input.deliveryAddress || null,
+        delivery_phone: input.deliveryPhone || null,
+        delivery_contact: input.deliveryContact || null,
+        delivery_notes: input.deliveryNotes || null,
+        cashier_name: input.cashierName || null,
+      })
+      .select()
+      .single();
+    if (error) {
+      console.log('reservationService.create error:', error.message);
+      throw new Error(error.message);
+    }
+
+    for (const item of input.items) {
+      if (item.productId) {
+        await supabase.rpc('deduct_stock_on_reservation', {
+          p_product_id: item.productId,
+          p_qty: item.qty,
+        });
+      }
+    }
+
+    return mapReservation(data);
   },
 
   /** Called from POS when a deposit is collected — creates reservation with deposit_paid status */
@@ -571,7 +609,7 @@ export const reservationService = {
     } catch (e: any) { console.log('reservationService.cancel exception:', e.message); return null; }
   },
 
-  async update(id: string, input: Partial<CreateReservationInput> & { items?: ReservationItem[] }): Promise<Reservation | null> {
+  async update(id: string, input: Partial<CreateReservationInput> & { items?: ReservationItem[] }): Promise<Reservation> {
     const supabase = createClient();
     try {
       const { data: existing } = await supabase
@@ -581,6 +619,7 @@ export const reservationService = {
         .maybeSingle();
 
       const updatePayload: Record<string, any> = {};
+      if (input.clientId !== undefined) updatePayload.client_id = input.clientId || null;
       if (input.clientName !== undefined) updatePayload.client_name = input.clientName;
       if (input.clientPhone !== undefined) updatePayload.client_phone = input.clientPhone || null;
       if (input.clientEmail !== undefined) updatePayload.client_email = input.clientEmail || null;
@@ -608,7 +647,10 @@ export const reservationService = {
         .eq('id', id)
         .select()
         .single();
-      if (error) { console.log('reservationService.update error:', error.message); return null; }
+      if (error) {
+        console.log('reservationService.update error:', error.message);
+        throw new Error(error.message);
+      }
 
       if (existing && input.items) {
         const oldItems: ReservationItem[] = Array.isArray(existing.items) ? existing.items : [];
@@ -624,8 +666,11 @@ export const reservationService = {
         }
       }
 
-      return data ? mapReservation(data) : null;
-    } catch (e: any) { console.log('reservationService.update exception:', e.message); return null; }
+      return mapReservation(data);
+    } catch (e: any) {
+      console.log('reservationService.update exception:', e.message);
+      throw e;
+    }
   },
 
   async getStats(): Promise<ReservationStats> {
