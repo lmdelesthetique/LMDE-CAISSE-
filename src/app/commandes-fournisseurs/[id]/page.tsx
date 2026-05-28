@@ -216,8 +216,18 @@ export default function OrderDetailPage() {
 
   const updateStockForReception = useCallback(async (qtysToAdd: Record<string, number>) => {
     if (!order) return;
-    setUpdatingStock(true);
     const supabase = createClient();
+
+    // DB-level idempotency guard — fresh fetch so it works after reloads and on any device
+    const { data: freshOrder } = await supabase
+      .from('fo_orders').select('stock_updated').eq('id', order.id).single();
+    if (freshOrder?.stock_updated) {
+      setStockUpdateBanner('⚠️ Stock déjà mis à jour pour cette commande');
+      setTimeout(() => setStockUpdateBanner(null), 5000);
+      return;
+    }
+
+    setUpdatingStock(true);
     let updatedCount = 0;
     for (const line of (order.lines || [])) {
       const qty = qtysToAdd[line.id] || 0;
@@ -245,6 +255,10 @@ export default function OrderDetailPage() {
       } catch { /* non-blocking if table schema differs */ }
       updatedCount++;
     }
+
+    // Mark as done in DB — prevents any subsequent call from running again
+    await supabase.from('fo_orders').update({ stock_updated: true }).eq('id', order.id);
+
     setUpdatingStock(false);
     setStockUpdateBanner(`✅ Stock mis à jour — ${updatedCount} produit${updatedCount > 1 ? 's' : ''} réapprovisionnés`);
     setTimeout(() => setStockUpdateBanner(null), 6000);
@@ -336,15 +350,6 @@ export default function OrderDetailPage() {
       totalRealCost: businessCost, costMethod, costsValidated: true,
       orderStatus: 'costs_recorded',
     });
-
-    // Auto-update stock if order was already received and not yet updated
-    const stockKey = `beautypos_stock_updated_${order.id}`;
-    if (['fully_received', 'partially_received', 'costs_recorded', 'stock_integrated'].includes(order.orderStatus) && !localStorage.getItem(stockKey)) {
-      const qtys: Record<string, number> = {};
-      (order.lines || []).forEach(l => { qtys[l.id] = l.qtyOrdered; });
-      await updateStockForReception(qtys);
-      localStorage.setItem(stockKey, '1');
-    }
 
     setSavingCosts(false);
     load();
@@ -659,14 +664,10 @@ export default function OrderDetailPage() {
 
   const handleFullReception = async () => {
     if (!order) return;
-    const stockKey = `beautypos_stock_updated_${order.id}`;
     await supplierOrderService.changeStatus(order.id, 'fully_received', 'Sophie Fontaine', 'Réception totale');
-    if (!localStorage.getItem(stockKey)) {
-      const qtys: Record<string, number> = {};
-      (order.lines || []).forEach(l => { qtys[l.id] = l.qtyOrdered; });
-      await updateStockForReception(qtys);
-      localStorage.setItem(stockKey, '1');
-    }
+    const qtys: Record<string, number> = {};
+    (order.lines || []).forEach(l => { qtys[l.id] = l.qtyOrdered; });
+    await updateStockForReception(qtys);
     load();
   };
 
