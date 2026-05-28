@@ -191,8 +191,19 @@ function LabelCell({
         }}
       >
         {cfg.showName && (
-          <p style={{ fontSize: fs, fontWeight: 700, textAlign: 'center', width: '100%', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', lineHeight: 1.2, color: '#000', margin: 0 }}>
+          <p style={{
+            fontSize: product.variantName ? fs * 0.8 : fs,
+            fontWeight: product.variantName ? 400 : 700,
+            textAlign: 'center', width: '100%',
+            overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
+            lineHeight: 1.2, color: '#444', margin: 0,
+          }}>
             {product.name}
+          </p>
+        )}
+        {product.variantName && (
+          <p style={{ fontSize: fs, fontWeight: 700, textAlign: 'center', width: '100%', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', lineHeight: 1.2, color: '#000', margin: 0 }}>
+            {product.variantName}
           </p>
         )}
         {cfg.showRef && (
@@ -200,7 +211,7 @@ function LabelCell({
             {product.ref}
           </p>
         )}
-        {cfg.showCategory && (
+        {cfg.showCategory && !product.variantName && (
           <p style={{ fontSize: fs * 0.8, textAlign: 'center', width: '100%', color: '#555', margin: 0, lineHeight: 1.1 }}>
             {product.category}
           </p>
@@ -475,9 +486,10 @@ export default function BarcodeLabelModal({ products, onClose, initialQtys, orde
       return `
 <div class="label">
   <div class="inner">
-    ${cfg.showName ? `<p class="name">${escapeXml(product.name)}</p>` : ''}
+    ${cfg.showName ? `<p class="${product.variantName ? 'name-small' : 'name'}">${escapeXml(product.name)}</p>` : ''}
+    ${product.variantName ? `<p class="variant">${escapeXml(product.variantName)}</p>` : ''}
     ${cfg.showRef ? `<p class="small">${escapeXml(product.ref)}</p>` : ''}
-    ${cfg.showCategory ? `<p class="tiny">${escapeXml(product.category)}</p>` : ''}
+    ${cfg.showCategory && !product.variantName ? `<p class="tiny">${escapeXml(product.category)}</p>` : ''}
     ${cfg.showBarcode && barcodeValue && dataUrl ? `<div class="bc-wrap"><img src="${dataUrl}" style="display:block;width:100%;height:auto;max-height:${barcodeHpx}px;object-fit:contain;" /><p class="bc-num">${escapeXml(barcodeValue)}</p></div>` : ''}
     ${cfg.showPrice ? `<p class="price">${product.sellPriceTTC.toFixed(2)} €</p>` : ''}
   </div>
@@ -528,6 +540,8 @@ body { font-family: 'Courier New', monospace; background: white; }
   background: #ffffff;
 }
 .name { font-size: ${fs}pt; font-weight: 700; text-align: center; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; color: #000000; }
+.name-small { font-size: ${(fs * 0.8).toFixed(1)}pt; font-weight: 400; text-align: center; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; color: #444444; }
+.variant { font-size: ${fs}pt; font-weight: 700; text-align: center; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; color: #000000; }
 .small { font-size: ${(fs * 0.85).toFixed(1)}pt; text-align: center; width: 100%; color: #000000; line-height: 1.1; }
 .tiny { font-size: ${(fs * 0.8).toFixed(1)}pt; text-align: center; width: 100%; color: #333333; line-height: 1.1; }
 .bc-wrap { display: flex; flex-direction: column; align-items: center; width: 100%; background: #ffffff; }
@@ -659,6 +673,9 @@ window.addEventListener('load', function() { window.print(); });
                         className="accent-primary shrink-0" />
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-600 text-foreground truncate">{product.name}</p>
+                        {product.variantName && (
+                          <p className="text-[10px] font-700 text-primary truncate">{product.variantName}</p>
+                        )}
                         <p className="text-[10px] text-muted-foreground font-mono truncate">
                           {barcodeVal || '—'}
                           {barcodeVal && <span className="ml-1 text-[9px] text-primary/70 font-sans">[{fmt}]</span>}

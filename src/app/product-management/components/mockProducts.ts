@@ -25,6 +25,7 @@ export interface ProductRecord {
   colorVariants?: ColorVariant[];
   isKit?: boolean;
   isFavorite?: boolean;
+  variantName?: string;
 }
 
 export interface ColorVariant {

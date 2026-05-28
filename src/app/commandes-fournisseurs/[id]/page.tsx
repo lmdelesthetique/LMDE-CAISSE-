@@ -115,8 +115,11 @@ export default function OrderDetailPage() {
   const [bulkUpdateEnabled, setBulkUpdateEnabled] = useState(false);
   const [bulkUpdating, setBulkUpdating] = useState(false);
   const [bulkUpdateDone, setBulkUpdateDone] = useState(false);
-  // Print labels from order state
+  // Print labels from order
   const [showOrderLabelModal, setShowOrderLabelModal] = useState(false);
+  const [orderLabelProducts, setOrderLabelProducts] = useState<ProductRecord[]>([]);
+  const [orderLabelInitialQtys, setOrderLabelInitialQtys] = useState<Record<string, number>>({});
+  const [orderLabelLoading, setOrderLabelLoading] = useState(false);
 
   // Stock update on reception
   const [receivedQtys, setReceivedQtys] = useState<Record<string, number>>({});
@@ -680,6 +683,55 @@ export default function OrderDetailPage() {
     const qtys = { ...receivedQtys };
     await updateStockForReception(qtys);
     load();
+  };
+
+  const handleOpenOrderLabels = async () => {
+    if (!order?.lines?.length) return;
+    setOrderLabelLoading(true);
+    try {
+      const supabase = createClient();
+      // Batch-fetch barcodes for all distinct product refs in this order
+      const uniqueRefs = [...new Set(order.lines.map(l => l.productRef).filter(Boolean))];
+      const { data: prodRows } = await supabase
+        .from('products')
+        .select('ref, barcode')
+        .in('ref', uniqueRefs);
+      const barcodeByRef: Record<string, string> = {};
+      (prodRows || []).forEach((r: any) => {
+        if (r.barcode) barcodeByRef[r.ref] = r.barcode;
+      });
+
+      const labelProds: ProductRecord[] = order.lines.map((line) => ({
+        id: line.id,
+        name: line.productName,
+        variantName: line.color || line.variant || line.size || '',
+        ref: line.productRef,
+        barcode: (line.productRef ? barcodeByRef[line.productRef] : undefined) || line.productRef || line.id,
+        category: '',
+        sellPriceTTC: line.salePrice || 0,
+        stock: line.qtyOrdered,
+        minStock: 0,
+        imageUrl: line.productImageUrl || '',
+        variants: false,
+        shopify: false,
+        supplier: order.supplierName || '',
+        buyPrice: line.unitPrice || 0,
+        costPrice: line.unitPrice || 0,
+        sellPriceHT: line.salePrice || 0,
+        marginAmount: 0,
+        marginPct: 0,
+        status: 'active' as const,
+      } as ProductRecord));
+
+      const qtys: Record<string, number> = {};
+      order.lines.forEach((line) => { qtys[line.id] = line.qtyOrdered; });
+
+      setOrderLabelProducts(labelProds);
+      setOrderLabelInitialQtys(qtys);
+      setShowOrderLabelModal(true);
+    } finally {
+      setOrderLabelLoading(false);
+    }
   };
 
   const handleExportPDF = async () => {
@@ -1254,14 +1306,17 @@ export default function OrderDetailPage() {
                       Réception partielle (qtés saisies)
                     </button>
                     <button
-                      onClick={() => setShowOrderLabelModal(true)}
-                      className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg text-sm font-500 hover:bg-violet-700 transition-colors"
+                      onClick={handleOpenOrderLabels}
+                      disabled={orderLabelLoading}
+                      className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg text-sm font-500 hover:bg-violet-700 transition-colors disabled:opacity-60"
                     >
-                      <Icon name="PrinterIcon" size={15} />
+                      {orderLabelLoading
+                        ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        : <Icon name="PrinterIcon" size={15} />}
                       🏷️ Imprimer les étiquettes
-                      {lines.length > 0 && (
+                      {!orderLabelLoading && lines.length > 0 && (
                         <span className="ml-1 bg-white/20 rounded px-1.5 py-0.5 text-[11px] font-700">
-                          {lines.reduce((s, l) => s + Math.max(1, l.qtyReceived ?? l.qtyOrdered), 0)} étiq.
+                          {lines.reduce((s, l) => s + l.qtyOrdered, 0)} étiq.
                         </span>
                       )}
                     </button>
@@ -2049,43 +2104,15 @@ export default function OrderDetailPage() {
         )}
       </div>
 
-      {/* Print labels from order modal — quantities pre-filled from order */}
-      {showOrderLabelModal && lines.length > 0 && (() => {
-        const labelProducts = lines.map((line) => ({
-          id: line.id,
-          name: line.color
-            ? `${line.productName} — ${line.color}${line.size ? ' · ' + line.size : ''}`
-            : `${line.productName}${line.size ? ' · ' + line.size : ''}`,
-          ref: line.productRef,
-          barcode: line.productRef || line.id,
-          category: line.color || line.size || '',
-          sellPriceTTC: line.salePrice || 0,
-          stock: line.qtyReceived ?? line.qtyOrdered,
-          minStock: 0,
-          imageUrl: line.productImageUrl || '',
-          variants: false,
-          shopify: false,
-          supplier: order.supplierName || '',
-          buyPrice: line.unitPrice || 0,
-          costPrice: line.unitPrice || 0,
-          sellPriceHT: line.salePrice || 0,
-          marginAmount: 0,
-          marginPct: 0,
-          status: 'active' as const,
-        } as ProductRecord));
-        const initialQtys: Record<string, number> = {};
-        lines.forEach((line) => {
-          initialQtys[line.id] = Math.max(1, line.qtyReceived ?? line.qtyOrdered);
-        });
-        return (
-          <BarcodeLabelModal
-            products={labelProducts}
-            initialQtys={initialQtys}
-            orderRef={order.orderNumber}
-            onClose={() => setShowOrderLabelModal(false)}
-          />
-        );
-      })()}
+      {/* Print labels from order — quantities and barcodes pre-loaded */}
+      {showOrderLabelModal && orderLabelProducts.length > 0 && (
+        <BarcodeLabelModal
+          products={orderLabelProducts}
+          initialQtys={orderLabelInitialQtys}
+          orderRef={order.orderNumber}
+          onClose={() => setShowOrderLabelModal(false)}
+        />
+      )}
 
       {/* Status change modal */}
       {showStatusModal && (
