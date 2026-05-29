@@ -23,11 +23,12 @@ export async function getAccessToken(): Promise<string | null> {
 }
 
 export async function saveAccessToken(token: string): Promise<void> {
-  await getSupabase().from('app_config').upsert({
+  const { error } = await getSupabase().from('app_config').upsert({
     key: 'shopify_access_token',
     value: token,
     updated_at: new Date().toISOString(),
   });
+  if (error) throw new Error(`saveAccessToken failed: ${error.message} (code: ${error.code})`);
 }
 
 async function shopifyFetch(path: string, options: RequestInit = {}): Promise<Response> {

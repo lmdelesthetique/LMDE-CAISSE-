@@ -27,13 +27,18 @@ export default function ShopifyStatusCard() {
   const [registering, setRegistering] = useState(false);
   const [registerMsg, setRegisterMsg] = useState<string | null>(null);
 
+  // Manual token paste
+  const [showTokenForm, setShowTokenForm] = useState(false);
+  const [tokenInput, setTokenInput] = useState('');
+  const [tokenSaving, setTokenSaving] = useState(false);
+  const [tokenMsg, setTokenMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch('/api/shopify/status');
       const data: ShopifyStatus = await res.json();
       setStatus(data);
-      // Auto-register webhook silently on first load if connected and not yet registered
       if (data.connected && !data.webhookRegistered) {
         fetch('/api/shopify/register-webhook', { method: 'POST' })
           .then((r) => r.json())
@@ -43,7 +48,7 @@ export default function ShopifyStatusCard() {
           .catch(() => {});
       }
     } catch {
-      setStatus({ connected: false, error: 'Impossible de contacter le serveur', ordersToday: 0, revenueToday: 0, lastSyncAt: null, webhookRegistered: false, webhookId: null });
+      setStatus({ connected: false, error: 'Impossible de contacter /api/shopify/status', ordersToday: 0, revenueToday: 0, lastSyncAt: null, webhookRegistered: false, webhookId: null });
     } finally {
       setLoading(false);
     }
@@ -57,15 +62,41 @@ export default function ShopifyStatusCard() {
       const data = await res.json();
       if (data.ok) {
         setStatus((prev) => prev ? { ...prev, webhookRegistered: true, webhookId: data.webhookId ?? null } : prev);
-        setRegisterMsg(data.alreadyExists ? '✅ Webhook déjà enregistré' : '✅ Webhook enregistré avec succès');
+        setRegisterMsg(data.alreadyExists ? '✅ Webhook déjà enregistré' : '✅ Webhook enregistré');
       } else {
-        setRegisterMsg('❌ Erreur lors de l\'enregistrement');
+        setRegisterMsg(`❌ ${data.error ?? 'Erreur enregistrement'}`);
       }
     } catch {
       setRegisterMsg('❌ Erreur réseau');
     } finally {
       setRegistering(false);
-      setTimeout(() => setRegisterMsg(null), 5000);
+      setTimeout(() => setRegisterMsg(null), 6000);
+    }
+  };
+
+  const handleSaveToken = async () => {
+    if (!tokenInput.trim()) return;
+    setTokenSaving(true);
+    setTokenMsg(null);
+    try {
+      const res = await fetch('/api/shopify/save-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: tokenInput.trim() }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setTokenMsg({ ok: true, text: `✅ Token sauvegardé — boutique : ${data.shopName ?? 'OK'}` });
+        setTokenInput('');
+        setShowTokenForm(false);
+        setTimeout(() => load(), 800);
+      } else {
+        setTokenMsg({ ok: false, text: `❌ ${data.error}` });
+      }
+    } catch {
+      setTokenMsg({ ok: false, text: '❌ Erreur réseau' });
+    } finally {
+      setTokenSaving(false);
     }
   };
 
@@ -88,8 +119,8 @@ export default function ShopifyStatusCard() {
             {loading ? (
               <div className="h-4 w-28 bg-muted animate-pulse rounded" />
             ) : (
-              <span className={`text-sm font-semibold ${status?.connected ? 'text-emerald-600' : 'text-red-500'}`}>
-                {status?.connected ? '✅ Connecté' : '❌ Non connecté'}
+              <span className={`text-sm font-semibold ${status?.connected ? 'text-emerald-600' : 'text-amber-600'}`}>
+                {status?.connected ? '✅ Connecté' : '⚠️ Non connecté'}
               </span>
             )}
           </div>
@@ -104,7 +135,6 @@ export default function ShopifyStatusCard() {
         </button>
       </div>
 
-      {/* Body */}
       {loading ? (
         <div className="space-y-2 flex-1">
           <div className="h-16 w-full bg-muted animate-pulse rounded-lg" />
@@ -112,7 +142,6 @@ export default function ShopifyStatusCard() {
         </div>
       ) : status?.connected ? (
         <div className="flex flex-col gap-3 flex-1">
-          {/* Stats grid */}
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-blue-50 border border-blue-100 rounded-lg p-3">
               <p className="text-[11px] text-muted-foreground uppercase tracking-wide">Commandes aujourd'hui</p>
@@ -124,7 +153,6 @@ export default function ShopifyStatusCard() {
             </div>
           </div>
 
-          {/* Footer: sync time + webhook status */}
           <div className="flex items-center justify-between text-xs text-muted-foreground border-t border-border pt-3">
             <span>Sync : {fmtSync(status.lastSyncAt)}</span>
             <span className={`font-medium ${status.webhookRegistered ? 'text-emerald-600' : 'text-amber-600'}`}>
@@ -132,7 +160,6 @@ export default function ShopifyStatusCard() {
             </span>
           </div>
 
-          {/* Register webhook button — shown only if not yet registered */}
           {!status.webhookRegistered && (
             <button
               onClick={handleRegisterWebhook}
@@ -142,22 +169,57 @@ export default function ShopifyStatusCard() {
               {registering ? 'Enregistrement…' : '⚡ Activer le webhook Shopify → POS'}
             </button>
           )}
-
-          {registerMsg && (
-            <p className="text-xs text-center font-medium text-emerald-600">{registerMsg}</p>
-          )}
+          {registerMsg && <p className="text-xs text-center font-medium">{registerMsg}</p>}
         </div>
       ) : (
         <div className="flex flex-col gap-3 flex-1">
-          <p className="text-sm text-muted-foreground leading-relaxed">
-            {status?.error ?? 'Token Shopify non configuré.'}
-          </p>
+          {status?.error && (
+            <p className="text-xs text-red-600 bg-red-50 rounded-lg p-2 font-mono break-all">{status.error}</p>
+          )}
+
+          {/* Connect via OAuth */}
           <a
             href="/api/shopify/install"
             className="block w-full text-center text-xs font-medium bg-foreground text-white rounded-lg py-2 hover:opacity-90 transition-opacity"
           >
-            Connecter Shopify
+            🔗 Connecter via OAuth
           </a>
+
+          {/* Manual token paste toggle */}
+          <button
+            onClick={() => setShowTokenForm((v) => !v)}
+            className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 text-center transition-colors"
+          >
+            {showTokenForm ? 'Annuler' : 'Ou coller un token manuellement'}
+          </button>
+
+          {showTokenForm && (
+            <div className="flex flex-col gap-2">
+              <p className="text-[11px] text-muted-foreground">
+                Token Shopify (Custom App → shpat_…) :
+              </p>
+              <input
+                type="text"
+                value={tokenInput}
+                onChange={(e) => setTokenInput(e.target.value)}
+                placeholder="shpat_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                className="w-full text-xs border border-border rounded-lg px-3 py-2 font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                autoFocus
+              />
+              <button
+                onClick={handleSaveToken}
+                disabled={tokenSaving || !tokenInput.trim()}
+                className="w-full text-xs font-medium bg-emerald-600 text-white rounded-lg py-2 hover:bg-emerald-700 transition-colors disabled:opacity-50"
+              >
+                {tokenSaving ? 'Vérification…' : 'Sauvegarder le token'}
+              </button>
+              {tokenMsg && (
+                <p className={`text-xs text-center font-medium ${tokenMsg.ok ? 'text-emerald-600' : 'text-red-600'} break-all`}>
+                  {tokenMsg.text}
+                </p>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
