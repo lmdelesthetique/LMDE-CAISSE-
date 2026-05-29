@@ -360,9 +360,10 @@ export default function POSTerminal() {
   }, [logout]);
 
   // ── Loyalty: handle payment confirmation with points ──────────────────────
-  const subtotalHT = cart.reduce((s, i) => s + calcItemTotal(i), 0);
-  const totalTVA = subtotalHT * LIVE_TAX_RATE;
-  const totalTTC = subtotalHT + totalTVA;
+  // Prices in the catalog are already TTC (VAT-inclusive) — extract HT and TVA from the total
+  const totalTTC = cart.reduce((s, i) => s + calcItemTotal(i), 0);
+  const subtotalHT = totalTTC / (1 + LIVE_TAX_RATE);
+  const totalTVA = totalTTC - subtotalHT;
 
   const handlePaymentConfirm = useCallback(async (method: string) => {
     const total = totalTTC;
@@ -1038,12 +1039,9 @@ function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, l
     const dateStr = now.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
     const timeStr = now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
-    const subtotalHT = items.reduce((s, i) => {
-      const base = i.price * i.qty;
-      const disc = i.discountType === 'percent' ? base * (i.discount / 100) : i.discount;
-      return s + Math.max(0, base - disc);
-    }, 0);
-    const totalTVA = subtotalHT * 0.085;
+    // total prop is already TTC (prices are VAT-inclusive) — extract HT and TVA
+    const subtotalHT = total / 1.085;
+    const totalTVA = total - subtotalHT;
 
     // Load settings from localStorage cache or use defaults
     let companyName = "LE MONDE DE L'ESTHETIQUE";
@@ -1267,12 +1265,9 @@ function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, l
     if (!email.includes('@')) return;
     setSending(true);
 
-    const subtotalHT = items.reduce((s, i) => {
-      const base = i.price * i.qty;
-      const disc = i.discountType === 'percent' ? base * (i.discount / 100) : i.discount;
-      return s + Math.max(0, base - disc);
-    }, 0);
-    const totalTVA = subtotalHT * 0.085;
+    // total prop is already TTC (prices are VAT-inclusive) — extract HT and TVA
+    const subtotalHT = total / 1.085;
+    const totalTVA = total - subtotalHT;
     const ticketNumber = ticketRef || generateTicketNumber();
 
     const receiptData: ReceiptEmailData = {
