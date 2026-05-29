@@ -208,6 +208,44 @@ export async function registerWebhook(address: string): Promise<{ ok: boolean; w
   return { ok: true, webhookId };
 }
 
+// ─── Recent orders ────────────────────────────────────────────────────────────
+
+export interface ShopifyOrderLineItem {
+  id: number;
+  title: string;
+  name: string;
+  quantity: number;
+  price: string;
+  sku: string | null;
+}
+
+export interface ShopifyOrderSummary {
+  id: number;
+  name: string; // "#1234"
+  order_number: number;
+  created_at: string;
+  financial_status: string;
+  fulfillment_status: string | null;
+  total_price: string;
+  subtotal_price: string;
+  phone: string | null;
+  customer: { first_name: string; last_name: string; email: string; phone: string | null } | null;
+  shipping_address: { name: string; address1: string; address2?: string | null; city: string; zip: string; country: string; phone?: string | null } | null;
+  billing_address: { phone?: string | null } | null;
+  shipping_lines: Array<{ title: string; price: string }>;
+  line_items: ShopifyOrderLineItem[];
+  note: string | null;
+}
+
+export async function getRecentOrders(limit = 10): Promise<ShopifyOrderSummary[]> {
+  try {
+    const res = await shopifyFetch(`/orders.json?status=any&limit=${limit}&order=created_at+desc`);
+    if (!res.ok) return [];
+    const json = await res.json();
+    return json.orders ?? [];
+  } catch { return []; }
+}
+
 export async function getLastSyncAt(): Promise<string | null> {
   try {
     const { data } = await getSupabase().from('app_config').select('value').eq('key', 'shopify_last_sync_at').maybeSingle();

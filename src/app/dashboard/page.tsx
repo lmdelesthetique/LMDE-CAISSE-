@@ -12,6 +12,8 @@ import RecentSalesFeed from './components/RecentSalesFeed';
 import RealMarginDashboard from './components/RealMarginDashboard';
 import AdminAlerts from '../backup-compliance/components/AdminAlerts';
 import ShopifyStatusCard from './components/ShopifyStatusCard';
+import ShopifyOrdersWidget from './components/ShopifyOrdersWidget';
+import DeliveryWidget from './components/DeliveryWidget';
 import { type DashboardFiltersState } from '@/lib/services/dashboardService';
 
 const DAYS_FR = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
@@ -68,6 +70,19 @@ export default function DashboardPage() {
             </div>
           </div>
 
+          {/* Shopify + Delivery Row */}
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-5">
+            <div className="lg:col-span-1">
+              <ShopifyStatusCard />
+            </div>
+            <div className="lg:col-span-3">
+              <ShopifyOrdersWidget />
+            </div>
+          </div>
+
+          {/* Delivery Widget Row */}
+          <DeliveryWidget />
+
           {/* Bottom Row */}
           <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-3 gap-5">
             <div className="lg:col-span-2">
@@ -75,13 +90,6 @@ export default function DashboardPage() {
             </div>
             <div className="lg:col-span-1">
               <RecentSalesFeed />
-            </div>
-          </div>
-
-          {/* Shopify Status Row */}
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-5">
-            <div className="lg:col-span-1">
-              <ShopifyStatusCard />
             </div>
           </div>
         </div>
