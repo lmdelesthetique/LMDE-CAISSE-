@@ -483,6 +483,7 @@ export async function deductStockForSale(
   cashierName: string
 ): Promise<{ success: boolean; errors: string[] }> {
   const errors: string[] = [];
+  const shopifySyncItems: Array<{ productId: string; delta: number; newStock: number }> = [];
 
   for (const item of items) {
     // Skip free-price items (no product ID in DB)
@@ -528,6 +529,8 @@ export async function deductStockForSale(
             continue;
           }
 
+          shopifySyncItems.push({ productId: comp.component_id, delta: -compQtyToDeduct, newStock: compNewStock });
+
           await supabase.from('stock_movements_log').insert({
             product_id: comp.component_id,
             product_name: compProduct.name,
@@ -551,6 +554,7 @@ export async function deductStockForSale(
       if (currentStock > 0) {
         const newKitStock = Math.max(0, currentStock - item.qty);
         await supabase.from('products').update({ stock: newKitStock, updated_at: new Date().toISOString() }).eq('id', item.productId);
+        shopifySyncItems.push({ productId: item.productId, delta: -item.qty, newStock: newKitStock });
         await supabase.from('stock_movements_log').insert({
           product_id: item.productId,
           product_name: item.name,
@@ -581,6 +585,8 @@ export async function deductStockForSale(
         continue;
       }
 
+      shopifySyncItems.push({ productId: item.productId, delta: -item.qty, newStock });
+
       // Record movement
       await supabase.from('stock_movements_log').insert({
         product_id: item.productId,
@@ -606,6 +612,15 @@ export async function deductStockForSale(
         }
       }
     }
+  }
+
+  // Non-blocking Shopify inventory sync for products marked as shopify=true
+  if (shopifySyncItems.length > 0 && typeof window !== 'undefined') {
+    fetch('/api/shopify/sync-stock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: shopifySyncItems }),
+    }).catch(() => {});
   }
 
   return { success: errors.length === 0, errors };

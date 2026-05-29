@@ -18,6 +18,7 @@ export interface DashboardKPIs {
   avgMarginPct: number;
   productsBelow20Pct: number;
   productsAbove50Pct: number;
+  caShopify: number;
 }
 
 export interface RevenuePoint {
@@ -171,6 +172,10 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
     return q;
   };
 
+  const shopifyRevenuePromise = fetch(
+    `/api/shopify/revenue?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`
+  ).then((r) => r.json()).then((j) => Number(j.revenue) || 0).catch(() => 0);
+
   const [
     currentReceipts,
     prevReceipts,
@@ -179,6 +184,7 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
     stockAlertResult,
     activeProductsResult,
     marginProductsResult,
+    caShopify,
   ] = await Promise.all([
     buildReceiptsQuery(start, end),
     buildReceiptsQuery(prevStart, prevEnd),
@@ -191,10 +197,12 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
     supabase.from('products')
       .select('sell_price_ht, sell_price_ttc, buy_price, transport, customs, other_fees, structure_pct')
       .eq('product_status', 'active'),
+    shopifyRevenuePromise,
   ]);
 
   const stockAlertCount = stockAlertResult.count;
   const activeProductsCount = activeProductsResult.count;
+  // caShopify is already resolved from the parallel Promise.all above
 
   const marginPcts = (marginProductsResult.data ?? []).map((p: any) => {
     const buyPrice = Number(p.buy_price) || 0;
@@ -238,6 +246,7 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
     avgMarginPct: Math.round(avgMarginPct * 10) / 10,
     productsBelow20Pct,
     productsAbove50Pct,
+    caShopify,
   };
 }
 

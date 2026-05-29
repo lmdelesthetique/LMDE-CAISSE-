@@ -188,6 +188,20 @@ export default function KPIBentoGrid({ filters }: KPIBentoGridProps) {
         accent="success"
         loading={loading}
       />
+
+      {/* Shopify CA */}
+      {kpis && kpis.caShopify > 0 && (
+        <div className="md:col-span-2 lg:col-span-2">
+          <KPICard
+            label={`CA Shopify — ${monthLabel}`}
+            value={fmt(kpis.caShopify)}
+            sub="Commandes payées sur royalpedinials-distribution.myshopify.com"
+            icon="BanknotesIcon"
+            accent="info"
+            loading={loading}
+          />
+        </div>
+      )}
     </div>
   );
 }

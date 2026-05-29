@@ -232,6 +232,7 @@ export default function OrderDetailPage() {
 
     setUpdatingStock(true);
     let updatedCount = 0;
+    const shopifySyncItems: Array<{ productId: string; delta: number }> = [];
     for (const line of (order.lines || [])) {
       const qty = qtysToAdd[line.id] || 0;
       if (qty <= 0) continue;
@@ -256,6 +257,7 @@ export default function OrderDetailPage() {
           quantity: qty, stock_before: stockBefore, stock_after: stockAfter,
         });
       } catch { /* non-blocking if table schema differs */ }
+      shopifySyncItems.push({ productId: product.id, delta: qty });
       updatedCount++;
     }
 
@@ -264,6 +266,15 @@ export default function OrderDetailPage() {
       stock_updated: true,
       stock_updated_at: new Date().toISOString(),
     }).eq('id', order.id);
+
+    // Non-blocking Shopify inventory sync
+    if (shopifySyncItems.length > 0) {
+      fetch('/api/shopify/sync-stock', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: shopifySyncItems }),
+      }).catch(() => {});
+    }
 
     setUpdatingStock(false);
     setStockUpdateBanner(`✅ Stock mis à jour — ${updatedCount} produit${updatedCount > 1 ? 's' : ''} réapprovisionnés`);
