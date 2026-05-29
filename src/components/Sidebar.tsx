@@ -36,6 +36,7 @@ const navItems: NavItem[] = [
   },
   { id: 'nav-categories', label: 'Catégories', icon: 'RectangleGroupIcon', href: '/categories', group: 'catalogue' },
   { id: 'nav-stock', label: 'Stock', icon: 'ArchiveBoxIcon', href: '/stock', badge: 4, group: 'catalogue' },
+  { id: 'nav-shopify-sync', label: 'Sync Shopify', icon: 'ArrowPathIcon', href: '/shopify-sync', group: 'catalogue' },
   {
     id: 'nav-inventory',
     label: 'Inventaire',
