@@ -527,7 +527,7 @@ export default function ProductManagementContent() {
                   <th className="px-4 py-3 w-10">
                     <input type="checkbox" checked={selectedIds.size === filtered.length && filtered.length > 0} onChange={toggleSelectAll} className="accent-primary" />
                   </th>
-                  <th className="text-left px-4 py-3 text-[11px] font-600 text-muted-foreground uppercase tracking-wide cursor-pointer hover:text-foreground select-none" onClick={() => toggleSort('name')}>
+                  <th className="text-left px-4 py-3 text-[11px] font-600 text-muted-foreground uppercase tracking-wide cursor-pointer hover:text-foreground select-none min-w-[200px]" onClick={() => toggleSort('name')}>
                     <span className="flex items-center">Produit <SortIcon field="name" /></span>
                   </th>
                   {visibleCols.ref && <th className="text-left px-4 py-3 text-[11px] font-600 text-muted-foreground uppercase tracking-wide whitespace-nowrap">Réf.</th>}
@@ -564,7 +564,7 @@ export default function ProductManagementContent() {
                       <td className="px-4 py-3">
                         <input type="checkbox" checked={selectedIds.has(product.id)} onChange={() => toggleSelect(product.id)} className="accent-primary" />
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 min-w-[200px]">
                         <div className="flex items-center gap-2">
                           <div className="w-10 h-10 rounded-lg bg-muted/60 flex items-center justify-center shrink-0 overflow-hidden border border-border/50">
                             {product.imageUrl ? (
@@ -573,21 +573,21 @@ export default function ProductManagementContent() {
                               <Icon name="PhotoIcon" size={16} className="text-muted-foreground" />
                             )}
                           </div>
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <p className="text-sm font-500 text-foreground truncate max-w-[180px]">{product.name}</p>
+                          <div className="flex-1">
+                            <div className="flex items-start gap-1.5 flex-wrap">
+                              <p className="text-sm font-500 text-foreground whitespace-normal break-words" title={product.name} style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>{product.name}</p>
                               {product.isKit && (
                                 <span className="shrink-0 text-[10px] font-600 bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded-full">Kit</span>
                               )}
                             </div>
-                            {product.supplier && <p className="text-[10px] text-muted-foreground truncate max-w-[180px]">{product.supplier}</p>}
+                            {product.supplier && <p className="text-[10px] text-muted-foreground whitespace-normal break-words" style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>{product.supplier}</p>}
                           </div>
                         </div>
                       </td>
                       {visibleCols.ref && <td className="px-4 py-3 font-mono text-xs text-muted-foreground whitespace-nowrap">{product.ref}</td>}
                       {visibleCols.barcode && <td className="px-4 py-3 font-mono text-xs text-muted-foreground whitespace-nowrap">{product.barcode}</td>}
                       {visibleCols.category && <td className="px-4 py-3"><span className="text-xs bg-secondary text-secondary-foreground px-2 py-0.5 rounded-md font-medium whitespace-nowrap">{product.category}</span></td>}
-                      {visibleCols.supplier && <td className="px-4 py-3 text-xs text-muted-foreground max-w-[140px] truncate">{product.supplier}</td>}
+                      {visibleCols.supplier && <td className="px-4 py-3 text-xs text-muted-foreground whitespace-normal break-words" style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>{product.supplier}</td>}
                       {visibleCols.buyPrice && <td className="px-4 py-3 text-right tabular-nums text-sm text-muted-foreground">{product.buyPrice.toFixed(2)} €</td>}
                       {visibleCols.costPrice && <td className="px-4 py-3 text-right tabular-nums text-sm font-500 text-foreground">{product.costPrice.toFixed(2)} €</td>}
                       {visibleCols.sellPriceTTC && <td className="px-4 py-3 text-right tabular-nums text-sm font-700 text-foreground">{product.sellPriceTTC.toFixed(2)} €</td>}
