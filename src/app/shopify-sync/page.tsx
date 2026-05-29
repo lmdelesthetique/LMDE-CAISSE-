@@ -30,6 +30,7 @@ interface POSProduct {
   name: string;
   ref: string;
   barcode: string | null;
+  stock: number;
   shopify: boolean;
   shopify_product_id: string | null;
   shopify_variant_id: string | null;
@@ -238,6 +239,9 @@ function MatchCard({
           <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
             {match.pos.ref && <span className="text-[11px] text-muted-foreground">Ref: {match.pos.ref}</span>}
             {match.pos.barcode && <span className="text-[11px] text-muted-foreground">EAN: {match.pos.barcode}</span>}
+            <span className={`text-[11px] font-medium ${match.pos.stock <= 0 ? 'text-red-500' : 'text-emerald-600'}`}>
+              Stock POS: {match.pos.stock}
+            </span>
           </div>
         </div>
 
@@ -376,6 +380,9 @@ export default function ShopifySyncPage() {
   const [autoLinking, setAutoLinking] = useState(false);
   const [autoProgress, setAutoProgress] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
+  const [pushingStock, setPushingStock] = useState(false);
+  const [pushProgress, setPushProgress] = useState<{ done: number; total: number } | null>(null);
+  const [pushResult, setPushResult] = useState<{ ok: number; failed: number } | null>(null);
 
   // ── Load ignored from localStorage on mount ────────────────────────────────
   useEffect(() => {
@@ -393,7 +400,7 @@ export default function ShopifySyncPage() {
       const posRaw = await fetchAll<Record<string, unknown>>((from, to) =>
         supabase
           .from('products')
-          .select('id, name, ref, barcode, shopify, shopify_product_id, shopify_variant_id, shopify_inventory_item_id')
+          .select('id, name, ref, barcode, stock, shopify, shopify_product_id, shopify_variant_id, shopify_inventory_item_id')
           .eq('product_status', 'active')
           .order('name')
           .range(from, to)
@@ -403,6 +410,7 @@ export default function ShopifySyncPage() {
         name: (r.name as string) || '',
         ref: (r.ref as string) || '',
         barcode: (r.barcode as string) || null,
+        stock: Number(r.stock) || 0,
         shopify: Boolean(r.shopify),
         shopify_product_id: (r.shopify_product_id as string) || null,
         shopify_variant_id: (r.shopify_variant_id as string) || null,
@@ -481,6 +489,12 @@ export default function ShopifySyncPage() {
           ? { ...m, shopifyProduct: sp, shopifyVariant: sv, confidence: 100, reason: 'Lié manuellement', linked: true, ignored: false }
           : m
       ));
+      // Push POS stock → Shopify immediately after linking (POS is source of truth)
+      fetch('/api/shopify/push-stock', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productIds: [posId] }),
+      }).catch(() => {});
     }
     setLinking((prev) => { const s = new Set(prev); s.delete(posId); return s; });
   }, [supabase]);
@@ -540,6 +554,41 @@ export default function ShopifySyncPage() {
     setAutoProgress(0);
   }, [matches, handleLink]);
 
+  // ── Bulk push POS stock → Shopify ─────────────────────────────────────────
+  const handlePushAllStock = useCallback(async () => {
+    const linked = matches.filter((m) => m.linked);
+    if (!linked.length) return;
+    setPushingStock(true);
+    setPushResult(null);
+    setPushProgress({ done: 0, total: linked.length });
+
+    // Push in batches of 20 to show progress
+    const BATCH = 20;
+    let totalOk = 0;
+    let totalFailed = 0;
+    for (let i = 0; i < linked.length; i += BATCH) {
+      const batch = linked.slice(i, i + BATCH);
+      try {
+        const res = await fetch('/api/shopify/push-stock', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ productIds: batch.map((m) => m.pos.id) }),
+        });
+        const j = await res.json();
+        totalOk += j.ok ?? 0;
+        totalFailed += j.failed ?? 0;
+      } catch {
+        totalFailed += batch.length;
+      }
+      setPushProgress({ done: Math.min(i + BATCH, linked.length), total: linked.length });
+    }
+
+    setPushResult({ ok: totalOk, failed: totalFailed });
+    setPushingStock(false);
+    setPushProgress(null);
+    setTimeout(() => setPushResult(null), 8000);
+  }, [matches]);
+
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <AppLayout>
@@ -565,13 +614,26 @@ export default function ShopifySyncPage() {
                 {tabCounts.ready > 0 && (
                   <button
                     onClick={handleAutoLink}
-                    disabled={autoLinking || loading}
+                    disabled={autoLinking || loading || pushingStock}
                     className="text-xs font-medium bg-emerald-600 text-white rounded-lg px-4 py-1.5 hover:bg-emerald-700 transition-colors disabled:opacity-50 flex items-center gap-2"
                   >
                     {autoLinking ? (
                       <><span className="animate-spin inline-block">⟳</span> {autoProgress}%</>
                     ) : (
                       `🔗 Lier automatiquement (confiance ≥ 80%) — ${tabCounts.ready}`
+                    )}
+                  </button>
+                )}
+                {tabCounts.linked > 0 && (
+                  <button
+                    onClick={handlePushAllStock}
+                    disabled={pushingStock || loading || autoLinking}
+                    className="text-xs font-medium bg-blue-600 text-white rounded-lg px-4 py-1.5 hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+                  >
+                    {pushingStock && pushProgress ? (
+                      <><span className="animate-spin inline-block">⟳</span> {pushProgress.done}/{pushProgress.total} mis à jour</>
+                    ) : (
+                      `📤 Pousser tout le stock POS → Shopify`
                     )}
                   </button>
                 )}
@@ -599,6 +661,16 @@ export default function ShopifySyncPage() {
             <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
               ❌ Erreur : {error}
               <button onClick={load} className="ml-3 underline text-red-600 hover:text-red-800">Réessayer</button>
+            </div>
+          )}
+
+          {pushResult && (
+            <div className={`rounded-xl px-4 py-3 text-sm flex items-center gap-2 ${pushResult.failed > 0 ? 'bg-amber-50 border border-amber-200 text-amber-800' : 'bg-emerald-50 border border-emerald-200 text-emerald-800'}`}>
+              {pushResult.failed > 0 ? '⚠️' : '✅'}
+              <span>
+                Stock POS → Shopify : <strong>{pushResult.ok}</strong> produit{pushResult.ok !== 1 ? 's' : ''} mis à jour
+                {pushResult.failed > 0 && <>, <strong>{pushResult.failed}</strong> échec{pushResult.failed !== 1 ? 's' : ''}</>}
+              </span>
             </div>
           )}
 
