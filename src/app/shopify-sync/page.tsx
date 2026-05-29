@@ -43,14 +43,31 @@ interface MatchResult {
   confidence: number;
   reason: string;
   linked: boolean;
+  ignored: boolean;
 }
 
-type ActiveTab = 'linked' | 'ready' | 'verify' | 'unmatched';
+type ActiveTab = 'linked' | 'ready' | 'verify' | 'unmatched' | 'ignored';
+
+const IGNORED_STORAGE_KEY = 'shopify_sync_ignored_v1';
+
+function loadIgnoredIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(IGNORED_STORAGE_KEY);
+    return new Set(raw ? JSON.parse(raw) : []);
+  } catch { return new Set(); }
+}
+
+function saveIgnoredIds(ids: Set<string>) {
+  try { localStorage.setItem(IGNORED_STORAGE_KEY, JSON.stringify([...ids])); } catch { /* noop */ }
+}
 
 // ─── Matching ─────────────────────────────────────────────────────────────────
 
-function buildMatches(posProducts: POSProduct[], shopifyProducts: ShopifyProduct[]): MatchResult[] {
-  // Lookup maps: key → first Shopify product+variant with that key
+function buildMatches(
+  posProducts: POSProduct[],
+  shopifyProducts: ShopifyProduct[],
+  ignoredIds: Set<string>,
+): MatchResult[] {
   const bySkuLower = new Map<string, { p: ShopifyProduct; v: ShopifyVariant }>();
   const byBarcodeLower = new Map<string, { p: ShopifyProduct; v: ShopifyVariant }>();
   const byTitleLower = new Map<string, { p: ShopifyProduct; v: ShopifyVariant }>();
@@ -67,7 +84,8 @@ function buildMatches(posProducts: POSProduct[], shopifyProducts: ShopifyProduct
   }
 
   return posProducts.map((pos) => {
-    // Already linked in DB
+    const ignored = ignoredIds.has(pos.id);
+
     if (pos.shopify_variant_id) {
       let shopifyProduct: ShopifyProduct | null = null;
       let shopifyVariant: ShopifyVariant | null = null;
@@ -76,23 +94,18 @@ function buildMatches(posProducts: POSProduct[], shopifyProducts: ShopifyProduct
           if (String(v.id) === pos.shopify_variant_id) { shopifyProduct = p; shopifyVariant = v; break outer; }
         }
       }
-      return { pos, shopifyProduct, shopifyVariant, confidence: 100, reason: 'Déjà lié', linked: true };
+      return { pos, shopifyProduct, shopifyVariant, confidence: 100, reason: 'Déjà lié', linked: true, ignored };
     }
 
     const bc = (pos.barcode ?? '').trim().toLowerCase();
     const nm = pos.name.trim().toLowerCase();
     const rf = (pos.ref ?? '').trim().toLowerCase();
 
-    // P1 – barcode === variant.sku (100%)
-    if (bc) { const m = bySkuLower.get(bc); if (m) return { pos, shopifyProduct: m.p, shopifyVariant: m.v, confidence: 100, reason: 'Code-barres = SKU Shopify', linked: false }; }
-    // P2 – barcode === variant.barcode (100%)
-    if (bc) { const m = byBarcodeLower.get(bc); if (m) return { pos, shopifyProduct: m.p, shopifyVariant: m.v, confidence: 100, reason: 'Code-barres identiques', linked: false }; }
-    // P3 – ref === variant.sku (90%)
-    if (rf) { const m = bySkuLower.get(rf); if (m) return { pos, shopifyProduct: m.p, shopifyVariant: m.v, confidence: 90, reason: 'Référence = SKU Shopify', linked: false }; }
-    // P4 – exact name (90%)
-    if (nm) { const m = byTitleLower.get(nm); if (m) return { pos, shopifyProduct: m.p, shopifyVariant: m.v, confidence: 90, reason: 'Nom identique', linked: false }; }
+    if (bc) { const m = bySkuLower.get(bc); if (m) return { pos, shopifyProduct: m.p, shopifyVariant: m.v, confidence: 100, reason: 'Code-barres = SKU Shopify', linked: false, ignored }; }
+    if (bc) { const m = byBarcodeLower.get(bc); if (m) return { pos, shopifyProduct: m.p, shopifyVariant: m.v, confidence: 100, reason: 'Code-barres identiques', linked: false, ignored }; }
+    if (rf) { const m = bySkuLower.get(rf); if (m) return { pos, shopifyProduct: m.p, shopifyVariant: m.v, confidence: 90, reason: 'Référence = SKU Shopify', linked: false, ignored }; }
+    if (nm) { const m = byTitleLower.get(nm); if (m) return { pos, shopifyProduct: m.p, shopifyVariant: m.v, confidence: 90, reason: 'Nom identique', linked: false, ignored }; }
 
-    // P5 – partial name
     let best: { p: ShopifyProduct; v: ShopifyVariant; conf: number; reason: string } | null = null;
     if (nm.length >= 4) {
       for (const p of shopifyProducts) {
@@ -103,7 +116,6 @@ function buildMatches(posProducts: POSProduct[], shopifyProducts: ShopifyProduct
         if (conf > 0 && (!best || conf > best.conf)) best = { p, v: p.variants[0], conf, reason };
       }
     }
-    // P6 – ref partial sku
     if (rf.length >= 3) {
       for (const p of shopifyProducts) {
         for (const v of p.variants) {
@@ -115,8 +127,8 @@ function buildMatches(posProducts: POSProduct[], shopifyProducts: ShopifyProduct
         }
       }
     }
-    if (best) return { pos, shopifyProduct: best.p, shopifyVariant: best.v, confidence: best.conf, reason: best.reason, linked: false };
-    return { pos, shopifyProduct: null, shopifyVariant: null, confidence: 0, reason: 'Aucune correspondance', linked: false };
+    if (best) return { pos, shopifyProduct: best.p, shopifyVariant: best.v, confidence: best.conf, reason: best.reason, linked: false, ignored };
+    return { pos, shopifyProduct: null, shopifyVariant: null, confidence: 0, reason: 'Aucune correspondance', linked: false, ignored };
   });
 }
 
@@ -188,15 +200,21 @@ function ShopifyPicker({
 
 function MatchCard({
   match,
+  tabVariant,
   shopifyProducts,
   onLink,
   onUnlink,
+  onIgnore,
+  onRestore,
   linking,
 }: {
   match: MatchResult;
+  tabVariant: ActiveTab;
   shopifyProducts: ShopifyProduct[];
   onLink: (posId: string, p: ShopifyProduct, v: ShopifyVariant) => Promise<void>;
   onUnlink: (posId: string) => Promise<void>;
+  onIgnore: (posId: string) => void;
+  onRestore: (posId: string) => void;
   linking: boolean;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -207,7 +225,11 @@ function MatchCard({
   };
 
   return (
-    <div className={`bg-white rounded-xl border p-4 transition-colors ${match.linked ? 'border-emerald-200' : 'border-border'}`}>
+    <div className={`bg-white rounded-xl border p-4 transition-colors ${
+      match.linked ? 'border-emerald-200' :
+      match.ignored ? 'border-slate-200 opacity-70' :
+      'border-border'
+    }`}>
       <div className="flex items-start gap-4">
         {/* POS product */}
         <div className="flex-1 min-w-0">
@@ -223,6 +245,8 @@ function MatchCard({
         <div className="flex flex-col items-center gap-1 w-36 flex-shrink-0 pt-4">
           {match.linked ? (
             <span className="text-xs text-emerald-600 font-semibold">✅ Lié</span>
+          ) : match.ignored ? (
+            <span className="text-xs text-slate-400 font-semibold">🚫 Ignoré</span>
           ) : (
             <ConfBadge confidence={match.confidence} />
           )}
@@ -246,9 +270,9 @@ function MatchCard({
           )}
         </div>
 
-        {/* Action */}
-        <div className="flex-shrink-0 pt-3">
-          {match.linked ? (
+        {/* Actions */}
+        <div className="flex-shrink-0 pt-3 flex flex-col gap-2 items-end">
+          {tabVariant === 'linked' && (
             <button
               onClick={() => onUnlink(match.pos.id)}
               disabled={linking}
@@ -256,7 +280,9 @@ function MatchCard({
             >
               Délier
             </button>
-          ) : match.shopifyVariant ? (
+          )}
+
+          {tabVariant === 'ready' && match.shopifyVariant && (
             <button
               onClick={() => onLink(match.pos.id, match.shopifyProduct!, match.shopifyVariant!)}
               disabled={linking}
@@ -264,12 +290,50 @@ function MatchCard({
             >
               {linking ? '…' : 'Lier'}
             </button>
-          ) : (
+          )}
+
+          {tabVariant === 'verify' && (
+            <>
+              <button
+                onClick={() => onLink(match.pos.id, match.shopifyProduct!, match.shopifyVariant!)}
+                disabled={linking || !match.shopifyVariant}
+                className="text-xs font-medium bg-emerald-600 text-white rounded-lg px-3 py-1.5 hover:bg-emerald-700 transition-colors disabled:opacity-40 whitespace-nowrap"
+              >
+                {linking ? '…' : '✅ Confirmer'}
+              </button>
+              <button
+                onClick={() => onIgnore(match.pos.id)}
+                disabled={linking}
+                className="text-xs text-slate-600 border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50 transition-colors disabled:opacity-40 whitespace-nowrap"
+              >
+                ❌ Ignorer
+              </button>
+            </>
+          )}
+
+          {tabVariant === 'unmatched' && (
+            <>
+              <button
+                onClick={() => setPickerOpen((v) => !v)}
+                className="text-xs text-blue-600 border border-blue-200 rounded-lg px-3 py-1.5 hover:bg-blue-50 transition-colors whitespace-nowrap"
+              >
+                Associer
+              </button>
+              <button
+                onClick={() => onIgnore(match.pos.id)}
+                className="text-xs text-slate-500 hover:text-slate-700 border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50 transition-colors whitespace-nowrap"
+              >
+                🚫 Ignorer
+              </button>
+            </>
+          )}
+
+          {tabVariant === 'ignored' && (
             <button
-              onClick={() => setPickerOpen((v) => !v)}
-              className="text-xs text-blue-600 border border-blue-200 rounded-lg px-3 py-1.5 hover:bg-blue-50 transition-colors"
+              onClick={() => onRestore(match.pos.id)}
+              className="text-xs text-blue-600 border border-blue-200 rounded-lg px-3 py-1.5 hover:bg-blue-50 transition-colors whitespace-nowrap"
             >
-              Associer
+              ↩️ Restaurer
             </button>
           )}
         </div>
@@ -288,33 +352,42 @@ function MatchCard({
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
-const TABS: { id: ActiveTab; label: string; minConf: number; maxConf: number; linkedOnly: boolean }[] = [
-  { id: 'linked',    label: '✅ Liés',       minConf: 0,   maxConf: 100, linkedOnly: true  },
-  { id: 'ready',     label: '🎯 À lier',     minConf: 80,  maxConf: 100, linkedOnly: false },
-  { id: 'verify',    label: '⚠️ Vérifier',  minConf: 1,   maxConf: 79,  linkedOnly: false },
-  { id: 'unmatched', label: '❌ Non liés',   minConf: 0,   maxConf: 0,   linkedOnly: false },
+const TABS: { id: ActiveTab; label: string }[] = [
+  { id: 'linked',    label: '✅ Liés' },
+  { id: 'ready',     label: '🎯 À lier' },
+  { id: 'verify',    label: '⚠️ Vérifier' },
+  { id: 'unmatched', label: '❌ Non liés' },
+  { id: 'ignored',   label: '🚫 Ignorés' },
 ];
 
 export default function ShopifySyncPage() {
   const supabase = createClient();
 
-  const [posProducts, setPosProducts]       = useState<POSProduct[]>([]);
+  const [posProducts, setPosProducts]         = useState<POSProduct[]>([]);
   const [shopifyProducts, setShopifyProducts] = useState<ShopifyProduct[]>([]);
-  const [loadingMsg, setLoadingMsg]         = useState('Chargement…');
-  const [loading, setLoading]               = useState(true);
-  const [error, setError]                   = useState<string | null>(null);
+  const [loadingMsg, setLoadingMsg]           = useState('Chargement…');
+  const [loading, setLoading]                 = useState(true);
+  const [error, setError]                     = useState<string | null>(null);
 
-  const [matches, setMatches]   = useState<MatchResult[]>([]);
-  const [activeTab, setActiveTab] = useState<ActiveTab>('ready');
-  const [linking, setLinking]   = useState<Set<string>>(new Set());
+  const [matches, setMatches]         = useState<MatchResult[]>([]);
+  const [ignoredIds, setIgnoredIds]   = useState<Set<string>>(new Set());
+  const [activeTab, setActiveTab]     = useState<ActiveTab>('ready');
+  const [linking, setLinking]         = useState<Set<string>>(new Set());
   const [autoLinking, setAutoLinking] = useState(false);
   const [autoProgress, setAutoProgress] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // ── Load ignored from localStorage on mount ────────────────────────────────
+  useEffect(() => {
+    setIgnoredIds(loadIgnoredIds());
+  }, []);
 
   // ── Load data ──────────────────────────────────────────────────────────────
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
+    const currentIgnored = loadIgnoredIds();
+    setIgnoredIds(currentIgnored);
     try {
       setLoadingMsg('Chargement des produits POS…');
       const posRaw = await fetchAll<Record<string, unknown>>((from, to) =>
@@ -350,7 +423,7 @@ export default function ShopifySyncPage() {
       setShopifyProducts(shopify);
 
       setLoadingMsg('Calcul des correspondances…');
-      setMatches(buildMatches(pos, shopify));
+      setMatches(buildMatches(pos, shopify, currentIgnored));
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -360,21 +433,23 @@ export default function ShopifySyncPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  // ── Tab data ───────────────────────────────────────────────────────────────
+  // ── Tab counts ─────────────────────────────────────────────────────────────
   const tabCounts = useMemo(() => ({
     linked:    matches.filter((m) => m.linked).length,
-    ready:     matches.filter((m) => !m.linked && m.confidence >= 80 && m.shopifyVariant).length,
-    verify:    matches.filter((m) => !m.linked && m.confidence >= 1 && m.confidence < 80 && m.shopifyVariant).length,
-    unmatched: matches.filter((m) => !m.linked && m.confidence === 0).length,
+    ready:     matches.filter((m) => !m.linked && !m.ignored && m.confidence >= 80 && m.shopifyVariant).length,
+    verify:    matches.filter((m) => !m.linked && !m.ignored && m.confidence >= 1 && m.confidence < 80 && m.shopifyVariant).length,
+    unmatched: matches.filter((m) => !m.linked && !m.ignored && m.confidence === 0).length,
+    ignored:   matches.filter((m) => m.ignored).length,
   }), [matches]);
 
   const visibleMatches = useMemo(() => {
     let base: MatchResult[];
     switch (activeTab) {
       case 'linked':    base = matches.filter((m) => m.linked); break;
-      case 'ready':     base = matches.filter((m) => !m.linked && m.confidence >= 80 && m.shopifyVariant); break;
-      case 'verify':    base = matches.filter((m) => !m.linked && m.confidence >= 1 && m.confidence < 80 && m.shopifyVariant); break;
-      case 'unmatched': base = matches.filter((m) => !m.linked && m.confidence === 0); break;
+      case 'ready':     base = matches.filter((m) => !m.linked && !m.ignored && m.confidence >= 80 && m.shopifyVariant); break;
+      case 'verify':    base = matches.filter((m) => !m.linked && !m.ignored && m.confidence >= 1 && m.confidence < 80 && m.shopifyVariant); break;
+      case 'unmatched': base = matches.filter((m) => !m.linked && !m.ignored && m.confidence === 0); break;
+      case 'ignored':   base = matches.filter((m) => m.ignored); break;
     }
     if (!searchQuery.trim()) return base;
     const q = searchQuery.trim().toLowerCase();
@@ -403,7 +478,7 @@ export default function ShopifySyncPage() {
     if (!error) {
       setMatches((prev) => prev.map((m) =>
         m.pos.id === posId
-          ? { ...m, shopifyProduct: sp, shopifyVariant: sv, confidence: 100, reason: 'Lié manuellement', linked: true }
+          ? { ...m, shopifyProduct: sp, shopifyVariant: sv, confidence: 100, reason: 'Lié manuellement', linked: true, ignored: false }
           : m
       ));
     }
@@ -426,8 +501,33 @@ export default function ShopifySyncPage() {
     setLinking((prev) => { const s = new Set(prev); s.delete(posId); return s; });
   }, [supabase]);
 
+  // ── Ignore / Restore ───────────────────────────────────────────────────────
+  const handleIgnore = useCallback((posId: string) => {
+    setIgnoredIds((prev) => {
+      const next = new Set(prev);
+      next.add(posId);
+      saveIgnoredIds(next);
+      return next;
+    });
+    setMatches((prev) => prev.map((m) =>
+      m.pos.id === posId ? { ...m, ignored: true } : m
+    ));
+  }, []);
+
+  const handleRestore = useCallback((posId: string) => {
+    setIgnoredIds((prev) => {
+      const next = new Set(prev);
+      next.delete(posId);
+      saveIgnoredIds(next);
+      return next;
+    });
+    setMatches((prev) => prev.map((m) =>
+      m.pos.id === posId ? { ...m, ignored: false } : m
+    ));
+  }, []);
+
   const handleAutoLink = useCallback(async () => {
-    const toLink = matches.filter((m) => !m.linked && m.confidence >= 80 && m.shopifyProduct && m.shopifyVariant);
+    const toLink = matches.filter((m) => !m.linked && !m.ignored && m.confidence >= 80 && m.shopifyProduct && m.shopifyVariant);
     if (!toLink.length) return;
     setAutoLinking(true);
     setAutoProgress(0);
@@ -533,6 +633,13 @@ export default function ShopifySyncPage() {
                 })}
               </div>
 
+              {/* Ignored tab info banner */}
+              {activeTab === 'ignored' && tabCounts.ignored > 0 && (
+                <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-500">
+                  Ces produits ont été marqués comme ignorés et ne seront pas synchronisés avec Shopify. Cliquez sur <strong>↩️ Restaurer</strong> pour les remettre dans la liste.
+                </div>
+              )}
+
               {/* Search within tab */}
               <div className="relative">
                 <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -557,9 +664,12 @@ export default function ShopifySyncPage() {
                     <MatchCard
                       key={match.pos.id}
                       match={match}
+                      tabVariant={activeTab}
                       shopifyProducts={shopifyProducts}
                       onLink={handleLink}
                       onUnlink={handleUnlink}
+                      onIgnore={handleIgnore}
+                      onRestore={handleRestore}
                       linking={linking.has(match.pos.id)}
                     />
                   ))}
