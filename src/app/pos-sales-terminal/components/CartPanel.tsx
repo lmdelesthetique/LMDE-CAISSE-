@@ -61,6 +61,9 @@ function CartRow({
               )}
             </div>
             <p className="text-[10px] text-muted-foreground font-mono mt-0.5">{item.sku}</p>
+            {item.stock !== undefined && item.stock <= 0 && (
+              <p className="text-[10px] font-600 text-amber-600 mt-0.5">⚠️ Stock insuffisant — vente autorisée</p>
+            )}
             <div className="flex items-center gap-2 mt-0.5">
               <p className="text-xs text-muted-foreground">
                 {item.price.toFixed(2)} € / unité

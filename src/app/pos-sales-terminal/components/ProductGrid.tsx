@@ -264,7 +264,7 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, 100px)', gap: 6 }}>
               {displayedProducts.map((product) => {
                 const isFav = Boolean(product.is_favorite);
-                const isOutOfStock = product.stock === 0;
+                const isOutOfStock = product.stock <= 0;
                 const minStock = product.min_stock || 3;
                 const isLowStock = !isOutOfStock && product.stock <= minStock;
 
@@ -272,23 +272,20 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
                   <button
                     key={product.id}
                     onClick={() => {
-                      if (!isOutOfStock) {
-                        if (product.has_color_variants) {
-                          openVariantPicker(product);
-                        } else {
-                          onAddToCart({
-                            id: product.id,
-                            name: product.name,
-                            sku: product.ref || product.id,
-                            price: Number(product.sell_price_ttc),
-                            imageUrl: product.image_url,
-                            stock: product.stock,
-                            costPrice: computeCostPrice(product),
-                          });
-                        }
+                      if (product.has_color_variants) {
+                        openVariantPicker(product);
+                      } else {
+                        onAddToCart({
+                          id: product.id,
+                          name: product.name,
+                          sku: product.ref || product.id,
+                          price: Number(product.sell_price_ttc),
+                          imageUrl: product.image_url,
+                          stock: product.stock,
+                          costPrice: computeCostPrice(product),
+                        });
                       }
                     }}
-                    disabled={isOutOfStock}
                     title={product.name}
                     style={{
                       width: 100,
@@ -299,10 +296,10 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
                       borderRadius: 8,
                       border: `1px solid ${isOutOfStock ? '#fecaca' : isLowStock ? '#fde68a' : '#e5e7eb'}`,
                       background: isOutOfStock ? '#fff5f5' : '#ffffff',
-                      cursor: isOutOfStock ? 'not-allowed' : 'pointer',
+                      cursor: 'pointer',
                       overflow: 'hidden',
                       padding: 0,
-                      opacity: isOutOfStock ? 0.65 : 1,
+                      opacity: 1,
                       textAlign: 'left',
                       flexShrink: 0,
                       transition: 'box-shadow 0.12s, transform 0.1s',
@@ -398,7 +395,7 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
                     </div>
 
                     {/* Hover add-to-cart overlay */}
-                    {!isOutOfStock && (
+                    {(
                       <div style={{
                         position: 'absolute', inset: 0,
                         background: 'rgba(var(--primary), 0.06)',
@@ -458,7 +455,6 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
                   {variantPickerRows.map((v) => (
                     <button
                       key={v.id}
-                      disabled={v.quantity === 0}
                       onClick={() => {
                         onAddToCart({
                           id: variantPickerProduct.id,
@@ -474,8 +470,8 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
                         setVariantPickerRows([]);
                       }}
                       className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-left transition-all active:scale-95 ${
-                        v.quantity === 0
-                          ? 'opacity-40 cursor-not-allowed border-border bg-muted/30'
+                        v.quantity <= 0
+                          ? 'border-red-200 bg-red-50/40 hover:bg-red-50'
                           : 'border-border hover:border-primary/40 hover:bg-primary/5'
                       }`}
                     >
@@ -485,8 +481,8 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
                       />
                       <div className="min-w-0">
                         <p className="text-xs font-600 text-foreground truncate">{v.color_name}</p>
-                        <p className={`text-[10px] ${v.quantity === 0 ? 'text-red-500' : 'text-muted-foreground'}`}>
-                          {v.quantity === 0 ? 'Rupture' : `Stock: ${v.quantity}`}
+                        <p className={`text-[10px] ${v.quantity <= 0 ? 'text-red-500' : 'text-muted-foreground'}`}>
+                          {v.quantity <= 0 ? `Rupture (${v.quantity})` : `Stock: ${v.quantity}`}
                         </p>
                       </div>
                     </button>

@@ -47,6 +47,7 @@ export interface CartItem {
   imageUrl?: string;
   variantName?: string;
   costPrice?: number;
+  stock?: number;
 }
 
 export interface HeldTicket {
@@ -126,24 +127,11 @@ export default function POSTerminal() {
   }, []);
 
   const addToCart = useCallback(async (product: { id: string; name: string; sku: string; price: number; imageUrl?: string; stock?: number; variantName?: string; costPrice?: number }) => {
-    // Check current stock before adding
-    const currentQtyInCart = cart.reduce((sum, i) => i.productId === product.id && i.variantName === product.variantName && !i.isFreePrice ? sum + i.qty : sum, 0);
-
-    // If stock info passed directly, use it; otherwise fetch from DB
-    let availableStock = product.stock ?? 999;
+    // Fetch stock for display purposes only — never blocks the sale
+    let availableStock = product.stock;
     if (product.stock === undefined && !product.id.startsWith('free-')) {
       const stockInfo = await fetchProductStockById(product.id);
       if (stockInfo !== null) availableStock = stockInfo.stock;
-    }
-
-    if (availableStock === 0) {
-      toast.error(`"${product.name}" est en rupture de stock`, { duration: 3000, icon: '🚫' });
-      return;
-    }
-
-    if (currentQtyInCart >= availableStock) {
-      toast.error(`Stock insuffisant pour "${product.name}" — Stock disponible : ${availableStock}`, { duration: 3500, icon: '⚠️' });
-      return;
     }
 
     setCart((prev) => {
@@ -165,6 +153,7 @@ export default function POSTerminal() {
         imageUrl: product.imageUrl,
         variantName: product.variantName,
         costPrice: product.costPrice,
+        stock: availableStock,
       }];
     });
   }, [cart]);
@@ -174,12 +163,6 @@ export default function POSTerminal() {
     setBarcodeStatus('scanning');
     const product = await fetchProductByBarcode(barcode);
     if (product) {
-      if (product.stock === 0) {
-        setBarcodeStatus('notfound');
-        toast.error(`"${product.name}" est en rupture de stock`, { duration: 3500, icon: '🚫' });
-        setTimeout(() => setBarcodeStatus('idle'), 1500);
-        return;
-      }
       await addToCart({
         id: product.id,
         name: product.name,
