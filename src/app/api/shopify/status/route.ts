@@ -3,10 +3,8 @@ import { getAccessToken, testConnection, getShopifyStatsToday, getLastSyncAt } f
 import { createClient as createSupabase } from '@supabase/supabase-js';
 
 function getSupabase() {
-  return createSupabase(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  return createSupabase(process.env.NEXT_PUBLIC_SUPABASE_URL!, key);
 }
 
 export async function GET() {

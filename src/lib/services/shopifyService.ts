@@ -5,10 +5,9 @@ const LOCATION_ID = process.env.SHOPIFY_LOCATION_ID ?? '';
 const API_VERSION = '2024-10';
 
 function getSupabase() {
-  return createSupabase(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+  // Use service role key when available (bypasses RLS for server-side writes)
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  return createSupabase(process.env.NEXT_PUBLIC_SUPABASE_URL!, key);
 }
 
 export async function getAccessToken(): Promise<string | null> {
