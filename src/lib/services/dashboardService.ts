@@ -209,9 +209,8 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
     const transport = Number(p.transport) || 0;
     const customs = Number(p.customs) || 0;
     const otherFees = Number(p.other_fees) || 0;
-    const structurePct = Number(p.structure_pct) || 0;
-    const baseCost = buyPrice + transport + customs + otherFees;
-    const realCost = baseCost + baseCost * (structurePct / 100);
+    // structure_pct is overhead info only — not added to real import cost
+    const realCost = buyPrice + transport + customs + otherFees;
     const sellHT = Number(p.sell_price_ht) || Number(p.sell_price_ttc) / 1.085 || 0;
     return sellHT > 0 ? ((sellHT - realCost) / sellHT) * 100 : 0;
   });

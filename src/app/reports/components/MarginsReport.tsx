@@ -63,9 +63,8 @@ export default function MarginsReport({ dateRange }: MarginsReportProps) {
         const transport = Number(p.transport) || 0;
         const customs = Number(p.customs) || 0;
         const otherFees = Number(p.other_fees) || 0;
-        const structurePct = Number(p.structure_pct) || 0;
-        const baseCost = buyPrice + transport + customs + otherFees;
-        const realCost = baseCost + baseCost * (structurePct / 100);
+        // structure_pct is overhead info only — not added to real import cost
+        const realCost = buyPrice + transport + customs + otherFees;
         productLookup[p.id] = {
           name: p.name ?? 'Produit inconnu',
           category: p.category ?? 'Non catégorisé',

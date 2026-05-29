@@ -307,8 +307,6 @@ export default function OrderDetailPage() {
       costModes[key] === 'pct' ? order.subtotal * (costPcts[key] || 0) / 100 : (costs as any)[key] || 0;
 
     const importCost = order.subtotal + getEC('transport') + getEC('customs') + getEC('vat') + getEC('freight') + getEC('bank') + getEC('exchange') + getEC('local') + getEC('other');
-    const structureAmount = importCost * (structurePct / 100);
-    const businessCost = importCost + structureAmount;
 
     // Record structure history if pct changed
     const prevPct = parseFloat(localStorage.getItem(`beautypos_structure_pct_${order.id}`) || '0');
@@ -318,7 +316,7 @@ export default function OrderDetailPage() {
         oldPct: prevPct,
         newPct: structurePct,
         oldImportCost: importCost,
-        newBusinessCost: businessCost,
+        newBusinessCost: importCost, // structure is info only, not added to cost
         changedBy: 'Sophie Fontaine',
       };
       const newHistory = [...structureHistory, entry];
@@ -334,7 +332,7 @@ export default function OrderDetailPage() {
     // Record cost history per product line
     const lines = order.lines || [];
     const totalQty = lines.reduce((s, l) => s + l.qtyOrdered, 0);
-    const avgCostPerProduct = totalQty > 0 ? businessCost / totalQty : 0;
+    const avgCostPerProduct = totalQty > 0 ? importCost / totalQty : 0;
     const newCostEntries: CostHistoryEntry[] = lines.map((line) => {
       const lineWeight = totalQty > 0 ? line.qtyOrdered / totalQty : 0;
       const newUnitCost = avgCostPerProduct;
@@ -364,7 +362,7 @@ export default function OrderDetailPage() {
       transportCost: getEC('transport'), customsCost: getEC('customs'), vatImport: getEC('vat'),
       freightForwarderCost: getEC('freight'), bankFees: getEC('bank'), exchangeFees: getEC('exchange'),
       localDelivery: getEC('local'), otherCosts: getEC('other'),
-      totalRealCost: businessCost, costMethod, costsValidated: true,
+      totalRealCost: importCost, costMethod, costsValidated: true,
       orderStatus: 'costs_recorded',
     });
 
@@ -444,11 +442,9 @@ export default function OrderDetailPage() {
       costModes[key] === 'pct' ? order.subtotal * (costPcts[key] || 0) / 100 : (costs as any)[key] || 0;
     const totalFeesLocal = getECQ('transport') + getECQ('customs') + getECQ('vat') + getECQ('freight') + getECQ('bank') + getECQ('exchange') + getECQ('local') + getECQ('other');
     const importCostLocal = order.subtotal + totalFeesLocal;
-    const structureAmountLocal = importCostLocal * (structurePct / 100);
-    const businessCostLocal = importCostLocal + structureAmountLocal;
     const linesLocal = order.lines || [];
     const totalQtyLocal = linesLocal.reduce((s, l) => s + l.qtyOrdered, 0);
-    const avgCostPerProductLocal = totalQtyLocal > 0 ? businessCostLocal / totalQtyLocal : 0;
+    const avgCostPerProductLocal = totalQtyLocal > 0 ? importCostLocal / totalQtyLocal : 0;
 
     const newUnitCost = line.unitRealCost || avgCostPerProductLocal;
     const oldMargin = oldPrice > 0 ? ((oldPrice - newUnitCost) / oldPrice) * 100 : 0;
@@ -541,10 +537,8 @@ export default function OrderDetailPage() {
       costModes[key] === 'pct' ? order.subtotal * (costPcts[key] || 0) / 100 : (costs as any)[key] || 0;
     const totalFeesLocal2 = getECB('transport') + getECB('customs') + getECB('vat') + getECB('freight') + getECB('bank') + getECB('exchange') + getECB('local') + getECB('other');
     const importCostLocal2 = order.subtotal + totalFeesLocal2;
-    const structureAmountLocal2 = importCostLocal2 * (structurePct / 100);
-    const businessCostLocal2 = importCostLocal2 + structureAmountLocal2;
     const totalQtyLocal2 = lines.reduce((s, l) => s + l.qtyOrdered, 0);
-    const avgCostPerProductLocal2 = totalQtyLocal2 > 0 ? businessCostLocal2 / totalQtyLocal2 : 0;
+    const avgCostPerProductLocal2 = totalQtyLocal2 > 0 ? importCostLocal2 / totalQtyLocal2 : 0;
 
     const productUpdates = JSON.parse(localStorage.getItem('beautypos_bulk_cost_updates') || '{}');
     lines.forEach((line) => {
@@ -790,19 +784,19 @@ export default function OrderDetailPage() {
     (supplierIncludes.other ? getEC('other') : 0);
   const supplierPaymentAmount = order.subtotal + supplierExtraFees;
 
-  // Internal business cost = products + ALL fees + structure %
+  // Real import cost = products + all external fees (transport, customs, etc.)
+  // Structure is overhead info only — never added to totals
   const totalFees = getEC('transport') + getEC('customs') + getEC('vat') + getEC('freight') + getEC('bank') + getEC('exchange') + getEC('local') + getEC('other');
   const importCost = order.subtotal + totalFees;
-  const structureAmount = importCost * (structurePct / 100);
-  const businessCost = importCost + structureAmount;
+  const structureAmount = importCost * (structurePct / 100); // info only
 
   const lines = order.lines || [];
   const totalQty = lines.reduce((s, l) => s + l.qtyOrdered, 0);
-  const avgCostPerProduct = totalQty > 0 ? businessCost / totalQty : 0;
+  const avgCostPerProduct = totalQty > 0 ? importCost / totalQty : 0;
   const totalSalePrice = lines.reduce((s, l) => s + l.salePrice * l.qtyOrdered, 0);
-  const grossMarginAmt = totalSalePrice > 0 ? totalSalePrice - businessCost : 0;
+  const grossMarginAmt = totalSalePrice > 0 ? totalSalePrice - importCost : 0;
   const grossMarginPct = totalSalePrice > 0 ? (grossMarginAmt / totalSalePrice) * 100 : 0;
-  const netMarginPct = grossMarginPct - structurePct;
+  const netMarginPct = grossMarginPct - structurePct; // estimated after overhead, display only
 
   // Payment tracking uses supplierPaymentAmount (NOT businessCost)
   const amountPaid = order.paymentAmount || 0;
@@ -989,21 +983,24 @@ export default function OrderDetailPage() {
                   <h3 className="font-600 text-foreground">Rentabilité interne</h3>
                 </div>
                 <div className="space-y-2 text-sm">
-                  <div className="flex justify-between"><span className="text-muted-foreground">Coût import réel</span><span className="font-500">{importCost.toFixed(2)} {order.currency}</span></div>
-                  {structurePct > 0 && (
-                    <div className="flex justify-between text-purple-700"><span>Frais structure ({structurePct}%)</span><span>{structureAmount.toFixed(2)} {order.currency}</span></div>
-                  )}
-                  <div className="border-t border-border pt-2 flex justify-between font-700 text-purple-700">
-                    <span>Coût business réel</span>
-                    <span>{businessCost.toFixed(2)} {order.currency}</span>
+                  <div className="flex justify-between font-600 text-blue-700">
+                    <span>Coût import réel</span>
+                    <span>{importCost.toFixed(2)} {order.currency}</span>
                   </div>
                   {totalSalePrice > 0 && (
                     <>
                       <div className="flex justify-between text-emerald-600"><span>Marge brute</span><span className="font-600">{grossMarginPct.toFixed(1)}%</span></div>
-                      <div className={`flex justify-between font-600 ${netMarginPct >= 20 ? 'text-emerald-600' : netMarginPct >= 10 ? 'text-amber-600' : 'text-red-600'}`}>
-                        <span>Marge nette est.</span><span>{netMarginPct.toFixed(1)}%</span>
-                      </div>
+                      {structurePct > 0 && (
+                        <div className={`flex justify-between font-600 ${netMarginPct >= 20 ? 'text-emerald-600' : netMarginPct >= 10 ? 'text-amber-600' : 'text-red-600'}`}>
+                          <span>Marge nette est.</span><span>{netMarginPct.toFixed(1)}%</span>
+                        </div>
+                      )}
                     </>
+                  )}
+                  {structurePct > 0 && (
+                    <div className="mt-2 px-2.5 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-500">
+                      ℹ️ Frais structure ({structurePct}%) : {structureAmount.toFixed(2)} {order.currency} — intégrés dans vos prix de vente
+                    </div>
                   )}
                 </div>
               </div>
@@ -1522,35 +1519,30 @@ export default function OrderDetailPage() {
                       <span>{importCost.toFixed(2)} {order.currency}</span>
                     </div>
                   </div>
-                  <div className="mt-3 bg-purple-50 border border-purple-100 rounded-lg p-3 space-y-1.5 text-sm">
-                    <div className="flex justify-between text-purple-800">
-                      <span>+ Frais structure ({structurePct}%)</span>
-                      <span className="font-600">{structureAmount.toFixed(2)} {order.currency}</span>
+                  {totalQty > 0 && (
+                    <div className="mt-2 flex justify-between text-xs text-blue-600">
+                      <span>Coût moyen / produit ({totalQty} unités)</span>
+                      <span className="font-600">{avgCostPerProduct.toFixed(2)} {order.currency}</span>
                     </div>
-                    <p className="text-[10px] text-purple-400">Loyer · Salaires · Assurance · Charges fixes</p>
-                  </div>
-                  <div className="mt-3 bg-purple-100/60 border border-purple-200 rounded-lg p-3 space-y-1.5 text-sm">
-                    <div className="flex justify-between font-700 text-purple-800 text-base">
-                      <span>= Coût business réel final</span>
-                      <span>{businessCost.toFixed(2)} {order.currency}</span>
-                    </div>
-                    {totalQty > 0 && (
-                      <div className="flex justify-between text-xs text-purple-600">
-                        <span>Coût moyen / produit ({totalQty} unités)</span>
-                        <span className="font-600">{avgCostPerProduct.toFixed(2)} {order.currency}</span>
+                  )}
+                  {totalSalePrice > 0 && (
+                    <div className="mt-2 space-y-1.5 text-sm">
+                      <div className="flex justify-between text-emerald-700 font-600">
+                        <span>Marge brute</span><span>{grossMarginPct.toFixed(1)}%</span>
                       </div>
-                    )}
-                    {totalSalePrice > 0 && (
-                      <>
-                        <div className="flex justify-between text-xs text-emerald-700 font-600">
-                          <span>Marge brute</span><span>{grossMarginPct.toFixed(1)}%</span>
-                        </div>
+                      {structurePct > 0 && (
                         <div className={`flex justify-between text-xs font-700 ${netMarginPct >= 20 ? 'text-emerald-700' : netMarginPct >= 10 ? 'text-amber-700' : 'text-red-700'}`}>
-                          <span>Marge nette estimée</span><span>{netMarginPct.toFixed(1)}%</span>
+                          <span>Marge nette est.</span><span>{netMarginPct.toFixed(1)}%</span>
                         </div>
-                      </>
-                    )}
-                  </div>
+                      )}
+                    </div>
+                  )}
+                  {structurePct > 0 && (
+                    <div className="mt-3 px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-500">
+                      ℹ️ Frais structure ({structurePct}%) : {structureAmount.toFixed(2)} {order.currency}<br />
+                      <span className="text-gray-400">Ces frais sont intégrés dans vos prix de vente — pas un coût fournisseur</span>
+                    </div>
+                  )}
                 </div>
 
                 <button
@@ -1626,12 +1618,11 @@ export default function OrderDetailPage() {
         {/* Margins */}
         {tab === 'margins' && (
           <div className="space-y-5">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
               {[
                 { label: 'Coût import réel', value: `${importCost.toFixed(2)} ${order.currency}`, icon: 'ShoppingBagIcon', color: 'text-blue-600 bg-blue-50' },
-                { label: `Frais structure (${structurePct}%)`, value: `${structureAmount.toFixed(2)} ${order.currency}`, icon: 'BuildingOfficeIcon', color: 'text-purple-600 bg-purple-50' },
-                { label: 'Coût business réel', value: `${businessCost.toFixed(2)} ${order.currency}`, icon: 'CalculatorIcon', color: 'text-red-600 bg-red-50' },
-                { label: 'Marge brute estimée', value: totalSalePrice > 0 ? `${grossMarginPct.toFixed(1)}%` : '—', icon: 'ChartBarIcon', color: 'text-emerald-600 bg-emerald-50' },
+                { label: 'Marge brute', value: totalSalePrice > 0 ? `${grossMarginPct.toFixed(1)}%` : '—', icon: 'ChartBarIcon', color: 'text-emerald-600 bg-emerald-50' },
+                { label: 'Marge nette est.', value: totalSalePrice > 0 ? `${netMarginPct.toFixed(1)}%` : '—', icon: 'CalculatorIcon', color: netMarginPct >= 20 ? 'text-emerald-600 bg-emerald-50' : netMarginPct >= 10 ? 'text-amber-600 bg-amber-50' : 'text-red-600 bg-red-50' },
               ].map((k) => (
                 <div key={k.label} className="bg-white border border-border rounded-xl p-4 shadow-card">
                   <div className="flex items-center gap-3">
@@ -1646,6 +1637,12 @@ export default function OrderDetailPage() {
                 </div>
               ))}
             </div>
+            {structurePct > 0 && (
+              <div className="px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-500 flex items-center gap-2">
+                <span className="text-base">ℹ️</span>
+                <span>Frais structure ({structurePct}%) : <strong>{structureAmount.toFixed(2)} {order.currency}</strong> — intégrés dans vos prix de vente, non comptés dans le coût import</span>
+              </div>
+            )}
 
             {/* Bulk update option */}
             <div className="bg-white border border-border rounded-xl p-5 shadow-card">
@@ -1708,16 +1705,6 @@ export default function OrderDetailPage() {
                   <p className="text-xl font-700 text-amber-700">{importCost.toFixed(2)} {order.currency}</p>
                   <p className="text-xs text-amber-500 mt-1">Produits + tous frais import</p>
                 </div>
-                <div className="bg-purple-50 rounded-xl p-4">
-                  <p className="text-xs text-purple-600 font-600 uppercase mb-2">Frais structure</p>
-                  <p className="text-xl font-700 text-purple-700">{structureAmount.toFixed(2)} {order.currency}</p>
-                  <p className="text-xs text-purple-500 mt-1">{structurePct}% du coût import</p>
-                </div>
-                <div className="bg-red-50 rounded-xl p-4">
-                  <p className="text-xs text-red-600 font-600 uppercase mb-2">Coût business réel final</p>
-                  <p className="text-xl font-700 text-red-700">{businessCost.toFixed(2)} {order.currency}</p>
-                  <p className="text-xs text-red-500 mt-1">Import + structure</p>
-                </div>
                 <div className="bg-slate-50 rounded-xl p-4">
                   <p className="text-xs text-slate-600 font-600 uppercase mb-2">Coût moyen / produit</p>
                   <p className="text-xl font-700 text-slate-700">{totalQty > 0 ? avgCostPerProduct.toFixed(2) : '—'} {totalQty > 0 ? order.currency : ''}</p>
@@ -1730,14 +1717,22 @@ export default function OrderDetailPage() {
                       <p className="text-xl font-700 text-emerald-700">{grossMarginPct.toFixed(1)}%</p>
                       <p className="text-xs text-emerald-500 mt-1">{grossMarginAmt.toFixed(2)} {order.currency}</p>
                     </div>
-                    <div className={`rounded-xl p-4 ${netMarginPct >= 20 ? 'bg-emerald-50' : netMarginPct >= 10 ? 'bg-amber-50' : 'bg-red-50'}`}>
-                      <p className={`text-xs font-600 uppercase mb-2 ${netMarginPct >= 20 ? 'text-emerald-600' : netMarginPct >= 10 ? 'text-amber-600' : 'text-red-600'}`}>Marge nette estimée</p>
-                      <p className={`text-xl font-700 ${netMarginPct >= 20 ? 'text-emerald-700' : netMarginPct >= 10 ? 'text-amber-700' : 'text-red-700'}`}>{netMarginPct.toFixed(1)}%</p>
-                      <p className={`text-xs mt-1 ${netMarginPct >= 20 ? 'text-emerald-500' : netMarginPct >= 10 ? 'text-amber-500' : 'text-red-500'}`}>Marge brute − structure</p>
-                    </div>
+                    {structurePct > 0 && (
+                      <div className={`rounded-xl p-4 ${netMarginPct >= 20 ? 'bg-emerald-50' : netMarginPct >= 10 ? 'bg-amber-50' : 'bg-red-50'}`}>
+                        <p className={`text-xs font-600 uppercase mb-2 ${netMarginPct >= 20 ? 'text-emerald-600' : netMarginPct >= 10 ? 'text-amber-600' : 'text-red-600'}`}>Marge nette estimée</p>
+                        <p className={`text-xl font-700 ${netMarginPct >= 20 ? 'text-emerald-700' : netMarginPct >= 10 ? 'text-amber-700' : 'text-red-700'}`}>{netMarginPct.toFixed(1)}%</p>
+                        <p className={`text-xs mt-1 ${netMarginPct >= 20 ? 'text-emerald-500' : netMarginPct >= 10 ? 'text-amber-500' : 'text-red-500'}`}>Marge brute − overhead</p>
+                      </div>
+                    )}
                   </>
                 )}
               </div>
+              {structurePct > 0 && (
+                <div className="mt-3 px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-500 flex items-center gap-2">
+                  <span className="text-base">ℹ️</span>
+                  <span>Frais structure ({structurePct}%) : <strong>{structureAmount.toFixed(2)} {order.currency}</strong> — ces frais sont intégrés dans vos prix de vente et ne sont pas un coût fournisseur</span>
+                </div>
+              )}
             </div>
 
             {/* Per-product analysis with margin alerts and quick price edit */}
@@ -1953,31 +1948,30 @@ export default function OrderDetailPage() {
                   </div>
                 </div>
                 <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Coût import réel</span>
-                    <span className="font-500">{importCost.toFixed(2)} {order.currency}</span>
-                  </div>
-                  <div className="flex justify-between text-purple-700">
-                    <span>Frais structure ({structurePct}%)</span>
-                    <span className="font-500">{structureAmount.toFixed(2)} {order.currency}</span>
-                  </div>
-                  <div className="border-t-2 border-purple-200 pt-2 flex justify-between font-700 text-purple-800 text-base">
-                    <span>Coût business réel final</span>
-                    <span>{businessCost.toFixed(2)} {order.currency}</span>
+                  <div className="flex justify-between font-700 text-blue-800">
+                    <span>Coût import réel</span>
+                    <span>{importCost.toFixed(2)} {order.currency}</span>
                   </div>
                   {totalSalePrice > 0 && (
                     <>
                       <div className="flex justify-between text-emerald-700 font-600">
                         <span>Marge brute</span><span>{grossMarginPct.toFixed(1)}%</span>
                       </div>
-                      <div className={`flex justify-between font-700 ${netMarginPct >= 20 ? 'text-emerald-700' : netMarginPct >= 10 ? 'text-amber-700' : 'text-red-700'}`}>
-                        <span>Marge nette estimée</span><span>{netMarginPct.toFixed(1)}%</span>
-                      </div>
+                      {structurePct > 0 && (
+                        <div className={`flex justify-between font-700 ${netMarginPct >= 20 ? 'text-emerald-700' : netMarginPct >= 10 ? 'text-amber-700' : 'text-red-700'}`}>
+                          <span>Marge nette estimée</span><span>{netMarginPct.toFixed(1)}%</span>
+                        </div>
+                      )}
                     </>
+                  )}
+                  {structurePct > 0 && (
+                    <div className="mt-2 px-2.5 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-500">
+                      ℹ️ Frais structure ({structurePct}%) : {structureAmount.toFixed(2)} {order.currency} — intégrés dans vos prix de vente
+                    </div>
                   )}
                 </div>
                 <div className="mt-3 pt-3 border-t border-purple-100">
-                  <p className="text-[10px] text-purple-400 italic">Ce montant sert uniquement au calcul de rentabilité. Il ne doit pas être utilisé pour calculer le solde dû fournisseur.</p>
+                  <p className="text-[10px] text-purple-400 italic">Le coût import réel sert au calcul de rentabilité. Le solde dû fournisseur se calcule séparément ci-contre.</p>
                 </div>
               </div>
             </div>
