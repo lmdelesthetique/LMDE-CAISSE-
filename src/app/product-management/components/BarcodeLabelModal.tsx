@@ -357,12 +357,16 @@ export default function BarcodeLabelModal({ products, onClose, initialQtys, orde
   const [activePreviewPage, setActivePreviewPage] = useState(0);
   const [isPrinting, setIsPrinting] = useState(false);
   const [activeTab, setActiveTab] = useState<'config' | 'preview'>('config');
+  const [search, setSearch] = useState('');
+  const searchRef = useRef<HTMLInputElement>(null);
 
   // Variant support
   const [colorVariantsMap, setColorVariantsMap] = useState<Record<string, VariantRow[]>>({});
   const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set());
   const [variantQtys, setVariantQtys] = useState<Record<string, number>>({});
   const [selectedVariantIds, setSelectedVariantIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => { searchRef.current?.focus(); }, []);
 
   useEffect(() => {
     const withVariants = products.filter((p) => p.variants);
@@ -470,6 +474,45 @@ export default function BarcodeLabelModal({ products, onClose, initialQtys, orde
     products.forEach((p) => { updated[p.id] = qty; });
     setProductQtys(updated);
   };
+
+  // ─── Search + filtered helpers ───────────────────────────────────────────────
+  const filteredProducts = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return products;
+    return products.filter((p) =>
+      p.name.toLowerCase().includes(q) ||
+      (p.ref || '').toLowerCase().includes(q) ||
+      (p.barcode || '').toLowerCase().includes(q)
+    );
+  }, [products, search]);
+
+  const selectedInFilter = useMemo(
+    () => filteredProducts.filter((p) => selectedIds.has(p.id)),
+    [filteredProducts, selectedIds]
+  );
+  const unselectedInFilter = useMemo(
+    () => filteredProducts.filter((p) => !selectedIds.has(p.id)),
+    [filteredProducts, selectedIds]
+  );
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && filteredProducts.length > 0) {
+      const first = filteredProducts[0];
+      setSelectedIds((prev) => new Set([...prev, first.id]));
+      setProductQtys((prev) => ({ ...prev, [first.id]: Math.max(prev[first.id] ?? 0, 1) }));
+      e.preventDefault();
+    }
+  };
+
+  const selectAllFiltered = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      filteredProducts.forEach((p) => next.add(p.id));
+      return next;
+    });
+  };
+
+  const clearAllSelection = () => setSelectedIds(new Set());
 
   // ─── Generate print HTML using pre-rendered barcode data URLs ───────────────
   const generatePrintHTML = useCallback((barcodeDataUrls: Record<string, string>) => {
@@ -582,6 +625,87 @@ window.addEventListener('load', function() { window.print(); });
 
   const currentPage = pages[activePreviewPage] ?? [];
 
+  // ─── Product row renderer (shared between sections) ───────────────────────
+  const renderProductRow = (product: ProductRecord) => {
+    const isSelected = selectedIds.has(product.id);
+    const qty = productQtys[product.id] || 1;
+    const barcodeVal = product.barcode || product.ref || '';
+    const fmt = chooseBarcodeFormat(barcodeVal);
+    const variants = colorVariantsMap[product.id] || [];
+    const hasVariants = product.variants && variants.length > 0;
+    const isExpanded = expandedProducts.has(product.id);
+    const isHighlighted = search.trim() !== '' && isSelected;
+
+    return (
+      <div key={product.id}>
+        <div className={`flex items-center gap-2.5 p-2.5 rounded-xl border transition-colors ${
+          isExpanded ? 'border-violet-300 bg-violet-50'
+          : isHighlighted ? 'border-rose-300 bg-rose-50'
+          : isSelected ? 'border-primary/40 bg-primary/5'
+          : 'border-border opacity-50'
+        }`}>
+          <input type="checkbox"
+            checked={isExpanded ? variants.some((v) => selectedVariantIds.has(`${product.id}::${v.colorName}`)) : isSelected}
+            onChange={() => { if (isExpanded) { variants.forEach((v) => toggleVariant(`${product.id}::${v.colorName}`)); } else { toggleProduct(product.id); } }}
+            className="accent-primary shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-600 text-foreground truncate">{product.name}</p>
+            {product.variantName && (
+              <p className="text-[10px] font-700 text-primary truncate">{product.variantName}</p>
+            )}
+            <p className="text-[10px] text-muted-foreground font-mono truncate">
+              {barcodeVal || '—'}
+              {barcodeVal && <span className="ml-1 text-[9px] text-primary/70 font-sans">[{fmt}]</span>}
+            </p>
+          </div>
+          {hasVariants && (
+            <button
+              onClick={() => toggleExpand(product.id)}
+              className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded font-600 border transition-colors ${isExpanded ? 'border-violet-400 bg-violet-100 text-violet-700' : 'border-border text-muted-foreground hover:border-violet-300 hover:text-violet-600'}`}
+              title={isExpanded ? 'Réduire déclinaisons' : `Développer ${variants.length} déclinaisons`}
+            >
+              {isExpanded ? '▲ Réduire' : `▼ ${variants.length} coul.`}
+            </button>
+          )}
+          {!isExpanded && (
+            <div className="flex items-center gap-1 shrink-0">
+              <button onClick={() => setProductQtys((prev) => ({ ...prev, [product.id]: Math.max(1, (prev[product.id] || 1) - 1) }))} disabled={!isSelected}
+                className="w-5 h-5 rounded border border-border flex items-center justify-center text-xs font-700 hover:bg-muted disabled:opacity-30 transition-colors">−</button>
+              <input type="number" min="1" max="999" value={qty} disabled={!isSelected}
+                onChange={(e) => setProductQtys((prev) => ({ ...prev, [product.id]: Math.max(1, parseInt(e.target.value) || 1) }))}
+                className="w-10 text-center text-xs font-700 border border-border rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:opacity-30" />
+              <button onClick={() => setProductQtys((prev) => ({ ...prev, [product.id]: Math.min(999, (prev[product.id] || 1) + 1) }))} disabled={!isSelected}
+                className="w-5 h-5 rounded border border-border flex items-center justify-center text-xs font-700 hover:bg-muted disabled:opacity-30 transition-colors">+</button>
+            </div>
+          )}
+        </div>
+
+        {isExpanded && variants.map((v) => {
+          const vid = `${product.id}::${v.colorName}`;
+          const isVarSel = selectedVariantIds.has(vid);
+          const vQty = variantQtys[vid] || 1;
+          return (
+            <div key={vid} className={`ml-6 mt-1 flex items-center gap-2 p-2 rounded-lg border text-xs transition-colors ${isVarSel ? 'border-violet-200 bg-white' : 'border-border/50 opacity-40'}`}>
+              <input type="checkbox" checked={isVarSel} onChange={() => toggleVariant(vid)} className="accent-violet-600 shrink-0" />
+              <span className="w-3.5 h-3.5 rounded-full border border-border/50 shrink-0" style={{ backgroundColor: v.colorHex }} />
+              <span className="flex-1 font-500 text-foreground truncate">{v.colorName}</span>
+              <span className="text-muted-foreground text-[10px]">Stk:{v.quantity}</span>
+              <div className="flex items-center gap-0.5 shrink-0">
+                <button onClick={() => setVariantQtys((p) => ({ ...p, [vid]: Math.max(1, (p[vid] || 1) - 1) }))} disabled={!isVarSel}
+                  className="w-4 h-4 rounded border border-border flex items-center justify-center font-700 hover:bg-muted disabled:opacity-30">−</button>
+                <input type="number" min="1" max="999" value={vQty} disabled={!isVarSel}
+                  onChange={(e) => setVariantQtys((p) => ({ ...p, [vid]: Math.max(1, parseInt(e.target.value) || 1) }))}
+                  className="w-8 text-center font-700 border border-border rounded px-0.5 py-0.5 focus:outline-none disabled:opacity-30" />
+                <button onClick={() => setVariantQtys((p) => ({ ...p, [vid]: Math.min(999, (p[vid] || 1) + 1) }))} disabled={!isVarSel}
+                  className="w-4 h-4 rounded border border-border flex items-center justify-center font-700 hover:bg-muted disabled:opacity-30">+</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-2">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-7xl max-h-[96vh] flex flex-col overflow-hidden">
@@ -631,104 +755,109 @@ window.addEventListener('load', function() { window.print(); });
 
           {/* ── Left: product list ── */}
           <div className="w-80 border-r border-border flex flex-col overflow-hidden shrink-0">
-            <div className="px-4 py-3 border-b border-border flex items-center justify-between shrink-0 gap-2">
-              <p className="text-sm font-600 text-foreground">
-                Produits <span className="text-muted-foreground">({selectedIds.size}/{products.length})</span>
-                <span className="ml-2 text-primary font-700">{totalLabels} étiq.</span>
-              </p>
-              <div className="flex items-center gap-1.5">
-                <button onClick={toggleAll} className="text-xs text-primary font-600 hover:underline whitespace-nowrap">
-                  {selectedIds.size === products.length ? 'Tout désél.' : 'Tout sél.'}
-                </button>
+
+            {/* Search bar */}
+            <div className="px-3 pt-3 pb-2 shrink-0">
+              <div className="relative">
+                <Icon name="MagnifyingGlassIcon" size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                <input
+                  ref={searchRef}
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  onKeyDown={handleSearchKeyDown}
+                  placeholder="Rechercher un produit..."
+                  className="w-full pl-7 pr-6 py-2 text-xs border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white"
+                />
+                {search && (
+                  <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                    <Icon name="XMarkIcon" size={13} />
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center justify-between mt-1.5 px-0.5">
+                <p className="text-[10px] text-muted-foreground">
+                  {search.trim() ? (
+                    <><span className="font-600 text-foreground">{filteredProducts.length}</span> produit{filteredProducts.length !== 1 ? 's' : ''} trouvé{filteredProducts.length !== 1 ? 's' : ''}</>
+                  ) : (
+                    <>{products.length} produits</>
+                  )}
+                  {' · '}<span className="text-primary font-700">{totalLabels} étiq.</span>
+                </p>
+                <span className="text-[10px] text-muted-foreground">{selectedIds.size} sél.</span>
               </div>
             </div>
-            <div className="px-4 py-2 border-b border-border flex items-center gap-1.5 shrink-0">
-              <span className="text-xs text-muted-foreground">Tout à :</span>
-              {[1, 2, 5, 10, 20, 44].map((n) => (
-                <button key={n} onClick={() => setAllQty(n)}
-                  className="px-2 py-0.5 text-[10px] font-700 border border-border rounded hover:bg-primary/10 hover:border-primary/40 transition-colors">
-                  {n}
+
+            {/* Bulk actions */}
+            <div className="px-3 pb-2 border-b border-border shrink-0 space-y-1.5">
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={selectAllFiltered}
+                  className="flex-1 text-[10px] font-600 text-primary border border-primary/30 bg-primary/5 rounded-md px-2 py-1.5 hover:bg-primary/10 transition-colors whitespace-nowrap"
+                >
+                  {search.trim() ? `Tout sél. filtré (${filteredProducts.length})` : 'Tout sélectionner'}
                 </button>
-              ))}
+                <button
+                  onClick={clearAllSelection}
+                  className="flex-1 text-[10px] font-600 text-muted-foreground border border-border rounded-md px-2 py-1.5 hover:bg-muted transition-colors"
+                >
+                  Vider sélection
+                </button>
+              </div>
+              <div className="flex items-center gap-1 flex-wrap">
+                <span className="text-[9px] text-muted-foreground">Tout à :</span>
+                {[1, 2, 5, 10, 20, 44].map((n) => (
+                  <button key={n} onClick={() => setAllQty(n)}
+                    className="px-2 py-0.5 text-[9px] font-700 border border-border rounded hover:bg-primary/10 hover:border-primary/40 transition-colors">
+                    {n}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
-              {products.map((product) => {
-                const isSelected = selectedIds.has(product.id);
-                const qty = productQtys[product.id] || 1;
-                const barcodeVal = product.barcode || product.ref || '';
-                const fmt = chooseBarcodeFormat(barcodeVal);
-                const variants = colorVariantsMap[product.id] || [];
-                const hasVariants = product.variants && variants.length > 0;
-                const isExpanded = expandedProducts.has(product.id);
 
-                return (
-                  <div key={product.id}>
-                    {/* Product row */}
-                    <div className={`flex items-center gap-2.5 p-2.5 rounded-xl border transition-colors ${
-                      isExpanded ? 'border-violet-300 bg-violet-50' : isSelected ? 'border-primary/40 bg-primary/5' : 'border-border opacity-50'
-                    }`}>
-                      <input type="checkbox"
-                        checked={isExpanded ? variants.some((v) => selectedVariantIds.has(`${product.id}::${v.colorName}`)) : isSelected}
-                        onChange={() => { if (isExpanded) { variants.forEach((v) => toggleVariant(`${product.id}::${v.colorName}`)); } else { toggleProduct(product.id); } }}
-                        className="accent-primary shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-600 text-foreground truncate">{product.name}</p>
-                        {product.variantName && (
-                          <p className="text-[10px] font-700 text-primary truncate">{product.variantName}</p>
-                        )}
-                        <p className="text-[10px] text-muted-foreground font-mono truncate">
-                          {barcodeVal || '—'}
-                          {barcodeVal && <span className="ml-1 text-[9px] text-primary/70 font-sans">[{fmt}]</span>}
-                        </p>
-                      </div>
-                      {hasVariants && (
-                        <button
-                          onClick={() => toggleExpand(product.id)}
-                          className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded font-600 border transition-colors ${isExpanded ? 'border-violet-400 bg-violet-100 text-violet-700' : 'border-border text-muted-foreground hover:border-violet-300 hover:text-violet-600'}`}
-                          title={isExpanded ? 'Réduire déclinaisons' : `Développer ${variants.length} déclinaisons`}
-                        >
-                          {isExpanded ? '▲ Réduire' : `▼ ${variants.length} coul.`}
-                        </button>
-                      )}
-                      {!isExpanded && (
-                        <div className="flex items-center gap-1 shrink-0">
-                          <button onClick={() => setProductQtys((prev) => ({ ...prev, [product.id]: Math.max(1, (prev[product.id] || 1) - 1) }))} disabled={!isSelected}
-                            className="w-5 h-5 rounded border border-border flex items-center justify-center text-xs font-700 hover:bg-muted disabled:opacity-30 transition-colors">−</button>
-                          <input type="number" min="1" max="999" value={qty} disabled={!isSelected}
-                            onChange={(e) => setProductQtys((prev) => ({ ...prev, [product.id]: Math.max(1, parseInt(e.target.value) || 1) }))}
-                            className="w-10 text-center text-xs font-700 border border-border rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:opacity-30" />
-                          <button onClick={() => setProductQtys((prev) => ({ ...prev, [product.id]: Math.min(999, (prev[product.id] || 1) + 1) }))} disabled={!isSelected}
-                            className="w-5 h-5 rounded border border-border flex items-center justify-center text-xs font-700 hover:bg-muted disabled:opacity-30 transition-colors">+</button>
-                        </div>
-                      )}
-                    </div>
+            {/* Product list */}
+            <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
 
-                    {/* Variant sub-rows */}
-                    {isExpanded && variants.map((v) => {
-                      const vid = `${product.id}::${v.colorName}`;
-                      const isVarSel = selectedVariantIds.has(vid);
-                      const vQty = variantQtys[vid] || 1;
-                      return (
-                        <div key={vid} className={`ml-6 mt-1 flex items-center gap-2 p-2 rounded-lg border text-xs transition-colors ${isVarSel ? 'border-violet-200 bg-white' : 'border-border/50 opacity-40'}`}>
-                          <input type="checkbox" checked={isVarSel} onChange={() => toggleVariant(vid)} className="accent-violet-600 shrink-0" />
-                          <span className="w-3.5 h-3.5 rounded-full border border-border/50 shrink-0" style={{ backgroundColor: v.colorHex }} />
-                          <span className="flex-1 font-500 text-foreground truncate">{v.colorName}</span>
-                          <span className="text-muted-foreground text-[10px]">Stk:{v.quantity}</span>
-                          <div className="flex items-center gap-0.5 shrink-0">
-                            <button onClick={() => setVariantQtys((p) => ({ ...p, [vid]: Math.max(1, (p[vid] || 1) - 1) }))} disabled={!isVarSel}
-                              className="w-4 h-4 rounded border border-border flex items-center justify-center font-700 hover:bg-muted disabled:opacity-30">−</button>
-                            <input type="number" min="1" max="999" value={vQty} disabled={!isVarSel}
-                              onChange={(e) => setVariantQtys((p) => ({ ...p, [vid]: Math.max(1, parseInt(e.target.value) || 1) }))}
-                              className="w-8 text-center font-700 border border-border rounded px-0.5 py-0.5 focus:outline-none disabled:opacity-30" />
-                            <button onClick={() => setVariantQtys((p) => ({ ...p, [vid]: Math.min(999, (p[vid] || 1) + 1) }))} disabled={!isVarSel}
-                              className="w-4 h-4 rounded border border-border flex items-center justify-center font-700 hover:bg-muted disabled:opacity-30">+</button>
-                          </div>
-                        </div>
-                      );
-                    })}
+              {/* Empty search result */}
+              {filteredProducts.length === 0 && search.trim() && (
+                <div className="flex flex-col items-center gap-2 py-10 text-center">
+                  <Icon name="MagnifyingGlassIcon" size={28} className="text-border" />
+                  <p className="text-xs text-muted-foreground">Aucun produit pour «{search}»</p>
+                  <p className="text-[10px] text-muted-foreground">Essayez nom, référence ou code-barres</p>
+                </div>
+              )}
+
+              {/* When searching: selected (rose) at top, then unselected */}
+              {search.trim() && filteredProducts.length > 0 && selectedInFilter.length > 0 && (
+                <>
+                  <div className="flex items-center gap-1.5 px-0.5 py-0.5">
+                    <div className="h-px flex-1 bg-rose-200" />
+                    <span className="text-[9px] font-700 text-rose-500 uppercase tracking-wider whitespace-nowrap">
+                      Sélectionnés ({selectedInFilter.length})
+                    </span>
+                    <div className="h-px flex-1 bg-rose-200" />
                   </div>
-                );
-              })}
+                  {selectedInFilter.map(renderProductRow)}
+                </>
+              )}
+
+              {search.trim() && filteredProducts.length > 0 && unselectedInFilter.length > 0 && (
+                <>
+                  {selectedInFilter.length > 0 && (
+                    <div className="flex items-center gap-1.5 px-0.5 py-0.5">
+                      <div className="h-px flex-1 bg-border" />
+                      <span className="text-[9px] font-700 text-muted-foreground uppercase tracking-wider whitespace-nowrap">
+                        Autres ({unselectedInFilter.length})
+                      </span>
+                      <div className="h-px flex-1 bg-border" />
+                    </div>
+                  )}
+                  {unselectedInFilter.map(renderProductRow)}
+                </>
+              )}
+
+              {/* No search: render all products */}
+              {!search.trim() && products.map(renderProductRow)}
             </div>
           </div>
 
