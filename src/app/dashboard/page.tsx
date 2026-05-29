@@ -11,6 +11,7 @@ import StockAlerts from './components/StockAlerts';
 import RecentSalesFeed from './components/RecentSalesFeed';
 import RealMarginDashboard from './components/RealMarginDashboard';
 import AdminAlerts from '../backup-compliance/components/AdminAlerts';
+import ShopifyStatusCard from './components/ShopifyStatusCard';
 import { type DashboardFiltersState } from '@/lib/services/dashboardService';
 
 const DAYS_FR = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
@@ -74,6 +75,13 @@ export default function DashboardPage() {
             </div>
             <div className="lg:col-span-1">
               <RecentSalesFeed />
+            </div>
+          </div>
+
+          {/* Shopify Status Row */}
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-5">
+            <div className="lg:col-span-1">
+              <ShopifyStatusCard />
             </div>
           </div>
         </div>

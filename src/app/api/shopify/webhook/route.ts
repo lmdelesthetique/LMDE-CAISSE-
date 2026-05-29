@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { createClient as createSupabase } from '@supabase/supabase-js';
+import { updateLastSyncAt } from '@/lib/services/shopifyService';
 
 const CLIENT_SECRET = process.env.SHOPIFY_CLIENT_SECRET!;
 
@@ -76,5 +77,6 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  updateLastSyncAt().catch(() => {});
   return NextResponse.json({ ok: true });
 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adjustInventoryLevel, setInventoryLevel } from '@/lib/services/shopifyService';
+import { adjustInventoryLevel, setInventoryLevel, updateLastSyncAt } from '@/lib/services/shopifyService';
 import { createClient as createSupabase } from '@supabase/supabase-js';
 
 interface SyncItem {
@@ -48,6 +48,9 @@ export async function POST(req: NextRequest) {
       return { productId: item.productId, ok };
     })
   );
+
+  const anySucceeded = results.some((r) => 'ok' in r && r.ok);
+  if (anySucceeded) updateLastSyncAt().catch(() => {});
 
   return NextResponse.json({ ok: true, results });
 }
