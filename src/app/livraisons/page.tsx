@@ -41,6 +41,9 @@ export default function LivraisonsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
   const [assigningId, setAssigningId] = useState<string | null>(null);
+  const [newShopifyIds, setNewShopifyIds] = useState<Set<string>>(new Set());
+  const seenIdsRef = useRef<Set<string>>(new Set());
+  const initialLoadDone = useRef(false);
   const channelRef = useRef<any>(null);
 
   const loadAll = useCallback(async () => {
@@ -51,6 +54,24 @@ export default function LivraisonsPage() {
       ]);
       setDeliveries(dels);
       setDrivers(drvs);
+
+      // Track new Shopify orders that arrive after initial load
+      if (!initialLoadDone.current) {
+        dels.forEach((d) => seenIdsRef.current.add(d.id));
+        initialLoadDone.current = true;
+      } else {
+        const incoming = dels.filter(
+          (d) => d.shopifyOrderId && !seenIdsRef.current.has(d.id)
+        );
+        if (incoming.length > 0) {
+          setNewShopifyIds((prev) => {
+            const next = new Set(prev);
+            incoming.forEach((d) => next.add(d.id));
+            return next;
+          });
+          incoming.forEach((d) => seenIdsRef.current.add(d.id));
+        }
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -140,6 +161,35 @@ export default function LivraisonsPage() {
         </button>
       </div>
 
+      {/* Shopify new-order notification banner */}
+      {newShopifyIds.size > 0 && (
+        <div className="flex items-center justify-between gap-3 bg-green-50 border border-green-300 rounded-2xl px-4 py-3">
+          <div className="flex items-center gap-2.5">
+            <span className="text-xl">🛍️</span>
+            <div>
+              <p className="text-sm font-bold text-green-800">
+                {newShopifyIds.size} nouvelle{newShopifyIds.size > 1 ? 's' : ''} commande{newShopifyIds.size > 1 ? 's' : ''} Shopify
+              </p>
+              <p className="text-xs text-green-600">Reçue{newShopifyIds.size > 1 ? 's' : ''} en temps réel — en attente d'assignation</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => { setTab('pending'); setNewShopifyIds(new Set()); }}
+              className="px-3 py-1.5 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-700 transition-colors"
+            >
+              Voir
+            </button>
+            <button
+              onClick={() => setNewShopifyIds(new Set())}
+              className="text-green-500 hover:text-green-700 text-lg leading-none"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* KPI cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
@@ -159,12 +209,15 @@ export default function LivraisonsPage() {
       <div className="flex gap-1 overflow-x-auto pb-1 -mx-1 px-1">
         {TABS.map((t) => {
           const count = t.key === 'all' ? deliveries.length : deliveries.filter((d) => d.status === t.key).length;
+          const shopifyPendingCount = t.key === 'pending'
+            ? deliveries.filter((d) => d.status === 'pending' && d.shopifyOrderId).length
+            : 0;
           return (
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
               className={[
-                'shrink-0 px-3 py-2 rounded-xl text-sm font-bold transition-all border',
+                'shrink-0 px-3 py-2 rounded-xl text-sm font-bold transition-all border flex items-center gap-1.5',
                 tab === t.key
                   ? 'bg-orange-500 text-white border-orange-500'
                   : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50',
@@ -172,8 +225,13 @@ export default function LivraisonsPage() {
             >
               {t.label}
               {count > 0 && (
-                <span className={`ml-1.5 text-xs ${tab === t.key ? 'opacity-80' : 'text-gray-400'}`}>
+                <span className={`text-xs ${tab === t.key ? 'opacity-80' : 'text-gray-400'}`}>
                   {count}
+                </span>
+              )}
+              {shopifyPendingCount > 0 && (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 bg-green-500 text-white rounded-full leading-none">
+                  {shopifyPendingCount}
                 </span>
               )}
             </button>
@@ -211,13 +269,26 @@ export default function LivraisonsPage() {
                 {filtered.map((d) => {
                   const cfg = DELIVERY_STATUS_CONFIG[d.status];
                   const products = d.products ?? [];
+                  const isNewShopify = newShopifyIds.has(d.id);
                   return (
-                    <tr key={d.id} className="hover:bg-gray-50 transition-colors">
+                    <tr key={d.id} className={`hover:bg-gray-50 transition-colors ${isNewShopify ? 'bg-green-50/60' : ''}`}>
                       {/* Order# */}
                       <td className="px-4 py-3">
-                        <span className="font-mono text-xs text-gray-500">
-                          {d.shopifyOrderNumber ? `#${d.shopifyOrderNumber}` : '—'}
-                        </span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-mono text-xs text-gray-500">
+                            {d.shopifyOrderNumber ? d.shopifyOrderNumber : '—'}
+                          </span>
+                          {d.shopifyOrderId && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 bg-green-100 text-green-700 border border-green-200 rounded-md leading-none">
+                              Shopify
+                            </span>
+                          )}
+                          {isNewShopify && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 bg-orange-100 text-orange-700 border border-orange-200 rounded-md leading-none animate-pulse">
+                              NEW
+                            </span>
+                          )}
+                        </div>
                         <p className="text-xs text-gray-400 mt-0.5">
                           {new Date(d.createdAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
                         </p>
