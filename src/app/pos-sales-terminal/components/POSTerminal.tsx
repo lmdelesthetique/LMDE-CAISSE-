@@ -1096,23 +1096,23 @@ function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, l
 
     win.document.write(`<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Ticket ${ticketNumber}</title><style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Courier New', Courier, monospace; font-size: 12px; width: 300px; margin: 0 auto; padding: 10px 6px 20px 6px; color: #000; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  * { box-sizing: border-box; margin: 0; padding: 0; color: #000 !important; background: transparent !important; background-color: #fff !important; box-shadow: none !important; text-shadow: none !important; background-image: none !important; }
+  body { font-family: 'Courier New', Courier, monospace !important; font-size: 12px; width: 300px; margin: 0 auto; padding: 10px 6px 20px 6px; color: #000; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .center { text-align: center; }
   .right { text-align: right; }
-  .bold { font-weight: bold; }
+  .bold { font-weight: 700; }
   .sep-dash { border: none; border-top: 1px dashed #000; margin: 7px 0; }
   .sep-solid { border: none; border-top: 2px solid #000; margin: 7px 0; }
   .sep-double { border: none; border-top: 3px double #000; margin: 7px 0; }
   table { width: 100%; border-collapse: collapse; }
-  td, th { color: #000; }
+  td, th { color: #000 !important; }
+  p, span, div, td, th, li, strong, b { color: #000 !important; font-weight: 700 !important; }
   .section-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #000; margin-bottom: 4px; }
   .info-table td { font-size: 11px; padding: 2px 2px; color: #000; }
   .items-head th { font-size: 10px; font-weight: 700; text-transform: uppercase; padding: 3px 4px; border-top: 2px solid #000; border-bottom: 2px solid #000; color: #000; }
   .total-ht td { font-size: 11px; padding: 3px 4px; color: #000; }
   .total-tva td { font-size: 11px; padding: 3px 4px; color: #000; }
-  .total-ttc-row { background: #000; }
-  .total-ttc-row td { font-size: 16px; font-weight: 700; padding: 6px 4px; color: #fff; border: none; }
+  .total-ttc-row td { font-size: 18px; font-weight: 900; padding: 6px 4px; color: #000 !important; background: #fff !important; border-top: 3px solid #000 !important; border-bottom: 3px solid #000 !important; }
   .payment-row td { font-size: 12px; font-weight: 700; padding: 3px 4px; color: #000; }
   .loyalty-box { border: 2px solid #000; padding: 6px 8px; margin: 6px 0; }
   .loyalty-box td { font-size: 11px; padding: 2px 2px; color: #000; }
@@ -1123,8 +1123,13 @@ function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, l
   .footer-msg { text-align: center; font-size: 12px; font-weight: 700; margin-top: 6px; color: #000; }
   .footer-sub { text-align: center; font-size: 10px; margin-top: 3px; color: #000; }
   @media print {
-    body { width: 100%; padding: 4px; }
-    .total-ttc-row { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    * { color: #000000 !important; background: transparent !important; background-color: #ffffff !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; box-shadow: none !important; text-shadow: none !important; background-image: none !important; border-color: #000000 !important; }
+    body { font-family: 'Courier New', Courier, monospace !important; font-size: 12px !important; width: 100%; padding: 4px; }
+    p, span, div, td, th, li, strong, b { color: #000000 !important; font-weight: 700 !important; }
+    .total-ttc-row td { font-weight: 900 !important; font-size: 18px !important; border-top: 3px solid #000000 !important; border-bottom: 3px solid #000000 !important; color: #000000 !important; background: #ffffff !important; }
+    hr, .sep-dash, .sep-solid, .sep-double { border: 2px solid #000000 !important; background: #000000 !important; }
+    .ticket-header { font-weight: 900 !important; font-size: 14px !important; text-align: center !important; }
+    .badge, .tag, .status { background: #ffffff !important; border: 1px solid #000000 !important; color: #000000 !important; }
   }
 </style></head><body>
 

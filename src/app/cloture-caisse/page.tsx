@@ -155,32 +155,37 @@ export default function ClotureCaissePage() {
     ).join('');
 
     const expenseRows = summary.expenses.map(e =>
-      `<tr><td>${e.category}</td><td>${e.note || '—'}</td><td>${e.paymentMethod}</td><td style="text-align:right;font-weight:600;color:#dc2626">${fmt(e.amount)} €</td></tr>`
+      `<tr><td>${e.category}</td><td>${e.note || '—'}</td><td>${e.paymentMethod}</td><td style="text-align:right;font-weight:900;color:#000">${fmt(e.amount)} €</td></tr>`
     ).join('');
 
     win.document.write(`<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Synthèse journée ${selectedDate}</title>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: Arial, sans-serif; font-size: 12px; color: #111; padding: 24px; }
-  h1 { font-size: 20px; font-weight: bold; margin-bottom: 4px; }
-  h2 { font-size: 14px; font-weight: bold; margin: 16px 0 8px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+  * { box-sizing: border-box; margin: 0; padding: 0; color: #000 !important; background: transparent !important; }
+  body { font-family: 'Courier New', monospace; font-size: 12px; color: #000; background: #fff; padding: 24px; }
+  h1 { font-size: 20px; font-weight: 900; margin-bottom: 4px; color: #000; }
+  h2 { font-size: 14px; font-weight: 700; margin: 16px 0 8px; border-bottom: 2px solid #000; padding-bottom: 4px; }
   .header { text-align: center; margin-bottom: 20px; }
   .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
-  .kpi-box { border: 1px solid #ddd; border-radius: 8px; padding: 12px; text-align: center; }
-  .kpi-value { font-size: 18px; font-weight: bold; color: #111; }
-  .kpi-label { font-size: 10px; color: #666; margin-top: 2px; }
+  .kpi-box { border: 2px solid #000; border-radius: 4px; padding: 12px; text-align: center; background: #fff; }
+  .kpi-value { font-size: 18px; font-weight: 900; color: #000; }
+  .kpi-label { font-size: 10px; color: #000; font-weight: 700; margin-top: 2px; }
   table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
-  th { background: #f5f5f5; padding: 6px 8px; text-align: left; font-size: 11px; font-weight: 600; }
-  td { padding: 5px 8px; border-bottom: 1px solid #eee; }
-  .goal-box { border: 2px solid ${summary.goalReached ? '#16a34a' : '#dc2626'}; border-radius: 8px; padding: 12px; margin: 12px 0; text-align: center; background: ${summary.goalReached ? '#f0fdf4' : '#fef2f2'}; }
-  .footer { margin-top: 24px; font-size: 10px; color: #888; text-align: center; }
-  @media print { body { padding: 12px; } }
+  th { background: #fff; padding: 6px 8px; text-align: left; font-size: 11px; font-weight: 900; border-bottom: 2px solid #000; }
+  td { padding: 5px 8px; border-bottom: 1px dashed #000; color: #000; }
+  .goal-box { border: 2px solid #000; border-radius: 4px; padding: 12px; margin: 12px 0; text-align: center; background: #fff; }
+  .footer { margin-top: 24px; font-size: 10px; color: #000; font-weight: 700; text-align: center; }
+  p, span, div, td, th, li, strong, b { color: #000 !important; }
+  @media print {
+    * { color: #000 !important; background: #fff !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    body { padding: 12px; }
+    .no-print { display: none !important; }
+  }
 </style></head><body>
 <div class="header">
   <h1>SYNTHÈSE DE JOURNÉE — CLÔTURE CAISSE</h1>
-  <p style="font-size:14px;color:#555;margin-top:4px">${dateLabel}</p>
-  ${cashierName ? `<p style="font-size:12px;color:#777">Caissier : ${cashierName}</p>` : ''}
+  <p style="font-size:14px;color:#000;font-weight:700;margin-top:4px">${dateLabel}</p>
+  ${cashierName ? `<p style="font-size:12px;color:#000;font-weight:700">Caissier : ${cashierName}</p>` : ''}
 </div>
 
 <div class="kpi-grid">
@@ -195,7 +200,7 @@ export default function ClotureCaissePage() {
   <tr><td>Total HT</td><td style="text-align:right;font-weight:600">${fmt(summary.totalHT)} €</td></tr>
   <tr><td>TVA 8,5 %</td><td style="text-align:right;font-weight:600">${fmt(summary.totalTVA)} €</td></tr>
   <tr><td style="font-weight:bold">Total TTC</td><td style="text-align:right;font-weight:bold;font-size:14px">${fmt(summary.totalTTC)} €</td></tr>
-  <tr><td>Marge brute estimée</td><td style="text-align:right;font-weight:600;color:#16a34a">${fmt(summary.grossMargin)} €</td></tr>
+  <tr><td>Marge brute estimée</td><td style="text-align:right;font-weight:900;color:#000">${fmt(summary.grossMargin)} €</td></tr>
 </table>
 
 <h2>Paiements par méthode</h2>
@@ -229,7 +234,7 @@ ${summary.expenses.length > 0 ? `
 <table>
   <thead><tr><th>Catégorie</th><th>Note</th><th>Mode</th><th style="text-align:right">Montant</th></tr></thead>
   <tbody>${expenseRows}</tbody>
-  <tfoot><tr><td colspan="3" style="font-weight:bold">Total dépenses</td><td style="text-align:right;font-weight:bold;color:#dc2626">${fmt(summary.totalExpenses)} €</td></tr></tfoot>
+  <tfoot><tr><td colspan="3" style="font-weight:900">Total dépenses</td><td style="text-align:right;font-weight:900;color:#000">${fmt(summary.totalExpenses)} €</td></tr></tfoot>
 </table>` : ''}
 
 ${notes ? `<h2>Notes de clôture</h2><p style="padding:8px;background:#f9f9f9;border-radius:4px">${notes}</p>` : ''}

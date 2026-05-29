@@ -67,8 +67,8 @@ export default function ReservationTicket({ reservation, onClose }: ReservationT
               }
               <div>
                 <div style="font-weight:600;font-size:12px">${item.name}</div>
-                ${item.sku ? `<div style="font-size:10px;color:#999">Réf: ${item.sku}</div>` : ''}
-                ${variantLabel ? `<div style="font-size:10px;color:#b06060">${variantLabel}</div>` : ''}
+                ${item.sku ? `<div style="font-size:10px;color:#000;font-weight:700">Réf: ${item.sku}</div>` : ''}
+                ${variantLabel ? `<div style="font-size:10px;color:#000;font-weight:700">${variantLabel}</div>` : ''}
               </div>
             </div>
           </td>
@@ -83,34 +83,38 @@ export default function ReservationTicket({ reservation, onClose }: ReservationT
   <meta charset="UTF-8" />
   <title>Ticket Réservation ${reservation.reservationNumber}</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'DM Sans', Arial, sans-serif; font-size: 13px; color: #1a1a1a; background: #fff; }
+    * { box-sizing: border-box; margin: 0; padding: 0; color: #000 !important; background: transparent !important; }
+    body { font-family: 'Courier New', monospace; font-size: 13px; color: #000; background: #fff; }
     .ticket { width: 400px; margin: 0 auto; padding: 24px 20px; }
-    .company-header { text-align: center; padding-bottom: 16px; border-bottom: 2px dashed #e0d5d0; margin-bottom: 16px; }
+    .company-header { text-align: center; padding-bottom: 16px; border-bottom: 2px dashed #000; margin-bottom: 16px; }
     .company-logo { max-height: 50px; margin-bottom: 8px; }
-    .company-name { font-size: 18px; font-weight: 700; color: #7c3aed; letter-spacing: 0.5px; }
-    .company-details { font-size: 10px; color: #888; margin-top: 4px; line-height: 1.6; }
-    .res-number { font-size: 22px; font-weight: 700; color: #1a1a1a; margin-top: 12px; letter-spacing: 2px; border: 2px solid #7c3aed; display: inline-block; padding: 4px 16px; border-radius: 6px; }
-    .status-badge { display: inline-block; margin-top: 6px; padding: 3px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; background: #f5f3ff; color: #7c3aed; }
+    .company-name { font-size: 18px; font-weight: 900; color: #000; letter-spacing: 0.5px; }
+    .company-details { font-size: 10px; color: #000; font-weight: 700; margin-top: 4px; line-height: 1.6; }
+    .res-number { font-size: 22px; font-weight: 900; color: #000; margin-top: 12px; letter-spacing: 2px; border: 2px solid #000; display: inline-block; padding: 4px 16px; border-radius: 4px; }
+    .status-badge { display: inline-block; margin-top: 6px; padding: 3px 12px; border-radius: 4px; font-size: 11px; font-weight: 700; background: #fff; color: #000; border: 1px solid #000; }
     .section { margin-bottom: 14px; }
-    .section-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #999; margin-bottom: 6px; }
+    .section-title { font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; color: #000; margin-bottom: 6px; border-bottom: 1px solid #000; padding-bottom: 2px; }
     .info-row { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 3px; }
-    .info-label { color: #666; }
-    .info-value { font-weight: 600; color: #1a1a1a; }
+    .info-label { color: #000; font-weight: 700; }
+    .info-value { font-weight: 700; color: #000; }
     .items-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-    .items-table th { text-align: left; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #999; padding: 4px 0; border-bottom: 1px solid #e8e0dc; }
+    .items-table th { text-align: left; font-size: 10px; font-weight: 900; text-transform: uppercase; color: #000; padding: 4px 0; border-bottom: 2px solid #000; }
     .items-table th:nth-child(2) { text-align: center; }
     .items-table th:nth-child(3) { text-align: right; }
-    .items-table td { padding: 8px 0; border-bottom: 1px solid #f0ebe8; vertical-align: middle; }
-    .totals { border-top: 2px dashed #e0d5d0; padding-top: 12px; margin-top: 4px; }
+    .items-table td { padding: 8px 0; border-bottom: 1px dashed #000; vertical-align: middle; }
+    .totals { border-top: 2px dashed #000; padding-top: 12px; margin-top: 4px; }
     .total-row { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; }
-    .total-row.main { font-size: 14px; font-weight: 700; color: #1a1a1a; }
-    .total-row.deposit { color: #059669; font-weight: 600; }
-    .total-row.balance { color: #dc2626; font-weight: 700; font-size: 15px; border-top: 1px solid #e0d5d0; padding-top: 6px; margin-top: 4px; }
-    .conditions { background: #fffbeb; border-left: 3px solid #f59e0b; padding: 8px 10px; font-size: 10px; color: #78350f; border-radius: 0 4px 4px 0; margin-top: 12px; line-height: 1.6; }
-    .footer { text-align: center; margin-top: 16px; padding-top: 12px; border-top: 2px dashed #e0d5d0; font-size: 10px; color: #999; }
-    .notes { background: #faf7f5; border-left: 3px solid #7c3aed; padding: 8px 10px; font-size: 11px; color: #555; border-radius: 0 4px 4px 0; margin-top: 8px; }
-    @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+    .total-row.main { font-size: 14px; font-weight: 900; color: #000; }
+    .total-row.deposit { color: #000; font-weight: 700; }
+    .total-row.balance { color: #000; font-weight: 900; font-size: 15px; border-top: 2px solid #000; padding-top: 6px; margin-top: 4px; }
+    .conditions { background: #fff; border: 2px solid #000; padding: 8px 10px; font-size: 10px; color: #000; font-weight: 700; border-radius: 4px; margin-top: 12px; line-height: 1.6; }
+    .footer { text-align: center; margin-top: 16px; padding-top: 12px; border-top: 2px dashed #000; font-size: 10px; color: #000; font-weight: 700; }
+    .notes { background: #fff; border-left: 3px solid #000; padding: 8px 10px; font-size: 11px; color: #000; font-weight: 700; border-radius: 0 4px 4px 0; margin-top: 8px; }
+    p, span, div, td, th, li, strong, b { color: #000 !important; }
+    @media print {
+      * { color: #000 !important; background: #fff !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+      .no-print { display: none !important; }
+    }
   </style>
 </head>
 <body>

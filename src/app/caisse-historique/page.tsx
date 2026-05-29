@@ -171,16 +171,21 @@ function TicketDetailModal({ ticketId, onClose, onModified }: TicketDetailModalP
     win.document.write(`<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Ticket ${receipt.ticketNumber}</title>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Courier New', monospace; font-size: 12px; width: 300px; margin: 0 auto; padding: 12px 8px; color: #111; }
+  * { box-sizing: border-box; margin: 0; padding: 0; color: #000 !important; background: transparent !important; }
+  body { font-family: 'Courier New', monospace; font-size: 12px; width: 300px; margin: 0 auto; padding: 12px 8px; color: #000; background: #fff; }
   .center { text-align: center; }
-  .bold { font-weight: bold; }
-  .sep { border: none; border-top: 1px dashed #999; margin: 6px 0; }
-  .sep-solid { border: none; border-top: 1px solid #333; margin: 6px 0; }
+  .bold { font-weight: 700; }
+  .sep { border: none; border-top: 2px dashed #000; margin: 6px 0; }
+  .sep-solid { border: none; border-top: 2px solid #000; margin: 6px 0; }
   table { width: 100%; border-collapse: collapse; }
-  .total-ttc td { font-size: 15px; font-weight: bold; padding: 5px 4px; border-top: 2px solid #000; border-bottom: 2px solid #000; }
-  .footer { text-align: center; font-size: 11px; margin-top: 8px; }
-  @media print { body { width: 100%; } }
+  .total-ttc td { font-size: 15px; font-weight: 900; padding: 5px 4px; border-top: 3px solid #000; border-bottom: 3px solid #000; color: #000 !important; background: #fff !important; }
+  .footer { text-align: center; font-size: 11px; margin-top: 8px; color: #000 !important; }
+  p, span, div, td, th, li, strong, b { color: #000 !important; font-weight: 700 !important; }
+  @media print {
+    * { color: #000 !important; background: #fff !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    body { width: 100%; }
+    .no-print { display: none !important; }
+  }
 </style></head><body>
   <div class="center bold" style="font-size:14px;letter-spacing:1px">${companyName}</div>
   <div class="center" style="font-size:10px;margin-top:2px">${companyAddress}</div>
@@ -197,7 +202,7 @@ function TicketDetailModal({ ticketId, onClose, onModified }: TicketDetailModalP
   </table>
   <hr class="sep" style="margin:8px 0">
   <table>
-    <thead><tr style="font-size:10px;color:#555;border-bottom:1px dashed #999">
+    <thead><tr style="font-size:10px;color:#000;font-weight:700;border-bottom:2px dashed #000">
       <th style="text-align:left;padding:2px 4px">Article</th>
       <th style="text-align:center;padding:2px 4px">Qté × PU</th>
       <th style="text-align:right;padding:2px 4px">Total</th>
@@ -215,7 +220,7 @@ function TicketDetailModal({ ticketId, onClose, onModified }: TicketDetailModalP
   </table>
   <hr class="sep" style="margin:8px 0">
   <div class="footer">${receiptFooter}</div>
-  <div class="footer" style="font-size:9px;margin-top:4px;color:#888">Conservez ce ticket pour tout retour ou échange</div>
+  <div class="footer" style="font-size:9px;margin-top:4px;color:#000">Conservez ce ticket pour tout retour ou échange</div>
 <script>window.onload = function(){ window.print(); }</script>
 </body></html>`);
     win.document.close();
