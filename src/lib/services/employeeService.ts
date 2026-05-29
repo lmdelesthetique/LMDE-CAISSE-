@@ -36,6 +36,11 @@ export interface Employee {
   monthlyObjective: number;
   createdAt: string;
   updatedAt: string;
+  // Driver portal
+  isDeliveryDriver: boolean;
+  portalPhone: string | null;
+  portalPin: string | null;
+  driverStatus: 'on' | 'off';
 }
 
 export interface EmployeeSale {
@@ -87,6 +92,10 @@ export interface CreateEmployeeInput {
   notes?: string;
   permissions: EmployeePermissions;
   monthlyObjective?: number;
+  // Driver portal
+  isDeliveryDriver?: boolean;
+  portalPhone?: string;
+  portalPin?: string;
 }
 
 export interface UpdateEmployeeInput extends Partial<CreateEmployeeInput> {
@@ -125,6 +134,10 @@ function mapEmployee(row: any): Employee {
     monthlyObjective: parseFloat(row.monthly_objective ?? 0),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    isDeliveryDriver: row.is_delivery_driver ?? false,
+    portalPhone: row.portal_phone ?? null,
+    portalPin: row.portal_pin ?? null,
+    driverStatus: (row.driver_status ?? 'off') as 'on' | 'off',
   };
 }
 
@@ -222,6 +235,9 @@ export const employeeService = {
         perm_price_modify: input.permissions.priceModify,
         perm_admin_access: input.permissions.adminAccess,
         monthly_objective: input.monthlyObjective ?? 0,
+        is_delivery_driver: input.isDeliveryDriver ?? false,
+        portal_phone: input.portalPhone ?? null,
+        portal_pin: input.portalPin ?? null,
       })
       .select()
       .single();
@@ -242,6 +258,9 @@ export const employeeService = {
     if (input.hireDate !== undefined) updates.hire_date = input.hireDate;
     if (input.notes !== undefined) updates.notes = input.notes;
     if (input.monthlyObjective !== undefined) updates.monthly_objective = input.monthlyObjective;
+    if (input.isDeliveryDriver !== undefined) updates.is_delivery_driver = input.isDeliveryDriver;
+    if (input.portalPhone !== undefined) updates.portal_phone = input.portalPhone || null;
+    if (input.portalPin !== undefined) updates.portal_pin = input.portalPin || null;
     if (input.permissions) {
       updates.perm_cashier_access = input.permissions.cashierAccess;
       updates.perm_stock_access = input.permissions.stockAccess;

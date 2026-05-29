@@ -64,6 +64,7 @@ const navItems: NavItem[] = [
       { id: 'nav-fo-historique', label: 'Historique', href: '/commandes-fournisseurs/historique', icon: 'DocumentTextIcon' },
     ],
   },
+  { id: 'nav-livraisons', label: 'Livraisons', icon: 'TruckIcon', href: '/livraisons', group: 'gestion' },
   { id: 'nav-clients', label: 'Clients', icon: 'UsersIcon', href: '/clients', group: 'gestion' },
   { id: 'nav-abonnements', label: 'Abonnements', icon: 'ArchiveBoxIcon', href: '/abonnements', group: 'gestion' },
   { id: 'nav-reservations', label: 'Réservations', icon: 'CalendarDaysIcon', href: '/reservations', badge: 7, group: 'gestion' },

@@ -480,8 +480,20 @@ export async function deductStockForSale(
   items: Array<{ productId: string; name: string; qty: number; isFreePrice?: boolean }>,
   ticketRef: string,
   paymentMethod: string,
-  cashierName: string
+  cashierName: string,
+  ticketStatus?: string,
+  ticketType?: string
 ): Promise<{ success: boolean; errors: string[] }> {
+  // Guard: only deduct stock for paid/completed sales or explicit vente type
+  if (
+    ticketStatus !== undefined &&
+    ticketStatus !== 'paid' &&
+    ticketStatus !== 'completed' &&
+    ticketType !== 'vente'
+  ) {
+    return { success: true, errors: [] };
+  }
+
   const errors: string[] = [];
   const shopifySyncItems: Array<{ productId: string; delta: number; newStock: number }> = [];
 

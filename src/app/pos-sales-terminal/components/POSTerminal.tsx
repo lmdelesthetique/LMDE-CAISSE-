@@ -389,7 +389,9 @@ export default function POSTerminal() {
       stockItems,
       ticketRef,
       method,
-      employee?.fullName || 'Caisse'
+      employee?.fullName || 'Caisse',
+      'completed',
+      'vente'
     );
     if (stockErrors.length > 0) {
       console.warn('Stock deduction errors:', stockErrors);

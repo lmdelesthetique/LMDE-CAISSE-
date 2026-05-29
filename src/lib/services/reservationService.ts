@@ -515,7 +515,7 @@ export const reservationService = {
             qty: Number(item.qty || item.quantity) || 1,
           }));
         if (stockItems.length > 0) {
-          await deductStockForSale(stockItems, `RES-${id.slice(0, 8).toUpperCase()}`, 'reservation', 'Réservation');
+          await deductStockForSale(stockItems, `RES-${id.slice(0, 8).toUpperCase()}`, 'reservation', 'Réservation', 'completed', 'reservation');
         }
       }
 
@@ -564,7 +564,7 @@ export const reservationService = {
             qty: Number(item.qty || item.quantity) || 1,
           }));
         if (stockItems.length > 0) {
-          await deductStockForSale(stockItems, `RES-${id.slice(0, 8).toUpperCase()}`, 'reservation', 'Réservation');
+          await deductStockForSale(stockItems, `RES-${id.slice(0, 8).toUpperCase()}`, 'reservation', 'Réservation', 'completed', 'reservation');
         }
       }
 

@@ -51,6 +51,12 @@ export default function EmployeeFormModal({ employee, onClose, onSaved }: Employ
     employee?.permissions ?? DEFAULT_PERMISSIONS_BY_ROLE['cashier']
   );
 
+  // Driver portal state
+  const [isDeliveryDriver, setIsDeliveryDriver] = useState(employee?.isDeliveryDriver ?? false);
+  const [portalPhone, setPortalPhone] = useState(employee?.portalPhone ?? '');
+  const [portalPin, setPortalPin] = useState(employee?.portalPin ?? '');
+  const [showPortalPin, setShowPortalPin] = useState(false);
+
   // Objective form
   const now = new Date();
   const [objYear, setObjYear] = useState(now.getFullYear());
@@ -96,11 +102,16 @@ export default function EmployeeFormModal({ employee, onClose, onSaved }: Employ
         permissions,
         monthlyObjective: parseFloat(monthlyObjective) || 0,
       };
+      const driverInput = {
+        isDeliveryDriver,
+        portalPhone: portalPhone.trim() || undefined,
+        portalPin: portalPin.trim() || undefined,
+      };
       let saved: Employee;
       if (isEdit && employee) {
-        saved = await employeeService.update({ id: employee.id, ...input });
+        saved = await employeeService.update({ id: employee.id, ...input, ...driverInput });
       } else {
-        saved = await employeeService.create(input);
+        saved = await employeeService.create({ ...input, ...driverInput });
       }
       onSaved(saved);
     } catch (e: any) {
@@ -306,6 +317,72 @@ export default function EmployeeFormModal({ employee, onClose, onSaved }: Employ
                   placeholder="Informations internes sur l'employé..."
                   className="w-full border border-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
                 />
+              </div>
+
+              {/* Driver portal section */}
+              <div className="pt-2 border-t border-border">
+                <div
+                  className="flex items-center justify-between cursor-pointer py-1"
+                  onClick={() => setIsDeliveryDriver((v) => !v)}
+                >
+                  <div>
+                    <p className="text-sm font-600 text-foreground">🚚 Portail Livreur</p>
+                    <p className="text-xs text-muted-foreground">Accès à l'application mobile de livraison</p>
+                  </div>
+                  <div className={`w-11 h-6 rounded-full transition-colors relative shrink-0 ${isDeliveryDriver ? 'bg-orange-500' : 'bg-muted'}`}>
+                    <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${isDeliveryDriver ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                  </div>
+                </div>
+
+                {isDeliveryDriver && (
+                  <div className="mt-3 space-y-3 pl-1">
+                    <div>
+                      <label className="block text-sm font-500 text-foreground mb-1.5">Téléphone portail</label>
+                      <input
+                        type="tel"
+                        value={portalPhone}
+                        onChange={(e) => setPortalPhone(e.target.value)}
+                        placeholder="+596 696 00 00 00"
+                        className="w-full border border-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 focus:border-orange-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-500 text-foreground mb-1.5">
+                        PIN livraison
+                        <span className="ml-1 text-xs text-muted-foreground">(4 chiffres)</span>
+                      </label>
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <input
+                            type={showPortalPin ? 'text' : 'password'}
+                            value={portalPin}
+                            onChange={(e) => setPortalPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                            placeholder="••••"
+                            maxLength={4}
+                            className="w-full border border-border rounded-lg px-3 py-2.5 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 focus:border-orange-400 font-mono tracking-widest"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPortalPin((p) => !p)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          >
+                            <Icon name={showPortalPin ? 'EyeSlashIcon' : 'EyeIcon'} size={16} />
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setPortalPin(String(Math.floor(1000 + Math.random() * 9000)))}
+                          className="shrink-0 px-3 py-2 bg-orange-50 border border-orange-200 text-orange-700 text-xs font-bold rounded-lg hover:bg-orange-100 transition-colors"
+                        >
+                          Générer
+                        </button>
+                      </div>
+                      {portalPin.length === 4 && (
+                        <p className="text-xs text-orange-600 mt-1 font-mono">PIN : {portalPin}</p>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}

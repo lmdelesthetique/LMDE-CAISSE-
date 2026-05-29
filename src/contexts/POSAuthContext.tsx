@@ -48,6 +48,10 @@ const DEFAULT_EMPLOYEE: Employee = {
   },
   createdAt: '',
   updatedAt: '',
+  isDeliveryDriver: false,
+  portalPhone: null,
+  portalPin: null,
+  driverStatus: 'off',
 };
 
 export async function sha256hex(text: string): Promise<string> {
