@@ -21,7 +21,7 @@ const EMPTY_FORM: CreateDriverInput = {
 interface DriverModalProps {
   driver?: Driver | null;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (isEdit: boolean) => void;
 }
 
 function DriverModal({ driver, onClose, onSaved }: DriverModalProps) {
@@ -53,10 +53,21 @@ function DriverModal({ driver, onClose, onSaved }: DriverModalProps) {
       } else {
         await driverService.create(form);
       }
-      onSaved();
+      onSaved(isEdit);
       onClose();
     } catch (err: any) {
-      setError(err.message?.includes('duplicate') ? 'Ce numéro de téléphone est déjà utilisé.' : 'Erreur lors de la sauvegarde.');
+      console.error('Driver save error:', err);
+      const msg: string = err?.message ?? String(err ?? '');
+      const code: string = err?.code ?? '';
+      if (code === '23505' || msg.includes('duplicate') || msg.includes('unique')) {
+        setError('Ce numéro de téléphone est déjà utilisé.');
+      } else if (code === '42P01' || msg.includes('does not exist') || msg.includes("relation")) {
+        setError('Table drivers introuvable — exécutez la migration SQL dans Supabase Dashboard.');
+      } else if (code === '42501' || msg.includes('permission') || msg.includes('policy') || msg.includes('RLS')) {
+        setError('Accès refusé — vérifiez les politiques RLS dans Supabase (ALTER TABLE drivers DISABLE ROW LEVEL SECURITY).');
+      } else {
+        setError(msg || 'Erreur inconnue lors de la sauvegarde.');
+      }
     } finally {
       setSaving(false);
     }
@@ -203,6 +214,7 @@ export default function LivreursPage() {
   const [editingDriver, setEditingDriver] = useState<Driver | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -212,6 +224,12 @@ export default function LivreursPage() {
       setLoading(false);
     }
   }, []);
+
+  const handleSaved = useCallback((isEdit: boolean) => {
+    load();
+    setSuccessMsg(isEdit ? '✅ Livreur modifié !' : '✅ Livreur créé !');
+    setTimeout(() => setSuccessMsg(''), 3000);
+  }, [load]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -260,6 +278,12 @@ export default function LivreursPage() {
             </button>
           </div>
         </div>
+
+        {successMsg && (
+          <div className="bg-green-50 border-b border-green-200 px-6 py-3 flex items-center gap-2 text-sm font-semibold text-green-800">
+            {successMsg}
+          </div>
+        )}
 
         <div className="max-w-screen-xl mx-auto px-6 lg:px-8 py-6 space-y-6">
           {/* KPIs */}
@@ -411,7 +435,7 @@ export default function LivreursPage() {
         <DriverModal
           driver={editingDriver}
           onClose={() => { setShowModal(false); setEditingDriver(null); }}
-          onSaved={load}
+          onSaved={handleSaved}
         />
       )}
     </AppLayout>
