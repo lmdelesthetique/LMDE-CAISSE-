@@ -8,7 +8,7 @@ import { deliveryService, type Delivery, DELIVERY_STATUS_CONFIG } from '@/lib/se
 const SESSION_KEY = 'beautypos_driver_session';
 
 interface DriverSession {
-  employeeId: string;
+  driverId: string;
   name: string;
   role: string;
 }
@@ -53,15 +53,15 @@ export default function DriverDashboard() {
   // Subscribe to real-time changes
   useEffect(() => {
     if (!session) return;
-    loadDeliveries(session.employeeId);
+    loadDeliveries(session.driverId);
 
     const supabase = createClient();
     const channel = supabase
-      .channel('driver-deliveries-' + session.employeeId)
+      .channel('driver-deliveries-' + session.driverId)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'deliveries', filter: `assigned_to=eq.${session.employeeId}` },
-        () => loadDeliveries(session.employeeId)
+        { event: '*', schema: 'public', table: 'deliveries', filter: `assigned_to_driver=eq.${session.driverId}` },
+        () => loadDeliveries(session.driverId)
       )
       .subscribe();
     channelRef.current = channel;
@@ -74,7 +74,7 @@ export default function DriverDashboard() {
     setTogglingStatus(true);
     const newStatus = online ? 'off' : 'on';
     try {
-      await deliveryService.setDriverStatus(session.employeeId, newStatus);
+      await deliveryService.setDriverStatus(session.driverId, newStatus);
       setOnline(!online);
     } catch { /* ignore */ } finally {
       setTogglingStatus(false);
@@ -89,7 +89,7 @@ export default function DriverDashboard() {
   const handleStart = async (d: Delivery) => {
     try {
       await deliveryService.startRoute(d.id);
-      await loadDeliveries(session!.employeeId);
+      await loadDeliveries(session!.driverId);
     } catch { /* ignore */ }
   };
 

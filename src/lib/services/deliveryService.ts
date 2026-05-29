@@ -25,7 +25,7 @@ export interface Delivery {
   products: DeliveryProduct[] | null;
   totalAmount: number | null;
   status: DeliveryStatus;
-  assignedTo: string | null;
+  assignedTo: string | null;       // driver UUID (assigned_to_driver)
   assignedAt: string | null;
   enRouteAt: string | null;
   deliveredAt: string | null;
@@ -34,7 +34,7 @@ export interface Delivery {
   photoUrl: string | null;
   driverNotes: string | null;
   createdAt: string;
-  // Joined
+  // Joined from drivers table
   driverName?: string | null;
   driverPhone?: string | null;
 }
@@ -47,7 +47,7 @@ export interface CreateDeliveryInput {
   products?: DeliveryProduct[];
   totalAmount?: number;
   estimatedTime?: string;
-  assignedTo?: string;
+  assignedTo?: string;             // driver UUID
   shopifyOrderId?: string;
   shopifyOrderNumber?: string;
 }
@@ -66,7 +66,7 @@ function mapDelivery(row: any): Delivery {
     products: row.products ?? null,
     totalAmount: row.total_amount != null ? Number(row.total_amount) : null,
     status: row.status as DeliveryStatus,
-    assignedTo: row.assigned_to ?? null,
+    assignedTo: row.assigned_to_driver ?? null,
     assignedAt: row.assigned_at ?? null,
     enRouteAt: row.en_route_at ?? null,
     deliveredAt: row.delivered_at ?? null,
@@ -75,10 +75,10 @@ function mapDelivery(row: any): Delivery {
     photoUrl: row.photo_url ?? null,
     driverNotes: row.driver_notes ?? null,
     createdAt: row.created_at,
-    driverName: row.employees
-      ? `${row.employees.first_name ?? ''} ${row.employees.last_name ?? ''}`.trim()
+    driverName: row.drivers
+      ? `${row.drivers.first_name ?? ''} ${row.drivers.last_name ?? ''}`.trim()
       : null,
-    driverPhone: row.employees?.portal_phone ?? null,
+    driverPhone: row.drivers?.phone ?? null,
   };
 }
 
@@ -90,7 +90,7 @@ export const deliveryService = {
     const supabase = createClient();
     let q = supabase
       .from('deliveries')
-      .select('*, employees(first_name, last_name, portal_phone, driver_status)')
+      .select('*, drivers(first_name, last_name, phone, driver_status)')
       .order('created_at', { ascending: false });
     if (status && status !== 'all') q = q.eq('status', status);
     const { data, error } = await q;
@@ -99,12 +99,12 @@ export const deliveryService = {
   },
 
   // Driver: get deliveries assigned to a driver
-  async getForDriver(employeeId: string): Promise<Delivery[]> {
+  async getForDriver(driverId: string): Promise<Delivery[]> {
     const supabase = createClient();
     const { data, error } = await supabase
       .from('deliveries')
       .select('*')
-      .eq('assigned_to', employeeId)
+      .eq('assigned_to_driver', driverId)
       .not('status', 'eq', 'cancelled')
       .order('created_at', { ascending: false });
     if (error) throw error;
@@ -115,7 +115,7 @@ export const deliveryService = {
     const supabase = createClient();
     const { data, error } = await supabase
       .from('deliveries')
-      .select('*, employees(first_name, last_name, portal_phone)')
+      .select('*, drivers(first_name, last_name, phone)')
       .eq('id', id)
       .single();
     if (error) return null;
@@ -137,7 +137,7 @@ export const deliveryService = {
       status: input.assignedTo ? 'assigned' : 'pending',
     };
     if (input.assignedTo) {
-      insertData.assigned_to = input.assignedTo;
+      insertData.assigned_to_driver = input.assignedTo;
       insertData.assigned_at = new Date().toISOString();
     }
     const { data, error } = await supabase
@@ -149,12 +149,12 @@ export const deliveryService = {
     return mapDelivery(data);
   },
 
-  async assign(id: string, employeeId: string): Promise<Delivery> {
+  async assign(id: string, driverId: string): Promise<Delivery> {
     const supabase = createClient();
     const { data, error } = await supabase
       .from('deliveries')
       .update({
-        assigned_to: employeeId,
+        assigned_to_driver: driverId,
         assigned_at: new Date().toISOString(),
         status: 'assigned',
       })
@@ -233,15 +233,15 @@ export const deliveryService = {
     return data.publicUrl;
   },
 
-  // Driver auth: check phone + PIN
+  // Driver auth: check phone + pin_code in drivers table
   async driverLogin(phone: string, pin: string): Promise<{ id: string; name: string } | null> {
     const supabase = createClient();
     const { data, error } = await supabase
-      .from('employees')
+      .from('drivers')
       .select('id, first_name, last_name')
-      .eq('portal_phone', phone)
-      .eq('portal_pin', pin)
-      .eq('is_delivery_driver', true)
+      .eq('phone', phone)
+      .eq('pin_code', pin)
+      .eq('status', 'active')
       .maybeSingle();
     if (error || !data) return null;
     return {
@@ -251,12 +251,12 @@ export const deliveryService = {
   },
 
   // Update driver online/offline status
-  async setDriverStatus(employeeId: string, status: 'on' | 'off'): Promise<void> {
+  async setDriverStatus(driverId: string, status: 'on' | 'off'): Promise<void> {
     const supabase = createClient();
     const { error } = await supabase
-      .from('employees')
+      .from('drivers')
       .update({ driver_status: status })
-      .eq('id', employeeId);
+      .eq('id', driverId);
     if (error) throw error;
   },
 
@@ -264,14 +264,14 @@ export const deliveryService = {
   async getActiveDrivers(): Promise<{ id: string; name: string; phone: string | null; driverStatus: string }[]> {
     const supabase = createClient();
     const { data, error } = await supabase
-      .from('employees')
-      .select('id, first_name, last_name, portal_phone, driver_status')
-      .eq('is_delivery_driver', true);
+      .from('drivers')
+      .select('id, first_name, last_name, phone, driver_status')
+      .eq('status', 'active');
     if (error) throw error;
     return (data ?? []).map((r: any) => ({
       id: r.id,
       name: `${r.first_name ?? ''} ${r.last_name ?? ''}`.trim(),
-      phone: r.portal_phone ?? null,
+      phone: r.phone ?? null,
       driverStatus: r.driver_status ?? 'off',
     }));
   },

@@ -8,7 +8,7 @@ import SignaturePad from '@/components/SignaturePad';
 const SESSION_KEY = 'beautypos_driver_session';
 
 interface DriverSession {
-  employeeId: string;
+  driverId: string;
   name: string;
   role: string;
 }

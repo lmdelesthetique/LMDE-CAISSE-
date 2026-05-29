@@ -64,6 +64,7 @@ const navItems: NavItem[] = [
       { id: 'nav-fo-historique', label: 'Historique', href: '/commandes-fournisseurs/historique', icon: 'DocumentTextIcon' },
     ],
   },
+  { id: 'nav-livreurs', label: 'Livreurs', icon: 'UserGroupIcon', href: '/livreurs', group: 'gestion' },
   { id: 'nav-livraisons', label: 'Livraisons', icon: 'TruckIcon', href: '/livraisons', group: 'gestion' },
   { id: 'nav-expeditions', label: 'Expéditions', icon: 'ArchiveBoxArrowDownIcon', href: '/expeditions', group: 'gestion' },
   { id: 'nav-clients', label: 'Clients', icon: 'UsersIcon', href: '/clients', group: 'gestion' },

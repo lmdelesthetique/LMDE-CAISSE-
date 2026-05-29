@@ -24,7 +24,7 @@ export default function LivreurLoginPage() {
       const session = localStorage.getItem(DRIVER_SESSION_KEY);
       if (session) {
         const parsed = JSON.parse(session);
-        if (parsed?.employeeId) { router.replace('/livreur/dashboard'); return; }
+        if (parsed?.driverId) { router.replace('/livreur/dashboard'); return; }
       }
     } catch { /* ignore */ }
     phoneRef.current?.focus();
@@ -51,7 +51,7 @@ export default function LivreurLoginPage() {
           setTimeout(() => pinRef.current?.focus(), 50);
         } else {
           localStorage.setItem(DRIVER_SESSION_KEY, JSON.stringify({
-            employeeId: result.id,
+            driverId: result.id,
             name: result.name,
             role: 'driver',
           }));
