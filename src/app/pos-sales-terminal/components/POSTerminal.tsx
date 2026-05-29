@@ -1123,13 +1123,15 @@ function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, l
   .footer-msg { text-align: center; font-size: 12px; font-weight: 700; margin-top: 6px; color: #000; }
   .footer-sub { text-align: center; font-size: 10px; margin-top: 3px; color: #000; }
   @media print {
-    * { color: #000000 !important; background: transparent !important; background-color: #ffffff !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; box-shadow: none !important; text-shadow: none !important; background-image: none !important; border-color: #000000 !important; }
-    body { font-family: 'Courier New', Courier, monospace !important; font-size: 12px !important; width: 100%; padding: 4px; }
-    p, span, div, td, th, li, strong, b { color: #000000 !important; font-weight: 700 !important; }
-    .total-ttc-row td { font-weight: 900 !important; font-size: 18px !important; border-top: 3px solid #000000 !important; border-bottom: 3px solid #000000 !important; color: #000000 !important; background: #ffffff !important; }
-    hr, .sep-dash, .sep-solid, .sep-double { border: 2px solid #000000 !important; background: #000000 !important; }
-    .ticket-header { font-weight: 900 !important; font-size: 14px !important; text-align: center !important; }
-    .badge, .tag, .status { background: #ffffff !important; border: 1px solid #000000 !important; color: #000000 !important; }
+    @page { size: 80mm auto; margin: 2mm; }
+    * { color: #000000 !important; background: transparent !important; background-color: #ffffff !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; box-shadow: none !important; text-shadow: none !important; background-image: none !important; border-color: #000000 !important; -webkit-text-fill-color: #000000 !important; }
+    body { font-family: 'Courier New', Courier, monospace !important; font-size: 12px !important; font-weight: 700 !important; width: 100%; padding: 4px; }
+    p, span, div, td, th, li, strong, b, h1, h2, h3, h4, h5 { color: #000000 !important; font-weight: 700 !important; font-family: 'Courier New', Courier, monospace !important; }
+    [class*="text-gray"], [class*="text-slate"], [class*="text-blue"], [class*="text-green"], [class*="text-red"], [class*="text-purple"] { color: #000000 !important; }
+    [class*="bg-"], .badge, .tag, .status, .chip { background: #ffffff !important; background-color: #ffffff !important; color: #000000 !important; border: 1px solid #000000 !important; }
+    hr, .divider, .separator, .sep-dash, .sep-solid, .sep-double { border: none !important; border-top: 2px solid #000000 !important; height: 2px !important; }
+    .total-ttc-row td, .ticket-total, .grand-total, .total-ttc { font-weight: 900 !important; font-size: 16px !important; border-top: 3px solid #000000 !important; border-bottom: 3px solid #000000 !important; color: #000000 !important; background: #ffffff !important; }
+    .ticket-header, [class*="header"] { font-weight: 900 !important; font-size: 14px !important; text-align: center !important; }
   }
 </style></head><body>
 

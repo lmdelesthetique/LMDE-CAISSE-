@@ -100,3 +100,59 @@
     to { opacity: 1; transform: translateX(0); }
   }
 }
+
+@media print {
+  * {
+    color: #000000 !important;
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    background-image: none !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+    border-color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+  }
+  body {
+    font-family: 'Courier New', Courier, monospace !important;
+    font-size: 12px !important;
+    font-weight: 700 !important;
+  }
+  p, span, div, td, th, li, strong, b, h1, h2, h3, h4, h5 {
+    color: #000000 !important;
+    font-weight: 700 !important;
+    font-family: 'Courier New', Courier, monospace !important;
+  }
+  [class*="text-gray"], [class*="text-slate"], [class*="text-zinc"],
+  [class*="text-neutral"], [class*="text-blue"], [class*="text-green"],
+  [class*="text-red"], [class*="text-yellow"], [class*="text-purple"],
+  [class*="text-indigo"], [class*="text-pink"], [class*="text-teal"] {
+    color: #000000 !important;
+  }
+  [class*="bg-"], .badge, .tag, .status, .chip {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    border: 1px solid #000000 !important;
+  }
+  hr, .divider, .separator {
+    border: none !important;
+    border-top: 2px solid #000000 !important;
+    height: 2px !important;
+  }
+  .ticket-total, .grand-total, .total-ttc, [class*="total"] {
+    font-weight: 900 !important;
+    font-size: 16px !important;
+    border-top: 3px solid #000000 !important;
+    border-bottom: 3px solid #000000 !important;
+  }
+  .ticket-header, [class*="header"] {
+    font-weight: 900 !important;
+    font-size: 14px !important;
+    text-align: center !important;
+  }
+  nav, aside, .sidebar, [class*="sidebar"], .no-print {
+    display: none !important;
+  }
+}

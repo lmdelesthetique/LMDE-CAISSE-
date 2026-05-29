@@ -182,8 +182,15 @@ function TicketDetailModal({ ticketId, onClose, onModified }: TicketDetailModalP
   .footer { text-align: center; font-size: 11px; margin-top: 8px; color: #000 !important; }
   p, span, div, td, th, li, strong, b { color: #000 !important; font-weight: 700 !important; }
   @media print {
-    * { color: #000 !important; background: #fff !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-    body { width: 100%; }
+    @page { size: 80mm auto; margin: 2mm; }
+    * { color: #000000 !important; background: #ffffff !important; background-color: #ffffff !important; background-image: none !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; box-shadow: none !important; text-shadow: none !important; border-color: #000000 !important; -webkit-text-fill-color: #000000 !important; }
+    body { font-family: 'Courier New', Courier, monospace !important; font-size: 12px !important; font-weight: 700 !important; width: 100%; }
+    p, span, div, td, th, li, strong, b, h1, h2, h3, h4, h5 { color: #000000 !important; font-weight: 700 !important; font-family: 'Courier New', Courier, monospace !important; }
+    [class*="text-gray"], [class*="text-slate"], [class*="text-blue"], [class*="text-green"], [class*="text-red"], [class*="text-purple"] { color: #000000 !important; }
+    [class*="bg-"], .badge, .tag, .status, .chip { background: #ffffff !important; background-color: #ffffff !important; color: #000000 !important; border: 1px solid #000000 !important; }
+    hr, .divider, .separator { border: none !important; border-top: 2px solid #000000 !important; height: 2px !important; }
+    .total-ttc td, .ticket-total, .grand-total { font-weight: 900 !important; font-size: 16px !important; border-top: 3px solid #000000 !important; border-bottom: 3px solid #000000 !important; }
+    .ticket-header, [class*="header"] { font-weight: 900 !important; font-size: 14px !important; text-align: center !important; }
     .no-print { display: none !important; }
   }
 </style></head><body>
