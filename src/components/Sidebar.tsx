@@ -65,6 +65,7 @@ const navItems: NavItem[] = [
     ],
   },
   { id: 'nav-livraisons', label: 'Livraisons', icon: 'TruckIcon', href: '/livraisons', group: 'gestion' },
+  { id: 'nav-expeditions', label: 'Expéditions', icon: 'ArchiveBoxArrowDownIcon', href: '/expeditions', group: 'gestion' },
   { id: 'nav-clients', label: 'Clients', icon: 'UsersIcon', href: '/clients', group: 'gestion' },
   { id: 'nav-abonnements', label: 'Abonnements', icon: 'ArchiveBoxIcon', href: '/abonnements', group: 'gestion' },
   { id: 'nav-reservations', label: 'Réservations', icon: 'CalendarDaysIcon', href: '/reservations', badge: 7, group: 'gestion' },

@@ -32,6 +32,8 @@ import {
 } from '@/lib/services/emailService';
 import { saveReceipt } from '@/lib/services/posService';
 import { useSettings } from '@/contexts/SettingsContext';
+import { deliveryService, type CreateDeliveryInput } from '@/lib/services/deliveryService';
+import { useRouter } from 'next/navigation';
 
 export interface CartItem {
   id: string;
@@ -1033,6 +1035,40 @@ function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, l
   const [email, setEmail] = useState('');
   const [sending, setSending] = useState(false);
 
+  // Delivery form
+  const [showDeliveryForm, setShowDeliveryForm] = useState(false);
+  const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [deliveryPhone, setDeliveryPhone] = useState(client?.phone ?? '');
+  const [deliveryNotes, setDeliveryNotes] = useState('');
+  const [creatingDelivery, setCreatingDelivery] = useState(false);
+  const [deliveryCreated, setDeliveryCreated] = useState(false);
+  const router = useRouter();
+
+  const handleCreateDelivery = async () => {
+    if (!deliveryAddress.trim()) return;
+    setCreatingDelivery(true);
+    try {
+      const input: CreateDeliveryInput = {
+        clientName: client?.name ?? 'Client caisse',
+        clientPhone: deliveryPhone || client?.phone || undefined,
+        deliveryAddress: deliveryAddress.trim(),
+        deliveryNotes: deliveryNotes || undefined,
+        products: items.map((i) => ({ name: i.name, qty: i.qty, sku: i.sku || undefined, price: i.price })),
+        totalAmount: total,
+      };
+      await deliveryService.create(input);
+      setDeliveryCreated(true);
+      setTimeout(() => {
+        onClose();
+        router.push('/livraisons');
+      }, 1200);
+    } catch {
+      /* ignore */
+    } finally {
+      setCreatingDelivery(false);
+    }
+  };
+
   const handlePrintTicket = () => {
     const win = window.open('', '_blank', 'width=420,height=700');
     if (!win) return;
@@ -1395,6 +1431,65 @@ function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, l
               </div>
             )}
           </div>
+
+          {/* Delivery */}
+          {!showDeliveryForm ? (
+            <button
+              onClick={() => setShowDeliveryForm(true)}
+              className="w-full flex items-center gap-4 p-4 border-2 border-border rounded-xl hover:border-orange-400 hover:bg-orange-50 transition-all text-left group"
+            >
+              <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center shrink-0 group-hover:bg-orange-200 transition-colors">
+                <Icon name="TruckIcon" size={18} className="text-orange-600" />
+              </div>
+              <div>
+                <p className="font-600 text-foreground">Créer une livraison</p>
+                <p className="text-xs text-muted-foreground">Programmer la livraison à domicile du client</p>
+              </div>
+            </button>
+          ) : deliveryCreated ? (
+            <div className="w-full flex items-center gap-3 p-4 border-2 border-green-400 bg-green-50 rounded-xl">
+              <Icon name="CheckCircleIcon" size={20} className="text-green-600 shrink-0" />
+              <p className="font-600 text-green-700">Livraison créée ! Redirection…</p>
+            </div>
+          ) : (
+            <div className="border-2 border-orange-200 rounded-xl p-4 space-y-3">
+              <div className="flex items-center gap-2 mb-1">
+                <Icon name="TruckIcon" size={16} className="text-orange-600" />
+                <p className="font-600 text-foreground text-sm">Créer une livraison</p>
+                <button onClick={() => setShowDeliveryForm(false)} className="ml-auto text-muted-foreground hover:text-foreground">
+                  <Icon name="XMarkIcon" size={16} />
+                </button>
+              </div>
+              <input
+                type="text"
+                value={deliveryAddress}
+                onChange={(e) => setDeliveryAddress(e.target.value)}
+                placeholder="Adresse de livraison *"
+                className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
+              />
+              <input
+                type="tel"
+                value={deliveryPhone}
+                onChange={(e) => setDeliveryPhone(e.target.value)}
+                placeholder="Téléphone client"
+                className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
+              />
+              <input
+                type="text"
+                value={deliveryNotes}
+                onChange={(e) => setDeliveryNotes(e.target.value)}
+                placeholder="Notes (digicode, étage…)"
+                className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
+              />
+              <button
+                onClick={handleCreateDelivery}
+                disabled={!deliveryAddress.trim() || creatingDelivery}
+                className="w-full py-2.5 bg-orange-500 text-white font-bold text-sm rounded-lg hover:bg-orange-600 disabled:opacity-50 transition-colors"
+              >
+                {creatingDelivery ? 'Création…' : 'Confirmer la livraison'}
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="px-6 pb-5">

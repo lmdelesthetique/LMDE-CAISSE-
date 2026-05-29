@@ -37,16 +37,51 @@ interface ShopifyOrder {
   phone?: string | null;
   note?: string | null;
   total_price?: string;
+  customer?: { email?: string | null; phone?: string | null } | null;
   shipping_address?: ShopifyAddress | null;
   billing_address?: ShopifyAddress | null;
   shipping_lines?: Array<{ code?: string; title?: string }>;
   line_items?: ShopifyLineItem[];
 }
 
+// ── Fulfillment type classification ───────────────────────────────────────────
+
+type FulfillmentType = 'local_delivery' | 'expedition' | 'pickup';
+
+const PICKUP_KEYWORDS = ['pickup', 'retrait', 'click', 'collect', 'magasin', 'sur place', 'store'];
+const LOCAL_KEYWORDS  = ['local', 'domicile', 'coursier', 'livraison locale', 'express', 'same day', 'same-day'];
+
+function classifyFulfillment(order: ShopifyOrder): FulfillmentType {
+  const ship = order.shipping_address;
+
+  // No shipping address or empty → pickup
+  if (!ship || !ship.address1?.trim()) return 'pickup';
+
+  const lines = order.shipping_lines ?? [];
+  const shippingText = lines
+    .map((sl) => `${sl.code ?? ''} ${sl.title ?? ''}`.toLowerCase())
+    .join(' ');
+
+  if (PICKUP_KEYWORDS.some((kw) => shippingText.includes(kw))) return 'pickup';
+  if (LOCAL_KEYWORDS.some((kw) => shippingText.includes(kw))) return 'local_delivery';
+
+  // Has shipping address but no local/pickup keywords → expedition (Colissimo / standard)
+  return 'expedition';
+}
+
+function buildAddress(ship: ShopifyAddress): string {
+  return [ship.address1, ship.address2, ship.city, ship.zip, ship.country]
+    .filter(Boolean)
+    .join(', ');
+}
+
+function getPhone(order: ShopifyOrder): string | null {
+  return order.phone || order.shipping_address?.phone || order.billing_address?.phone || null;
+}
+
 export async function POST(req: NextRequest) {
   const rawBody = await req.text();
 
-  // Verify Shopify HMAC signature
   const hmac = req.headers.get('x-shopify-hmac-sha256');
   const digest = crypto.createHmac('sha256', CLIENT_SECRET).update(rawBody).digest('base64');
   if (!hmac || digest !== hmac) {
@@ -54,7 +89,6 @@ export async function POST(req: NextRequest) {
   }
 
   const topic = req.headers.get('x-shopify-topic');
-  // Only process paid orders
   if (topic !== 'orders/paid') {
     return NextResponse.json({ ok: true });
   }
@@ -70,6 +104,7 @@ export async function POST(req: NextRequest) {
   if (!lineItems.length) return NextResponse.json({ ok: true });
 
   const supabase = getSupabase();
+  const shopifyOrderId = String(order.id);
 
   // ── Stock deduction ────────────────────────────────────────────────────────
   for (const item of lineItems) {
@@ -109,19 +144,20 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── Create delivery if order has a shipping address (not pickup) ───────────
-  const ship = order.shipping_address;
-  const isPickup = !ship ||
-    !ship.address1 ||
-    (order.shipping_lines ?? []).some((sl) =>
-      sl.code?.toLowerCase().includes('pickup') ||
-      sl.title?.toLowerCase().includes('pickup') ||
-      sl.title?.toLowerCase().includes('retrait')
-    );
+  // ── Fulfillment routing ────────────────────────────────────────────────────
+  const fulfillmentType = classifyFulfillment(order);
+  const products = lineItems.map((item) => ({
+    name: item.name || item.title || '',
+    qty: item.quantity,
+    sku: item.sku || undefined,
+    price: item.price ? parseFloat(item.price) : undefined,
+    imageUrl: item.image?.src || undefined,
+  }));
+  const totalAmount = order.total_price ? parseFloat(order.total_price) : null;
+  const clientPhone = getPhone(order);
 
-  if (!isPickup && ship) {
-    // Avoid duplicate deliveries for the same Shopify order
-    const shopifyOrderId = String(order.id);
+  if (fulfillmentType === 'local_delivery') {
+    const ship = order.shipping_address!;
     const { data: existing } = await supabase
       .from('deliveries')
       .select('id')
@@ -129,38 +165,62 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
 
     if (!existing) {
-      const addressParts = [
-        ship.address1,
-        ship.address2,
-        ship.city,
-        ship.zip,
-        ship.country,
-      ].filter(Boolean);
-      const deliveryAddress = addressParts.join(', ');
-
-      const clientPhone =
-        order.phone ||
-        ship.phone ||
-        order.billing_address?.phone ||
-        null;
-
-      const products = lineItems.map((item) => ({
-        name: item.name || item.title || '',
-        qty: item.quantity,
-        sku: item.sku || undefined,
-        price: item.price ? parseFloat(item.price) : undefined,
-        imageUrl: item.image?.src || undefined,
-      }));
-
       await supabase.from('deliveries').insert({
         shopify_order_id: shopifyOrderId,
         shopify_order_number: order.name,
         client_name: ship.name || '',
         client_phone: clientPhone,
-        delivery_address: deliveryAddress,
+        delivery_address: buildAddress(ship),
         delivery_notes: order.note || null,
         products,
-        total_amount: order.total_price ? parseFloat(order.total_price) : null,
+        total_amount: totalAmount,
+        status: 'pending',
+        created_at: new Date().toISOString(),
+      });
+    }
+  } else if (fulfillmentType === 'expedition') {
+    const ship = order.shipping_address!;
+    const { data: existing } = await supabase
+      .from('expeditions')
+      .select('id')
+      .eq('shopify_order_id', shopifyOrderId)
+      .maybeSingle();
+
+    if (!existing) {
+      const carrierTitle = (order.shipping_lines ?? [])[0]?.title || 'Colissimo';
+      await supabase.from('expeditions').insert({
+        shopify_order_id: shopifyOrderId,
+        shopify_order_number: order.name,
+        client_name: ship.name || '',
+        client_phone: clientPhone,
+        shipping_address: buildAddress(ship),
+        carrier: carrierTitle,
+        products,
+        total_amount: totalAmount,
+        notes: order.note || null,
+        status: 'pending',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+    }
+  } else {
+    // pickup
+    const { data: existing } = await supabase
+      .from('pickup_notifications')
+      .select('id')
+      .eq('shopify_order_id', shopifyOrderId)
+      .maybeSingle();
+
+    if (!existing) {
+      await supabase.from('pickup_notifications').insert({
+        shopify_order_id: shopifyOrderId,
+        shopify_order_number: order.name,
+        client_name: order.shipping_address?.name || order.customer?.email || '',
+        client_phone: clientPhone,
+        client_email: order.customer?.email || null,
+        products,
+        total_amount: totalAmount,
+        notes: order.note || null,
         status: 'pending',
         created_at: new Date().toISOString(),
       });
