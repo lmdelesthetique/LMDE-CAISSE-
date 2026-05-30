@@ -432,7 +432,7 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
             <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
               <div>
                 <p className="text-xs text-muted-foreground">Choisir une couleur</p>
-                <p className="text-sm font-600 text-foreground truncate max-w-[220px]">{variantPickerProduct.name}</p>
+                <p className="text-sm font-600 text-foreground break-words">{variantPickerProduct.name}</p>
               </div>
               <button
                 onClick={() => { setVariantPickerProduct(null); setVariantPickerRows([]); }}
@@ -478,7 +478,7 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
                         style={{ backgroundColor: v.color_hex || '#ccc' }}
                       />
                       <div className="min-w-0">
-                        <p className="text-xs font-600 text-foreground truncate">{v.color_name}</p>
+                        <p className="text-xs font-600 text-foreground break-words">{v.color_name}</p>
                         <p className={`text-[10px] ${v.quantity <= 0 ? 'text-red-500' : 'text-muted-foreground'}`}>
                           {v.quantity <= 0 ? `Rupture (${v.quantity})` : `Stock: ${v.quantity}`}
                         </p>

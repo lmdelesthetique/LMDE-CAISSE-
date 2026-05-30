@@ -71,6 +71,7 @@ const navItems: NavItem[] = [
   { id: 'nav-abonnements', label: 'Abonnements', icon: 'ArchiveBoxIcon', href: '/abonnements', group: 'gestion' },
   { id: 'nav-reservations', label: 'Réservations', icon: 'CalendarDaysIcon', href: '/reservations', badge: 7, group: 'gestion' },
   { id: 'nav-loyalty', label: 'Fidélité', icon: 'StarIcon', href: '/loyalty', group: 'gestion' },
+  { id: 'nav-promotions', label: 'Promotions', icon: 'TicketIcon', href: '/promotions', group: 'gestion' },
   { id: 'nav-returns', label: 'Retours & Avoirs', icon: 'ArrowUturnLeftIcon', href: '/returns', group: 'gestion' },
   { id: 'nav-b2b-invoicing', label: 'Facturation B2B', icon: 'BriefcaseIcon', href: '/b2b-invoicing', group: 'gestion' },
   { id: 'nav-employees', label: 'Employés', icon: 'UserGroupIcon', href: '/employees', group: 'equipe' },
