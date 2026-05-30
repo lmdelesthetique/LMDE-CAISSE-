@@ -80,13 +80,21 @@ interface ClientFicheSlideOverProps {
   allRewards: ClientLoyaltyReward[];
   loyaltyTiers: LoyaltyTier[];
   onClose: () => void;
+  onPointsUpdated?: (newPoints: number) => void;
 }
 
-function ClientFicheSlideOver({ client, allRewards, loyaltyTiers, onClose }: ClientFicheSlideOverProps) {
+function ClientFicheSlideOver({ client, allRewards, loyaltyTiers, onClose, onPointsUpdated }: ClientFicheSlideOverProps) {
   const [fullClient, setFullClient] = useState<FullClient | null>(null);
   const [purchases, setPurchases] = useState<ClientPurchase[]>([]);
   const [subscription, setSubscription] = useState<ClientSubscription | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Local display points (updated immediately after save, without closing slide-over)
+  const [displayPoints, setDisplayPoints] = useState(client.points);
+  const [showEditPoints, setShowEditPoints] = useState(false);
+  const [newPointsInput, setNewPointsInput] = useState('');
+  const [pointsReason, setPointsReason] = useState('Correction manuelle');
+  const [savingPoints, setSavingPoints] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -103,8 +111,31 @@ function ClientFicheSlideOver({ client, allRewards, loyaltyTiers, onClose }: Cli
     })();
   }, [client.id]);
 
-  const nextTier = loyaltyTiers.length > 0 ? getNextTier(loyaltyTiers, client.points) : null;
-  const ptsToNext = loyaltyTiers.length > 0 ? pointsToNextTier(loyaltyTiers, client.points) : 0;
+  const handleSavePoints = async () => {
+    const newVal = parseInt(newPointsInput, 10);
+    if (isNaN(newVal) || newVal < 0) return;
+    setSavingPoints(true);
+    const delta = newVal - displayPoints;
+    const ok = await clientService.adjustLoyaltyPoints(
+      client.id,
+      delta,
+      `${pointsReason} (manuel) — ${displayPoints} → ${newVal} pts`
+    );
+    if (ok) {
+      const prev = displayPoints;
+      setDisplayPoints(newVal);
+      onPointsUpdated?.(newVal);
+      setShowEditPoints(false);
+      setNewPointsInput('');
+      toast.success(`Points mis à jour : ${prev} → ${newVal}`, { duration: 3000, icon: '⭐' });
+    } else {
+      toast.error('Erreur lors de la mise à jour des points');
+    }
+    setSavingPoints(false);
+  };
+
+  const nextTier = loyaltyTiers.length > 0 ? getNextTier(loyaltyTiers, displayPoints) : null;
+  const ptsToNext = loyaltyTiers.length > 0 ? pointsToNextTier(loyaltyTiers, displayPoints) : 0;
   const availableCount = allRewards.filter((r) => r.status === 'available').length;
 
   const TYPE_LABELS: Record<string, string> = {
@@ -180,15 +211,71 @@ function ClientFicheSlideOver({ client, allRewards, loyaltyTiers, onClose }: Cli
             <div className="p-4 border-b border-border">
               <p className="text-[10px] font-700 text-muted-foreground uppercase tracking-wide mb-2">Fidélité</p>
               <div className="grid grid-cols-2 gap-2 mb-2">
-                <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-center">
-                  <p className="text-xl font-700 text-amber-700 tabular-nums">{client.points.toLocaleString('fr-FR')}</p>
+                <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-center relative">
+                  <p className="text-xl font-700 text-amber-700 tabular-nums">{displayPoints.toLocaleString('fr-FR')}</p>
                   <p className="text-[10px] text-amber-600">Points</p>
+                  <button
+                    onClick={() => { setShowEditPoints((v) => !v); setNewPointsInput(String(displayPoints)); }}
+                    className="absolute top-1.5 right-1.5 p-1 rounded hover:bg-amber-200 text-amber-500 hover:text-amber-800 transition-colors"
+                    title="Modifier les points"
+                  >
+                    <Icon name="PencilIcon" size={10} />
+                  </button>
                 </div>
                 <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-center">
                   <p className="text-sm font-700 text-amber-700 capitalize">{fullClient?.loyaltyTier ?? '—'}</p>
                   <p className="text-[10px] text-amber-600">Palier</p>
                 </div>
               </div>
+
+              {/* Inline edit points form */}
+              {showEditPoints && (
+                <div className="mb-2 p-3 bg-white border border-amber-200 rounded-xl shadow-sm">
+                  <p className="text-xs font-700 text-foreground mb-2">Modifier les points</p>
+                  <p className="text-[11px] text-muted-foreground mb-2">Solde actuel : <strong>{displayPoints} pts</strong></p>
+                  <div className="mb-2">
+                    <label className="text-[10px] font-600 text-muted-foreground block mb-1">Nouveau solde</label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={newPointsInput}
+                      onChange={(e) => setNewPointsInput(e.target.value)}
+                      placeholder="Ex: 750"
+                      className="w-full px-3 py-1.5 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
+                    />
+                  </div>
+                  <div className="mb-3">
+                    <label className="text-[10px] font-600 text-muted-foreground block mb-1">Raison</label>
+                    <select
+                      value={pointsReason}
+                      onChange={(e) => setPointsReason(e.target.value)}
+                      className="w-full px-3 py-1.5 border border-border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-300"
+                    >
+                      <option value="Correction manuelle">Correction manuelle</option>
+                      <option value="Geste commercial">Geste commercial</option>
+                      <option value="Migration points">Migration points</option>
+                      <option value="Autre">Autre</option>
+                    </select>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => { setShowEditPoints(false); setNewPointsInput(''); }}
+                      className="flex-1 py-1.5 border border-border rounded-lg text-xs font-600 text-muted-foreground hover:bg-muted transition-colors"
+                    >
+                      Annuler
+                    </button>
+                    <button
+                      onClick={handleSavePoints}
+                      disabled={savingPoints || newPointsInput === '' || parseInt(newPointsInput, 10) < 0}
+                      className="flex-1 py-1.5 bg-amber-500 text-white rounded-lg text-xs font-700 hover:bg-amber-600 transition-colors disabled:opacity-40 flex items-center justify-center gap-1"
+                    >
+                      {savingPoints ? <Icon name="ArrowPathIcon" size={11} className="animate-spin" /> : <Icon name="CheckIcon" size={11} />}
+                      Enregistrer
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {nextTier && ptsToNext > 0 && (
                 <div>
                   <div className="flex items-center justify-between mb-1">
@@ -198,7 +285,7 @@ function ClientFicheSlideOver({ client, allRewards, loyaltyTiers, onClose }: Cli
                   <div className="h-1.5 bg-amber-100 rounded-full overflow-hidden">
                     <div
                       className="h-full bg-gradient-to-r from-amber-400 to-orange-400 rounded-full"
-                      style={{ width: `${Math.min(100, Math.max(3, ((client.points % nextTier.pointsRequired) / nextTier.pointsRequired) * 100))}%` }}
+                      style={{ width: `${Math.min(100, Math.max(3, ((displayPoints % nextTier.pointsRequired) / nextTier.pointsRequired) * 100))}%` }}
                     />
                   </div>
                 </div>
@@ -1348,6 +1435,7 @@ export default function POSTerminal() {
           allRewards={allClientRewards}
           loyaltyTiers={loyaltyTiers}
           onClose={() => setShowClientFiche(false)}
+          onPointsUpdated={(newPts) => setClient((prev) => prev ? { ...prev, points: newPts } : prev)}
         />
       )}
     </div>
