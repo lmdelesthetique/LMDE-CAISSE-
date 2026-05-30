@@ -175,6 +175,22 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
   const [depositPercent, setDepositPercent] = useState<number | null>(reservation?.depositPercent ?? null);
   const [depositCustom, setDepositCustom] = useState(reservation?.depositAmount ? String(reservation.depositAmount) : '');
 
+  // Remise
+  const [remiseType, setRemiseType] = useState<'none' | 'percentage' | 'fixed'>(
+    reservation?.remiseType ?? 'none'
+  );
+  const [remisePctPreset, setRemisePctPreset] = useState<number | null>(
+    reservation?.remiseType === 'percentage' ? (reservation.remiseValeur ?? null) : null
+  );
+  const [remisePctCustom, setRemisePctCustom] = useState(
+    reservation?.remiseType === 'percentage' && reservation.remiseValeur != null &&
+    ![5, 10, 15, 20].includes(reservation.remiseValeur) ? String(reservation.remiseValeur) : ''
+  );
+  const [remiseFixed, setRemiseFixed] = useState(
+    reservation?.remiseType === 'fixed' ? String(reservation.remiseValeur ?? '') : ''
+  );
+  const [remiseMotif, setRemiseMotif] = useState(reservation?.remiseMotif ?? '');
+
   // Delivery info
   const [deliveryAddress, setDeliveryAddress] = useState(reservation?.deliveryAddress ?? '');
   const [deliveryPhone, setDeliveryPhone] = useState(reservation?.deliveryPhone ?? '');
@@ -209,12 +225,23 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
 
   const totalAmount = items.reduce((sum, it) => sum + it.qty * it.price, 0);
 
-  // Compute deposit amount from percent or custom
+  // Remise calculations
+  const remisePct = remiseType === 'percentage'
+    ? (remisePctPreset !== null ? remisePctPreset : parseFloat(remisePctCustom) || 0)
+    : 0;
+  const remiseMontant = remiseType === 'percentage'
+    ? Math.round((totalAmount * remisePct) / 100 * 100) / 100
+    : remiseType === 'fixed'
+    ? Math.min(parseFloat(remiseFixed) || 0, totalAmount)
+    : 0;
+  const totalFinal = Math.max(0, totalAmount - remiseMontant);
+
+  // Compute deposit amount from percent or custom (base = totalFinal)
   const depositAmount = depositPercent !== null
-    ? Math.round((totalAmount * depositPercent) / 100 * 100) / 100
+    ? Math.round((totalFinal * depositPercent) / 100 * 100) / 100
     : parseFloat(depositCustom) || 0;
-  const balanceDue = Math.max(0, totalAmount - depositAmount);
-  const depositPct = totalAmount > 0 ? Math.round((depositAmount / totalAmount) * 100) : 0;
+  const balanceDue = Math.max(0, totalFinal - depositAmount);
+  const depositPct = totalFinal > 0 ? Math.round((depositAmount / totalFinal) * 100) : 0;
 
   const showDeliveryFields = recoveryMode === 'a_livrer' || recoveryMode === 'livraison_en_cours' || recoveryMode === 'expedie';
 
@@ -278,6 +305,7 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
     e.preventDefault();
     if (!clientName.trim()) { setError('Le nom du client est requis.'); return; }
     if (items.some((it) => !it.name.trim())) { setError('Tous les articles doivent avoir un nom.'); return; }
+    if (remiseMontant > 0 && !remiseMotif.trim()) { setError('Le motif de remise est obligatoire.'); return; }
     setSaving(true);
     setError(null);
     setClientSyncMsg(null);
@@ -319,6 +347,7 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
       clientEmail: clientEmail.trim() || undefined,
       items: itemsPayload,
       totalAmount,
+      totalFinal,
       depositAmount,
       depositPercent: depositPercent ?? undefined,
       reservationType: reservationType ?? undefined,
@@ -333,6 +362,10 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
       deliveryContact: deliveryContact.trim() || undefined,
       deliveryNotes: deliveryNotes.trim() || undefined,
       cashierName: 'Sophie Fontaine',
+      remiseType: remiseType === 'none' ? null : remiseType,
+      remiseValeur: remiseMontant > 0 ? (remiseType === 'percentage' ? remisePct : (parseFloat(remiseFixed) || 0)) : null,
+      remiseMontant: remiseMontant > 0 ? remiseMontant : null,
+      remiseMotif: remiseMontant > 0 ? remiseMotif.trim() || null : null,
     };
 
     try {
@@ -626,8 +659,8 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
                 {depositAmount > 0 && (
                   <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 grid grid-cols-3 gap-3">
                     <div className="text-center">
-                      <p className="text-[10px] text-amber-600 uppercase font-600">Total</p>
-                      <p className="text-base font-700 tabular-nums text-amber-800">{totalAmount.toFixed(2)} €</p>
+                      <p className="text-[10px] text-amber-600 uppercase font-600">Total{remiseMontant > 0 ? ' après remise' : ''}</p>
+                      <p className="text-base font-700 tabular-nums text-amber-800">{totalFinal.toFixed(2)} €</p>
                     </div>
                     <div className="text-center border-x border-amber-200">
                       <p className="text-[10px] text-amber-600 uppercase font-600">Acompte ({depositPct}%)</p>
@@ -636,6 +669,119 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
                     <div className="text-center">
                       <p className="text-[10px] text-amber-600 uppercase font-600">Reste dû</p>
                       <p className="text-base font-700 tabular-nums text-amber-800">{balanceDue.toFixed(2)} €</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
+
+            {/* ── 5.5. Remise ── */}
+            <section>
+              <p className="text-xs font-600 uppercase tracking-widest text-muted-foreground mb-3">Remise</p>
+              <div className="space-y-3">
+                {/* Type selector */}
+                <div className="flex gap-2">
+                  {([
+                    { key: 'none',       label: 'Aucune' },
+                    { key: 'percentage', label: '% Pourcentage' },
+                    { key: 'fixed',      label: '€ Montant fixe' },
+                  ] as const).map(({ key, label }) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setRemiseType(key)}
+                      className={`px-3 py-1.5 rounded-lg border text-xs font-600 transition-all ${
+                        remiseType === key
+                          ? 'border-violet-500 bg-violet-50 text-violet-700'
+                          : 'border-border text-muted-foreground hover:border-violet-300'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Percentage controls */}
+                {remiseType === 'percentage' && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {[5, 10, 15, 20].map((pct) => (
+                        <button
+                          key={pct}
+                          type="button"
+                          onClick={() => { setRemisePctPreset(remisePctPreset === pct ? null : pct); setRemisePctCustom(''); }}
+                          className={`px-4 py-2 rounded-lg border text-sm font-600 transition-all ${
+                            remisePctPreset === pct
+                              ? 'border-violet-500 bg-violet-50 text-violet-700'
+                              : 'border-border text-muted-foreground hover:border-violet-300'
+                          }`}
+                        >
+                          {pct}%
+                        </button>
+                      ))}
+                      <span className="text-xs text-muted-foreground">ou</span>
+                      <input
+                        type="number" min="0" max="100" step="0.1"
+                        value={remisePctPreset !== null ? '' : remisePctCustom}
+                        onChange={(e) => { setRemisePctPreset(null); setRemisePctCustom(e.target.value); }}
+                        placeholder="% libre"
+                        className="w-24 border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Fixed amount control */}
+                {remiseType === 'fixed' && (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number" min="0" step="0.01"
+                      value={remiseFixed}
+                      onChange={(e) => setRemiseFixed(e.target.value)}
+                      placeholder="Montant en €"
+                      className="w-36 border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
+                    />
+                    <span className="text-sm text-muted-foreground">€</span>
+                  </div>
+                )}
+
+                {/* Motif */}
+                {remiseType !== 'none' && (
+                  <div>
+                    <label className="block text-xs font-500 text-foreground mb-1">
+                      Motif <span className="text-destructive">*</span>
+                    </label>
+                    <select
+                      value={remiseMotif}
+                      onChange={(e) => setRemiseMotif(e.target.value)}
+                      className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
+                    >
+                      <option value="">— Choisir un motif —</option>
+                      <option value="fidélité">Fidélité client</option>
+                      <option value="geste_commercial">Geste commercial</option>
+                      <option value="offre_spéciale">Offre spéciale</option>
+                      <option value="erreur_prix">Correction de prix</option>
+                      <option value="autre">Autre</option>
+                    </select>
+                  </div>
+                )}
+
+                {/* Recap */}
+                {remiseMontant > 0 && (
+                  <div className="bg-violet-50 border border-violet-200 rounded-xl px-4 py-3 grid grid-cols-3 gap-3">
+                    <div className="text-center">
+                      <p className="text-[10px] text-violet-600 uppercase font-600">Sous-total</p>
+                      <p className="text-base font-700 tabular-nums text-violet-800">{totalAmount.toFixed(2)} €</p>
+                    </div>
+                    <div className="text-center border-x border-violet-200">
+                      <p className="text-[10px] text-violet-600 uppercase font-600">
+                        Remise{remiseType === 'percentage' ? ` (${remisePct}%)` : ''}
+                      </p>
+                      <p className="text-base font-700 tabular-nums text-violet-800">−{remiseMontant.toFixed(2)} €</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-[10px] text-violet-600 uppercase font-600">Total final</p>
+                      <p className="text-base font-700 tabular-nums text-violet-900">{totalFinal.toFixed(2)} €</p>
                     </div>
                   </div>
                 )}

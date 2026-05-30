@@ -88,6 +88,10 @@ export interface Reservation {
   deliveryNotes: string | null;
   cashierName: string | null;
   posSaleId: string | null;
+  remiseType: 'percentage' | 'fixed' | null;
+  remiseValeur: number | null;
+  remiseMontant: number | null;
+  remiseMotif: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -99,6 +103,7 @@ export interface CreateReservationInput {
   clientEmail?: string;
   items: ReservationItem[];
   totalAmount: number;
+  totalFinal?: number;
   depositAmount: number;
   depositPercent?: number;
   reservationType?: ReservationType;
@@ -113,6 +118,10 @@ export interface CreateReservationInput {
   deliveryContact?: string;
   deliveryNotes?: string;
   cashierName?: string;
+  remiseType?: 'percentage' | 'fixed' | null;
+  remiseValeur?: number | null;
+  remiseMontant?: number | null;
+  remiseMotif?: string | null;
 }
 
 export interface CreateFromPOSInput {
@@ -217,6 +226,10 @@ function mapReservation(row: any): Reservation {
     deliveryNotes: row.delivery_notes ?? null,
     cashierName: row.cashier_name,
     posSaleId: row.pos_sale_id ?? null,
+    remiseType: row.remise_type ?? null,
+    remiseValeur: row.remise_valeur != null ? parseFloat(row.remise_valeur) : null,
+    remiseMontant: row.remise_montant != null ? parseFloat(row.remise_montant) : null,
+    remiseMotif: row.remise_motif ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -363,7 +376,7 @@ export const reservationService = {
         client_phone: input.clientPhone || null,
         client_email: input.clientEmail || null,
         items: input.items,
-        total_amount: input.totalAmount,
+        total_amount: input.totalFinal ?? input.totalAmount,
         deposit_amount: input.depositAmount,
         deposit_paid: 0,
         balance_paid: 0,
@@ -381,6 +394,10 @@ export const reservationService = {
         delivery_contact: input.deliveryContact || null,
         delivery_notes: input.deliveryNotes || null,
         cashier_name: input.cashierName || null,
+        remise_type: input.remiseType ?? null,
+        remise_valeur: input.remiseValeur ?? null,
+        remise_montant: input.remiseMontant ?? null,
+        remise_motif: input.remiseMotif ?? null,
       })
       .select()
       .single();
@@ -632,8 +649,15 @@ export const reservationService = {
       if (input.deliveryNotes !== undefined) updatePayload.delivery_notes = input.deliveryNotes || null;
       if (input.items !== undefined) {
         updatePayload.items = input.items;
-        updatePayload.total_amount = input.items.reduce((s, it) => s + it.qty * it.price, 0);
+        const itemsSum = input.items.reduce((s, it) => s + it.qty * it.price, 0);
+        updatePayload.total_amount = input.totalFinal ?? itemsSum;
+      } else if (input.totalFinal !== undefined) {
+        updatePayload.total_amount = input.totalFinal;
       }
+      if (input.remiseType !== undefined) updatePayload.remise_type = input.remiseType ?? null;
+      if (input.remiseValeur !== undefined) updatePayload.remise_valeur = input.remiseValeur ?? null;
+      if (input.remiseMontant !== undefined) updatePayload.remise_montant = input.remiseMontant ?? null;
+      if (input.remiseMotif !== undefined) updatePayload.remise_motif = input.remiseMotif ?? null;
 
       const { data, error } = await supabase
         .from('reservations')

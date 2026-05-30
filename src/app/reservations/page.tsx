@@ -532,7 +532,14 @@ export default function ReservationsPage() {
                         </td>
 
                         {/* Total */}
-                        <td className="px-4 py-3 text-right font-600 text-foreground tabular-nums">{res.totalAmount.toFixed(2)} €</td>
+                        <td className="px-4 py-3 text-right">
+                          <span className="font-600 text-foreground tabular-nums">{res.totalAmount.toFixed(2)} €</span>
+                          {res.remiseMontant && res.remiseMontant > 0 && (
+                            <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-600 bg-violet-100 text-violet-700 border border-violet-200">
+                              −{res.remiseMontant.toFixed(2)} €
+                            </span>
+                          )}
+                        </td>
 
                         {/* Paid */}
                         <td className="px-4 py-3 text-right hidden sm:table-cell">
