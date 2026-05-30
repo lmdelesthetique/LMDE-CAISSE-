@@ -673,9 +673,11 @@ export default function LoyaltyPage() {
                               </div>
                               <div className="text-right shrink-0">
                                 <p className="text-sm font-700 tabular-nums text-amber-600">{c.loyaltyPoints.toLocaleString('fr-FR')} pts</p>
-                                <span className={`text-[10px] font-600 px-1.5 py-0.5 rounded-full border ${TIER_BADGE[c.loyaltyTier] ?? TIER_BADGE.bronze}`}>
-                                  {TIER_LABEL[c.loyaltyTier] ?? c.loyaltyTier}
-                                </span>
+                                {c.loyaltyTier && (
+                                  <span className={`text-[10px] font-600 px-1.5 py-0.5 rounded-full border ${TIER_BADGE[c.loyaltyTier] ?? 'text-muted-foreground bg-muted border-border'}`}>
+                                    {TIER_LABEL[c.loyaltyTier] ?? c.loyaltyTier}
+                                  </span>
+                                )}
                               </div>
                             </div>
                           ))}

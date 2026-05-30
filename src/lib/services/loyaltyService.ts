@@ -68,7 +68,7 @@ export interface TopLoyaltyClient {
   loyaltyPoints: number;
   totalSpent: number;
   totalVisits: number;
-  loyaltyTier: string;
+  loyaltyTier: string | null;
 }
 
 export interface RewardBreakdown {
@@ -624,51 +624,92 @@ export const loyaltyService = {
   async getDashboardStats(): Promise<LoyaltyDashboardStats> {
     const supabase = createClient();
     try {
-      const [clientsRes, redemptionsRes, transactions] = await Promise.all([
+      // 1. Exact client count (no limit — just a count query)
+      const { count: clientCount } = await supabase
+        .from('clients')
+        .select('*', { count: 'exact', head: true })
+        .eq('is_active', true);
+      const totalClients = clientCount ?? 0;
+
+      // 2. Top 10 clients by points — fetch raw rows only (no limit beyond 10)
+      const { data: topRaw } = await supabase
+        .from('clients')
+        .select('id, first_name, last_name, loyalty_points, loyalty_tier, phone')
+        .eq('is_active', true)
+        .order('loyalty_points', { ascending: false })
+        .limit(10);
+
+      // 3. Total points issued = SUM(loyalty_points) across ALL active clients
+      //    (one lightweight column, paginated for correctness at scale)
+      const allPointsRows = await fetchAll<{ loyalty_points: number }>((from, to) =>
+        supabase.from('clients').select('loyalty_points').eq('is_active', true).range(from, to)
+      );
+      const totalPointsIssued = allPointsRows.reduce((s, c) => s + (c.loyalty_points ?? 0), 0);
+
+      // 4. Points used = sum of negative loyalty_transaction changes
+      const negTx = await fetchAll<{ points_change: number }>((from, to) =>
         supabase
-          .from('clients')
-          .select('id, first_name, last_name, loyalty_points, total_spent, total_visits, loyalty_tier, phone')
-          .eq('is_active', true)
-          .order('loyalty_points', { ascending: false })
-          .limit(100),
+          .from('loyalty_transactions')
+          .select('points_change')
+          .lt('points_change', 0)
+          .range(from, to)
+      );
+      const totalPointsUsed = negTx.reduce((s, t) => s + Math.abs(t.points_change ?? 0), 0);
+
+      // 5. Redemptions (for count, breakdown, recent list)
+      const { data: redemptions } = await supabase
+        .from('loyalty_redemptions')
+        .select('*')
+        .order('redeemed_at', { ascending: false })
+        .limit(200);
+      const allRedemptions = redemptions ?? [];
+
+      // 6. Avg basket from real receipts (payment_type = 'sale')
+      const receiptTotals = await fetchAll<{ total_amount: number }>((from, to) =>
         supabase
-          .from('loyalty_redemptions')
-          .select('*')
-          .order('redeemed_at', { ascending: false })
-          .limit(200),
-        fetchAll<any>((from, to) =>
-          supabase.from('loyalty_transactions').select('points_change').range(from, to)
-        ),
-      ]);
-
-      const clients = clientsRes.data ?? [];
-      const redemptions = redemptionsRes.data ?? [];
-
-      const totalPointsIssued = transactions
-        .filter((t: any) => t.points_change > 0)
-        .reduce((s: number, t: any) => s + t.points_change, 0);
-
-      const totalPointsUsed = transactions
-        .filter((t: any) => t.points_change < 0)
-        .reduce((s: number, t: any) => s + Math.abs(t.points_change), 0);
-
-      const topClients: TopLoyaltyClient[] = clients.slice(0, 10).map((c: any) => ({
-        id: c.id,
-        fullName: `${c.first_name} ${c.last_name}`,
-        phone: c.phone ?? null,
-        loyaltyPoints: c.loyalty_points ?? 0,
-        totalSpent: parseFloat(c.total_spent ?? 0),
-        totalVisits: c.total_visits ?? 0,
-        loyaltyTier: c.loyalty_tier ?? 'bronze',
-      }));
-
-      const avgBasket = clients.length > 0
-        ? clients.reduce((s: number, c: any) => s + parseFloat(c.total_spent ?? 0), 0) / clients.length
+          .from('receipts')
+          .select('total_amount')
+          .eq('payment_type', 'sale')
+          .gt('total_amount', 0)
+          .range(from, to)
+      );
+      const avgBasket = receiptTotals.length > 0
+        ? receiptTotals.reduce((s, r) => s + parseFloat(String(r.total_amount ?? 0)), 0) / receiptTotals.length
         : 0;
 
-      // Reward breakdown
+      // 7. Top clients — pull real totals from receipts table
+      const topClientIds = (topRaw ?? []).map((c: any) => c.id);
+      let receiptsByClient: Record<string, { total: number; count: number }> = {};
+      if (topClientIds.length > 0) {
+        const { data: clientReceipts } = await supabase
+          .from('receipts')
+          .select('client_id, total_amount')
+          .in('client_id', topClientIds)
+          .eq('payment_type', 'sale');
+        for (const r of clientReceipts ?? []) {
+          if (!r.client_id) continue;
+          if (!receiptsByClient[r.client_id]) receiptsByClient[r.client_id] = { total: 0, count: 0 };
+          receiptsByClient[r.client_id].total += parseFloat(String(r.total_amount ?? 0));
+          receiptsByClient[r.client_id].count += 1;
+        }
+      }
+
+      const topClients: TopLoyaltyClient[] = (topRaw ?? []).map((c: any) => {
+        const stats = receiptsByClient[c.id];
+        return {
+          id: c.id,
+          fullName: `${c.first_name} ${c.last_name}`,
+          phone: c.phone ?? null,
+          loyaltyPoints: c.loyalty_points ?? 0,
+          totalSpent: stats?.total ?? 0,
+          totalVisits: stats?.count ?? 0,
+          loyaltyTier: c.loyalty_tier || null,
+        };
+      });
+
+      // 8. Reward breakdown from real redemptions
       const rewardMap: Record<string, number> = {};
-      for (const r of redemptions) {
+      for (const r of allRedemptions) {
         rewardMap[r.reward_type] = (rewardMap[r.reward_type] ?? 0) + 1;
       }
       const rewardBreakdown: RewardBreakdown[] = Object.entries(rewardMap).map(([type, count]) => ({
@@ -677,15 +718,26 @@ export const loyaltyService = {
         label: REWARD_TYPE_LABELS[type] ?? type,
       }));
 
-      // Recent redemptions with client names
-      const clientMap: Record<string, string> = {};
-      for (const c of clients) {
-        clientMap[c.id] = `${c.first_name} ${c.last_name}`;
+      // 9. Recent redemptions — fetch client names for ids not in top-10
+      const redemptionClientIds = [...new Set(allRedemptions.slice(0, 20).map((r: any) => r.client_id).filter(Boolean))];
+      const missingIds = redemptionClientIds.filter((id) => !(topRaw ?? []).some((c: any) => c.id === id));
+      const clientNameMap: Record<string, string> = {};
+      for (const c of topRaw ?? []) {
+        clientNameMap[c.id] = `${c.first_name} ${c.last_name}`;
+      }
+      if (missingIds.length > 0) {
+        const { data: extraClients } = await supabase
+          .from('clients')
+          .select('id, first_name, last_name')
+          .in('id', missingIds);
+        for (const c of extraClients ?? []) {
+          clientNameMap[c.id] = `${c.first_name} ${c.last_name}`;
+        }
       }
 
-      const recentRedemptions: RecentRedemption[] = redemptions.slice(0, 20).map((r: any) => ({
+      const recentRedemptions: RecentRedemption[] = allRedemptions.slice(0, 20).map((r: any) => ({
         id: r.id,
-        clientName: clientMap[r.client_id] ?? 'Client inconnu',
+        clientName: clientNameMap[r.client_id] ?? 'Client inconnu',
         rewardDescription: r.reward_description,
         rewardType: r.reward_type,
         pointsAtRedemption: r.points_at_redemption,
@@ -694,10 +746,10 @@ export const loyaltyService = {
       }));
 
       return {
-        totalClients: clients.length,
+        totalClients,
         totalPointsIssued,
         totalPointsUsed,
-        totalRedemptions: redemptions.length,
+        totalRedemptions: allRedemptions.length,
         avgBasket,
         topClients,
         rewardBreakdown,
