@@ -1,19 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-const SESSION_COOKIE = 'app_session';
-
-function isSessionValid(req: NextRequest): boolean {
-  const value = req.cookies.get(SESSION_COOKIE)?.value;
-  if (!value) return false;
-  try {
-    const { exp } = JSON.parse(atob(value)) as { exp: number };
-    return Date.now() < exp;
-  } catch {
-    return false;
-  }
-}
-
 function makeClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   if (!url) throw new Error('NEXT_PUBLIC_SUPABASE_URL not set');
@@ -39,16 +26,12 @@ const DEFAULTS = {
   show_next_tier: true,
 };
 
-export async function GET(req: NextRequest) {
-  if (!isSessionValid(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
+// ─── GET /api/ticket-settings ─────────────────────────────────────────────────
+export async function GET() {
   let supabase;
   try { supabase = makeClient(); } catch {
     return NextResponse.json(DEFAULTS);
   }
-
   try {
     const { data, error } = await supabase
       .from('ticket_settings')
@@ -62,17 +45,13 @@ export async function GET(req: NextRequest) {
   }
 }
 
+// ─── POST /api/ticket-settings ────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
-  if (!isSessionValid(req)) {
-    console.error('[api/ticket-settings POST] session invalid');
-    return NextResponse.json({ ok: false, error: 'Session expirée — rechargez la page' }, { status: 401 });
-  }
-
   let body: Record<string, unknown>;
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ ok: false, error: 'Corps de requête invalide' }, { status: 400 });
+    return NextResponse.json({ ok: false, error: 'Corps de requête invalide (JSON attendu)' }, { status: 400 });
   }
 
   let supabase;
@@ -80,23 +59,72 @@ export async function POST(req: NextRequest) {
     supabase = makeClient();
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error('[api/ticket-settings POST] client init failed:', msg);
+    console.error('[api/ticket-settings POST] client init:', msg);
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 
-  console.log('[api/ticket-settings POST] upserting row id=1');
+  const payload = {
+    id: 1,
+    header_text:         body.header_text         ?? DEFAULTS.header_text,
+    footer_text:         body.footer_text         ?? DEFAULTS.footer_text,
+    thank_you_message:   body.thank_you_message   ?? DEFAULTS.thank_you_message,
+    paper_width:         body.paper_width         ?? DEFAULTS.paper_width,
+    font_size:           body.font_size           ?? DEFAULTS.font_size,
+    show_logo:           body.show_logo           ?? DEFAULTS.show_logo,
+    show_tva_detail:     body.show_tva_detail     ?? DEFAULTS.show_tva_detail,
+    show_barcode:        body.show_barcode        ?? DEFAULTS.show_barcode,
+    show_loyalty_points: body.show_loyalty_points ?? DEFAULTS.show_loyalty_points,
+    show_next_tier:      body.show_next_tier      ?? DEFAULTS.show_next_tier,
+    updated_at:          new Date().toISOString(),
+  };
+
+  console.log('[api/ticket-settings POST] upserting:', JSON.stringify(payload));
+
   const { error } = await supabase
     .from('ticket_settings')
-    .upsert({ id: 1, ...body, updated_at: new Date().toISOString() }, { onConflict: 'id' });
+    .upsert(payload, { onConflict: 'id' });
 
   if (error) {
-    console.error('[api/ticket-settings POST] upsert error:', error.code, error.message);
-    const hint = error.code === '42P01'
-      ? ' — la table ticket_settings n\'existe pas, exécutez la migration SQL'
-      : '';
-    return NextResponse.json({ ok: false, error: error.message + hint, code: error.code }, { status: 500 });
+    console.error('[api/ticket-settings POST] upsert error code:', error.code, 'message:', error.message);
+    if (error.code === '42P01') {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'La table ticket_settings n\'existe pas. Exécutez cette migration dans Supabase SQL Editor :',
+          sql: SETUP_SQL,
+          code: error.code,
+        },
+        { status: 500 }
+      );
+    }
+    return NextResponse.json({ ok: false, error: error.message, code: error.code }, { status: 500 });
   }
 
   console.log('[api/ticket-settings POST] saved OK');
   return NextResponse.json({ ok: true });
 }
+
+const SETUP_SQL = `
+CREATE TABLE IF NOT EXISTS public.ticket_settings (
+  id                  INT PRIMARY KEY DEFAULT 1,
+  header_text         TEXT,
+  footer_text         TEXT,
+  thank_you_message   TEXT,
+  paper_width         TEXT DEFAULT '80mm',
+  font_size           TEXT DEFAULT 'medium',
+  show_logo           BOOLEAN DEFAULT true,
+  show_tva_detail     BOOLEAN DEFAULT true,
+  show_barcode        BOOLEAN DEFAULT true,
+  show_loyalty_points BOOLEAN DEFAULT true,
+  show_next_tier      BOOLEAN DEFAULT true,
+  updated_at          TIMESTAMPTZ DEFAULT now(),
+  CONSTRAINT single_row CHECK (id = 1)
+);
+ALTER TABLE public.ticket_settings ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='ticket_settings' AND policyname='allow_all_ticket_settings') THEN
+    CREATE POLICY allow_all_ticket_settings ON public.ticket_settings FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+END $$;
+INSERT INTO public.ticket_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+`.trim();

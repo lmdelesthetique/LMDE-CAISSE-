@@ -1004,17 +1004,27 @@ export default function AdminConfigPage() {
           show_loyalty_points: receiptTemplate.showPoints,
           show_next_tier: receiptTemplate.showNextTier,
         };
-        console.log('[admin-config] saving ticket settings:', body);
+        console.log('[admin-config] POST /api/ticket-settings body:', body);
         const res = await fetch('/api/ticket-settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
         let resData: Record<string, unknown> = {};
-        try { resData = await res.json(); } catch {}
-        console.log('[admin-config] response', res.status, resData);
+        try { resData = await res.json(); } catch (jsonErr) {
+          console.error('[admin-config] failed to parse response JSON:', jsonErr);
+        }
+        console.log('[admin-config] response status:', res.status, 'data:', resData);
         if (!res.ok) {
-          throw new Error((resData.error as string) || `Erreur HTTP ${res.status}`);
+          const errorMsg = (resData.error as string) || `Erreur HTTP ${res.status}`;
+          // If the table is missing, show the SQL inline as well
+          if (resData.sql) {
+            console.error('[admin-config] TABLE MISSING. SQL to run:\n', resData.sql);
+            toast.error(`${errorMsg}\n\n→ Copiez le SQL affiché dans la console et exécutez-le dans Supabase`, { duration: 10000 });
+          } else {
+            toast.error(errorMsg, { duration: 8000 });
+          }
+          throw new Error(errorMsg);
         }
         try { localStorage.setItem('beautypos_ticket_settings', JSON.stringify(body)); } catch {}
       }
@@ -1023,8 +1033,8 @@ export default function AdminConfigPage() {
       setTimeout(() => setSaved(false), 2500);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      console.error('[admin-config save]', msg);
-      toast.error(msg);
+      console.error('[admin-config save error]', msg);
+      // toast already shown above for API errors; show here only for unexpected JS errors
     } finally {
       setSaving(false);
     }
