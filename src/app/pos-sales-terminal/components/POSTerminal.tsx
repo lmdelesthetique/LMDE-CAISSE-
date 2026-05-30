@@ -19,10 +19,12 @@ import {
   loyaltyService,
   detectUnlockedTiers,
   getNextTier,
+  getCurrentTier,
   pointsToNextTier,
   type LoyaltyTier,
   type ClientLoyaltyReward,
 } from '@/lib/services/loyaltyService';
+import { generateTicketHTML, loadSettingsFromCache, openAndPrint } from '@/lib/utils/ticketPrinter';
 import { clientService, type Client as FullClient, type ClientPurchase, type ClientSubscription } from '@/lib/services/clientService';
 import {
   sendReceiptEmail,
@@ -849,6 +851,7 @@ export default function POSTerminal() {
           totalPoints: newPoints,
           nextTier: next,
           pointsToNext: ptsToNext,
+          currentTierName: getCurrentTier(loyaltyTiers, newPoints)?.name ?? null,
         });
 
         setCart([]);
@@ -890,6 +893,7 @@ export default function POSTerminal() {
           totalPoints: newPoints,
           nextTier: next,
           pointsToNext: ptsToNext,
+          currentTierName: getCurrentTier(loyaltyTiers, newPoints)?.name ?? null,
         });
         setCart([]);
         setAppliedReward(null);
@@ -952,7 +956,7 @@ export default function POSTerminal() {
   const [lastSaleItems, setLastSaleItems] = useState<CartItem[]>([]);
   const [lastSaleMethod, setLastSaleMethod] = useState('');
   const [lastSaleTicketRef, setLastSaleTicketRef] = useState('');
-  const [lastSaleLoyalty, setLastSaleLoyalty] = useState<{ pointsEarned: number; totalPoints: number; nextTier: LoyaltyTier | null; pointsToNext: number } | null>(null);
+  const [lastSaleLoyalty, setLastSaleLoyalty] = useState<{ pointsEarned: number; totalPoints: number; nextTier: LoyaltyTier | null; pointsToNext: number; currentTierName: string | null } | null>(null);
 
   const handleDocChoiceClose = useCallback(() => {
     setShowDocChoice(false);
@@ -1450,7 +1454,7 @@ interface PostPaymentDocModalProps {
   items: CartItem[];
   paymentMethod?: string;
   ticketRef?: string;
-  loyaltyInfo?: { pointsEarned: number; totalPoints: number; nextTier: LoyaltyTier | null; pointsToNext: number } | null;
+  loyaltyInfo?: { pointsEarned: number; totalPoints: number; nextTier: LoyaltyTier | null; pointsToNext: number; currentTierName?: string | null } | null;
   onClose: () => void;
 }
 
@@ -1495,222 +1499,32 @@ function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, l
   };
 
   const handlePrintTicket = () => {
-    const win = window.open('', '_blank', 'width=420,height=700');
-    if (!win) return;
     const now = new Date();
     const ticketNumber = ticketRef || generateTicketNumber();
     const dateStr = now.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
     const timeStr = now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-
-    // total prop is already TTC (prices are VAT-inclusive) — extract HT and TVA
-    const subtotalHT = total / 1.085;
+    const s = loadSettingsFromCache();
+    const subtotalHT = total / (1 + s.tvaRate / 100);
     const totalTVA = total - subtotalHT;
-
-    // Load settings from localStorage cache or use defaults
-    let companyName = "LE MONDE DE L'ESTHETIQUE";
-    let companyAddress = 'Baie des Flamands Appt 306 9 avenue Loulou Boislaville';
-    let companyCity = 'Fort-de-France 97200';
-    let companyPhone = '';
-    let companyEmail = '';
-    let companySiret = '927 747 725';
-    let companyTva = 'FR71 927747 725';
-    let receiptFooter = 'Merci de votre visite !';
-    let sellerName = '';
-    let cashierLabel = 'Caisse principale';
-    let returnConditions = 'Retour accepté sous 30 jours selon conditions boutique. Produit non utilisé, non ouvert et en bon état. Ticket obligatoire pour tout retour ou échange.';
-    let returnExcluded = "Certains produits peuvent être exclus du retour (produits d'hygiène, consommables ouverts).";
-    let loyaltyPointsPerEuro = 1;
-
-    try {
-      const cached = localStorage.getItem('beautypos_settings');
-      if (cached) {
-        const s = JSON.parse(cached);
-        companyName = s.company_name || companyName;
-        companyAddress = s.address || companyAddress;
-        companyCity = `${s.city || 'Fort-de-France'} ${s.postal_code || '97200'}`;
-        companyPhone = s.phone || '';
-        companyEmail = s.email || '';
-        companySiret = s.siret || companySiret;
-        companyTva = s.tva_number || companyTva;
-        receiptFooter = s.receipt_footer || receiptFooter;
-        sellerName = s.receipt_seller_name || '';
-        cashierLabel = s.receipt_cashier_label || cashierLabel;
-        returnConditions = s.return_conditions || returnConditions;
-        returnExcluded = s.return_excluded_products || returnExcluded;
-        loyaltyPointsPerEuro = Number(s.loyalty_points_per_euro) || 1;
-      }
-    } catch { /* use defaults */ }
-
-    const pointsEarned = client ? Math.floor(total * loyaltyPointsPerEuro) : 0;
-    const totalPoints = client ? (client.points + pointsEarned) : 0;
-
-    const lines = items.map((i) => {
-      const lineTotal = Math.max(0, i.price * i.qty - (i.discountType === 'percent' ? i.price * i.qty * (i.discount / 100) : i.discount));
-      const discStr = i.discount > 0 ? `<tr><td colspan="3" style="font-size:10px;color:#000;padding:0 4px 3px 12px;font-style:italic">Remise: -${i.discountType === 'percent' ? i.discount + '%' : i.discount.toFixed(2) + ' \u20ac'}</td></tr>` : '';
-      return `
-        <tr style="border-bottom:1px dotted #555">
-          <td style="padding:4px 4px 4px 4px;vertical-align:top;font-weight:600;color:#000">${i.name}</td>
-          <td style="padding:4px 4px;text-align:center;vertical-align:top;white-space:nowrap;color:#000">${i.qty} x ${i.price.toFixed(2)}\u20ac</td>
-          <td style="padding:4px 4px;text-align:right;vertical-align:top;white-space:nowrap;font-weight:700;color:#000">${lineTotal.toFixed(2)}\u20ac</td>
-        </tr>${discStr}`;
-    }).join('');
-
-    win.document.write(`<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Ticket ${ticketNumber}</title><style>
-  * { box-sizing: border-box; margin: 0; padding: 0; color: #000 !important; background: transparent !important; background-color: #fff !important; box-shadow: none !important; text-shadow: none !important; background-image: none !important; }
-  body { font-family: 'Courier New', Courier, monospace !important; font-size: 12px; width: 300px; margin: 0 auto; padding: 10px 6px 20px 6px; color: #000; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .center { text-align: center; }
-  .right { text-align: right; }
-  .bold { font-weight: 700; }
-  .sep-dash { border: none; border-top: 1px dashed #000; margin: 7px 0; }
-  .sep-solid { border: none; border-top: 2px solid #000; margin: 7px 0; }
-  .sep-double { border: none; border-top: 3px double #000; margin: 7px 0; }
-  table { width: 100%; border-collapse: collapse; }
-  td, th { color: #000 !important; }
-  p, span, div, td, th, li, strong, b { color: #000 !important; font-weight: 700 !important; }
-  .section-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #000; margin-bottom: 4px; }
-  .info-table td { font-size: 11px; padding: 2px 2px; color: #000; }
-  .items-head th { font-size: 10px; font-weight: 700; text-transform: uppercase; padding: 3px 4px; border-top: 2px solid #000; border-bottom: 2px solid #000; color: #000; }
-  .total-ht td { font-size: 11px; padding: 3px 4px; color: #000; }
-  .total-tva td { font-size: 11px; padding: 3px 4px; color: #000; }
-  .total-ttc-row td { font-size: 18px; font-weight: 900; padding: 6px 4px; color: #000 !important; background: #fff !important; border-top: 3px solid #000 !important; border-bottom: 3px solid #000 !important; }
-  .payment-row td { font-size: 12px; font-weight: 700; padding: 3px 4px; color: #000; }
-  .loyalty-box { border: 2px solid #000; padding: 6px 8px; margin: 6px 0; }
-  .loyalty-box td { font-size: 11px; padding: 2px 2px; color: #000; }
-  .loyalty-pts-earned td { font-size: 13px; font-weight: 700; color: #000; padding: 3px 2px; }
-  .loyalty-next td { font-size: 10px; color: #000; padding: 2px 2px; font-style: italic; }
-  .return-box { font-size: 10px; color: #000; margin-top: 4px; }
-  .return-box .return-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 3px; }
-  .footer-msg { text-align: center; font-size: 12px; font-weight: 700; margin-top: 6px; color: #000; }
-  .footer-sub { text-align: center; font-size: 10px; margin-top: 3px; color: #000; }
-  @media print {
-    @page { size: 80mm auto; margin: 2mm; }
-    * { color: #000000 !important; background: transparent !important; background-color: #ffffff !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; box-shadow: none !important; text-shadow: none !important; background-image: none !important; border-color: #000000 !important; -webkit-text-fill-color: #000000 !important; }
-    body { font-family: 'Courier New', Courier, monospace !important; font-size: 12px !important; font-weight: 700 !important; width: 100%; padding: 4px; }
-    p, span, div, td, th, li, strong, b, h1, h2, h3, h4, h5 { color: #000000 !important; font-weight: 700 !important; font-family: 'Courier New', Courier, monospace !important; }
-    [class*="text-gray"], [class*="text-slate"], [class*="text-blue"], [class*="text-green"], [class*="text-red"], [class*="text-purple"] { color: #000000 !important; }
-    [class*="bg-"], .badge, .tag, .status, .chip { background: #ffffff !important; background-color: #ffffff !important; color: #000000 !important; border: 1px solid #000000 !important; }
-    hr, .divider, .separator, .sep-dash, .sep-solid, .sep-double { border: none !important; border-top: 2px solid #000000 !important; height: 2px !important; }
-    .total-ttc-row td, .ticket-total, .grand-total, .total-ttc { font-weight: 900 !important; font-size: 16px !important; border-top: 3px solid #000000 !important; border-bottom: 3px solid #000000 !important; color: #000000 !important; background: #ffffff !important; }
-    .ticket-header, [class*="header"] { font-weight: 900 !important; font-size: 14px !important; text-align: center !important; }
-  }
-</style></head><body>
-
-  <!-- ===== HEADER ===== -->
-  <div class="center bold" style="font-size:16px;letter-spacing:2px;text-transform:uppercase;border-bottom:3px double #000;padding-bottom:6px;margin-bottom:6px">${companyName}</div>
-  <div class="center" style="font-size:11px;font-weight:600">${companyAddress}</div>
-  <div class="center" style="font-size:11px;font-weight:600">${companyCity}</div>
-  ${companyPhone ? `<div class="center" style="font-size:11px">Tel : ${companyPhone}</div>` : ''}
-  ${companyEmail ? `<div class="center" style="font-size:11px">${companyEmail}</div>` : ''}
-  <div class="center" style="font-size:10px;margin-top:3px">SIRET : <strong>${companySiret}</strong></div>
-  <div class="center" style="font-size:10px">N\u00b0 TVA : <strong>${companyTva}</strong></div>
-
-  <hr class="sep-double" style="margin:8px 0">
-
-  <!-- ===== TICKET INFO ===== -->
-  <div class="section-title">Ticket de caisse</div>
-  <table class="info-table">
-    <tr><td style="font-weight:700">N\u00b0 Ticket</td><td class="right" style="font-weight:700">${ticketNumber}</td></tr>
-    <tr><td>Date</td><td class="right"><strong>${dateStr}</strong> ${timeStr}</td></tr>
-    ${sellerName ? `<tr><td>Vendeur</td><td class="right"><strong>${sellerName}</strong></td></tr>` : ''}
-    <tr><td>Caisse</td><td class="right">${cashierLabel}</td></tr>
-    ${client ? `<tr><td style="font-weight:700">Client</td><td class="right" style="font-weight:700">${client.name}</td></tr>` : ''}
-  </table>
-
-  <hr class="sep-solid" style="margin:8px 0">
-
-  <!-- ===== ARTICLES ===== -->
-  <div class="section-title">Articles</div>
-  <table>
-    <thead>
-      <tr class="items-head">
-        <th style="text-align:left;width:50%">Designation</th>
-        <th style="text-align:center;width:28%">Qte x PU</th>
-        <th style="text-align:right;width:22%">Total</th>
-      </tr>
-    </thead>
-    <tbody>${lines}</tbody>
-  </table>
-
-  <hr class="sep-solid" style="margin:8px 0">
-
-  <!-- ===== TOTAUX ===== -->
-  <div class="section-title">Totaux</div>
-  <table>
-    <tr class="total-ht">
-      <td>Sous-total HT</td>
-      <td class="right">${subtotalHT.toFixed(2)} \u20ac</td>
-    </tr>
-    <tr class="total-tva">
-      <td>TVA 8,5 %</td>
-      <td class="right">${totalTVA.toFixed(2)} \u20ac</td>
-    </tr>
-  </table>
-
-  <hr class="sep-dash" style="margin:5px 0">
-
-  <table>
-    <tr class="total-ttc-row">
-      <td style="text-align:left;padding-left:6px">TOTAL TTC</td>
-      <td style="text-align:right;padding-right:6px">${total.toFixed(2)} \u20ac</td>
-    </tr>
-  </table>
-
-  <!-- ===== PAIEMENT ===== -->
-  <table style="margin-top:6px">
-    <tr class="payment-row">
-      <td>Mode de paiement</td>
-      <td class="right">${paymentMethod || 'Carte / Especes'}</td>
-    </tr>
-    <tr class="payment-row">
-      <td>Montant regle</td>
-      <td class="right">${total.toFixed(2)} \u20ac</td>
-    </tr>
-  </table>
-
-  ${client && pointsEarned > 0 ? `
-  <hr class="sep-solid" style="margin:8px 0">
-  <!-- ===== FIDELITE ===== -->
-  <div class="loyalty-box">
-    <div class="center bold section-title" style="margin-bottom:5px;font-size:11px">*** PROGRAMME FIDELITE ***</div>
-    <table>
-      <tr class="loyalty-pts-earned">
-        <td>Points gagnes ce jour</td>
-        <td class="right">+ ${pointsEarned} pts</td>
-      </tr>
-      <tr>
-        <td style="font-size:12px;font-weight:700;padding:2px">Solde total points</td>
-        <td class="right" style="font-size:12px;font-weight:700;padding:2px">${totalPoints} pts</td>
-      </tr>
-      ${loyaltyInfo && loyaltyInfo.nextTier ? `
-      <tr class="loyalty-next">
-        <td colspan="2" style="padding-top:4px;border-top:1px dashed #000">
-          Prochaine recompense : <strong>${loyaltyInfo.nextTier.name}</strong><br>
-          Il vous reste <strong>${loyaltyInfo.pointsToNext} points</strong> pour l'obtenir
-        </td>
-      </tr>` : ''}
-    </table>
-  </div>` : ''}
-
-  <hr class="sep-solid" style="margin:8px 0">
-
-  <!-- ===== CONDITIONS RETOUR ===== -->
-  <div class="return-box">
-    <div class="return-title">Conditions de retour</div>
-    <div style="line-height:1.4">${returnConditions}</div>
-    ${returnExcluded ? `<div style="margin-top:4px;font-style:italic;border-top:1px dashed #000;padding-top:3px">${returnExcluded}</div>` : ''}
-  </div>
-
-  <hr class="sep-double" style="margin:8px 0">
-
-  <!-- ===== FOOTER ===== -->
-  <div class="footer-msg">${receiptFooter}</div>
-  <div class="footer-sub">Conservez ce ticket pour tout retour ou echange</div>
-  <div class="footer-sub" style="margin-top:4px;font-size:9px">- - - - - - - - - - - - - - - - - - - - - - - - -</div>
-
-<script>window.onload = function(){ window.print(); }</script>
-</body></html>`);
-    win.document.close();
+    openAndPrint(generateTicketHTML({
+      ...s,
+      ticketNumber,
+      dateStr,
+      timeStr,
+      clientName: client?.name,
+      items: items.map((i) => ({ name: i.name, qty: i.qty, price: i.price, discount: i.discount, discountType: i.discountType })),
+      subtotalHT,
+      totalTVA,
+      totalTTC: total,
+      paymentMethod: paymentMethod || 'Carte / Esp\u00e8ces',
+      loyalty: client && loyaltyInfo && loyaltyInfo.pointsEarned > 0 ? {
+        pointsEarned: loyaltyInfo.pointsEarned,
+        totalPoints: loyaltyInfo.totalPoints,
+        currentTierName: loyaltyInfo.currentTierName ?? null,
+        nextTierName: loyaltyInfo.nextTier?.name ?? null,
+        pointsToNext: loyaltyInfo.pointsToNext,
+      } : undefined,
+    }));
     onClose();
   };
 

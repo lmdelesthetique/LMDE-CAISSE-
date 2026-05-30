@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client';
 import { fetchReceiptById, modifyTicket, fetchTicketModifications, type ReceiptRecord, type TicketModification } from '@/lib/services/posService';
 import { sendReceiptEmail, type ReceiptEmailData } from '@/lib/services/emailService';
 import { toast } from 'sonner';
+import { generateTicketHTML, loadSettingsFromCache, openAndPrint } from '@/lib/utils/ticketPrinter';
 
 interface TicketRow {
   id: string;
@@ -131,106 +132,25 @@ function TicketDetailModal({ ticketId, onClose, onModified }: TicketDetailModalP
 
   const handlePrint = () => {
     if (!receipt) return;
-    const win = window.open('', '_blank', 'width=420,height=700');
-    if (!win) return;
     const now = new Date(receipt.createdAt);
     const dateStr = now.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
     const timeStr = now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-
-    let companyName = "LE MONDE DE L'ESTHETIQUE";
-    let companyAddress = 'Baie des Flamands Appt 306 9 avenue Loulou Boislaville';
-    let companyCity = 'Fort-de-France 97200';
-    let companyPhone = '';
-    let companySiret = '927 747 725';
-    let companyTva = 'FR71 927747 725';
-    let receiptFooter = 'Merci de votre visite !';
-
-    try {
-      const cached = localStorage.getItem('beautypos_settings');
-      if (cached) {
-        const s = JSON.parse(cached);
-        companyName = s.company_name || companyName;
-        companyAddress = s.address || companyAddress;
-        companyCity = `${s.city || 'Fort-de-France'} ${s.postal_code || '97200'}`;
-        companyPhone = s.phone || '';
-        companySiret = s.siret || companySiret;
-        companyTva = s.tva_number || companyTva;
-        receiptFooter = s.receipt_footer || receiptFooter;
-      }
-    } catch { /* use defaults */ }
-
-    const lines = receipt.items.map((i) => {
-      const lineTotal = Math.max(0, i.price * i.qty - (i.discountType === 'percent' ? i.price * i.qty * (i.discount / 100) : i.discount));
-      return `<tr>
-        <td style="padding:3px 4px;vertical-align:top">${i.name}</td>
-        <td style="padding:3px 4px;text-align:center;vertical-align:top;white-space:nowrap">${i.qty} × ${i.price.toFixed(2)} €</td>
-        <td style="padding:3px 4px;text-align:right;vertical-align:top;white-space:nowrap;font-weight:600">${lineTotal.toFixed(2)} €</td>
-      </tr>`;
-    }).join('');
-
-    win.document.write(`<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Ticket ${receipt.ticketNumber}</title>
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; color: #000 !important; background: transparent !important; }
-  body { font-family: 'Courier New', monospace; font-size: 12px; width: 300px; margin: 0 auto; padding: 12px 8px; color: #000; background: #fff; }
-  .center { text-align: center; }
-  .bold { font-weight: 700; }
-  .sep { border: none; border-top: 2px dashed #000; margin: 6px 0; }
-  .sep-solid { border: none; border-top: 2px solid #000; margin: 6px 0; }
-  table { width: 100%; border-collapse: collapse; }
-  .total-ttc td { font-size: 15px; font-weight: 900; padding: 5px 4px; border-top: 3px solid #000; border-bottom: 3px solid #000; color: #000 !important; background: #fff !important; }
-  .footer { text-align: center; font-size: 11px; margin-top: 8px; color: #000 !important; }
-  p, span, div, td, th, li, strong, b { color: #000 !important; font-weight: 700 !important; }
-  @media print {
-    @page { size: 80mm auto; margin: 2mm; }
-    * { color: #000000 !important; background: #ffffff !important; background-color: #ffffff !important; background-image: none !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; box-shadow: none !important; text-shadow: none !important; border-color: #000000 !important; -webkit-text-fill-color: #000000 !important; }
-    body { font-family: 'Courier New', Courier, monospace !important; font-size: 12px !important; font-weight: 700 !important; width: 100%; }
-    p, span, div, td, th, li, strong, b, h1, h2, h3, h4, h5 { color: #000000 !important; font-weight: 700 !important; font-family: 'Courier New', Courier, monospace !important; }
-    [class*="text-gray"], [class*="text-slate"], [class*="text-blue"], [class*="text-green"], [class*="text-red"], [class*="text-purple"] { color: #000000 !important; }
-    [class*="bg-"], .badge, .tag, .status, .chip { background: #ffffff !important; background-color: #ffffff !important; color: #000000 !important; border: 1px solid #000000 !important; }
-    hr, .divider, .separator { border: none !important; border-top: 2px solid #000000 !important; height: 2px !important; }
-    .total-ttc td, .ticket-total, .grand-total { font-weight: 900 !important; font-size: 16px !important; border-top: 3px solid #000000 !important; border-bottom: 3px solid #000000 !important; }
-    .ticket-header, [class*="header"] { font-weight: 900 !important; font-size: 14px !important; text-align: center !important; }
-    .no-print { display: none !important; }
-  }
-</style></head><body>
-  <div class="center bold" style="font-size:14px;letter-spacing:1px">${companyName}</div>
-  <div class="center" style="font-size:10px;margin-top:2px">${companyAddress}</div>
-  <div class="center" style="font-size:10px">${companyCity}</div>
-  ${companyPhone ? `<div class="center" style="font-size:10px">Tél : ${companyPhone}</div>` : ''}
-  <div class="center" style="font-size:10px;margin-top:2px">SIRET : ${companySiret}</div>
-  <div class="center" style="font-size:10px">N° TVA : ${companyTva}</div>
-  <hr class="sep-solid" style="margin:8px 0">
-  <table style="font-size:11px">
-    <tr><td>Ticket N°</td><td style="text-align:right;font-weight:bold">${receipt.ticketNumber}</td></tr>
-    <tr><td>Date</td><td style="text-align:right">${dateStr} ${timeStr}</td></tr>
-    ${receipt.cashierName ? `<tr><td>Caissier</td><td style="text-align:right">${receipt.cashierName}</td></tr>` : ''}
-    ${receipt.clientName ? `<tr><td>Client</td><td style="text-align:right;font-weight:bold">${receipt.clientName}</td></tr>` : ''}
-  </table>
-  <hr class="sep" style="margin:8px 0">
-  <table>
-    <thead><tr style="font-size:10px;color:#000;font-weight:700;border-bottom:2px dashed #000">
-      <th style="text-align:left;padding:2px 4px">Article</th>
-      <th style="text-align:center;padding:2px 4px">Qté × PU</th>
-      <th style="text-align:right;padding:2px 4px">Total</th>
-    </tr></thead>
-    <tbody>${lines}</tbody>
-  </table>
-  <hr class="sep" style="margin:8px 0">
-  <table>
-    <tr><td style="padding:2px 4px;font-size:11px">Total HT</td><td style="text-align:right;padding:2px 4px;font-size:11px">${fmt(receipt.subtotalHT || receipt.totalAmount / 1.085)} €</td></tr>
-    <tr><td style="padding:2px 4px;font-size:11px">TVA 8,5 %</td><td style="text-align:right;padding:2px 4px;font-size:11px">${fmt(receipt.totalTVA || receipt.totalAmount * 0.085 / 1.085)} €</td></tr>
-  </table>
-  <table><tr class="total-ttc"><td>TOTAL TTC</td><td style="text-align:right">${fmt(receipt.totalAmount)} €</td></tr></table>
-  <table style="margin-top:6px;font-size:11px">
-    <tr><td style="padding:2px 4px">Mode de paiement</td><td style="text-align:right;padding:2px 4px;font-weight:bold">${METHOD_LABELS[receipt.paymentMethod] || receipt.paymentMethod}</td></tr>
-  </table>
-  <hr class="sep" style="margin:8px 0">
-  <div class="footer">${receiptFooter}</div>
-  <div class="footer" style="font-size:9px;margin-top:4px;color:#000">Conservez ce ticket pour tout retour ou échange</div>
-<script>window.onload = function(){ window.print(); }</script>
-</body></html>`);
-    win.document.close();
+    const s = loadSettingsFromCache();
+    const subtotalHT = receipt.subtotalHT || receipt.totalAmount / (1 + s.tvaRate / 100);
+    const totalTVA = receipt.totalTVA || receipt.totalAmount - subtotalHT;
+    openAndPrint(generateTicketHTML({
+      ...s,
+      ticketNumber: receipt.ticketNumber,
+      dateStr,
+      timeStr,
+      cashierLabel: receipt.cashierName || s.cashierLabel,
+      clientName: receipt.clientName ?? undefined,
+      items: receipt.items.map((i) => ({ name: i.name, qty: i.qty, price: i.price, discount: i.discount, discountType: i.discountType })),
+      subtotalHT,
+      totalTVA,
+      totalTTC: receipt.totalAmount,
+      paymentMethod: METHOD_LABELS[receipt.paymentMethod] || receipt.paymentMethod,
+    }));
   };
 
   const handleSendEmail = async () => {

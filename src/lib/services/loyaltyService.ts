@@ -266,6 +266,16 @@ export function pointsToNextTier(tiers: LoyaltyTier[], currentPoints: number): n
   return next ? next.pointsRequired - currentPoints : 0;
 }
 
+/**
+ * Returns the highest tier the client has already reached.
+ */
+export function getCurrentTier(tiers: LoyaltyTier[], currentPoints: number): LoyaltyTier | null {
+  const sorted = [...tiers]
+    .filter((t) => t.isActive && t.pointsRequired <= currentPoints)
+    .sort((a, b) => b.pointsRequired - a.pointsRequired);
+  return sorted[0] ?? null;
+}
+
 // ── Service ────────────────────────────────────────────────────────────────────
 
 export const loyaltyService = {
