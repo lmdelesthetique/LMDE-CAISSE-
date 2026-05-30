@@ -730,7 +730,7 @@ export default function CategoriesContent() {
       const data = await fetchCategories();
       setCategories(data);
       const products = await fetchAll((from, to) =>
-        supabase.from('products').select('category, stock, sell_price_ttc').range(from, to)
+        supabase.from('products').select('category, stock, sell_price_ttc').neq('product_status', 'archived').range(from, to)
       );
       if (products.length >= 0) {
         const stats: Record<string, { productCount: number; totalStock: number; totalPrice: number }> = {};

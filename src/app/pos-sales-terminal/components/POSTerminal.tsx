@@ -23,7 +23,7 @@ import {
   type LoyaltyTier,
   type ClientLoyaltyReward,
 } from '@/lib/services/loyaltyService';
-import { clientService } from '@/lib/services/clientService';
+import { clientService, type Client as FullClient, type ClientPurchase, type ClientSubscription } from '@/lib/services/clientService';
 import {
   sendReceiptEmail,
   generateTicketNumber,
@@ -74,6 +74,223 @@ export interface POSClient {
 
 const TAX_RATE = 0.085; // fallback — overridden by settings context at runtime
 
+// ─── Client Fiche Slide-Over ──────────────────────────────────────────────────
+interface ClientFicheSlideOverProps {
+  client: POSClient;
+  allRewards: ClientLoyaltyReward[];
+  loyaltyTiers: LoyaltyTier[];
+  onClose: () => void;
+}
+
+function ClientFicheSlideOver({ client, allRewards, loyaltyTiers, onClose }: ClientFicheSlideOverProps) {
+  const [fullClient, setFullClient] = useState<FullClient | null>(null);
+  const [purchases, setPurchases] = useState<ClientPurchase[]>([]);
+  const [subscription, setSubscription] = useState<ClientSubscription | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      const [fc, purch, sub] = await Promise.all([
+        clientService.getById(client.id),
+        clientService.getPurchases(client.id),
+        clientService.getSubscription(client.id),
+      ]);
+      setFullClient(fc);
+      setPurchases((purch ?? []).slice(0, 10));
+      setSubscription(sub);
+      setLoading(false);
+    })();
+  }, [client.id]);
+
+  const nextTier = loyaltyTiers.length > 0 ? getNextTier(loyaltyTiers, client.points) : null;
+  const ptsToNext = loyaltyTiers.length > 0 ? pointsToNextTier(loyaltyTiers, client.points) : 0;
+  const availableCount = allRewards.filter((r) => r.status === 'available').length;
+
+  const TYPE_LABELS: Record<string, string> = {
+    particulier: 'Particulier', professionnel: 'Pro', vip: 'VIP',
+    abonne: 'Abonné', non_abonne: 'Non abonné',
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex justify-end">
+      <div className="absolute inset-0 bg-black/40 animate-fade-in" onClick={onClose} />
+      <div className="relative w-full max-w-sm bg-white shadow-2xl flex flex-col h-full overflow-hidden animate-fade-in">
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-blue-50 shrink-0">
+          <button onClick={onClose} className="flex items-center gap-1.5 text-sm font-600 text-blue-700 hover:text-blue-900 transition-colors">
+            <Icon name="ArrowLeftIcon" size={15} /> Retour à la caisse
+          </button>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-blue-100 text-blue-400 hover:text-blue-700 transition-colors">
+            <Icon name="XMarkIcon" size={16} />
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="w-8 h-8 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto scrollbar-thin">
+            {/* Identity */}
+            <div className="p-4 border-b border-border">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
+                  <span className="text-xl font-700 text-blue-700">{client.name.charAt(0).toUpperCase()}</span>
+                </div>
+                <div>
+                  <p className="text-base font-700 text-foreground">{client.name}</p>
+                  <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                    {client.clientType && (
+                      <span className="text-[10px] font-600 px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                        {TYPE_LABELS[client.clientType] ?? client.clientType}
+                      </span>
+                    )}
+                    {client.subscriptionStatus === 'active' && (
+                      <span className="text-[10px] font-600 px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 flex items-center gap-0.5">
+                        <Icon name="CheckBadgeIcon" size={10} /> {client.subscriptionType ?? 'Abonné'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-1">
+                {fullClient?.email && (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Icon name="EnvelopeIcon" size={12} className="shrink-0" />
+                    <span>{fullClient.email}</span>
+                  </div>
+                )}
+                {client.phone && (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Icon name="PhoneIcon" size={12} className="shrink-0" />
+                    <span>{client.phone}</span>
+                  </div>
+                )}
+                {fullClient?.address && (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Icon name="MapPinIcon" size={12} className="shrink-0" />
+                    <span>{[fullClient.address, fullClient.city, fullClient.postalCode].filter(Boolean).join(', ')}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Loyalty */}
+            <div className="p-4 border-b border-border">
+              <p className="text-[10px] font-700 text-muted-foreground uppercase tracking-wide mb-2">Fidélité</p>
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-center">
+                  <p className="text-xl font-700 text-amber-700 tabular-nums">{client.points.toLocaleString('fr-FR')}</p>
+                  <p className="text-[10px] text-amber-600">Points</p>
+                </div>
+                <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-center">
+                  <p className="text-sm font-700 text-amber-700 capitalize">{fullClient?.loyaltyTier ?? '—'}</p>
+                  <p className="text-[10px] text-amber-600">Palier</p>
+                </div>
+              </div>
+              {nextTier && ptsToNext > 0 && (
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] text-muted-foreground">Prochaine récompense : {nextTier.name}</span>
+                    <span className="text-[10px] font-600 text-amber-600">{ptsToNext} pts</span>
+                  </div>
+                  <div className="h-1.5 bg-amber-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-amber-400 to-orange-400 rounded-full"
+                      style={{ width: `${Math.min(100, Math.max(3, ((client.points % nextTier.pointsRequired) / nextTier.pointsRequired) * 100))}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+              {client.balance > 0 && (
+                <div className="mt-2 flex items-center justify-between bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-1.5">
+                  <span className="text-xs text-emerald-700 font-500">Avoir disponible</span>
+                  <span className="text-sm font-700 tabular-nums text-emerald-700">{client.balance.toFixed(2)} €</span>
+                </div>
+              )}
+            </div>
+
+            {/* Subscription */}
+            {subscription && (
+              <div className="p-4 border-b border-border">
+                <p className="text-[10px] font-700 text-muted-foreground uppercase tracking-wide mb-2">Abonnement</p>
+                <div className={`rounded-lg px-3 py-2 flex items-center justify-between border ${subscription.status === 'active' ? 'bg-emerald-50 border-emerald-200' : 'bg-muted/30 border-border'}`}>
+                  <div>
+                    <p className="text-sm font-600 text-foreground">{subscription.subscriptionType}</p>
+                    {subscription.endDate && (
+                      <p className="text-[10px] text-muted-foreground">Expire : {new Date(subscription.endDate).toLocaleDateString('fr-FR')}</p>
+                    )}
+                  </div>
+                  <span className={`text-[10px] font-700 px-2 py-0.5 rounded-full ${subscription.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-muted text-muted-foreground'}`}>
+                    {subscription.status === 'active' ? 'Actif' : 'Inactif'}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Rewards */}
+            {allRewards.length > 0 && (
+              <div className="p-4 border-b border-border">
+                <p className="text-[10px] font-700 text-muted-foreground uppercase tracking-wide mb-2">
+                  Récompenses{availableCount > 0 && <span className="text-violet-600 font-700"> · {availableCount} disponible{availableCount > 1 ? 's' : ''}</span>}
+                </p>
+                <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                  {allRewards.map((r) => {
+                    const isAvail = r.status === 'available';
+                    return (
+                      <div key={r.id} className="flex items-center gap-2 bg-muted/20 rounded-lg px-3 py-2">
+                        <p className="text-xs font-500 text-foreground flex-1 min-w-0 truncate">{r.rewardDescription}</p>
+                        <span className={`shrink-0 text-[9px] font-700 px-1.5 py-0.5 rounded-full ${isAvail ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
+                          {isAvail ? 'DISPO' : 'UTILISÉE'}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Purchase history */}
+            <div className="p-4">
+              <p className="text-[10px] font-700 text-muted-foreground uppercase tracking-wide mb-2">10 derniers achats</p>
+              {purchases.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-4">Aucun achat enregistré</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {purchases.map((p) => (
+                    <div key={p.id} className="flex items-center justify-between bg-muted/20 rounded-lg px-3 py-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-500 text-foreground">
+                          {new Date(p.purchasedAt).toLocaleDateString('fr-FR')} · {p.receiptNumber}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground truncate">{p.paymentMethod}</p>
+                      </div>
+                      <span className="text-xs font-700 tabular-nums text-foreground ml-2 shrink-0">{p.totalTtc.toFixed(2)} €</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {fullClient && (
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div className="bg-muted/30 rounded-lg p-2 text-center">
+                    <p className="text-sm font-700 tabular-nums text-foreground">{fullClient.totalVisits}</p>
+                    <p className="text-[10px] text-muted-foreground">Visites</p>
+                  </div>
+                  <div className="bg-muted/30 rounded-lg p-2 text-center">
+                    <p className="text-sm font-700 tabular-nums text-foreground">{fullClient.totalSpent.toFixed(2)} €</p>
+                    <p className="text-[10px] text-muted-foreground">Total dépensé</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function calcItemTotal(item: CartItem): number {
   const base = item.price * item.qty;
   const disc = item.discountType === 'percent' ? base * (item.discount / 100) : item.discount;
@@ -114,6 +331,7 @@ export default function POSTerminal() {
   const [appliedReward, setAppliedReward] = useState<ClientLoyaltyReward | null>(null);
   const [allClientRewards, setAllClientRewards] = useState<ClientLoyaltyReward[]>([]);
   const [showAllRewards, setShowAllRewards] = useState(false);
+  const [showClientFiche, setShowClientFiche] = useState(false);
   // Newly unlocked rewards (shown after payment)
   const [newlyUnlockedRewards, setNewlyUnlockedRewards] = useState<{
     rewards: ClientLoyaltyReward[];
@@ -430,6 +648,7 @@ export default function POSTerminal() {
       );
 
       // If a reward was applied, mark it as used
+      let rewardLineItem: typeof cart[0] | null = null;
       if (appliedReward) {
         loyaltyRewardUsed = appliedReward.rewardDescription;
         await loyaltyService.useReward({
@@ -448,6 +667,36 @@ export default function POSTerminal() {
           cashierName: employee?.fullName,
           notes: `Récompense utilisée — ticket ${ticketRef}`,
         });
+
+        // Deduct stock when a free_product reward is used
+        if (
+          appliedReward.rewardType === 'free_product' &&
+          appliedReward.rewardProductId
+        ) {
+          const rewardProd = await loyaltyService.getRewardProductById(appliedReward.rewardProductId);
+          const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+          if (rewardProd && rewardProd.sku && UUID_RE.test(rewardProd.sku)) {
+            await deductStockForSale(
+              [{ productId: rewardProd.sku, name: rewardProd.productName, qty: 1 }],
+              ticketRef,
+              method,
+              employee?.fullName || 'Caisse',
+              'completed',
+              'vente'
+            );
+            rewardLineItem = {
+              id: `reward-${appliedReward.id}`,
+              productId: rewardProd.sku,
+              name: `🎁 ${rewardProd.productName} (récompense fidélité)`,
+              sku: rewardProd.sku,
+              price: 0,
+              qty: 1,
+              discount: 0,
+              discountType: 'percent' as const,
+              tva: 0,
+            };
+          }
+        }
       }
 
       // Detect newly unlocked tiers
@@ -459,9 +708,10 @@ export default function POSTerminal() {
       setClient((prev) => prev ? { ...prev, points: newPoints } : prev);
 
       // Save receipt to DB (with loyalty info)
+      const receiptItems = rewardLineItem ? [...cart, rewardLineItem] : cart;
       await saveReceipt({
         ticketNumber: ticketRef,
-        items: cart,
+        items: receiptItems,
         subtotalHT,
         totalTVA,
         totalTTC: total,
@@ -743,6 +993,18 @@ export default function POSTerminal() {
             onSelect={handleClientSelect}
             onClear={handleClientClear}
           />
+
+          {/* Voir fiche client */}
+          {client && (
+            <button
+              onClick={() => setShowClientFiche(true)}
+              className="mx-3 mt-1 flex items-center gap-2 px-3 py-1.5 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors w-[calc(100%-24px)]"
+            >
+              <Icon name="UserIcon" size={13} className="text-blue-600" />
+              <span className="text-xs font-600 text-blue-700">Voir fiche client</span>
+              <Icon name="ChevronRightIcon" size={13} className="text-blue-400 ml-auto" />
+            </button>
+          )}
 
           {/* Loyalty progress bar for selected client */}
           {client && nextTierForClient && (
@@ -1076,6 +1338,16 @@ export default function POSTerminal() {
           ticketRef={lastSaleTicketRef}
           loyaltyInfo={lastSaleLoyalty}
           onClose={handleDocChoiceClose}
+        />
+      )}
+
+      {/* Client fiche slide-over */}
+      {showClientFiche && client && (
+        <ClientFicheSlideOver
+          client={client}
+          allRewards={allClientRewards}
+          loyaltyTiers={loyaltyTiers}
+          onClose={() => setShowClientFiche(false)}
         />
       )}
     </div>

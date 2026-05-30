@@ -114,6 +114,14 @@ export default function ClientLookupBar({ client, onSelect, onClear }: ClientLoo
             <span className="text-xs font-700 text-rose-700">-{client.discount}%</span>
           </div>
         )}
+        <button
+          onClick={() => window.open(`/clients/${client.id}`, '_blank')}
+          className="ml-1 flex items-center gap-1 px-2 py-1 text-xs font-500 text-blue-600 hover:text-blue-800 hover:bg-blue-100 rounded-lg transition-colors shrink-0"
+          title="Voir la fiche client"
+        >
+          <Icon name="UserIcon" size={12} />
+          Fiche
+        </button>
         <button onClick={onClear} className="text-blue-400 hover:text-blue-700 transition-colors shrink-0">
           <Icon name="XMarkIcon" size={15} />
         </button>

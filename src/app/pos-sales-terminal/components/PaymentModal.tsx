@@ -40,7 +40,9 @@ export default function PaymentModal({ mode, totalTTC, client, cartItems, onClos
   const [depositCustom, setDepositCustom] = useState('');
   const [almaInstallments, setAlmaInstallments] = useState<2 | 3 | 4>(3);
   const [cbAmount, setCbAmount] = useState('');
-  const [dossierFee, setDossierFee] = useState('');
+  const [dossierFee, setDossierFee] = useState<string>(() =>
+    mode === 'installment' ? (Math.round(totalTTC * 0.062 * 100) / 100).toFixed(2) : ''
+  );
   const [cashMixGiven, setCashMixGiven] = useState('');
   const [loading, setLoading] = useState(false);
   const [sendReceipt, setSendReceipt] = useState<'none' | 'email' | 'whatsapp'>('none');
@@ -427,10 +429,10 @@ export default function PaymentModal({ mode, totalTTC, client, cartItems, onClos
                     </p>
                   </div>
                   <div className="mt-3">
-                    <label className="text-xs font-600 text-pink-700 uppercase tracking-wide block mb-1.5">Frais de dossier (€)</label>
+                    <label className="text-xs font-600 text-pink-700 uppercase tracking-wide block mb-1.5">Frais de dossier — 6.2% auto</label>
                     <input
                       type="number" value={dossierFee} onChange={(e) => setDossierFee(e.target.value)}
-                      placeholder="0.00 (optionnel)"
+                      placeholder="0.00"
                       className="w-full px-3 py-2 border border-pink-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-pink-300 focus:border-pink-400 bg-white"
                     />
                     <div className="mt-2 bg-pink-50 border border-pink-100 rounded-lg px-3 py-2 space-y-1">

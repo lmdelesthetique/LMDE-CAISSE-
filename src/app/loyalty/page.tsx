@@ -13,9 +13,12 @@ import {
   type RewardType,
   type CreateTierInput,
 } from '@/lib/services/loyaltyService';
+import { createClient } from '@/lib/supabase/client';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
 type Tab = 'dashboard' | 'tiers' | 'products';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const REWARD_TYPES: { value: RewardType; label: string; icon: string }[] = [
   { value: 'discount', label: 'Réduction %', icon: '🏷️' },
@@ -58,6 +61,16 @@ const STATUS_LABEL: Record<string, string> = {
 const CATEGORY_LABELS: Record<string, string> = {
   gift: 'Cadeau', old_stock: 'Ancien stock', surprise: 'Surprise', vip: 'VIP',
 };
+
+interface SlowMoverProduct {
+  id: string;
+  name: string;
+  ref: string;
+  stock: number;
+  minStock: number;
+  buyPrice: number;
+  category: string;
+}
 
 // ── Tier Form Modal ────────────────────────────────────────────────────────────
 
@@ -189,49 +202,72 @@ function TierFormModal({
   );
 }
 
-// ── Product Form Modal ─────────────────────────────────────────────────────────
+// ── Real Product Picker Modal ──────────────────────────────────────────────────
 
-function ProductFormModal({
+function RealProductPickerModal({
   product,
+  tiers,
   onClose,
   onSaved,
 }: {
   product: LoyaltyRewardProduct | null;
+  tiers: LoyaltyTier[];
   onClose: () => void;
   onSaved: (p: LoyaltyRewardProduct) => void;
 }) {
-  const [form, setForm] = useState({
-    productName: product?.productName ?? '',
-    sku: product?.sku ?? '',
-    description: product?.description ?? '',
-    stockQuantity: product?.stockQuantity ?? 0,
-    rewardCategory: product?.rewardCategory ?? 'gift',
-    isActive: product?.isActive ?? true,
-  });
+  const [search, setSearch] = useState('');
+  const [searchResults, setSearchResults] = useState<Array<{ id: string; name: string; ref: string; stock: number; category: string; sell_price_ttc: number }>>([]);
+  const [searching, setSearching] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<{ id: string; name: string; ref: string; stock: number } | null>(null);
+  const [rewardCategory, setRewardCategory] = useState(product?.rewardCategory ?? 'gift');
+  const [linkedTierId, setLinkedTierId] = useState<string>('');
   const [saving, setSaving] = useState(false);
 
+  // When editing, pre-populate selectedProduct from existing data
+  useEffect(() => {
+    if (product && product.sku && UUID_RE.test(product.sku)) {
+      setSelectedProduct({ id: product.sku, name: product.productName, ref: '', stock: product.stockQuantity });
+    }
+  }, [product]);
+
+  // Search products table
+  useEffect(() => {
+    if (search.length < 2) { setSearchResults([]); return; }
+    const t = setTimeout(async () => {
+      setSearching(true);
+      const supabase = createClient();
+      const { data } = await supabase
+        .from('products')
+        .select('id, name, ref, stock, category, sell_price_ttc')
+        .neq('product_status', 'archived')
+        .or(`name.ilike.%${search}%,ref.ilike.%${search}%`)
+        .order('name')
+        .limit(12);
+      setSearchResults(data ?? []);
+      setSearching(false);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
   const handleSave = async () => {
-    if (!form.productName.trim()) return;
+    if (!selectedProduct) return;
     setSaving(true);
+    const input = {
+      productName: selectedProduct.name,
+      sku: selectedProduct.id,
+      description: null,
+      stockQuantity: selectedProduct.stock,
+      rewardCategory,
+      isActive: true,
+    };
     let result: LoyaltyRewardProduct | null = null;
     if (product) {
-      result = await loyaltyService.updateRewardProduct(product.id, {
-        productName: form.productName,
-        sku: form.sku || null,
-        description: form.description || null,
-        stockQuantity: form.stockQuantity,
-        rewardCategory: form.rewardCategory,
-        isActive: form.isActive,
-      });
+      result = await loyaltyService.updateRewardProduct(product.id, input);
     } else {
-      result = await loyaltyService.createRewardProduct({
-        productName: form.productName,
-        sku: form.sku || null,
-        description: form.description || null,
-        stockQuantity: form.stockQuantity,
-        rewardCategory: form.rewardCategory,
-        isActive: form.isActive,
-      });
+      result = await loyaltyService.createRewardProduct(input);
+    }
+    if (result && linkedTierId) {
+      await loyaltyService.updateTier(linkedTierId, { rewardProductId: result.id });
     }
     if (result) onSaved(result);
     setSaving(false);
@@ -240,37 +276,70 @@ function ProductFormModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative bg-white rounded-2xl shadow-modal w-full max-w-md mx-4">
+      <div className="relative bg-white rounded-2xl shadow-modal w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-          <h2 className="text-base font-700 text-foreground">{product ? 'Modifier le produit' : 'Nouveau produit récompense'}</h2>
+          <h2 className="text-base font-700 text-foreground">{product ? 'Modifier le produit récompense' : 'Choisir un produit récompense'}</h2>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
             <Icon name="XMarkIcon" size={18} />
           </button>
         </div>
         <div className="p-6 space-y-4">
+          {/* Product search */}
           <div>
-            <label className="text-xs font-600 text-muted-foreground block mb-1">Nom du produit</label>
-            <input value={form.productName} onChange={(e) => setForm((f) => ({ ...f, productName: e.target.value }))}
-              className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-              placeholder="Ex: Vernis collection printemps" />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-600 text-muted-foreground block mb-1">SKU / Référence</label>
-              <input value={form.sku} onChange={(e) => setForm((f) => ({ ...f, sku: e.target.value }))}
-                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-                placeholder="VER-001" />
+            <label className="text-xs font-600 text-muted-foreground block mb-1">Rechercher dans le catalogue</label>
+            <div className="relative">
+              <Icon name="MagnifyingGlassIcon" size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Nom ou référence du produit…"
+                className="w-full pl-8 pr-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+              {searching && <Icon name="ArrowPathIcon" size={13} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-muted-foreground" />}
             </div>
-            <div>
-              <label className="text-xs font-600 text-muted-foreground block mb-1">Stock disponible</label>
-              <input type="number" min={0} value={form.stockQuantity}
-                onChange={(e) => setForm((f) => ({ ...f, stockQuantity: parseInt(e.target.value) || 0 }))}
-                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
-            </div>
+            {searchResults.length > 0 && (
+              <div className="mt-1 border border-border rounded-lg overflow-hidden max-h-44 overflow-y-auto">
+                {searchResults.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => { setSelectedProduct({ id: p.id, name: p.name, ref: p.ref, stock: p.stock }); setSearch(''); setSearchResults([]); }}
+                    className="w-full flex items-center gap-3 px-3 py-2 hover:bg-muted/50 transition-colors text-left border-b border-border last:border-0"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-500 text-foreground truncate">{p.name}</p>
+                      <p className="text-[11px] text-muted-foreground">{p.ref} · {p.stock} en stock · {p.sell_price_ttc?.toFixed(2)} €</p>
+                    </div>
+                    <span className="text-xs text-muted-foreground shrink-0">{p.category}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
+
+          {/* Selected product preview */}
+          {selectedProduct ? (
+            <div className="flex items-center gap-3 p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
+              <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center shrink-0">
+                <Icon name="CheckIcon" size={16} className="text-emerald-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-600 text-emerald-900 truncate">{selectedProduct.name}</p>
+                <p className="text-[11px] text-emerald-700">{selectedProduct.ref && `${selectedProduct.ref} · `}{selectedProduct.stock} en stock</p>
+              </div>
+              <button onClick={() => setSelectedProduct(null)} className="text-emerald-400 hover:text-emerald-700 transition-colors shrink-0">
+                <Icon name="XMarkIcon" size={14} />
+              </button>
+            </div>
+          ) : (
+            <div className="p-3 bg-muted/30 border border-border rounded-lg text-center text-sm text-muted-foreground">
+              Aucun produit sélectionné — recherchez ci-dessus
+            </div>
+          )}
+
+          {/* Category */}
           <div>
-            <label className="text-xs font-600 text-muted-foreground block mb-1">Catégorie</label>
-            <select value={form.rewardCategory} onChange={(e) => setForm((f) => ({ ...f, rewardCategory: e.target.value }))}
+            <label className="text-xs font-600 text-muted-foreground block mb-1">Catégorie de récompense</label>
+            <select value={rewardCategory} onChange={(e) => setRewardCategory(e.target.value)}
               className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white">
               <option value="gift">Cadeau fidélité</option>
               <option value="old_stock">Ancien stock à écouler</option>
@@ -278,24 +347,122 @@ function ProductFormModal({
               <option value="vip">Récompense VIP</option>
             </select>
           </div>
-          <div>
-            <label className="text-xs font-600 text-muted-foreground block mb-1">Description</label>
-            <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-              rows={2} className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none" />
-          </div>
-          <div className="flex items-center gap-2">
-            <input type="checkbox" id="prodActive" checked={form.isActive}
-              onChange={(e) => setForm((f) => ({ ...f, isActive: e.target.checked }))}
-              className="w-4 h-4 rounded border-border text-primary" />
-            <label htmlFor="prodActive" className="text-sm text-foreground">Produit actif</label>
-          </div>
+
+          {/* Link to tier */}
+          {tiers.length > 0 && (
+            <div>
+              <label className="text-xs font-600 text-muted-foreground block mb-1">Lier à un palier (optionnel)</label>
+              <select value={linkedTierId} onChange={(e) => setLinkedTierId(e.target.value)}
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white">
+                <option value="">— Aucun palier —</option>
+                {tiers.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name} ({t.pointsRequired} pts)</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div className="flex gap-2 pt-2">
             <button onClick={onClose} className="flex-1 py-2 border border-border rounded-lg text-sm font-600 text-muted-foreground hover:bg-muted transition-colors">
               Annuler
             </button>
-            <button onClick={handleSave} disabled={saving || !form.productName.trim()}
+            <button onClick={handleSave} disabled={saving || !selectedProduct}
               className="flex-1 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-700 hover:opacity-90 transition-opacity disabled:opacity-40 flex items-center justify-center gap-2">
-              {saving ? <><Icon name="ArrowPathIcon" size={14} className="animate-spin" />Enregistrement…</> : <><Icon name="CheckIcon" size={14} />{product ? 'Modifier' : 'Ajouter'}</>}
+              {saving ? <><Icon name="ArrowPathIcon" size={14} className="animate-spin" />Enregistrement…</> : <><Icon name="CheckIcon" size={14} />{product ? 'Modifier' : 'Ajouter comme récompense'}</>}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Suggestion Config Modal ────────────────────────────────────────────────────
+
+function SuggestionConfigModal({
+  product,
+  tiers,
+  onClose,
+  onSaved,
+}: {
+  product: SlowMoverProduct;
+  tiers: LoyaltyTier[];
+  onClose: () => void;
+  onSaved: (p: LoyaltyRewardProduct) => void;
+}) {
+  const [rewardCategory, setRewardCategory] = useState<string>('old_stock');
+  const [linkedTierId, setLinkedTierId] = useState<string>('');
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    const result = await loyaltyService.createRewardProduct({
+      productName: product.name,
+      sku: product.id,
+      description: null,
+      stockQuantity: product.stock,
+      rewardCategory,
+      isActive: true,
+    });
+    if (result && linkedTierId) {
+      await loyaltyService.updateTier(linkedTierId, { rewardProductId: result.id });
+    }
+    if (result) onSaved(result);
+    setSaving(false);
+  };
+
+  const immobilise = product.stock * product.buyPrice;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-modal w-full max-w-md mx-4">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <h2 className="text-base font-700 text-foreground">Ajouter comme récompense</h2>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
+            <Icon name="XMarkIcon" size={18} />
+          </button>
+        </div>
+        <div className="p-6 space-y-4">
+          {/* Product summary */}
+          <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+            <p className="text-sm font-700 text-amber-900 truncate">{product.name}</p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              {product.ref} · {product.stock} en stock · {immobilise.toFixed(2)} € immobilisé
+            </p>
+          </div>
+
+          <div>
+            <label className="text-xs font-600 text-muted-foreground block mb-1">Catégorie de récompense</label>
+            <select value={rewardCategory} onChange={(e) => setRewardCategory(e.target.value)}
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white">
+              <option value="old_stock">Ancien stock à écouler</option>
+              <option value="gift">Cadeau fidélité</option>
+              <option value="surprise">Cadeau surprise</option>
+              <option value="vip">Récompense VIP</option>
+            </select>
+          </div>
+
+          {tiers.length > 0 && (
+            <div>
+              <label className="text-xs font-600 text-muted-foreground block mb-1">Lier à un palier (optionnel)</label>
+              <select value={linkedTierId} onChange={(e) => setLinkedTierId(e.target.value)}
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white">
+                <option value="">— Aucun palier —</option>
+                {tiers.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name} ({t.pointsRequired} pts)</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="flex gap-2 pt-2">
+            <button onClick={onClose} className="flex-1 py-2 border border-border rounded-lg text-sm font-600 text-muted-foreground hover:bg-muted transition-colors">
+              Annuler
+            </button>
+            <button onClick={handleSave} disabled={saving}
+              className="flex-1 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-700 hover:opacity-90 transition-opacity disabled:opacity-40 flex items-center justify-center gap-2">
+              {saving ? <><Icon name="ArrowPathIcon" size={14} className="animate-spin" />Enregistrement…</> : <><Icon name="GiftIcon" size={14} />Ajouter comme récompense</>}
             </button>
           </div>
         </div>
@@ -311,11 +478,46 @@ export default function LoyaltyPage() {
   const [stats, setStats] = useState<LoyaltyDashboardStats | null>(null);
   const [tiers, setTiers] = useState<LoyaltyTier[]>([]);
   const [rewardProducts, setRewardProducts] = useState<LoyaltyRewardProduct[]>([]);
+  const [slowMovers, setSlowMovers] = useState<SlowMoverProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [showTierForm, setShowTierForm] = useState(false);
   const [editingTier, setEditingTier] = useState<LoyaltyTier | null>(null);
   const [showProductForm, setShowProductForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState<LoyaltyRewardProduct | null>(null);
+  const [suggestionTarget, setSuggestionTarget] = useState<SlowMoverProduct | null>(null);
+
+  const loadSlowMovers = useCallback(async (existingRewardProducts: LoyaltyRewardProduct[]) => {
+    const supabase = createClient();
+    const linkedProductIds = new Set(
+      existingRewardProducts
+        .map((p) => p.sku)
+        .filter((sku): sku is string => sku !== null && UUID_RE.test(sku))
+    );
+    const { data } = await supabase
+      .from('products')
+      .select('id, name, ref, stock, min_stock, buy_price, category')
+      .eq('product_status', 'active')
+      .order('stock', { ascending: false })
+      .limit(50);
+
+    const filtered = (data ?? [])
+      .filter((p: any) => {
+        const threshold = Math.max((Number(p.min_stock) || 0) * 2, 5);
+        return Number(p.stock) >= threshold && !linkedProductIds.has(p.id);
+      })
+      .slice(0, 8)
+      .map((p: any): SlowMoverProduct => ({
+        id: p.id,
+        name: p.name,
+        ref: p.ref ?? '',
+        stock: Number(p.stock) || 0,
+        minStock: Number(p.min_stock) || 0,
+        buyPrice: Number(p.buy_price) || 0,
+        category: p.category ?? '',
+      }));
+
+    setSlowMovers(filtered);
+  }, []);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -327,8 +529,9 @@ export default function LoyaltyPage() {
     setStats(statsData);
     setTiers(tiersData);
     setRewardProducts(productsData);
+    await loadSlowMovers(productsData);
     setLoading(false);
-  }, []);
+  }, [loadSlowMovers]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -353,9 +556,20 @@ export default function LoyaltyPage() {
       if (idx >= 0) { const next = [...prev]; next[idx] = p; return next; }
       return [...prev, p];
     });
+    setSlowMovers((prev) => prev.filter((s) => s.id !== p.sku));
     setShowProductForm(false);
     setEditingProduct(null);
+    setSuggestionTarget(null);
   };
+
+  const handleDeleteProduct = async (id: string) => {
+    await loyaltyService.deleteRewardProduct(id);
+    setRewardProducts((prev) => prev.filter((p) => p.id !== id));
+  };
+
+  // Find which tier is linked to a reward product
+  const tierForProduct = (productId: string): LoyaltyTier | undefined =>
+    tiers.find((t) => t.rewardProductId === productId);
 
   const tabs: { id: Tab; label: string; icon: string }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: 'ChartBarIcon' },
@@ -628,12 +842,14 @@ export default function LoyaltyPage() {
 
               {/* ── PRODUCTS ── */}
               {tab === 'products' && (
-                <div className="p-6">
-                  <div className="mb-4 p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-800">
-                    <strong>💡 Conseil :</strong> Assignez ici vos anciens stocks comme produits récompenses. Cela permet d'écouler intelligemment certains articles sans donner l'impression d'une liquidation.
+                <div className="p-6 space-y-6">
+                  <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-800">
+                    <strong>💡 Conseil :</strong> Tous les produits récompenses sont liés au catalogue réel. En caisse, le stock est automatiquement déduit quand une récompense &quot;Produit offert&quot; est utilisée.
                   </div>
+
+                  {/* Registered reward products */}
                   {rewardProducts.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-16 text-center">
+                    <div className="flex flex-col items-center justify-center py-12 text-center bg-white rounded-xl border border-border">
                       <span className="text-5xl mb-4">🎁</span>
                       <p className="text-base font-600 text-foreground">Aucun produit récompense</p>
                       <p className="text-sm text-muted-foreground mt-1 mb-4">Ajoutez des produits à offrir en récompense fidélité</p>
@@ -645,36 +861,91 @@ export default function LoyaltyPage() {
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {rewardProducts.map((p) => (
-                        <div key={p.id} className="bg-white rounded-xl border border-border p-4">
-                          <div className="flex items-start justify-between gap-2 mb-3">
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-700 text-foreground truncate">{p.productName}</p>
-                              {p.sku && <p className="text-[11px] text-muted-foreground font-mono">{p.sku}</p>}
+                      {rewardProducts.map((p) => {
+                        const isLinkedToCatalogue = p.sku !== null && UUID_RE.test(p.sku);
+                        const linkedTier = tierForProduct(p.id);
+                        return (
+                          <div key={p.id} className="bg-white rounded-xl border border-border p-4">
+                            <div className="flex items-start justify-between gap-2 mb-3">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+                                  <p className="text-sm font-700 text-foreground truncate">{p.productName}</p>
+                                  {isLinkedToCatalogue && (
+                                    <span className="text-[10px] font-600 px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200 shrink-0">
+                                      Lié catalogue
+                                    </span>
+                                  )}
+                                </div>
+                                {linkedTier && (
+                                  <p className="text-[11px] text-purple-600 font-600">
+                                    Palier : {linkedTier.name}
+                                  </p>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button onClick={() => { setEditingProduct(p); setShowProductForm(true); }}
+                                  className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
+                                  <Icon name="PencilIcon" size={13} />
+                                </button>
+                                <button onClick={() => handleDeleteProduct(p.id)}
+                                  className="p-1.5 rounded-lg hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-colors">
+                                  <Icon name="TrashIcon" size={13} />
+                                </button>
+                              </div>
                             </div>
-                            <div className="flex items-center gap-1 shrink-0">
-                              <button onClick={() => { setEditingProduct(p); setShowProductForm(true); }}
-                                className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
-                                <Icon name="PencilIcon" size={13} />
+                            {p.description && (
+                              <p className="text-xs text-muted-foreground mb-3 line-clamp-2">{p.description}</p>
+                            )}
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-600 px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+                                {CATEGORY_LABELS[p.rewardCategory] ?? p.rewardCategory}
+                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <Icon name="ArchiveBoxIcon" size={12} className="text-muted-foreground" />
+                                <span className={`text-xs font-700 tabular-nums ${p.stockQuantity <= 3 ? 'text-red-600' : p.stockQuantity <= 10 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                                  {p.stockQuantity} en stock
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Suggestions intelligentes */}
+                  {slowMovers.length > 0 && (
+                    <div>
+                      <div className="flex items-center gap-2 mb-3">
+                        <Icon name="LightBulbIcon" size={16} className="text-amber-500" />
+                        <h2 className="text-sm font-700 text-foreground">Suggestions intelligentes — stocks dormants</h2>
+                      </div>
+                      <p className="text-xs text-muted-foreground mb-4">Ces produits ont un stock bien supérieur au minimum requis. Les proposer en récompense permet de les écouler intelligemment.</p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                        {slowMovers.map((p) => {
+                          const immobilise = p.stock * p.buyPrice;
+                          return (
+                            <div key={p.id} className="bg-white rounded-xl border border-amber-200 p-3 hover:border-amber-400 transition-colors">
+                              <p className="text-sm font-600 text-foreground truncate mb-0.5">{p.name}</p>
+                              <p className="text-[11px] text-muted-foreground mb-2">{p.ref} · {p.category}</p>
+                              <div className="flex items-center gap-1.5 mb-1">
+                                <Icon name="ArchiveBoxIcon" size={11} className="text-amber-600" />
+                                <span className="text-xs font-700 text-amber-700">{p.stock} en stock</span>
+                              </div>
+                              {p.buyPrice > 0 && (
+                                <p className="text-[11px] text-muted-foreground mb-3">{immobilise.toFixed(2)} € immobilisé</p>
+                              )}
+                              <button
+                                onClick={() => setSuggestionTarget(p)}
+                                className="w-full flex items-center justify-center gap-1.5 py-1.5 bg-amber-50 border border-amber-200 text-amber-700 rounded-lg text-xs font-600 hover:bg-amber-100 transition-colors"
+                              >
+                                <Icon name="GiftIcon" size={12} />
+                                Ajouter comme récompense
                               </button>
                             </div>
-                          </div>
-                          {p.description && (
-                            <p className="text-xs text-muted-foreground mb-3 line-clamp-2">{p.description}</p>
-                          )}
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-600 px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
-                              {CATEGORY_LABELS[p.rewardCategory] ?? p.rewardCategory}
-                            </span>
-                            <div className="flex items-center gap-1.5">
-                              <Icon name="ArchiveBoxIcon" size={12} className="text-muted-foreground" />
-                              <span className={`text-xs font-700 tabular-nums ${p.stockQuantity <= 3 ? 'text-red-600' : p.stockQuantity <= 10 ? 'text-amber-600' : 'text-emerald-600'}`}>
-                                {p.stockQuantity} en stock
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -694,9 +965,18 @@ export default function LoyaltyPage() {
         />
       )}
       {showProductForm && (
-        <ProductFormModal
+        <RealProductPickerModal
           product={editingProduct}
+          tiers={tiers}
           onClose={() => { setShowProductForm(false); setEditingProduct(null); }}
+          onSaved={handleProductSaved}
+        />
+      )}
+      {suggestionTarget && (
+        <SuggestionConfigModal
+          product={suggestionTarget}
+          tiers={tiers}
+          onClose={() => setSuggestionTarget(null)}
           onSaved={handleProductSaved}
         />
       )}

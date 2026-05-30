@@ -340,6 +340,31 @@ export const loyaltyService = {
 
   // ── Reward Products ────────────────────────────────────────────────────────
 
+  async getRewardProductById(id: string): Promise<LoyaltyRewardProduct | null> {
+    const supabase = createClient();
+    try {
+      const { data, error } = await supabase
+        .from('loyalty_reward_products')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+      if (error) { console.log('loyaltyService.getRewardProductById error:', error.message); return null; }
+      return data ? mapRewardProduct(data) : null;
+    } catch (e: any) { console.log('loyaltyService.getRewardProductById exception:', e.message); return null; }
+  },
+
+  async deleteRewardProduct(id: string): Promise<boolean> {
+    const supabase = createClient();
+    try {
+      const { error } = await supabase
+        .from('loyalty_reward_products')
+        .delete()
+        .eq('id', id);
+      if (error) { console.log('loyaltyService.deleteRewardProduct error:', error.message); return false; }
+      return true;
+    } catch (e: any) { console.log('loyaltyService.deleteRewardProduct exception:', e.message); return false; }
+  },
+
   async getRewardProducts(): Promise<LoyaltyRewardProduct[]> {
     const supabase = createClient();
     try {

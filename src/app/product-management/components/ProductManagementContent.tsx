@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import Icon from '@/components/ui/AppIcon';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { type ProductRecord, type ColorVariant } from './mockProducts';
@@ -89,6 +90,9 @@ export default function ProductManagementContent() {
   const [showKitModal, setShowKitModal] = useState(false);
   const [editKitId, setEditKitId] = useState<string | null>(null);
   const [kitFilter, setKitFilter] = useState<'all' | 'kits' | 'products'>('all');
+  const router = useRouter();
+  const [filterShopify, setFilterShopify] = useState<'Tous' | 'Synchronisé' | 'Non synchronisé'>('Tous');
+  const [syncingShopify, setSyncingShopify] = useState(false);
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });
@@ -146,7 +150,8 @@ export default function ProductManagementContent() {
         const matchSup = filterSupplier === 'Tous' || p.supplier === filterSupplier;
         const matchStatus = filterStatus === 'Tous' || p.status === statusMap[filterStatus];
         const matchKit = kitFilter === 'all' || (kitFilter === 'kits' ? p.isKit : !p.isKit);
-        return matchSearch && matchCat && matchSup && matchStatus && matchKit;
+        const matchShopify = filterShopify === 'Tous' || (filterShopify === 'Synchronisé' ? p.shopify : !p.shopify);
+        return matchSearch && matchCat && matchSup && matchStatus && matchKit && matchShopify;
       })
       .sort((a, b) => {
         let av: string | number = a[sortField] as string | number;
@@ -157,7 +162,7 @@ export default function ProductManagementContent() {
         if (av > bv) return sortDir === 'asc' ? 1 : -1;
         return 0;
       });
-  }, [products, search, filterCategory, filterSupplier, filterStatus, sortField, sortDir]);
+  }, [products, search, filterCategory, filterSupplier, filterStatus, sortField, sortDir, kitFilter, filterShopify]);
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) {
@@ -370,6 +375,39 @@ export default function ProductManagementContent() {
     loadProducts();
   };
 
+  const handleExport = () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const headers = ['code_barres', 'reference', 'nom', 'categorie', 'fournisseur', 'prix_achat', 'prix_revient', 'pv_ttc', 'marge_pct', 'stock', 'statut', 'shopify'];
+    const csvRows = filtered.map((p) => [
+      p.barcode, p.ref, p.name, p.category, p.supplier,
+      p.buyPrice.toFixed(2), p.costPrice.toFixed(2), p.sellPriceTTC.toFixed(2),
+      p.marginPct.toFixed(1), p.stock, p.status, p.shopify ? 'Oui' : 'Non',
+    ]);
+    const csv = [headers, ...csvRows]
+      .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `produits_export_${today}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleSyncShopify = async () => {
+    setSyncingShopify(true);
+    try {
+      const res = await fetch('/api/shopify/push-stock', { method: 'POST' });
+      if (res.ok) showToast('Synchronisation Shopify terminée');
+      else showToast('Erreur synchronisation Shopify', 'error');
+    } catch {
+      showToast('Erreur synchronisation Shopify', 'error');
+    } finally {
+      setSyncingShopify(false);
+    }
+  };
+
   const SortIcon = ({ field }: { field: SortField }) => (
     <span className="ml-1 inline-flex flex-col">
       <Icon name="ChevronUpIcon" size={10} className={sortField === field && sortDir === 'asc' ? 'text-primary' : 'text-muted-foreground/40'} />
@@ -394,11 +432,11 @@ export default function ProductManagementContent() {
             <p className="text-sm text-muted-foreground mt-0.5">{loading ? 'Chargement…' : `${products.length} produits au catalogue`}</p>
           </div>
           <div className="flex items-center gap-2">
-            <button className="flex items-center gap-1.5 px-3 py-2 border border-border rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+            <button onClick={() => router.push('/product-management/import')} className="flex items-center gap-1.5 px-3 py-2 border border-border rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
               <Icon name="ArrowUpTrayIcon" size={15} />
               Importer
             </button>
-            <button className="flex items-center gap-1.5 px-3 py-2 border border-border rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+            <button onClick={handleExport} className="flex items-center gap-1.5 px-3 py-2 border border-border rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
               <Icon name="ArrowDownTrayIcon" size={15} />
               Exporter
             </button>
@@ -462,6 +500,19 @@ export default function ProductManagementContent() {
           <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="px-3 py-2 text-sm border border-border rounded-lg bg-white text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary cursor-pointer">
             {statusOptions.map((s) => <option key={`status-filter-${s}`} value={s}>{s}</option>)}
           </select>
+          <select value={filterShopify} onChange={(e) => setFilterShopify(e.target.value as typeof filterShopify)} className="px-3 py-2 text-sm border border-border rounded-lg bg-white text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary cursor-pointer">
+            <option value="Tous">Shopify : Tous</option>
+            <option value="Synchronisé">Synchronisé</option>
+            <option value="Non synchronisé">Non synchronisé</option>
+          </select>
+          <button
+            onClick={handleSyncShopify}
+            disabled={syncingShopify}
+            className="flex items-center gap-1.5 px-3 py-2 border border-emerald-200 rounded-lg text-sm font-medium text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 transition-colors whitespace-nowrap"
+          >
+            <Icon name="ArrowPathIcon" size={15} className={syncingShopify ? 'animate-spin' : ''} />
+            Sync Shopify
+          </button>
           <span className="text-sm text-muted-foreground ml-auto">{filtered.length} résultat{filtered.length > 1 ? 's' : ''}</span>
           <div className="relative">
             <button onClick={() => setShowColumnMenu((p) => !p)} className="flex items-center gap-1.5 px-3 py-2 border border-border rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
