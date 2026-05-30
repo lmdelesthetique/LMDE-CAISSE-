@@ -1490,47 +1490,100 @@ interface PostPaymentDocModalProps {
   onClose: () => void;
 }
 
-function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, loyaltyInfo, onClose }: PostPaymentDocModalProps) {
-  const [selected, setSelected] = useState<'ticket' | 'invoice' | 'quote' | null>(null);
-  const [emailSent, setEmailSent] = useState(false);
-  const [email, setEmail] = useState('');
-  const [sending, setSending] = useState(false);
+type ActionKey = 'print' | 'facture' | 'devis' | 'email' | 'whatsapp' | 'livraison';
+type ActionStatus = 'idle' | 'running' | 'done' | 'error';
 
-  // Delivery form
-  const [showDeliveryForm, setShowDeliveryForm] = useState(false);
+const ACTION_LABELS: Record<ActionKey, string> = {
+  print:    'Impression ticket',
+  facture:  'Création facture',
+  devis:    'Création devis',
+  email:    'Envoi email',
+  whatsapp: 'Envoi WhatsApp',
+  livraison:'Création livraison',
+};
+
+function ActionStatusIcon({ status }: { status?: ActionStatus }) {
+  if (!status || status === 'idle') return null;
+  if (status === 'running') return <Icon name="ArrowPathIcon" size={13} className="animate-spin text-blue-500 shrink-0" />;
+  if (status === 'done') return <Icon name="CheckCircleIcon" size={13} className="text-emerald-500 shrink-0" />;
+  return <Icon name="ExclamationCircleIcon" size={13} className="text-red-500 shrink-0" />;
+}
+
+interface ActionRowProps {
+  checked: boolean;
+  onToggle: () => void;
+  emoji: string;
+  label: string;
+  desc: string;
+  status?: ActionStatus;
+  errorMsg?: string;
+  children?: React.ReactNode;
+}
+
+function ActionRow({ checked, onToggle, emoji, label, desc, status, errorMsg, children }: ActionRowProps) {
+  return (
+    <div
+      className={`rounded-xl border-2 transition-all ${checked ? 'border-primary/40 bg-primary/5' : 'border-border hover:border-primary/20'}`}
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-center gap-3 p-3.5 text-left"
+      >
+        <div className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-all ${checked ? 'bg-primary border-primary' : 'border-border'}`}>
+          {checked && <Icon name="CheckIcon" size={11} className="text-white" />}
+        </div>
+        <span className="text-lg shrink-0">{emoji}</span>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-600 text-foreground leading-tight">{label}</p>
+          <p className="text-[11px] text-muted-foreground mt-0.5">{desc}</p>
+        </div>
+        <ActionStatusIcon status={status} />
+      </button>
+      {(checked || (status && status !== 'idle')) && (children || errorMsg) && (
+        <div className="px-3.5 pb-3.5">
+          {children}
+          {errorMsg && (
+            <p className="mt-1.5 text-xs text-red-600 font-500">⚠️ {errorMsg}</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, loyaltyInfo, onClose }: PostPaymentDocModalProps) {
+  const [actions, setActions] = useState<Record<ActionKey, boolean>>(() => ({
+    print: !client,
+    facture: total > 100,
+    devis: false,
+    email: false,
+    whatsapp: false,
+    livraison: false,
+  }));
+
+  const [email, setEmail] = useState('');
+  const [whatsappPhone, setWhatsappPhone] = useState(client?.phone ?? '');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [deliveryPhone, setDeliveryPhone] = useState(client?.phone ?? '');
   const [deliveryNotes, setDeliveryNotes] = useState('');
-  const [creatingDelivery, setCreatingDelivery] = useState(false);
-  const [deliveryCreated, setDeliveryCreated] = useState(false);
-  const router = useRouter();
 
-  const handleCreateDelivery = async () => {
-    if (!deliveryAddress.trim()) return;
-    setCreatingDelivery(true);
-    try {
-      const input: CreateDeliveryInput = {
-        clientName: client?.name ?? 'Client caisse',
-        clientPhone: deliveryPhone || client?.phone || undefined,
-        deliveryAddress: deliveryAddress.trim(),
-        deliveryNotes: deliveryNotes || undefined,
-        products: items.map((i) => ({ name: i.name, qty: i.qty, sku: i.sku || undefined, price: i.price })),
-        totalAmount: total,
-      };
-      await deliveryService.create(input);
-      setDeliveryCreated(true);
-      setTimeout(() => {
-        onClose();
-        router.push('/livraisons');
-      }, 1200);
-    } catch {
-      /* ignore */
-    } finally {
-      setCreatingDelivery(false);
-    }
-  };
+  const [statuses, setStatuses] = useState<Partial<Record<ActionKey, ActionStatus>>>({});
+  const [errorMsgs, setErrorMsgs] = useState<Partial<Record<ActionKey, string>>>({});
+  const [executing, setExecuting] = useState(false);
+  const [allDone, setAllDone] = useState(false);
 
-  const handlePrintTicket = () => {
+  const selectedKeys = (Object.keys(actions) as ActionKey[]).filter((k) => actions[k]);
+  const selectedCount = selectedKeys.length;
+
+  const toggle = (key: ActionKey) => setActions((prev) => ({ ...prev, [key]: !prev[key] }));
+  const setSt = (key: ActionKey, s: ActionStatus) => setStatuses((prev) => ({ ...prev, [key]: s }));
+  const setErr = (key: ActionKey, msg: string) => setErrorMsgs((prev) => ({ ...prev, [key]: msg }));
+
+  const handleExecute = async () => {
+    if (selectedCount === 0 || executing) return;
+    setExecuting(true);
+
     const now = new Date();
     const ticketNumber = ticketRef || generateTicketNumber();
     const dateStr = now.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -1538,81 +1591,102 @@ function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, l
     const s = loadSettingsFromCache();
     const subtotalHT = total / (1 + s.tvaRate / 100);
     const totalTVA = total - subtotalHT;
-    openAndPrint(generateTicketHTML({
-      ...s,
-      ticketNumber,
-      dateStr,
-      timeStr,
-      clientName: client?.name,
-      items: items.map((i) => ({ name: i.name, qty: i.qty, price: i.price, discount: i.discount, discountType: i.discountType })),
-      subtotalHT,
-      totalTVA,
-      totalTTC: total,
-      paymentMethod: paymentMethod || 'Carte / Esp\u00e8ces',
-      loyalty: client && loyaltyInfo && loyaltyInfo.pointsEarned > 0 ? {
-        pointsEarned: loyaltyInfo.pointsEarned,
-        totalPoints: loyaltyInfo.totalPoints,
-        currentTierName: loyaltyInfo.currentTierName ?? null,
-        nextTierName: loyaltyInfo.nextTier?.name ?? null,
-        pointsToNext: loyaltyInfo.pointsToNext,
-      } : undefined,
-    }));
-    onClose();
-  };
+    const loyaltyBlock = client && loyaltyInfo && loyaltyInfo.pointsEarned > 0 ? {
+      pointsEarned: loyaltyInfo.pointsEarned,
+      totalPoints: loyaltyInfo.totalPoints,
+      currentTierName: loyaltyInfo.currentTierName ?? null,
+      nextTierName: loyaltyInfo.nextTier?.name ?? null,
+      pointsToNext: loyaltyInfo.pointsToNext,
+    } : undefined;
 
-  const handleCreateInvoice = () => {
-    window.open('/b2b-invoicing', '_blank');
-    onClose();
-  };
-
-  const handleCreateQuote = () => {
-    window.open('/b2b-invoicing', '_blank');
-    onClose();
-  };
-
-  const handleSendEmail = async () => {
-    if (!email.includes('@')) return;
-    setSending(true);
-
-    // total prop is already TTC (prices are VAT-inclusive) — extract HT and TVA
-    const subtotalHT = total / 1.085;
-    const totalTVA = total - subtotalHT;
-    const ticketNumber = ticketRef || generateTicketNumber();
-
-    const receiptData: ReceiptEmailData = {
-      ticketNumber: ticketRef || generateTicketNumber(),
-      date: todayFR(),
-      clientName: client?.name,
-      items: items.map((i) => ({
-        name: i.name,
-        qty: i.qty,
-        price: i.price,
-        discount: i.discount > 0 ? i.discount : undefined,
-      })),
-      subtotalHT,
-      totalTVA,
-      totalTTC: total,
-      paymentMethod: 'Carte / Espèces',
-    };
-
-    const result = await sendReceiptEmail(email, receiptData);
-    setSending(false);
-
-    if (result.success) {
-      setEmailSent(true);
-      toast.success(`Ticket envoyé à ${email}`);
-      setTimeout(onClose, 1500);
-    } else {
-      toast.error(`Erreur d'envoi : ${result.error}`);
+    if (actions.print) {
+      setSt('print', 'running');
+      try {
+        openAndPrint(generateTicketHTML({
+          ...s, ticketNumber, dateStr, timeStr,
+          clientName: client?.name,
+          items: items.map((i) => ({ name: i.name, qty: i.qty, price: i.price, discount: i.discount, discountType: i.discountType })),
+          subtotalHT, totalTVA, totalTTC: total,
+          paymentMethod: paymentMethod || 'Carte / Espèces',
+          loyalty: loyaltyBlock,
+        }));
+        setSt('print', 'done');
+      } catch { setSt('print', 'error'); setErr('print', "Erreur ouverture impression"); }
     }
+
+    if (actions.facture) {
+      setSt('facture', 'running');
+      window.open('/b2b-invoicing', '_blank');
+      setSt('facture', 'done');
+    }
+
+    if (actions.devis) {
+      setSt('devis', 'running');
+      window.open('/b2b-invoicing', '_blank');
+      setSt('devis', 'done');
+    }
+
+    if (actions.email) {
+      setSt('email', 'running');
+      if (!email.includes('@')) {
+        setSt('email', 'error'); setErr('email', 'Adresse email invalide');
+      } else {
+        try {
+          const result = await sendReceiptEmail(email, {
+            ticketNumber, date: todayFR(), clientName: client?.name,
+            items: items.map((i) => ({ name: i.name, qty: i.qty, price: i.price, discount: i.discount > 0 ? i.discount : undefined })),
+            subtotalHT, totalTVA, totalTTC: total,
+            paymentMethod: paymentMethod || 'Carte / Espèces',
+          });
+          if (result.success) { setSt('email', 'done'); }
+          else { setSt('email', 'error'); setErr('email', result.error ?? 'Erreur inconnue'); }
+        } catch (e: any) { setSt('email', 'error'); setErr('email', e.message ?? 'Erreur'); }
+      }
+    }
+
+    if (actions.whatsapp) {
+      setSt('whatsapp', 'running');
+      const normalized = whatsappPhone.replace(/\s+/g, '').replace(/^0/, '33');
+      const msg = `Bonjour${client?.name ? ` ${client.name}` : ''}, merci pour votre achat de ${total.toFixed(2)} €. Bonne journée !`;
+      window.open(`https://wa.me/${normalized}?text=${encodeURIComponent(msg)}`, '_blank');
+      setSt('whatsapp', 'done');
+    }
+
+    if (actions.livraison) {
+      if (!deliveryAddress.trim()) {
+        setSt('livraison', 'error'); setErr('livraison', 'Adresse requise');
+      } else {
+        setSt('livraison', 'running');
+        try {
+          await deliveryService.create({
+            clientName: client?.name ?? 'Client caisse',
+            clientPhone: deliveryPhone || client?.phone || undefined,
+            deliveryAddress: deliveryAddress.trim(),
+            deliveryNotes: deliveryNotes || undefined,
+            products: items.map((i) => ({ name: i.name, qty: i.qty, sku: i.sku || undefined, price: i.price })),
+            totalAmount: total,
+          });
+          setSt('livraison', 'done');
+        } catch (e: any) { setSt('livraison', 'error'); setErr('livraison', e.message ?? 'Erreur création'); }
+      }
+    }
+
+    setExecuting(false);
+    setAllDone(true);
   };
+
+  const doneCount = (Object.values(statuses) as ActionStatus[]).filter((s) => s === 'done').length;
+  const hasErrors = (Object.values(statuses) as ActionStatus[]).some((s) => s === 'error');
+
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-        <div className="px-6 py-5 border-b border-border">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col">
+
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-border shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0">
               <Icon name="CheckCircleIcon" size={20} className="text-emerald-600" />
             </div>
             <div>
@@ -1622,156 +1696,121 @@ function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, l
           </div>
         </div>
 
-        <div className="p-6 space-y-3">
-          {/* Ticket */}
-          <button
-            onClick={handlePrintTicket}
-            className="w-full flex items-center gap-4 p-4 border-2 border-border rounded-xl hover:border-primary/40 hover:bg-primary/5 transition-all text-left group"
-          >
-            <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center shrink-0 group-hover:bg-blue-200 transition-colors">
-              <Icon name="PrinterIcon" size={18} className="text-blue-600" />
-            </div>
-            <div>
-              <p className="font-600 text-foreground">Imprimer le ticket</p>
-              <p className="text-xs text-muted-foreground">Ticket de caisse simple — compte dans le CA</p>
-            </div>
-          </button>
-
-          {/* Invoice */}
-          <button
-            onClick={handleCreateInvoice}
-            className="w-full flex items-center gap-4 p-4 border-2 border-border rounded-xl hover:border-emerald-400 hover:bg-emerald-50 transition-all text-left group"
-          >
-            <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0 group-hover:bg-emerald-200 transition-colors">
-              <Icon name="DocumentCheckIcon" size={18} className="text-emerald-600" />
-            </div>
-            <div>
-              <p className="font-600 text-foreground">Créer une facture</p>
-              <p className="text-xs text-muted-foreground">Facture légale avec TVA — compte dans le CA</p>
-            </div>
-          </button>
-
-          {/* Quote */}
-          <button
-            onClick={handleCreateQuote}
-            className="w-full flex items-center gap-4 p-4 border-2 border-border rounded-xl hover:border-amber-400 hover:bg-amber-50 transition-all text-left group"
-          >
-            <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0 group-hover:bg-amber-200 transition-colors">
-              <Icon name="DocumentTextIcon" size={18} className="text-amber-600" />
-            </div>
-            <div>
-              <p className="font-600 text-foreground">Créer un devis</p>
-              <p className="text-xs text-muted-foreground text-amber-700 font-medium">⚠️ Ne compte PAS dans le CA tant que non converti</p>
-            </div>
-          </button>
-
-          {/* Email via Resend */}
-          <div className="border-2 border-border rounded-xl p-4">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 rounded-xl bg-purple-100 flex items-center justify-center shrink-0">
-                <Icon name="EnvelopeIcon" size={18} className="text-purple-600" />
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto scrollbar-thin px-5 py-4 space-y-2">
+          {allDone ? (
+            <div className="space-y-3 py-1">
+              <div className={`flex items-center gap-2.5 px-4 py-3 rounded-xl text-sm font-600 ${hasErrors ? 'bg-amber-50 border border-amber-200 text-amber-800' : 'bg-emerald-50 border border-emerald-200 text-emerald-800'}`}>
+                <Icon name={hasErrors ? 'ExclamationTriangleIcon' : 'CheckCircleIcon'} size={16} className={hasErrors ? 'text-amber-600 shrink-0' : 'text-emerald-600 shrink-0'} />
+                {hasErrors
+                  ? `⚠️ ${doneCount} action${doneCount !== 1 ? 's' : ''} réussie${doneCount !== 1 ? 's' : ''}, erreurs ci-dessous`
+                  : `✅ ${doneCount} action${doneCount !== 1 ? 's' : ''} effectuée${doneCount !== 1 ? 's' : ''}`}
               </div>
-              <div>
-                <p className="font-600 text-foreground">Envoyer le ticket par email</p>
-                <p className="text-xs text-muted-foreground">Ticket de caisse HTML envoyé via Resend</p>
-              </div>
-            </div>
-            {emailSent ? (
-              <p className="text-sm text-emerald-600 font-medium text-center py-1">✓ Ticket envoyé avec succès !</p>
-            ) : (
-              <div className="flex gap-2">
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="email@client.fr"
-                  className="flex-1 border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-                />
-                <button
-                  onClick={handleSendEmail}
-                  disabled={!email.includes('@') || sending}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors"
-                >
-                  {sending ? (
-                    <Icon name="ArrowPathIcon" size={14} className="animate-spin" />
-                  ) : (
-                    <Icon name="PaperAirplaneIcon" size={14} />
-                  )}
-                  {sending ? '' : 'Envoyer'}
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Delivery */}
-          {!showDeliveryForm ? (
-            <button
-              onClick={() => setShowDeliveryForm(true)}
-              className="w-full flex items-center gap-4 p-4 border-2 border-border rounded-xl hover:border-orange-400 hover:bg-orange-50 transition-all text-left group"
-            >
-              <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center shrink-0 group-hover:bg-orange-200 transition-colors">
-                <Icon name="TruckIcon" size={18} className="text-orange-600" />
-              </div>
-              <div>
-                <p className="font-600 text-foreground">Créer une livraison</p>
-                <p className="text-xs text-muted-foreground">Programmer la livraison à domicile du client</p>
-              </div>
-            </button>
-          ) : deliveryCreated ? (
-            <div className="w-full flex items-center gap-3 p-4 border-2 border-green-400 bg-green-50 rounded-xl">
-              <Icon name="CheckCircleIcon" size={20} className="text-green-600 shrink-0" />
-              <p className="font-600 text-green-700">Livraison créée ! Redirection…</p>
+              {(Object.entries(statuses) as [ActionKey, ActionStatus][]).map(([key, st]) => (
+                <div key={key} className="flex items-center gap-2.5 px-1 text-sm">
+                  <ActionStatusIcon status={st} />
+                  <span className={st === 'error' ? 'text-red-600' : 'text-foreground'}>
+                    {ACTION_LABELS[key]}{st === 'error' && errorMsgs[key] ? ` — ${errorMsgs[key]}` : ''}
+                  </span>
+                </div>
+              ))}
             </div>
           ) : (
-            <div className="border-2 border-orange-200 rounded-xl p-4 space-y-3">
-              <div className="flex items-center gap-2 mb-1">
-                <Icon name="TruckIcon" size={16} className="text-orange-600" />
-                <p className="font-600 text-foreground text-sm">Créer une livraison</p>
-                <button onClick={() => setShowDeliveryForm(false)} className="ml-auto text-muted-foreground hover:text-foreground">
-                  <Icon name="XMarkIcon" size={16} />
-                </button>
-              </div>
-              <input
-                type="text"
-                value={deliveryAddress}
-                onChange={(e) => setDeliveryAddress(e.target.value)}
-                placeholder="Adresse de livraison *"
-                className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
-              />
-              <input
-                type="tel"
-                value={deliveryPhone}
-                onChange={(e) => setDeliveryPhone(e.target.value)}
-                placeholder="Téléphone client"
-                className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
-              />
-              <input
-                type="text"
-                value={deliveryNotes}
-                onChange={(e) => setDeliveryNotes(e.target.value)}
-                placeholder="Notes (digicode, étage…)"
-                className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
-              />
-              <button
-                onClick={handleCreateDelivery}
-                disabled={!deliveryAddress.trim() || creatingDelivery}
-                className="w-full py-2.5 bg-orange-500 text-white font-bold text-sm rounded-lg hover:bg-orange-600 disabled:opacity-50 transition-colors"
-              >
-                {creatingDelivery ? 'Création…' : 'Confirmer la livraison'}
-              </button>
-            </div>
+            <>
+              <p className="text-[11px] font-600 text-muted-foreground uppercase tracking-wide pb-1">
+                Sélectionnez une ou plusieurs actions :
+              </p>
+
+              <ActionRow checked={actions.print} onToggle={() => toggle('print')}
+                emoji="🖨️" label="Imprimer le ticket" desc="Ticket thermique 80mm"
+                status={statuses.print} errorMsg={errorMsgs.print} />
+
+              <ActionRow checked={actions.facture} onToggle={() => toggle('facture')}
+                emoji="📄" label="Créer une facture" desc="Facture légale avec TVA — compte dans le CA"
+                status={statuses.facture} errorMsg={errorMsgs.facture} />
+
+              <ActionRow checked={actions.devis} onToggle={() => toggle('devis')}
+                emoji="📋" label="Créer un devis" desc="⚠️ Ne compte pas dans le CA tant que non converti"
+                status={statuses.devis} errorMsg={errorMsgs.devis} />
+
+              <ActionRow checked={actions.email} onToggle={() => toggle('email')}
+                emoji="📧" label="Envoyer par email" desc="Ticket de caisse HTML via Resend"
+                status={statuses.email} errorMsg={errorMsgs.email}>
+                {actions.email && (
+                  <input
+                    type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+                    placeholder="email@client.fr" autoFocus
+                    className="mt-2 w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                )}
+              </ActionRow>
+
+              <ActionRow checked={actions.whatsapp} onToggle={() => toggle('whatsapp')}
+                emoji="📱" label="Envoyer par WhatsApp" desc="Ouvre WhatsApp avec message de confirmation"
+                status={statuses.whatsapp} errorMsg={errorMsgs.whatsapp}>
+                {actions.whatsapp && (
+                  <input
+                    type="tel" value={whatsappPhone} onChange={(e) => setWhatsappPhone(e.target.value)}
+                    placeholder="06 XX XX XX XX"
+                    className="mt-2 w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                )}
+              </ActionRow>
+
+              <ActionRow checked={actions.livraison} onToggle={() => toggle('livraison')}
+                emoji="🚚" label="Créer une livraison" desc="Programmer la livraison à domicile"
+                status={statuses.livraison} errorMsg={errorMsgs.livraison}>
+                {actions.livraison && (
+                  <div className="mt-2 space-y-2">
+                    <input type="text" value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)}
+                      placeholder="Adresse de livraison *"
+                      className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
+                    <input type="tel" value={deliveryPhone} onChange={(e) => setDeliveryPhone(e.target.value)}
+                      placeholder="Téléphone client"
+                      className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
+                    <input type="text" value={deliveryNotes} onChange={(e) => setDeliveryNotes(e.target.value)}
+                      placeholder="Notes (digicode, étage…)"
+                      className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300" />
+                  </div>
+                )}
+              </ActionRow>
+            </>
           )}
         </div>
 
-        <div className="px-6 pb-5">
-          <button
-            onClick={onClose}
-            className="w-full py-2.5 border border-border rounded-xl text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-          >
-            Fermer sans document
-          </button>
+        {/* Footer */}
+        <div className="px-5 pb-5 pt-3 border-t border-border shrink-0 space-y-2">
+          {allDone ? (
+            <button onClick={onClose}
+              className="w-full py-3 bg-primary text-primary-foreground rounded-xl text-sm font-700 hover:opacity-90 transition-all">
+              Fermer
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={handleExecute}
+                disabled={selectedCount === 0 || executing}
+                className="w-full py-3 bg-primary text-primary-foreground rounded-xl text-sm font-700 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+              >
+                {executing ? (
+                  <><Icon name="ArrowPathIcon" size={14} className="animate-spin" />En cours…</>
+                ) : (
+                  <><Icon name="CheckIcon" size={14} />
+                  {selectedCount === 0
+                    ? 'Sélectionnez des actions'
+                    : `Exécuter ${selectedCount} action${selectedCount > 1 ? 's' : ''} sélectionnée${selectedCount > 1 ? 's' : ''}`}
+                  </>
+                )}
+              </button>
+              <button onClick={onClose}
+                className="w-full py-2.5 border border-border rounded-xl text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                Fermer sans action
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
   );
 }
+
