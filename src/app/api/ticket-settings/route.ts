@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createAdminClient } from '@/lib/supabase/admin';
+import { createClient } from '@supabase/supabase-js';
 
 const SESSION_COOKIE = 'app_session';
 
@@ -12,6 +12,17 @@ function isSessionValid(req: NextRequest): boolean {
   } catch {
     return false;
   }
+}
+
+function makeClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (!url) throw new Error('NEXT_PUBLIC_SUPABASE_URL not set');
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!key) throw new Error('No Supabase key configured');
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    console.warn('[api/ticket-settings] SUPABASE_SERVICE_ROLE_KEY missing — using anon key');
+  }
+  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
 const DEFAULTS = {
@@ -33,14 +44,17 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const supabase = createAdminClient();
+  let supabase;
+  try { supabase = makeClient(); } catch {
+    return NextResponse.json(DEFAULTS);
+  }
+
   try {
     const { data, error } = await supabase
       .from('ticket_settings')
       .select('*')
       .eq('id', 1)
       .maybeSingle();
-
     if (error) throw error;
     return NextResponse.json(data ?? DEFAULTS);
   } catch {
@@ -50,25 +64,39 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   if (!isSessionValid(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    console.error('[api/ticket-settings POST] session invalid');
+    return NextResponse.json({ ok: false, error: 'Session expirée — rechargez la page' }, { status: 401 });
   }
 
   let body: Record<string, unknown>;
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    return NextResponse.json({ ok: false, error: 'Corps de requête invalide' }, { status: 400 });
   }
 
-  const supabase = createAdminClient();
+  let supabase;
+  try {
+    supabase = makeClient();
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error('[api/ticket-settings POST] client init failed:', msg);
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+  }
+
+  console.log('[api/ticket-settings POST] upserting row id=1');
   const { error } = await supabase
     .from('ticket_settings')
-    .upsert({ id: 1, ...body, updated_at: new Date().toISOString() });
+    .upsert({ id: 1, ...body, updated_at: new Date().toISOString() }, { onConflict: 'id' });
 
   if (error) {
-    console.error('[api/ticket-settings POST]', error);
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    console.error('[api/ticket-settings POST] upsert error:', error.code, error.message);
+    const hint = error.code === '42P01'
+      ? ' — la table ticket_settings n\'existe pas, exécutez la migration SQL'
+      : '';
+    return NextResponse.json({ ok: false, error: error.message + hint, code: error.code }, { status: 500 });
   }
 
+  console.log('[api/ticket-settings POST] saved OK');
   return NextResponse.json({ ok: true });
 }

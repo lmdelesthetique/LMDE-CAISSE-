@@ -1004,20 +1004,27 @@ export default function AdminConfigPage() {
           show_loyalty_points: receiptTemplate.showPoints,
           show_next_tier: receiptTemplate.showNextTier,
         };
+        console.log('[admin-config] saving ticket settings:', body);
         const res = await fetch('/api/ticket-settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        let resData: Record<string, unknown> = {};
+        try { resData = await res.json(); } catch {}
+        console.log('[admin-config] response', res.status, resData);
+        if (!res.ok) {
+          throw new Error((resData.error as string) || `Erreur HTTP ${res.status}`);
+        }
         try { localStorage.setItem('beautypos_ticket_settings', JSON.stringify(body)); } catch {}
       }
       setSaved(true);
-      toast.success('Paramètres enregistrés');
+      toast.success('✓ Paramètres du ticket enregistrés');
       setTimeout(() => setSaved(false), 2500);
-    } catch (e) {
-      console.error('[admin-config save]', e);
-      toast.error('Erreur lors de la sauvegarde');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[admin-config save]', msg);
+      toast.error(msg);
     } finally {
       setSaving(false);
     }
