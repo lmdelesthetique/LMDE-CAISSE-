@@ -32,6 +32,12 @@ export interface TicketPrintData {
   companyPhone?: string;
   returnConditions?: string;
   receiptFooter?: string;
+  // template settings from ticket_settings table
+  showTVADetails?: boolean;
+  showPoints?: boolean;
+  showNextTier?: boolean;
+  paperWidth?: string;
+  fontSize?: 'small' | 'medium' | 'large';
 }
 
 const SEP = '================================';
@@ -50,6 +56,12 @@ function line(label: string, value: string): string {
 }
 
 export function generateTicketHTML(d: TicketPrintData): string {
+  const width = d.paperWidth ?? '80mm';
+  const baseFontSize = d.fontSize === 'small' ? '11px' : d.fontSize === 'large' ? '13px' : '12px';
+  const showTVA = d.showTVADetails !== false;
+  const showPoints = d.showPoints !== false;
+  const showNextTier = d.showNextTier !== false;
+
   // Items section
   const itemsHTML = d.items.map((i) => {
     const lineTotal = Math.max(
@@ -73,12 +85,12 @@ ${line(`  ${i.qty} x ${i.price.toFixed(2)}€`, `${lineTotal.toFixed(2)}€`)}${
 
   // Loyalty section
   let loyaltyHTML = '';
-  if (d.loyalty && d.loyalty.pointsEarned > 0) {
+  if (showPoints && d.loyalty && d.loyalty.pointsEarned > 0) {
     const tierLine = d.loyalty.currentTierName
       ? line('Palier actuel :', d.loyalty.currentTierName)
       : '';
     const nextLine =
-      d.loyalty.nextTierName && (d.loyalty.pointsToNext ?? 0) > 0
+      showNextTier && d.loyalty.nextTierName && (d.loyalty.pointsToNext ?? 0) > 0
         ? `<p>Prochaine récompense :</p>
   <p>  ${esc(d.loyalty.nextTierName)} &mdash; ${d.loyalty.pointsToNext} pts</p>`
         : '';
@@ -107,8 +119,8 @@ ${d.returnConditions
     *{box-sizing:border-box;margin:0;padding:0;}
     html,body{
       font-family:'Courier New',Courier,monospace!important;
-      font-size:12px;font-weight:700;
-      width:80mm;margin:0 auto;padding:6px 2px 20px 2px;
+      font-size:${baseFontSize};font-weight:700;
+      width:${width};margin:0 auto;padding:6px 2px 20px 2px;
       color:#000;background:#fff;
       -webkit-print-color-adjust:exact;print-color-adjust:exact;
     }
@@ -123,14 +135,14 @@ ${d.returnConditions
     .fidelite{border:2px solid #000;padding:4px;margin:6px 0;font-weight:700;}
     .fidelite p{font-weight:700;}
     @media print{
-      @page{size:80mm auto;margin:2mm;}
+      @page{size:${width} auto;margin:2mm;}
       *{color:#000000!important;background:#ffffff!important;
         background-color:#ffffff!important;background-image:none!important;
         -webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;
         box-shadow:none!important;text-shadow:none!important;
         border-color:#000000!important;-webkit-text-fill-color:#000000!important;}
       html,body{font-family:'Courier New',Courier,monospace!important;
-        font-size:12px!important;font-weight:700!important;width:80mm!important;
+        font-size:${baseFontSize}!important;font-weight:700!important;width:${width}!important;
         margin:0!important;padding:0!important;}
       p,span,div,td,th,strong{color:#000000!important;font-weight:700!important;
         font-family:'Courier New',Courier,monospace!important;}
@@ -169,9 +181,9 @@ ${d.clientName ? line('Client :', d.clientName.toUpperCase()) : ''}
 ${itemsHTML}
 <p>${SEP}</p>
 
-${line('Sous-total HT :', `${d.subtotalHT.toFixed(2)}€`)}
+${showTVA ? `${line('Sous-total HT :', `${d.subtotalHT.toFixed(2)}€`)}
 ${line(`TVA ${d.tvaRate}% :`, `${d.totalTVA.toFixed(2)}€`)}
-<p>${SEP}</p>
+<p>${SEP}</p>` : ''}
 <div class="tl ttc"><span>TOTAL TTC :</span><span>${d.totalTTC.toFixed(2)}€</span></div>
 <p>${SEP}</p>
 
@@ -209,6 +221,13 @@ export function loadSettingsFromCache() {
   let returnConditions = 'Retour accepté sous 30 jours. Produit non utilisé, non ouvert, en bon état. Ticket obligatoire.';
   let tvaRate = 8.5;
 
+  // Template settings (from ticket_settings DB, cached locally)
+  let showTVADetails = true;
+  let showPoints = true;
+  let showNextTier = true;
+  let paperWidth = '80mm';
+  let fontSize: 'small' | 'medium' | 'large' = 'medium';
+
   try {
     const cached = localStorage.getItem('beautypos_settings');
     if (cached) {
@@ -227,7 +246,20 @@ export function loadSettingsFromCache() {
     }
   } catch { /* use defaults */ }
 
-  return { companyName, companyLine1, companyLine2, companyCity, companyPhone, companySiret, companyTva, receiptFooter, cashierLabel, returnConditions, tvaRate };
+  try {
+    const ticketCached = localStorage.getItem('beautypos_ticket_settings');
+    if (ticketCached) {
+      const ts = JSON.parse(ticketCached);
+      if (ts.show_tva_detail !== undefined) showTVADetails = Boolean(ts.show_tva_detail);
+      if (ts.show_loyalty_points !== undefined) showPoints = Boolean(ts.show_loyalty_points);
+      if (ts.show_next_tier !== undefined) showNextTier = Boolean(ts.show_next_tier);
+      if (ts.paper_width) paperWidth = ts.paper_width;
+      if (ts.font_size) fontSize = ts.font_size as 'small' | 'medium' | 'large';
+      if (ts.thank_you_message) receiptFooter = ts.thank_you_message;
+    }
+  } catch { /* use defaults */ }
+
+  return { companyName, companyLine1, companyLine2, companyCity, companyPhone, companySiret, companyTva, receiptFooter, cashierLabel, returnConditions, tvaRate, showTVADetails, showPoints, showNextTier, paperWidth, fontSize };
 }
 
 export function openAndPrint(html: string): void {

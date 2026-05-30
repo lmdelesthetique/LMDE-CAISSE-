@@ -518,8 +518,30 @@ export default function CaisseHistoriquePage() {
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const PAGE_SIZE = 50;
 
+  const [apiError, setApiError] = useState<string | null>(null);
+  const [diagnosing, setDiagnosing] = useState(false);
+  const [setupSql, setSetupSql] = useState<string | null>(null);
+
+  const runDiagnose = useCallback(async () => {
+    setDiagnosing(true);
+    try {
+      const res = await fetch('/api/setup/diagnose');
+      if (res.ok) {
+        const d = await res.json();
+        console.log('[caisse-historique] diagnose:', d);
+        if (d.setup_sql) setSetupSql(d.setup_sql);
+        if (d.errors?.length) {
+          toast.error(`Diagnostic: ${d.errors[0]}`, { duration: 10000 });
+        }
+      }
+    } catch {/* silent */} finally {
+      setDiagnosing(false);
+    }
+  }, []);
+
   const loadTickets = useCallback(async () => {
     setLoading(true);
+    setApiError(null);
     const { from, to } = getPeriodDates(period, customFrom, customTo);
 
     try {
@@ -530,8 +552,24 @@ export default function CaisseHistoriquePage() {
         page: String(page),
       });
       const res = await fetch(`/api/receipts?${params}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const rawTickets: any[] = await res.json();
+      const body = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        const msg = (body as any).error || `Erreur HTTP ${res.status}`;
+        const code = (body as any).code || '';
+        console.error('[caisse-historique] API error:', res.status, code, body);
+        const display = res.status === 401
+          ? 'Session expirée — rechargez la page'
+          : `${msg}${code ? ` (${code})` : ''}`;
+        setApiError(display);
+        toast.error(display, { duration: 8000 });
+        setTickets([]);
+        // Auto-diagnose on first failure
+        runDiagnose();
+        return;
+      }
+
+      const rawTickets: any[] = Array.isArray(body) ? body : [];
 
       const mapped: TicketRow[] = rawTickets.map((t) => ({
         id: t.id,
@@ -548,13 +586,15 @@ export default function CaisseHistoriquePage() {
 
       setTickets(mapped);
     } catch (e) {
-      console.error('Load tickets error:', e);
-      toast.error('Impossible de charger les transactions');
+      const msg = e instanceof Error ? e.message : 'Erreur réseau';
+      console.error('[caisse-historique] fetch error:', e);
+      setApiError(msg);
+      toast.error(`Impossible de charger les transactions: ${msg}`, { duration: 8000 });
       setTickets([]);
     } finally {
       setLoading(false);
     }
-  }, [period, customFrom, customTo, filterMethod, filterStatus, page]);
+  }, [period, customFrom, customTo, filterMethod, filterStatus, page, runDiagnose]);
 
   useEffect(() => { loadTickets(); }, [loadTickets]);
 
@@ -700,6 +740,55 @@ export default function CaisseHistoriquePage() {
           {loading ? (
             <div className="flex items-center justify-center py-20">
               <Icon name="ArrowPathIcon" size={28} className="animate-spin text-primary" />
+            </div>
+          ) : apiError ? (
+            <div className="p-8">
+              <div className="max-w-2xl mx-auto bg-red-50 border border-red-200 rounded-xl p-6">
+                <div className="flex items-start gap-3 mb-4">
+                  <Icon name="ExclamationTriangleIcon" size={22} className="text-red-500 shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <p className="font-600 text-red-700 text-sm">Erreur de chargement des transactions</p>
+                    <p className="text-red-600 text-sm mt-1 font-mono break-all">{apiError}</p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={loadTickets}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-600 hover:bg-red-700 transition-colors"
+                  >
+                    <Icon name="ArrowPathIcon" size={13} />
+                    Réessayer
+                  </button>
+                  <button
+                    onClick={runDiagnose}
+                    disabled={diagnosing}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-300 text-red-700 text-xs font-500 hover:bg-red-100 transition-colors disabled:opacity-60"
+                  >
+                    {diagnosing ? <Icon name="ArrowPathIcon" size={13} className="animate-spin" /> : <Icon name="WrenchScrewdriverIcon" size={13} />}
+                    {diagnosing ? 'Diagnostic…' : 'Diagnostic'}
+                  </button>
+                  {setupSql && (
+                    <button
+                      onClick={() => { navigator.clipboard.writeText(setupSql); toast.success('SQL copié — collez-le dans Supabase SQL Editor'); }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-300 text-amber-700 text-xs font-500 hover:bg-amber-50 transition-colors"
+                    >
+                      <Icon name="ClipboardDocumentIcon" size={13} />
+                      Copier le SQL de réparation
+                    </button>
+                  )}
+                </div>
+                {setupSql && (
+                  <details className="mt-4">
+                    <summary className="text-xs text-red-600 cursor-pointer hover:text-red-800 font-500">Voir le SQL de réparation</summary>
+                    <pre className="mt-2 p-3 bg-white border border-red-200 rounded-lg text-xs overflow-auto max-h-64 text-slate-700 whitespace-pre-wrap">{setupSql}</pre>
+                  </details>
+                )}
+                <p className="text-xs text-red-500 mt-3">
+                  Vérifiez le terminal Next.js pour les détails complets de l'erreur.
+                  <br />
+                  Si le SQL est affiché ci-dessus, collez-le dans <strong>Supabase Studio → SQL Editor</strong> et relancez.
+                </p>
+              </div>
             </div>
           ) : filtered.length === 0 ? (
             <div className="text-center py-20 text-muted-foreground">

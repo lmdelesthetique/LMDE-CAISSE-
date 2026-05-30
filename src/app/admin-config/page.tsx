@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { toast } from 'sonner';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 
@@ -82,7 +83,7 @@ const defaultCompany: CompanyInfo = {
   capital: '100,00 Euros',
   owner: 'L\'HOMME Christy Aurélie Miriam',
   tvaNumber: 'FR71 927747 725',
-  address: 'aie des Flamands Appt 306 9 avenue Loulou Boislaville',
+  address: 'Baie des Flamands Appt 306 9 avenue Loulou Boislaville',
   city: 'Fort-de-France',
   postalCode: '97200',
   country: 'France',
@@ -110,7 +111,7 @@ const defaultTVARates: TVARate[] = [
 ];
 
 const defaultReceipt: ReceiptTemplate = {
-  headerText: 'LE MONDE DE L\'ESTHETIQUE\naie des Flamands Appt 306 9 avenue Loulou Boislaville\n97200 Fort-de-France\nTVA : FR71 927747 725',
+  headerText: 'LE MONDE DE L\'ESTHETIQUE\nBaie des Flamands Appt 306 9 avenue Loulou Boislaville\n97200 Fort-de-France\nTVA : FR71 927747 725',
   footerText: 'Conservez ce ticket pour tout échange.\nRCS Fort-de-France 927 747 725',
   showLogo: true,
   showTVADetails: true,
@@ -957,6 +958,7 @@ const TABS: { id: Tab; label: string; icon: string; description: string }[] = [
 export default function AdminConfigPage() {
   const [activeTab, setActiveTab] = useState<Tab>('company');
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const [company, setCompany] = useState<CompanyInfo>(defaultCompany);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>(defaultPaymentMethods);
@@ -964,9 +966,61 @@ export default function AdminConfigPage() {
   const [receiptTemplate, setReceiptTemplate] = useState<ReceiptTemplate>(defaultReceipt);
   const [magasin, setMagasin] = useState<MagasinSettings>(defaultMagasin);
 
-  const handleSave = () => {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+  useEffect(() => {
+    fetch('/api/ticket-settings')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!data) return;
+        try { localStorage.setItem('beautypos_ticket_settings', JSON.stringify(data)); } catch {}
+        setReceiptTemplate({
+          headerText: data.header_text ?? defaultReceipt.headerText,
+          footerText: data.footer_text ?? defaultReceipt.footerText,
+          thankYouMessage: data.thank_you_message ?? defaultReceipt.thankYouMessage,
+          paperWidth: (data.paper_width ?? defaultReceipt.paperWidth) as '58mm' | '80mm',
+          fontSize: (data.font_size ?? defaultReceipt.fontSize) as 'small' | 'medium' | 'large',
+          showLogo: data.show_logo ?? defaultReceipt.showLogo,
+          showTVADetails: data.show_tva_detail ?? defaultReceipt.showTVADetails,
+          showBarcode: data.show_barcode ?? defaultReceipt.showBarcode,
+          showPoints: data.show_loyalty_points ?? defaultReceipt.showPoints,
+          showNextTier: data.show_next_tier ?? defaultReceipt.showNextTier,
+        });
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      if (activeTab === 'receipt') {
+        const body = {
+          header_text: receiptTemplate.headerText,
+          footer_text: receiptTemplate.footerText,
+          thank_you_message: receiptTemplate.thankYouMessage,
+          paper_width: receiptTemplate.paperWidth,
+          font_size: receiptTemplate.fontSize,
+          show_logo: receiptTemplate.showLogo,
+          show_tva_detail: receiptTemplate.showTVADetails,
+          show_barcode: receiptTemplate.showBarcode,
+          show_loyalty_points: receiptTemplate.showPoints,
+          show_next_tier: receiptTemplate.showNextTier,
+        };
+        const res = await fetch('/api/ticket-settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        try { localStorage.setItem('beautypos_ticket_settings', JSON.stringify(body)); } catch {}
+      }
+      setSaved(true);
+      toast.success('Paramètres enregistrés');
+      setTimeout(() => setSaved(false), 2500);
+    } catch (e) {
+      console.error('[admin-config save]', e);
+      toast.error('Erreur lors de la sauvegarde');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const activeTabInfo = TABS.find((t) => t.id === activeTab)!;
@@ -983,10 +1037,11 @@ export default function AdminConfigPage() {
             </div>
             <button
               onClick={handleSave}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-600 transition-all ${saved ? 'bg-emerald-500 text-white' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}
+              disabled={saving}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-600 transition-all disabled:opacity-60 ${saved ? 'bg-emerald-500 text-white' : 'bg-primary text-primary-foreground hover:bg-primary/90'}`}
             >
               <Icon name={saved ? 'CheckIcon' : 'CloudArrowUpIcon'} size={15} />
-              {saved ? 'Enregistré !' : 'Enregistrer'}
+              {saving ? 'Enregistrement...' : saved ? 'Enregistré !' : 'Enregistrer'}
             </button>
           </div>
         </div>
