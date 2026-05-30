@@ -10,6 +10,7 @@ export interface TicketPrintData {
     price: number;
     discount?: number;
     discountType?: 'percent' | 'amount';
+    promoName?: string;
   }>;
   subtotalHT: number;
   totalTVA: number;
@@ -72,13 +73,12 @@ export function generateTicketHTML(d: TicketPrintData): string {
           ? i.price * i.qty * ((i.discount ?? 0) / 100)
           : (i.discount ?? 0))
     );
+    const discLabel = i.promoName
+      ? `${i.promoName} : -${i.discountType === 'percent' ? `${i.discount}%` : `${(i.discount ?? 0).toFixed(2)}€`}`
+      : `Remise : -${i.discountType === 'percent' ? `${i.discount}%` : `${(i.discount ?? 0).toFixed(2)}€`}`;
     const discHTML =
       (i.discount ?? 0) > 0
-        ? `<div class="tl disc"><span>  Remise : -${
-            i.discountType === 'percent'
-              ? `${i.discount}%`
-              : `${(i.discount ?? 0).toFixed(2)}€`
-          }</span><span></span></div>`
+        ? `<div class="tl disc"><span>  ${discLabel}</span><span></span></div>`
         : '';
     return `<p class="item-name">${esc(i.name)}</p>
 ${line(`  ${i.qty} x ${i.price.toFixed(2)}€`, `${lineTotal.toFixed(2)}€`)}${discHTML}`;

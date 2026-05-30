@@ -55,6 +55,7 @@ export interface CartItem {
   stock?: number;
   isReward?: boolean;
   originalPrice?: number;
+  promoName?: string;
 }
 
 export interface HeldTicket {
@@ -482,7 +483,7 @@ export default function POSTerminal() {
     loyaltyService.getTiers().then(setLoyaltyTiers);
   }, []);
 
-  const addToCart = useCallback(async (product: { id: string; name: string; sku: string; price: number; imageUrl?: string; stock?: number; variantName?: string; costPrice?: number }) => {
+  const addToCart = useCallback(async (product: { id: string; name: string; sku: string; price: number; imageUrl?: string; stock?: number; variantName?: string; costPrice?: number; promoDiscount?: number; promoDiscountType?: 'percent' | 'amount'; promoName?: string }) => {
     // Fetch stock for display purposes only — never blocks the sale
     let availableStock = product.stock;
     if (product.stock === undefined && !product.id.startsWith('free-')) {
@@ -503,13 +504,14 @@ export default function POSTerminal() {
         sku: product.sku,
         price: product.price,
         qty: 1,
-        discount: 0,
-        discountType: 'percent',
+        discount: product.promoDiscount ?? 0,
+        discountType: product.promoDiscountType ?? 'percent',
         tva: LIVE_TAX_RATE,
         imageUrl: product.imageUrl,
         variantName: product.variantName,
         costPrice: product.costPrice,
         stock: availableStock,
+        promoName: product.promoName,
       }];
     });
   }, [cart]);
@@ -1682,7 +1684,7 @@ function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, l
         openAndPrint(generateTicketHTML({
           ...s, ticketNumber, dateStr, timeStr,
           clientName: client?.name,
-          items: items.map((i) => ({ name: i.name, qty: i.qty, price: i.price, discount: i.discount, discountType: i.discountType })),
+          items: items.map((i) => ({ name: i.name, qty: i.qty, price: i.price, discount: i.discount, discountType: i.discountType, promoName: i.promoName })),
           subtotalHT, totalTVA, totalTTC: total,
           paymentMethod: paymentMethod || 'Carte / Espèces',
           loyalty: loyaltyBlock,

@@ -35,6 +35,7 @@ const navItems: NavItem[] = [
     ],
   },
   { id: 'nav-categories', label: 'Catégories', icon: 'RectangleGroupIcon', href: '/categories', group: 'catalogue' },
+  { id: 'nav-promotions', label: 'Promotions', icon: 'TagIcon', href: '/promotions', group: 'catalogue' },
   { id: 'nav-stock', label: 'Stock', icon: 'ArchiveBoxIcon', href: '/stock', badge: 4, group: 'catalogue' },
   { id: 'nav-shopify-sync', label: 'Sync Shopify', icon: 'ArrowPathIcon', href: '/shopify-sync', group: 'catalogue' },
   {
@@ -71,7 +72,6 @@ const navItems: NavItem[] = [
   { id: 'nav-abonnements', label: 'Abonnements', icon: 'ArchiveBoxIcon', href: '/abonnements', group: 'gestion' },
   { id: 'nav-reservations', label: 'Réservations', icon: 'CalendarDaysIcon', href: '/reservations', badge: 7, group: 'gestion' },
   { id: 'nav-loyalty', label: 'Fidélité', icon: 'StarIcon', href: '/loyalty', group: 'gestion' },
-  { id: 'nav-promotions', label: 'Promotions', icon: 'TicketIcon', href: '/promotions', group: 'gestion' },
   { id: 'nav-returns', label: 'Retours & Avoirs', icon: 'ArrowUturnLeftIcon', href: '/returns', group: 'gestion' },
   { id: 'nav-b2b-invoicing', label: 'Facturation B2B', icon: 'BriefcaseIcon', href: '/b2b-invoicing', group: 'gestion' },
   { id: 'nav-employees', label: 'Employés', icon: 'UserGroupIcon', href: '/employees', group: 'equipe' },

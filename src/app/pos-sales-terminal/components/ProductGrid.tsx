@@ -7,6 +7,7 @@ import POSFavouritesManager from './POSFavouritesManager';
 import { createClient } from '@/lib/supabase/client';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { fetchAll } from '@/lib/utils/fetchAll';
+import { fetchActivePromotions, getProductPromo, promoDiscountLabel, type ActivePromo } from '@/lib/services/promotionService';
 
 const supabase = createClient();
 
@@ -50,6 +51,9 @@ interface ProductGridProps {
     stock: number;
     variantName?: string;
     costPrice?: number;
+    promoDiscount?: number;
+    promoDiscountType?: 'percent' | 'amount';
+    promoName?: string;
   }) => void;
 }
 
@@ -73,9 +77,13 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
   const [variantPickerProduct, setVariantPickerProduct] = useState<DBProduct | null>(null);
   const [variantPickerRows, setVariantPickerRows] = useState<ColorVariantRow[]>([]);
   const [variantPickerLoading, setVariantPickerLoading] = useState(false);
+  const [promos, setPromos] = useState<ActivePromo[]>([]);
+  // store promo for pending variant pick
+  const [pendingPromo, setPendingPromo] = useState<ActivePromo | null>(null);
 
-  const openVariantPicker = useCallback(async (product: DBProduct) => {
+  const openVariantPicker = useCallback(async (product: DBProduct, promo?: ActivePromo | null) => {
     setVariantPickerProduct(product);
+    setPendingPromo(promo ?? null);
     setVariantPickerLoading(true);
     const { data } = await supabase
       .from('product_color_stock')
@@ -88,15 +96,19 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
 
   const loadData = useCallback(async () => {
     setLoading(true);
-    const allProds = await fetchAll<DBProduct>((from, to) =>
-      supabase
-        .from('products')
-        .select('id, name, ref, barcode, sell_price_ttc, sell_price_ht, buy_price, transport, customs, other_fees, structure_pct, stock, min_stock, category, image_url, status, product_status, is_kit, has_color_variants, is_favorite')
-        .in('status', ['active', 'rupture'])
-        .order('name')
-        .range(from, to)
-    );
+    const [allProds, activePromos] = await Promise.all([
+      fetchAll<DBProduct>((from, to) =>
+        supabase
+          .from('products')
+          .select('id, name, ref, barcode, sell_price_ttc, sell_price_ht, buy_price, transport, customs, other_fees, structure_pct, stock, min_stock, category, image_url, status, product_status, is_kit, has_color_variants, is_favorite')
+          .in('status', ['active', 'rupture'])
+          .order('name')
+          .range(from, to)
+      ),
+      fetchActivePromotions().catch(() => [] as ActivePromo[]),
+    ]);
     setProducts(allProds);
+    setPromos(activePromos);
     const cats = Array.from(new Set(allProds.map((p) => p.category).filter(Boolean))).sort() as string[];
     setRawCategories(cats);
     setLoading(false);
@@ -113,11 +125,17 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
   useRealtimeSync({ tables: ['products', 'stock_movements'], onRefresh: loadData });
 
   const favCount = useMemo(() => products.filter(p => p.is_favorite).length, [products]);
+  const promoCount = useMemo(() => {
+    // Count distinct products that have at least one active promo
+    return products.filter(p => getProductPromo(promos, p.id) !== null).length;
+  }, [products, promos]);
 
   const displayedProducts = useMemo(() => {
     const filtered = products.filter((p) => {
       if (activeCategory === '__fav__') {
         if (!p.is_favorite) return false;
+      } else if (activeCategory === '__promo__') {
+        if (!getProductPromo(promos, p.id)) return false;
       } else if (activeCategory !== '__all__') {
         if (p.category !== activeCategory) return false;
       }
@@ -132,13 +150,38 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
       return true;
     });
     return [...filtered.filter(p => p.is_favorite), ...filtered.filter(p => !p.is_favorite)];
-  }, [products, search, activeCategory]);
+  }, [products, search, activeCategory, promos]);
 
   const categoryList = useMemo(() => [
     { id: '__all__', label: 'Tous' },
     { id: '__fav__', label: `⭐ Favoris${favCount > 0 ? ` (${favCount})` : ''}` },
+    ...(promoCount > 0 ? [{ id: '__promo__', label: `🏷️ Promos (${promoCount})` }] : []),
     ...rawCategories.map(c => ({ id: c, label: c })),
-  ], [rawCategories, favCount]);
+  ], [rawCategories, favCount, promoCount]);
+
+  const handleProductClick = useCallback((product: DBProduct) => {
+    const promo = getProductPromo(promos, product.id);
+    const promoDiscount = promo?.discountValue ?? undefined;
+    const promoDiscountType = promo?.discountType ?? undefined;
+    const promoName = promo?.name ?? undefined;
+
+    if (product.has_color_variants) {
+      openVariantPicker(product, promo);
+    } else {
+      onAddToCart({
+        id: product.id,
+        name: product.name,
+        sku: product.ref || product.id,
+        price: Number(product.sell_price_ttc),
+        imageUrl: product.image_url,
+        stock: product.stock,
+        costPrice: computeCostPrice(product),
+        promoDiscount: promoDiscount ?? undefined,
+        promoDiscountType: promoDiscountType ?? undefined,
+        promoName,
+      });
+    }
+  }, [promos, onAddToCart, openVariantPicker]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', background: '#f9fafb' }}>
@@ -215,6 +258,7 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
         }}>
           {categoryList.map((cat) => {
             const isActive = activeCategory === cat.id;
+            const isPromoTab = cat.id === '__promo__';
             return (
               <button
                 key={cat.id}
@@ -226,8 +270,10 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
                   padding: '9px 10px',
                   fontSize: 12,
                   fontWeight: isActive ? 700 : 400,
-                  background: isActive ? 'hsl(var(--primary))' : 'transparent',
-                  color: isActive ? 'hsl(var(--primary-foreground))' : '#374151',
+                  background: isActive
+                    ? (isPromoTab ? '#ef4444' : 'hsl(var(--primary))')
+                    : 'transparent',
+                  color: isActive ? '#fff' : isPromoTab ? '#dc2626' : '#374151',
                   border: 'none',
                   borderBottom: '1px solid #f3f4f6',
                   cursor: 'pointer',
@@ -251,41 +297,33 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
             </div>
           ) : displayedProducts.length === 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 200, textAlign: 'center', gap: 8 }}>
-              <Icon name={activeCategory === '__fav__' ? 'StarIcon' : 'MagnifyingGlassIcon'} size={32} className="text-muted-foreground" />
+              <Icon name={activeCategory === '__fav__' ? 'StarIcon' : activeCategory === '__promo__' ? 'TagIcon' : 'MagnifyingGlassIcon'} size={32} className="text-muted-foreground" />
               <p className="text-sm font-500 text-foreground">
-                {activeCategory === '__fav__' ? 'Aucun favori configuré' : 'Aucun produit trouvé'}
+                {activeCategory === '__fav__' ? 'Aucun favori configuré'
+                  : activeCategory === '__promo__' ? 'Aucune promotion active'
+                  : 'Aucun produit trouvé'}
               </p>
+              {activeCategory === '__promo__' && (
+                <p className="text-xs text-muted-foreground">Créez des promotions dans Catalogue → Promotions</p>
+              )}
               {activeCategory === '__fav__' && (
                 <p className="text-xs text-muted-foreground">Cliquez sur ⭐ pour gérer les favoris</p>
               )}
             </div>
           ) : (
-            /* Fixed 100px cards — auto-fill, no stretching */
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, 100px)', gap: 6 }}>
               {displayedProducts.map((product) => {
                 const isFav = Boolean(product.is_favorite);
                 const isOutOfStock = product.stock <= 0;
                 const minStock = product.min_stock || 3;
                 const isLowStock = !isOutOfStock && product.stock <= minStock;
+                const promo = getProductPromo(promos, product.id);
+                const hasPromo = !!promo;
 
                 return (
                   <button
                     key={product.id}
-                    onClick={() => {
-                      if (product.has_color_variants) {
-                        openVariantPicker(product);
-                      } else {
-                        onAddToCart({
-                          id: product.id,
-                          name: product.name,
-                          sku: product.ref || product.id,
-                          price: Number(product.sell_price_ttc),
-                          imageUrl: product.image_url,
-                          stock: product.stock,
-                          costPrice: computeCostPrice(product),
-                        });
-                      }
-                    }}
+                    onClick={() => handleProductClick(product)}
                     title={product.name}
                     style={{
                       width: 100,
@@ -294,7 +332,7 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
                       display: 'flex',
                       flexDirection: 'column',
                       borderRadius: 8,
-                      border: `1px solid ${isOutOfStock ? '#fecaca' : isLowStock ? '#fde68a' : '#e5e7eb'}`,
+                      border: `1px solid ${hasPromo ? '#fca5a5' : isOutOfStock ? '#fecaca' : isLowStock ? '#fde68a' : '#e5e7eb'}`,
                       background: isOutOfStock ? '#fff5f5' : '#ffffff',
                       cursor: 'pointer',
                       overflow: 'hidden',
@@ -322,8 +360,17 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
                         </div>
                       )}
 
-                      {/* Rupture badge — top right */}
-                      {isOutOfStock && (
+                      {/* PROMO badge — top right (overrides other badges) */}
+                      {hasPromo && !isOutOfStock ? (
+                        <span style={{
+                          position: 'absolute', top: 2, right: 2,
+                          background: '#ef4444', color: '#fff',
+                          fontSize: 7, fontWeight: 800,
+                          padding: '1px 3px', borderRadius: 3, lineHeight: 1.4,
+                        }}>
+                          {promoDiscountLabel(promo)}
+                        </span>
+                      ) : isOutOfStock ? (
                         <span style={{
                           position: 'absolute', top: 2, right: 2,
                           background: '#ef4444', color: '#fff',
@@ -332,9 +379,7 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
                         }}>
                           Rupture
                         </span>
-                      )}
-                      {/* Low stock badge */}
-                      {isLowStock && !isOutOfStock && (
+                      ) : isLowStock ? (
                         <span style={{
                           position: 'absolute', top: 2, right: 2,
                           background: '#f59e0b', color: '#fff',
@@ -343,9 +388,7 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
                         }}>
                           {product.stock}
                         </span>
-                      )}
-                      {/* Kit badge */}
-                      {product.is_kit && !isOutOfStock && !isLowStock && (
+                      ) : product.is_kit ? (
                         <span style={{
                           position: 'absolute', top: 2, right: 2,
                           background: '#8b5cf6', color: '#fff',
@@ -354,7 +397,7 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
                         }}>
                           Kit
                         </span>
-                      )}
+                      ) : null}
 
                       {/* Star (favorite) toggle — top left */}
                       <button
@@ -387,29 +430,47 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
                       } as React.CSSProperties}>
                         {product.name}
                       </p>
-                      <p style={{ fontSize: 11, fontWeight: 700, margin: 0, color: 'hsl(var(--primary))', paddingTop: 2 }}>
-                        {Number(product.sell_price_ttc).toFixed(2)} €
-                      </p>
+                      {hasPromo && promo.discountType === 'percent' && promo.discountValue ? (
+                        <div style={{ paddingTop: 2 }}>
+                          <span style={{ fontSize: 9, color: '#9ca3af', textDecoration: 'line-through', display: 'block', lineHeight: 1 }}>
+                            {Number(product.sell_price_ttc).toFixed(2)} €
+                          </span>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: '#ef4444', lineHeight: 1.2 }}>
+                            {(Number(product.sell_price_ttc) * (1 - promo.discountValue / 100)).toFixed(2)} €
+                          </span>
+                        </div>
+                      ) : hasPromo && promo.discountType === 'amount' && promo.discountValue ? (
+                        <div style={{ paddingTop: 2 }}>
+                          <span style={{ fontSize: 9, color: '#9ca3af', textDecoration: 'line-through', display: 'block', lineHeight: 1 }}>
+                            {Number(product.sell_price_ttc).toFixed(2)} €
+                          </span>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: '#ef4444', lineHeight: 1.2 }}>
+                            {Math.max(0, Number(product.sell_price_ttc) - promo.discountValue).toFixed(2)} €
+                          </span>
+                        </div>
+                      ) : (
+                        <p style={{ fontSize: 11, fontWeight: 700, margin: 0, color: 'hsl(var(--primary))', paddingTop: 2 }}>
+                          {Number(product.sell_price_ttc).toFixed(2)} €
+                        </p>
+                      )}
                     </div>
 
                     {/* Hover add-to-cart overlay */}
-                    {(
+                    <div style={{
+                      position: 'absolute', inset: 0,
+                      background: 'rgba(var(--primary), 0.06)',
+                      opacity: 0, transition: 'opacity 0.15s',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      pointerEvents: 'none',
+                    }} className="group-hover:opacity-100">
                       <div style={{
-                        position: 'absolute', inset: 0,
-                        background: 'rgba(var(--primary), 0.06)',
-                        opacity: 0, transition: 'opacity 0.15s',
+                        width: 22, height: 22, borderRadius: '50%',
+                        background: hasPromo ? '#ef4444' : 'hsl(var(--primary))',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        pointerEvents: 'none',
-                      }} className="group-hover:opacity-100">
-                        <div style={{
-                          width: 22, height: 22, borderRadius: '50%',
-                          background: 'hsl(var(--primary))',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        }}>
-                          <Icon name="PlusIcon" size={11} className="text-white" />
-                        </div>
+                      }}>
+                        <Icon name="PlusIcon" size={11} className="text-white" />
                       </div>
-                    )}
+                    </div>
                   </button>
                 );
               })}
@@ -433,9 +494,12 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
               <div>
                 <p className="text-xs text-muted-foreground">Choisir une couleur</p>
                 <p className="text-sm font-600 text-foreground break-words">{variantPickerProduct.name}</p>
+                {pendingPromo && (
+                  <p className="text-xs text-red-600 font-600">{promoDiscountLabel(pendingPromo)} · {pendingPromo.name}</p>
+                )}
               </div>
               <button
-                onClick={() => { setVariantPickerProduct(null); setVariantPickerRows([]); }}
+                onClick={() => { setVariantPickerProduct(null); setVariantPickerRows([]); setPendingPromo(null); }}
                 className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
               >
                 <Icon name="XMarkIcon" size={16} />
@@ -463,9 +527,13 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
                           stock: v.quantity,
                           variantName: v.color_name,
                           costPrice: computeCostPrice(variantPickerProduct),
+                          promoDiscount: pendingPromo?.discountValue ?? undefined,
+                          promoDiscountType: pendingPromo?.discountType ?? undefined,
+                          promoName: pendingPromo?.name ?? undefined,
                         });
                         setVariantPickerProduct(null);
                         setVariantPickerRows([]);
+                        setPendingPromo(null);
                       }}
                       className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-left transition-all active:scale-95 ${
                         v.quantity <= 0
