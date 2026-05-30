@@ -798,7 +798,7 @@ export default function POSTerminal() {
 
       // Save receipt to DB (with loyalty info)
       const receiptItems = rewardLineItem ? [...cart, rewardLineItem] : cart;
-      await saveReceipt({
+      const saved = await saveReceipt({
         ticketNumber: ticketRef,
         items: receiptItems,
         subtotalHT,
@@ -813,6 +813,7 @@ export default function POSTerminal() {
         loyaltyPointsEarned,
         loyaltyRewardUsed,
       });
+      if (!saved) toast.error('Ticket non enregistré — vérifiez la connexion', { duration: 8000 });
 
       if (unlocked.length > 0) {
         const persistedRewards: ClientLoyaltyReward[] = [];
@@ -904,7 +905,7 @@ export default function POSTerminal() {
       }
     } else {
       // No client / no loyalty — save receipt and show doc choice
-      await saveReceipt({
+      const saved2 = await saveReceipt({
         ticketNumber: ticketRef,
         items: cart,
         subtotalHT,
@@ -917,6 +918,7 @@ export default function POSTerminal() {
         clientName: client?.name,
         cashierName: employee?.fullName || 'Caisse',
       });
+      if (!saved2) toast.error('Ticket non enregistré — vérifiez la connexion', { duration: 8000 });
 
       setShowPayment(false);
       setLastSaleTotal(total);

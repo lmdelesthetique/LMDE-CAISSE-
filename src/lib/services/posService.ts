@@ -65,8 +65,8 @@ export interface TicketModification {
 }
 
 // ─── Save receipt after payment ───────────────────────────────────────────────
+// ─── Save receipt after payment ───────────────────────────────────────────────
 export async function saveReceipt(params: SaveReceiptParams): Promise<{ id: string; ticketNumber: string } | null> {
-  const supabase = createClient();
   const ticketNumber = params.ticketNumber || generateTicketNumber();
 
   const itemsJson = params.items.map((i) => ({
@@ -84,48 +84,54 @@ export async function saveReceipt(params: SaveReceiptParams): Promise<{ id: stri
     total: Math.max(0, i.price * i.qty - (i.discountType === 'percent' ? i.price * i.qty * (i.discount / 100) : i.discount)),
   }));
 
-  const { data, error } = await supabase
-    .from('receipts')
-    .insert({
-      ticket_number: ticketNumber,
-      items: itemsJson,
-      items_count: params.items.length,
-      subtotal_ht: params.subtotalHT,
-      total_tva: params.totalTVA,
-      total_amount: params.totalTTC,
-      discount_amount: params.discountAmount,
-      payment_method: params.paymentMethod,
-      payment_type: params.paymentType || 'sale',
-      client_id: params.clientId || null,
-      client_name: params.clientName || null,
-      cashier_name: params.cashierName || null,
-      loyalty_points_earned: params.loyaltyPointsEarned || 0,
-      loyalty_reward_used: params.loyaltyRewardUsed || null,
-      notes: params.notes || null,
-      status: 'completed',
-    })
-    .select('id, ticket_number')
-    .single();
+  const body = {
+    ticket_number: ticketNumber,
+    items: itemsJson,
+    items_count: params.items.length,
+    subtotal_ht: params.subtotalHT,
+    total_tva: params.totalTVA,
+    total_amount: params.totalTTC,
+    discount_amount: params.discountAmount,
+    payment_method: params.paymentMethod,
+    payment_type: params.paymentType || 'sale',
+    client_id: params.clientId || null,
+    client_name: params.clientName || null,
+    cashier_name: params.cashierName || null,
+    loyalty_points_earned: params.loyaltyPointsEarned || 0,
+    loyalty_reward_used: params.loyaltyRewardUsed || null,
+    notes: params.notes || null,
+    status: 'completed',
+  };
 
-  if (error) {
-    console.error('saveReceipt error:', error);
+  try {
+    const res = await fetch('/api/receipts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      console.error('saveReceipt error:', res.status, err);
+      return null;
+    }
+    const data = await res.json();
+    return { id: data.id, ticketNumber: data.ticket_number };
+  } catch (e) {
+    console.error('saveReceipt fetch error:', e);
     return null;
   }
-
-  return { id: data.id, ticketNumber: data.ticket_number };
 }
 
 // ─── Fetch single receipt with full details ───────────────────────────────────
 export async function fetchReceiptById(id: string): Promise<ReceiptRecord | null> {
-  const supabase = createClient();
-  const { data, error } = await supabase
-    .from('receipts')
-    .select('*')
-    .eq('id', id)
-    .maybeSingle();
-
-  if (error || !data) return null;
-  return mapReceipt(data);
+  try {
+    const res = await fetch(`/api/receipts/${id}`);
+    if (!res.ok) return null;
+    const r = await res.json();
+    return mapReceipt(r);
+  } catch {
+    return null;
+  }
 }
 
 function mapReceipt(r: Record<string, unknown>): ReceiptRecord {
@@ -173,97 +179,41 @@ export async function modifyTicket(
   modifiedBy: string,
   reason: string
 ): Promise<boolean> {
-  const supabase = createClient();
-
-  // Fetch current values for audit trail
-  const { data: current } = await supabase
-    .from('receipts')
-    .select('client_id, client_name, payment_method, notes')
-    .eq('id', receiptId)
-    .maybeSingle();
-
-  if (!current) return false;
-
-  const updateData: Record<string, unknown> = {};
-  const auditEntries: Array<{
-    receipt_id: string;
-    modified_by: string;
-    field_changed: string;
-    old_value: string | null;
-    new_value: string | null;
-    reason: string;
-  }> = [];
-
-  if (changes.clientName !== undefined && changes.clientName !== (current as any).client_name) {
-    updateData.client_name = changes.clientName;
-    updateData.client_id = changes.clientId || null;
-    auditEntries.push({
-      receipt_id: receiptId,
-      modified_by: modifiedBy,
-      field_changed: 'client_name',
-      old_value: (current as any).client_name,
-      new_value: changes.clientName,
-      reason,
+  try {
+    const res = await fetch(`/api/receipts/${receiptId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ changes, modifiedBy, reason }),
     });
+    if (!res.ok) return false;
+    const data = await res.json();
+    return data.ok === true;
+  } catch {
+    return false;
   }
-
-  if (changes.paymentMethod !== undefined && changes.paymentMethod !== (current as any).payment_method) {
-    updateData.payment_method = changes.paymentMethod;
-    auditEntries.push({
-      receipt_id: receiptId,
-      modified_by: modifiedBy,
-      field_changed: 'payment_method',
-      old_value: (current as any).payment_method,
-      new_value: changes.paymentMethod,
-      reason,
-    });
-  }
-
-  if (changes.notes !== undefined && changes.notes !== (current as any).notes) {
-    updateData.notes = changes.notes;
-    auditEntries.push({
-      receipt_id: receiptId,
-      modified_by: modifiedBy,
-      field_changed: 'notes',
-      old_value: (current as any).notes,
-      new_value: changes.notes,
-      reason,
-    });
-  }
-
-  if (Object.keys(updateData).length === 0) return true;
-
-  const { error } = await supabase.from('receipts').update(updateData).eq('id', receiptId);
-  if (error) { console.error('modifyTicket error:', error); return false; }
-
-  if (auditEntries.length > 0) {
-    await supabase.from('ticket_modifications').insert(auditEntries);
-  }
-
-  return true;
 }
 
 // ─── Fetch ticket modification history ───────────────────────────────────────
 export async function fetchTicketModifications(receiptId: string): Promise<TicketModification[]> {
-  const supabase = createClient();
-  const { data, error } = await supabase
-    .from('ticket_modifications')
-    .select('*')
-    .eq('receipt_id', receiptId)
-    .order('modified_at', { ascending: false });
-
-  if (error || !data) return [];
-  return data.map((r: any) => ({
-    id: r.id,
-    receiptId: r.receipt_id,
-    modifiedBy: r.modified_by,
-    modifiedAt: r.modified_at,
-    fieldChanged: r.field_changed,
-    oldValue: r.old_value,
-    newValue: r.new_value,
-    reason: r.reason,
-  }));
+  try {
+    const res = await fetch(`/api/receipts/${receiptId}/modifications`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data as any[]).map((r: any) => ({
+      id: r.id,
+      receiptId: r.receipt_id,
+      modifiedBy: r.modified_by,
+      modifiedAt: r.modified_at,
+      fieldChanged: r.field_changed,
+      oldValue: r.old_value,
+      newValue: r.new_value,
+      reason: r.reason,
+    }));
+  } catch {
+    return [];
+  }
 }
+
 
 // ─── Day summary ──────────────────────────────────────────────────────────────
 export interface DaySummaryData {

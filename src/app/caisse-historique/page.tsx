@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
-import { createClient } from '@/lib/supabase/client';
 import { fetchReceiptById, modifyTicket, fetchTicketModifications, type ReceiptRecord, type TicketModification } from '@/lib/services/posService';
 import { sendReceiptEmail, type ReceiptEmailData } from '@/lib/services/emailService';
 import { toast } from 'sonner';
@@ -521,26 +520,20 @@ export default function CaisseHistoriquePage() {
 
   const loadTickets = useCallback(async () => {
     setLoading(true);
-    const supabase = createClient();
     const { from, to } = getPeriodDates(period, customFrom, customTo);
 
     try {
-      let query = supabase
-        .from('receipts')
-        .select('id, ticket_number, created_at, total_amount, payment_method, client_id, client_name, items_count, status, cashier_name, discount_amount')
-        .gte('created_at', from)
-        .lte('created_at', to)
-        .order('created_at', { ascending: false })
-        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+      const params = new URLSearchParams({
+        from, to,
+        method: filterMethod,
+        status: filterStatus,
+        page: String(page),
+      });
+      const res = await fetch(`/api/receipts?${params}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const rawTickets: any[] = await res.json();
 
-      if (filterMethod !== 'all') query = query.eq('payment_method', filterMethod);
-      if (filterStatus !== 'all') query = query.eq('status', filterStatus);
-
-      const { data: rawTickets, error } = await query;
-      if (error) throw error;
-
-      const ticketList = rawTickets ?? [];
-      const mapped: TicketRow[] = ticketList.map((t: any) => ({
+      const mapped: TicketRow[] = rawTickets.map((t) => ({
         id: t.id,
         ticket_number: t.ticket_number ?? t.id.substring(0, 8).toUpperCase(),
         created_at: t.created_at,
@@ -556,6 +549,7 @@ export default function CaisseHistoriquePage() {
       setTickets(mapped);
     } catch (e) {
       console.error('Load tickets error:', e);
+      toast.error('Impossible de charger les transactions');
       setTickets([]);
     } finally {
       setLoading(false);
