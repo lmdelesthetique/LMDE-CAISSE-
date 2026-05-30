@@ -195,7 +195,7 @@ export default function EmployeesReport({ dateRange }: EmployeesReportProps) {
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="name" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip formatter={(v: number) => [`${v.toFixed(2)} €`, 'CA']} />
+              <Tooltip formatter={(v: any) => [`${v.toFixed(2)} €`, 'CA']} />
               <Bar dataKey="CA" fill="#6366F1" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>

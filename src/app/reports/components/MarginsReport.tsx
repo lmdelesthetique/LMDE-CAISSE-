@@ -207,7 +207,7 @@ export default function MarginsReport({ dateRange }: MarginsReportProps) {
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="category" tick={{ fontSize: 10 }} />
               <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip formatter={(v: number) => [`${v.toFixed(2)} €`, 'Marge']} />
+              <Tooltip formatter={(v: any) => [`${v.toFixed(2)} €`, 'Marge']} />
               <Bar dataKey="margin" fill="#10B981" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>

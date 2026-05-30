@@ -175,7 +175,7 @@ export default function StockReport({ dateRange }: StockReportProps) {
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="category" tick={{ fontSize: 10 }} />
               <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip formatter={(v: number) => [`${v.toFixed(2)} €`, 'Valeur']} />
+              <Tooltip formatter={(v: any) => [`${v.toFixed(2)} €`, 'Valeur']} />
               <Bar dataKey="total_value" fill="#F59E0B" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>

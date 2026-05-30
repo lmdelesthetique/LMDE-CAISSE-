@@ -510,7 +510,7 @@ export default function GeneralDashboardPage() {
                               <Cell key={`cell-${i}`} fill={entry.color} />
                             ))}
                           </Pie>
-                          <Tooltip formatter={(v: number) => `${fmt(v)} €`} />
+                          <Tooltip formatter={(v: any) => `${fmt(v)} €`} />
                         </PieChart>
                       </ResponsiveContainer>
                       <div className="space-y-1.5 mt-2">

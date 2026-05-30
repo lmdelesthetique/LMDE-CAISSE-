@@ -185,7 +185,7 @@ export default function TaxesReport({ dateRange }: TaxesReportProps) {
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
                 </Pie>
-                <Tooltip formatter={(v: number) => [`${v.toFixed(2)} €`, 'TVA']} />
+                <Tooltip formatter={(v: any) => [`${v.toFixed(2)} €`, 'TVA']} />
               </PieChart>
             </ResponsiveContainer>
           </div>

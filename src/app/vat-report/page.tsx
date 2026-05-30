@@ -532,7 +532,7 @@ export default function VATReportPage() {
                         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                         <XAxis dataKey="period" tick={{ fontSize: 11 }} />
                         <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${v}€`} />
-                        <Tooltip formatter={(v: number, name: string) => [`${v.toFixed(2)} €`, name === 'tva' ? `TVA ${TVA_RATE}%` : name === 'base_ht' ? 'Base HT' : 'TTC']} />
+                        <Tooltip formatter={(v: any, name: any) => [`${v.toFixed(2)} €`, name === 'tva' ? `TVA ${TVA_RATE}%` : name === 'base_ht' ? 'Base HT' : 'TTC']} />
                         <Bar dataKey="base_ht" name="Base HT" fill="#BFDBFE" radius={[3, 3, 0, 0]} />
                         <Bar dataKey="tva" name={`TVA ${TVA_RATE}%`} fill="#7C3AED" radius={[3, 3, 0, 0]} />
                       </BarChart>
@@ -592,7 +592,7 @@ export default function VATReportPage() {
                               <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
                             ))}
                           </Pie>
-                          <Tooltip formatter={(v: number) => [`${v.toFixed(2)} €`, `TVA ${TVA_RATE}%`]} />
+                          <Tooltip formatter={(v: any) => [`${v.toFixed(2)} €`, `TVA ${TVA_RATE}%`]} />
                           <Legend formatter={(v) => <span className="text-xs">{v}</span>} />
                         </PieChart>
                       </ResponsiveContainer>
@@ -653,7 +653,7 @@ export default function VATReportPage() {
                           <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" horizontal={false} />
                           <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v) => `${v}€`} />
                           <YAxis type="category" dataKey="method_label" tick={{ fontSize: 11 }} width={60} />
-                          <Tooltip formatter={(v: number, name: string) => [`${v.toFixed(2)} €`, name === 'tva' ? `TVA ${TVA_RATE}%` : 'Base HT']} />
+                          <Tooltip formatter={(v: any, name: any) => [`${v.toFixed(2)} €`, name === 'tva' ? `TVA ${TVA_RATE}%` : 'Base HT']} />
                           <Bar dataKey="base_ht" name="Base HT" fill="#BFDBFE" radius={[0, 3, 3, 0]} />
                           <Bar dataKey="tva" name={`TVA ${TVA_RATE}%`} fill="#7C3AED" radius={[0, 3, 3, 0]} />
                         </BarChart>

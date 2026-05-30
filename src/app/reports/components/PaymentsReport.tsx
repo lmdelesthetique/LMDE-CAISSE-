@@ -185,7 +185,7 @@ export default function PaymentsReport({ dateRange }: PaymentsReportProps) {
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
                 </Pie>
-                <Tooltip formatter={(v: number) => [`${v.toFixed(2)} €`, '']} />
+                <Tooltip formatter={(v: any) => [`${v.toFixed(2)} €`, '']} />
               </PieChart>
             </ResponsiveContainer>
           </div>

@@ -190,7 +190,7 @@ export default function SalesReport({ dateRange }: SalesReportProps) {
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="day" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip formatter={(v: number) => [`${v.toFixed(2)} €`, 'CA']} />
+              <Tooltip formatter={(v: any) => [`${v.toFixed(2)} €`, 'CA']} />
               <Line type="monotone" dataKey="revenue" stroke="#4F46E5" strokeWidth={2} dot={false} />
             </LineChart>
           </ResponsiveContainer>
