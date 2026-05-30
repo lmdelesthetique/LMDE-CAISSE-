@@ -54,6 +54,7 @@ function mapDbProduct(r: any): ProductRecord {
     minStock: Number(r.min_stock) || 5,
     status: r.status || r.product_status || 'active',
     shopify: Boolean(r.shopify),
+    shopifyError: Boolean(r.shopify_sync_error),
     variants: Boolean(r.has_color_variants),
     imageUrl: r.image_url || undefined,
     colorVariants: undefined,
@@ -91,7 +92,7 @@ export default function ProductManagementContent() {
   const [editKitId, setEditKitId] = useState<string | null>(null);
   const [kitFilter, setKitFilter] = useState<'all' | 'kits' | 'products'>('all');
   const router = useRouter();
-  const [filterShopify, setFilterShopify] = useState<'Tous' | 'Synchronisé' | 'Non synchronisé'>('Tous');
+  const [filterShopify, setFilterShopify] = useState<'Tous' | 'Synchronisé' | 'Non synchronisé' | 'Erreur'>('Tous');
   const [syncingShopify, setSyncingShopify] = useState(false);
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
@@ -150,7 +151,12 @@ export default function ProductManagementContent() {
         const matchSup = filterSupplier === 'Tous' || p.supplier === filterSupplier;
         const matchStatus = filterStatus === 'Tous' || p.status === statusMap[filterStatus];
         const matchKit = kitFilter === 'all' || (kitFilter === 'kits' ? p.isKit : !p.isKit);
-        const matchShopify = filterShopify === 'Tous' || (filterShopify === 'Synchronisé' ? p.shopify : !p.shopify);
+        const matchShopify = filterShopify === 'Tous'
+          ? true
+          : filterShopify === 'Synchronisé' ? (p.shopify && !p.shopifyError)
+          : filterShopify === 'Non synchronisé' ? !p.shopify
+          : filterShopify === 'Erreur' ? p.shopifyError
+          : true;
         return matchSearch && matchCat && matchSup && matchStatus && matchKit && matchShopify;
       })
       .sort((a, b) => {
@@ -502,8 +508,9 @@ export default function ProductManagementContent() {
           </select>
           <select value={filterShopify} onChange={(e) => setFilterShopify(e.target.value as typeof filterShopify)} className="px-3 py-2 text-sm border border-border rounded-lg bg-white text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary cursor-pointer">
             <option value="Tous">Shopify : Tous</option>
-            <option value="Synchronisé">Synchronisé</option>
-            <option value="Non synchronisé">Non synchronisé</option>
+            <option value="Synchronisé">🟢 Synchronisé</option>
+            <option value="Non synchronisé">⚪ Non synchronisé</option>
+            <option value="Erreur">🔴 Erreur sync</option>
           </select>
           <button
             onClick={handleSyncShopify}
@@ -663,10 +670,12 @@ export default function ProductManagementContent() {
                       {visibleCols.status && <td className="px-4 py-3"><StatusBadge variant={product.status as any} size="sm" /></td>}
                       {visibleCols.shopify && (
                         <td className="px-4 py-3 text-center">
-                          {product.shopify ? (
-                            <span className="inline-flex items-center justify-center w-5 h-5 bg-emerald-100 rounded-full"><Icon name="CheckIcon" size={11} className="text-emerald-600" /></span>
+                          {product.shopifyError ? (
+                            <span title="Erreur de synchronisation Shopify" className="inline-flex items-center justify-center w-5 h-5 bg-red-100 rounded-full"><Icon name="ExclamationCircleIcon" size={11} className="text-red-600" /></span>
+                          ) : product.shopify ? (
+                            <span title="Synchronisé avec Shopify" className="inline-flex items-center justify-center w-5 h-5 bg-emerald-100 rounded-full"><Icon name="CheckIcon" size={11} className="text-emerald-600" /></span>
                           ) : (
-                            <span className="inline-flex items-center justify-center w-5 h-5 bg-muted rounded-full"><Icon name="MinusIcon" size={11} className="text-muted-foreground" /></span>
+                            <span title="Non synchronisé" className="inline-flex items-center justify-center w-5 h-5 bg-muted rounded-full"><Icon name="MinusIcon" size={11} className="text-muted-foreground" /></span>
                           )}
                         </td>
                       )}

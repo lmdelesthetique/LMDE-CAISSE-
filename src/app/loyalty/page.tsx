@@ -14,6 +14,7 @@ import {
   type CreateTierInput,
 } from '@/lib/services/loyaltyService';
 import { createClient } from '@/lib/supabase/client';
+import { toast } from 'sonner';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
 type Tab = 'dashboard' | 'tiers' | 'products';
@@ -100,14 +101,31 @@ function TierFormModal({
   const handleSave = async () => {
     if (!form.name.trim() || !form.rewardDescription.trim()) return;
     setSaving(true);
-    let result: LoyaltyTier | null = null;
-    if (tier) {
-      result = await loyaltyService.updateTier(tier.id, form);
-    } else {
-      result = await loyaltyService.createTier(form);
+    try {
+      let result: LoyaltyTier | null = null;
+      if (tier) {
+        const res = await fetch(`/api/loyalty/tiers/${tier.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(form),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+        result = json as LoyaltyTier;
+      } else {
+        result = await loyaltyService.createTier(form);
+      }
+      if (result) {
+        toast.success(`✓ Palier ${result.name} ${tier ? 'mis à jour' : 'créé'}`);
+        onSaved(result);
+      } else {
+        throw new Error('Réponse invalide du serveur');
+      }
+    } catch (e: any) {
+      toast.error(`Erreur : ${e?.message ?? 'Impossible de sauvegarder le palier'}`);
+    } finally {
+      setSaving(false);
     }
-    if (result) onSaved(result);
-    setSaving(false);
   };
 
   return (

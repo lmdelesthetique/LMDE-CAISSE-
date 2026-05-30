@@ -20,6 +20,7 @@ export interface ProductRecord {
   minStock: number;
   status: 'active' | 'inactive' | 'rupture' | 'coming_soon';
   shopify: boolean;
+  shopifyError?: boolean;
   variants: boolean;
   imageUrl?: string;
   colorVariants?: ColorVariant[];

@@ -1,10 +1,29 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import { computeDaySummary, saveDaySummary, addDailyExpense, updateDailyExpense, deleteDailyExpense, syncExpenseToBusinessExpenses, type DaySummaryData, type DailyExpense } from '@/lib/services/posService';
 import { toast } from 'sonner';
+
+const BILLETS = [
+  { valeur: 500, label: '500€' },
+  { valeur: 200, label: '200€' },
+  { valeur: 100, label: '100€' },
+  { valeur: 50, label: '50€' },
+  { valeur: 20, label: '20€' },
+  { valeur: 10, label: '10€' },
+  { valeur: 5, label: '5€' },
+];
+
+const PIECES = [
+  { valeur: 2, label: '2€' },
+  { valeur: 1, label: '1€' },
+  { valeur: 0.5, label: '0,50€' },
+  { valeur: 0.2, label: '0,20€' },
+  { valeur: 0.1, label: '0,10€' },
+  { valeur: 0.05, label: '0,05€' },
+];
 
 const METHOD_LABELS: Record<string, string> = {
   'SumUp (CB)': 'SumUp (CB)',
@@ -72,6 +91,13 @@ export default function ClotureCaissePage() {
   });
   const printRef = useRef<HTMLDivElement>(null);
 
+  // Fond de caisse clôture
+  const [caisseSession, setCaisseSession] = useState<{ fond_ouverture: number; cash_in_today: number } | null>(null);
+  const [fondCounts, setFondCounts] = useState<Record<string, number>>({});
+  const [fondDemainMode, setFondDemainMode] = useState<'all' | 'fixed'>('all');
+  const [fondDemainFixed, setFondDemainFixed] = useState('');
+  const [closingSession, setClosingSession] = useState(false);
+
   useEffect(() => {
     try {
       const cached = localStorage.getItem('beautypos_settings');
@@ -96,6 +122,54 @@ export default function ClotureCaissePage() {
   }, [selectedDate]);
 
   useEffect(() => { loadSummary(); }, [loadSummary]);
+
+  useEffect(() => {
+    fetch(`/api/caisse/sessions?date=${selectedDate}`)
+      .then(r => r.json())
+      .then(d => setCaisseSession(d || null))
+      .catch(() => {});
+  }, [selectedDate]);
+
+  const fondTheorique = caisseSession
+    ? caisseSession.fond_ouverture + (caisseSession.cash_in_today ?? 0)
+    : 0;
+
+  const fondCompte = useMemo(() => {
+    return [...BILLETS, ...PIECES].reduce((sum, d) => {
+      return sum + (fondCounts[String(d.valeur)] ?? 0) * d.valeur;
+    }, 0);
+  }, [fondCounts]);
+
+  const ecart = fondCompte - fondTheorique;
+  const fondDemain = fondDemainMode === 'all' ? fondCompte : (parseFloat(fondDemainFixed) || 0);
+  const montantADeposer = Math.max(0, fondCompte - fondDemain);
+
+  const handleCloseCaisse = async () => {
+    setClosingSession(true);
+    try {
+      const res = await fetch('/api/caisse/sessions', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date: selectedDate,
+          fond_compte: fondCompte,
+          fond_theorique: fondTheorique,
+          fond_demain: fondDemain,
+          montant_a_deposer: montantADeposer,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || 'Échec de la clôture caisse');
+      }
+      toast.success('Caisse clôturée avec succès');
+      setCaisseSession(null);
+    } catch (e: any) {
+      toast.error(e?.message ?? 'Erreur lors de la clôture');
+    } finally {
+      setClosingSession(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!summary) return;
@@ -347,6 +421,146 @@ ${notes ? `<h2>Notes de clôture</h2><p style="padding:8px;background:#f9f9f9;bo
             </button>
           </div>
         </div>
+
+        {/* ── Fond de caisse ─────────────────────────────────────── */}
+        {caisseSession && (
+          <div className="bg-white border border-border rounded-2xl p-6 space-y-5">
+            <h2 className="text-base font-700 text-foreground flex items-center gap-2">
+              <span className="text-xl">💰</span>
+              Fond de caisse — Clôture
+            </h2>
+
+            {/* Denomination grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              <div>
+                <p className="text-xs font-700 text-muted-foreground uppercase tracking-widest mb-2">Billets</p>
+                <div className="grid grid-cols-4 gap-2">
+                  {BILLETS.map((d) => (
+                    <div key={d.valeur} className="flex flex-col items-center gap-1">
+                      <span className="text-[11px] font-700 text-foreground">{d.label}</span>
+                      <input
+                        type="number"
+                        min="0"
+                        value={fondCounts[String(d.valeur)] ?? ''}
+                        onChange={(e) => {
+                          const n = Math.max(0, parseInt(e.target.value) || 0);
+                          setFondCounts(prev => ({ ...prev, [String(d.valeur)]: n }));
+                        }}
+                        placeholder="0"
+                        className="w-full text-center px-2 py-1.5 text-sm font-600 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30"
+                      />
+                      {(fondCounts[String(d.valeur)] ?? 0) > 0 && (
+                        <span className="text-[9px] text-primary font-600">
+                          = {(d.valeur * (fondCounts[String(d.valeur)] ?? 0)).toFixed(0)}€
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-700 text-muted-foreground uppercase tracking-widest mb-2">Pièces</p>
+                <div className="grid grid-cols-4 gap-2">
+                  {PIECES.map((d) => (
+                    <div key={d.valeur} className="flex flex-col items-center gap-1">
+                      <span className="text-[11px] font-700 text-foreground">{d.label}</span>
+                      <input
+                        type="number"
+                        min="0"
+                        value={fondCounts[String(d.valeur)] ?? ''}
+                        onChange={(e) => {
+                          const n = Math.max(0, parseInt(e.target.value) || 0);
+                          setFondCounts(prev => ({ ...prev, [String(d.valeur)]: n }));
+                        }}
+                        placeholder="0"
+                        className="w-full text-center px-2 py-1.5 text-sm font-600 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30"
+                      />
+                      {(fondCounts[String(d.valeur)] ?? 0) > 0 && (
+                        <span className="text-[9px] text-primary font-600">
+                          = {(d.valeur * (fondCounts[String(d.valeur)] ?? 0)).toFixed(2)}€
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Comparison */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-muted/40 rounded-xl px-4 py-3 text-center">
+                <p className="text-xs text-muted-foreground mb-1">Vous avez compté</p>
+                <p className="text-xl font-900 tabular-nums text-foreground">{fondCompte.toFixed(2)} €</p>
+              </div>
+              <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-center">
+                <p className="text-xs text-blue-600 mb-1">Théorique tiroir</p>
+                <p className="text-xl font-900 tabular-nums text-blue-800">{fondTheorique.toFixed(2)} €</p>
+                <p className="text-[10px] text-blue-500 mt-0.5">
+                  Fond ouv. {caisseSession.fond_ouverture.toFixed(2)} € + Espèces {(caisseSession.cash_in_today ?? 0).toFixed(2)} €
+                </p>
+              </div>
+              <div className={`rounded-xl px-4 py-3 text-center border ${
+                ecart === 0 ? 'bg-emerald-50 border-emerald-200' :
+                Math.abs(ecart) <= 2 ? 'bg-amber-50 border-amber-200' :
+                'bg-red-50 border-red-200'
+              }`}>
+                <p className={`text-xs mb-1 ${ecart === 0 ? 'text-emerald-600' : Math.abs(ecart) <= 2 ? 'text-amber-600' : 'text-red-600'}`}>Écart</p>
+                <p className={`text-xl font-900 tabular-nums ${ecart === 0 ? 'text-emerald-700' : Math.abs(ecart) <= 2 ? 'text-amber-700' : 'text-red-700'}`}>
+                  {ecart >= 0 ? '+' : ''}{ecart.toFixed(2)} €
+                </p>
+              </div>
+            </div>
+
+            {/* Fond pour demain */}
+            <div className="space-y-3">
+              <p className="text-sm font-600 text-foreground">Fond pour demain</p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setFondDemainMode('all')}
+                  className={`flex-1 py-2 rounded-lg text-sm font-600 transition-colors ${fondDemainMode === 'all' ? 'bg-primary text-white' : 'bg-muted text-muted-foreground hover:bg-muted/80'}`}
+                >
+                  Garder tout ({fondCompte.toFixed(2)} €)
+                </button>
+                <button
+                  onClick={() => setFondDemainMode('fixed')}
+                  className={`flex-1 py-2 rounded-lg text-sm font-600 transition-colors ${fondDemainMode === 'fixed' ? 'bg-primary text-white' : 'bg-muted text-muted-foreground hover:bg-muted/80'}`}
+                >
+                  Montant fixe
+                </button>
+              </div>
+              {fondDemainMode === 'fixed' && (
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={fondDemainFixed}
+                  onChange={(e) => setFondDemainFixed(e.target.value)}
+                  placeholder="Ex: 150.00"
+                  className="w-full px-4 py-2 border-2 border-primary/40 rounded-xl focus:outline-none focus:border-primary text-center text-lg font-700"
+                />
+              )}
+              {fondCompte > 0 && (
+                <div className="flex items-center justify-between bg-muted/30 rounded-xl px-4 py-3">
+                  <span className="text-sm text-muted-foreground">Montant à déposer en banque</span>
+                  <span className="text-lg font-900 tabular-nums text-foreground">{montantADeposer.toFixed(2)} €</span>
+                </div>
+              )}
+            </div>
+
+            {/* Close button */}
+            <button
+              onClick={handleCloseCaisse}
+              disabled={closingSession}
+              className="w-full flex items-center justify-center gap-2 py-3 bg-primary text-primary-foreground font-700 rounded-xl hover:bg-accent transition-colors disabled:opacity-60 text-sm"
+            >
+              {closingSession ? (
+                <><Icon name="ArrowPathIcon" size={16} className="animate-spin" />Clôture en cours…</>
+              ) : (
+                <><Icon name="LockClosedIcon" size={16} />Clôturer la caisse</>
+              )}
+            </button>
+          </div>
+        )}
 
         {!summary || summary.ticketCount === 0 ? (
           <div className="bg-white border border-border rounded-2xl p-12 text-center">

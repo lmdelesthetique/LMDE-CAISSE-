@@ -55,15 +55,26 @@ function CartRow({
       <div className="border-b border-border last:border-0 py-3 px-3 hover:bg-muted/20 transition-colors group">
         <div className="flex items-start gap-2">
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 flex-wrap">
               <p className="text-sm font-500 text-foreground leading-tight break-words">{item.name}</p>
               {item.isFreePrice && (
                 <span className="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-700 bg-violet-100 text-violet-700 border border-violet-200">
                   Prix libre
                 </span>
               )}
+              {item.isReward && (
+                <span className="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-700 bg-emerald-100 text-emerald-700 border border-emerald-200">
+                  🎁 Offert
+                </span>
+              )}
             </div>
-            <p className="text-[10px] text-muted-foreground font-mono mt-0.5">{item.sku}</p>
+            {item.isReward && item.originalPrice && item.originalPrice > 0 && (
+              <p className="text-[10px] mt-0.5">
+                <span className="line-through text-muted-foreground">{item.originalPrice.toFixed(2)} €</span>
+                <span className="ml-1.5 font-700 text-emerald-600">Offert − {item.originalPrice.toFixed(2)} €</span>
+              </p>
+            )}
+            {!item.isReward && <p className="text-[10px] text-muted-foreground font-mono mt-0.5">{item.sku}</p>}
             {item.stock !== undefined && item.stock <= 0 && (
               <p className="text-[10px] font-600 text-amber-600 mt-0.5">⚠️ Stock insuffisant — vente autorisée</p>
             )}

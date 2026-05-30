@@ -5,6 +5,7 @@ import ProductGrid from './ProductGrid';
 import CartPanel from './CartPanel';
 import HeldTicketsDrawer from './HeldTicketsDrawer';
 import PaymentModal from './PaymentModal';
+import OuvertureCaisseModal from './OuvertureCaisseModal';
 import ClientLookupBar from './ClientLookupBar';
 import FreePriceModal from './FreePriceModal';
 import EmployeePINModal from './EmployeePINModal';
@@ -52,6 +53,8 @@ export interface CartItem {
   variantName?: string;
   costPrice?: number;
   stock?: number;
+  isReward?: boolean;
+  originalPrice?: number;
 }
 
 export interface HeldTicket {
@@ -400,6 +403,48 @@ export default function POSTerminal() {
   const [showFreePrice, setShowFreePrice] = useState(false);
   const [paymentMode, setPaymentMode] = useState<'immediate' | 'acompte' | 'installment'>('immediate');
 
+  // ── Fond de caisse ────────────────────────────────────────────────────────
+  const [sessionChecked, setSessionChecked] = useState(false);
+  const [showOuverture, setShowOuverture] = useState(false);
+  const [caisseSession, setCaisseSession] = useState<{ fond_ouverture: number; cash_in_today: number } | null>(null);
+
+  useEffect(() => {
+    fetch('/api/caisse/sessions')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data && data.fond_ouverture !== undefined) {
+          setCaisseSession(data);
+          setShowOuverture(false);
+        } else {
+          setShowOuverture(true);
+        }
+      })
+      .catch(() => setShowOuverture(false))
+      .finally(() => setSessionChecked(true));
+  }, []);
+
+  const handleOuvertureConfirm = async (fond: number, detail: Record<string, number>) => {
+    try {
+      const res = await fetch('/api/caisse/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fond_ouverture: fond, fond_detail: detail, caissier_name: employee?.fullName || 'Caisse' }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? 'Erreur');
+      const session = await res.json();
+      setCaisseSession({ fond_ouverture: session.fond_ouverture, cash_in_today: 0 });
+      setShowOuverture(false);
+      toast.success(`✓ Caisse ouverte avec ${fond.toFixed(2)} € de fond`);
+    } catch (e: any) {
+      toast.error(`Erreur ouverture : ${e?.message ?? 'inconnue'}`);
+      throw e;
+    }
+  };
+
+  const tiroir = caisseSession
+    ? caisseSession.fond_ouverture + (caisseSession.cash_in_today ?? 0)
+    : null;
+
   // Camera scanner state
   const [showCameraScanner, setShowCameraScanner] = useState(false);
   const [cameraManualBarcode, setCameraManualBarcode] = useState('');
@@ -571,32 +616,49 @@ export default function POSTerminal() {
     setAppliedReward(reward);
     setShowAvailableRewards(false);
 
-    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
     if ((reward.rewardType === 'free_product' || reward.rewardType === 'surprise_gift') && reward.rewardProductId) {
       const rewardProd = await loyaltyService.getRewardProductById(reward.rewardProductId);
-      if (rewardProd && rewardProd.sku && UUID_RE.test(rewardProd.sku)) {
-        const realProduct = await fetchProductById(rewardProd.sku);
-        if (realProduct) {
-          setCart((prev) => [
-            ...prev,
-            {
-              id: `reward-${reward.id}`,
-              productId: rewardProd.sku!,
-              name: `🎁 ${realProduct.name} (offert)`,
-              sku: realProduct.ref,
-              price: 0,
-              qty: 1,
-              discount: 0,
-              discountType: 'percent' as const,
-              tva: LIVE_TAX_RATE,
-              imageUrl: realProduct.imageUrl || undefined,
-              stock: realProduct.stock,
-            },
-          ]);
-          toast.success(`🎁 ${realProduct.name} ajouté au panier (offert)`, { duration: 3000 });
-          return;
+      if (rewardProd) {
+        // Try to find real product by SKU first, fall back to reward product data
+        let cartName = `🎁 ${rewardProd.productName} (offert)`;
+        let cartSku = rewardProd.sku ?? '';
+        let cartImage: string | undefined;
+        let cartStock: number | undefined;
+        let cartOriginalPrice: number | undefined;
+
+        if (rewardProd.sku) {
+          try {
+            const byBarcode = await fetchProductByBarcode(rewardProd.sku);
+            if (byBarcode) {
+              cartName = `🎁 ${byBarcode.name} (offert)`;
+              cartSku = byBarcode.ref;
+              cartImage = byBarcode.imageUrl || undefined;
+              cartStock = byBarcode.stock;
+              cartOriginalPrice = byBarcode.sellPriceTtc;
+            }
+          } catch { /* use rewardProd data */ }
         }
+
+        setCart((prev) => [
+          ...prev,
+          {
+            id: `reward-${reward.id}`,
+            productId: reward.rewardProductId ?? `reward-${reward.id}`,
+            name: cartName,
+            sku: cartSku,
+            price: 0,
+            qty: 1,
+            discount: 0,
+            discountType: 'percent' as const,
+            tva: LIVE_TAX_RATE,
+            imageUrl: cartImage,
+            stock: cartStock,
+            isReward: true,
+            originalPrice: cartOriginalPrice,
+          },
+        ]);
+        toast.success(`🎁 ${rewardProd.productName} ajouté au panier (offert)`, { duration: 3000 });
+        return;
       }
       toast.warning(
         'Aucun produit lié à cette récompense. Configurez-le dans Fidélité → Produits récompenses.',
@@ -1026,6 +1088,14 @@ export default function POSTerminal() {
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
             Caisse ouverte
           </div>
+          {tiroir !== null && (
+            <>
+              <span className="text-muted-foreground text-xs">·</span>
+              <div className="flex items-center gap-1 text-xs font-600 text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-lg" title="Fond de caisse + ventes espèces du jour">
+                💰 {tiroir.toFixed(2)} €
+              </div>
+            </>
+          )}
           <span className="text-muted-foreground text-xs">·</span>
           <div className="flex items-center gap-1.5">
             <div className="w-6 h-6 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-[10px] font-700 text-primary">
@@ -1475,6 +1545,11 @@ export default function POSTerminal() {
           onClose={() => setShowClientFiche(false)}
           onPointsUpdated={(newPts) => setClient((prev) => prev ? { ...prev, points: newPts } : prev)}
         />
+      )}
+
+      {/* Ouverture de caisse modal */}
+      {showOuverture && sessionChecked && (
+        <OuvertureCaisseModal onConfirm={handleOuvertureConfirm} />
       )}
     </div>
   );
