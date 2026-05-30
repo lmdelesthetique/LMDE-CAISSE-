@@ -14,7 +14,7 @@ import { usePOSAuth } from '@/contexts/POSAuthContext';
 import { toast } from 'sonner';
 import Icon from '@/components/ui/AppIcon';
 import { useBarcodeScanner, useCameraBarcodeScanner } from '@/hooks/useBarcodeScanner';
-import { fetchProductByBarcode, deductStockForSale, fetchProductStockById } from '@/lib/services/stockService';
+import { fetchProductByBarcode, deductStockForSale, fetchProductStockById, fetchProductById } from '@/lib/services/stockService';
 import {
   loyaltyService,
   detectUnlockedTiers,
@@ -567,11 +567,46 @@ export default function POSTerminal() {
   }, []);
 
   // ── Handle reward use now ─────────────────────────────────────────────────
-  const handleUseRewardNow = useCallback((reward: ClientLoyaltyReward) => {
+   const handleUseRewardNow = useCallback(async (reward: ClientLoyaltyReward) => {
     setAppliedReward(reward);
     setShowAvailableRewards(false);
-    toast.success(`🎁 Récompense appliquée : ${reward.rewardDescription}`, { duration: 3000 });
+
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+    if ((reward.rewardType === 'free_product' || reward.rewardType === 'surprise_gift') && reward.rewardProductId) {
+      const rewardProd = await loyaltyService.getRewardProductById(reward.rewardProductId);
+      if (rewardProd && rewardProd.sku && UUID_RE.test(rewardProd.sku)) {
+        const realProduct = await fetchProductById(rewardProd.sku);
+        if (realProduct) {
+          setCart((prev) => [
+            ...prev,
+            {
+              id: `reward-${reward.id}`,
+              productId: rewardProd.sku!,
+              name: `🎁 ${realProduct.name} (offert)`,
+              sku: realProduct.ref,
+              price: 0,
+              qty: 1,
+              discount: 0,
+              discountType: 'percent' as const,
+              tva: LIVE_TAX_RATE,
+              imageUrl: realProduct.imageUrl || undefined,
+              stock: realProduct.stock,
+            },
+          ]);
+          toast.success(`🎁 ${realProduct.name} ajouté au panier (offert)`, { duration: 3000 });
+          return;
+        }
+      }
+      toast.warning(
+        'Aucun produit lié à cette récompense. Configurez-le dans Fidélité → Produits récompenses.',
+        { duration: 5000 }
+      );
+    } else {
+      toast.success(`🎁 Récompense appliquée : ${reward.rewardDescription}`, { duration: 3000 });
+    }
   }, []);
+
 
   // ── Handle keep reward for later ──────────────────────────────────────────
   const handleKeepRewardForLater = useCallback(() => {
@@ -581,11 +616,15 @@ export default function POSTerminal() {
     }
   }, [availableRewards.length]);
 
-  // ── Remove applied reward from cart ──────────────────────────────────────
+   // ── Remove applied reward from cart ─────────────────────────────────────────────────────────────
   const handleRemoveAppliedReward = useCallback(() => {
+    if (appliedReward) {
+      setCart((prev) => prev.filter((i) => i.id !== `reward-${appliedReward.id}`));
+    }
     setAppliedReward(null);
     toast.info('Récompense retirée du panier');
-  }, []);
+  }, [appliedReward]);
+
 
   const updateQty = useCallback((id: string, qty: number) => {
     if (qty <= 0) {
@@ -737,7 +776,6 @@ export default function POSTerminal() {
       );
 
       // If a reward was applied, mark it as used
-      let rewardLineItem: typeof cart[0] | null = null;
       if (appliedReward) {
         loyaltyRewardUsed = appliedReward.rewardDescription;
         await loyaltyService.useReward({
@@ -757,9 +795,12 @@ export default function POSTerminal() {
           notes: `Récompense utilisée — ticket ${ticketRef}`,
         });
 
-        // Deduct stock when a free_product reward is used
+        // If the reward product was NOT pre-added to cart (e.g. no linked product), add stock
+        // deduction manually. When already in cart, the main deductStockForSale handles it.
+        const rewardAlreadyInCart = cart.some((i) => i.id === `reward-${appliedReward.id}`);
         if (
-          appliedReward.rewardType === 'free_product' &&
+          !rewardAlreadyInCart &&
+          (appliedReward.rewardType === 'free_product' || appliedReward.rewardType === 'surprise_gift') &&
           appliedReward.rewardProductId
         ) {
           const rewardProd = await loyaltyService.getRewardProductById(appliedReward.rewardProductId);
@@ -773,17 +814,6 @@ export default function POSTerminal() {
               'completed',
               'vente'
             );
-            rewardLineItem = {
-              id: `reward-${appliedReward.id}`,
-              productId: rewardProd.sku,
-              name: `🎁 ${rewardProd.productName} (récompense fidélité)`,
-              sku: rewardProd.sku,
-              price: 0,
-              qty: 1,
-              discount: 0,
-              discountType: 'percent' as const,
-              tva: 0,
-            };
           }
         }
       }
@@ -796,8 +826,8 @@ export default function POSTerminal() {
       // Update local client state
       setClient((prev) => prev ? { ...prev, points: newPoints } : prev);
 
-      // Save receipt to DB (with loyalty info)
-      const receiptItems = rewardLineItem ? [...cart, rewardLineItem] : cart;
+      // Save receipt to DB — reward item already in cart if pre-added
+      const receiptItems = cart;
       const saved = await saveReceipt({
         ticketNumber: ticketRef,
         items: receiptItems,

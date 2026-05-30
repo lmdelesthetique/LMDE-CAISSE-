@@ -471,6 +471,16 @@ export async function fetchProductStockById(productId: string): Promise<{ stock:
   return { stock: Number(data.stock) || 0, name: data.name as string };
 }
 
+export async function fetchProductById(productId: string): Promise<StockProduct | null> {
+  const { data, error } = await supabase
+    .from('products')
+    .select('*')
+    .eq('id', productId)
+    .maybeSingle();
+  if (error || !data) return null;
+  return mapProduct(data as Record<string, unknown>);
+}
+
 /**
  * Deduct stock for all items sold in a POS sale.
  * Records one stock_movements_log entry per product.
