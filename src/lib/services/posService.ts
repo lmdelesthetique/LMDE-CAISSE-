@@ -126,10 +126,15 @@ export async function saveReceipt(params: SaveReceiptParams): Promise<{ id: stri
 export async function fetchReceiptById(id: string): Promise<ReceiptRecord | null> {
   try {
     const res = await fetch(`/api/receipts/${id}`);
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      console.error('[fetchReceiptById] HTTP', res.status, err);
+      return null;
+    }
     const r = await res.json();
     return mapReceipt(r);
-  } catch {
+  } catch (e) {
+    console.error('[fetchReceiptById] fetch error:', e);
     return null;
   }
 }

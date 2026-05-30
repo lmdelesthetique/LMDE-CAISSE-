@@ -92,14 +92,16 @@ function getPeriodDates(period: PeriodFilter, customFrom: string, customTo: stri
 // ─── Ticket Detail Modal ──────────────────────────────────────────────────────
 interface TicketDetailModalProps {
   ticketId: string;
+  fallbackTicket?: TicketRow;
   onClose: () => void;
   onModified: () => void;
 }
 
-function TicketDetailModal({ ticketId, onClose, onModified }: TicketDetailModalProps) {
+function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: TicketDetailModalProps) {
   const [receipt, setReceipt] = useState<ReceiptRecord | null>(null);
   const [modifications, setModifications] = useState<TicketModification[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [tab, setTab] = useState<'detail' | 'edit' | 'history'>('detail');
   const [editForm, setEditForm] = useState({ clientName: '', paymentMethod: '', notes: '', reason: '' });
   const [emailAddr, setEmailAddr] = useState('');
@@ -110,6 +112,7 @@ function TicketDetailModal({ ticketId, onClose, onModified }: TicketDetailModalP
   useEffect(() => {
     const load = async () => {
       setLoading(true);
+      setFetchError(null);
       const [rec, mods] = await Promise.all([
         fetchReceiptById(ticketId),
         fetchTicketModifications(ticketId),
@@ -123,6 +126,8 @@ function TicketDetailModal({ ticketId, onClose, onModified }: TicketDetailModalP
           notes: rec.notes || '',
           reason: '',
         });
+      } else {
+        setFetchError('Impossible de charger les détails depuis le serveur');
       }
       setLoading(false);
     };
@@ -261,9 +266,59 @@ function TicketDetailModal({ ticketId, onClose, onModified }: TicketDetailModalP
               <Icon name="ArrowPathIcon" size={28} className="animate-spin text-primary" />
             </div>
           ) : !receipt ? (
-            <div className="text-center py-12 text-muted-foreground">
-              <p>Détails du ticket non disponibles</p>
-              <p className="text-xs mt-1">Les tickets créés avant la mise à jour n'ont pas de détails enregistrés</p>
+            <div className="space-y-4">
+              <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-2">
+                <Icon name="ExclamationTriangleIcon" size={16} className="text-amber-600 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-600 text-amber-800">Détail non disponible depuis le serveur</p>
+                  <p className="text-xs text-amber-700 mt-0.5">{fetchError ?? 'Ce ticket n\'a pas pu être chargé.'} Consultez <code className="bg-amber-100 px-1 rounded">/api/debug/ticket-check</code> pour diagnostiquer.</p>
+                </div>
+              </div>
+              {fallbackTicket && (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      { label: 'N° Ticket', value: fallbackTicket.ticket_number },
+                      { label: 'Date', value: formatDateTime(fallbackTicket.created_at) },
+                      { label: 'Client', value: fallbackTicket.client_name || 'Anonyme' },
+                      { label: 'Mode paiement', value: METHOD_LABELS[fallbackTicket.payment_method] || fallbackTicket.payment_method },
+                    ].map((info) => (
+                      <div key={info.label} className="bg-muted/30 rounded-xl px-4 py-3">
+                        <p className="text-xs text-muted-foreground mb-0.5">{info.label}</p>
+                        <p className="text-sm font-600 text-foreground">{info.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="bg-muted/20 rounded-xl px-4 py-3 text-center">
+                    <p className="text-xs text-muted-foreground mb-1">⚠️ Articles non disponibles — ticket antérieur à la mise à jour du système</p>
+                    <p className="text-2xl font-900 tabular-nums text-foreground">{fmt(fallbackTicket.total_amount)} €</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const s = loadSettingsFromCache();
+                      const now = new Date(fallbackTicket.created_at);
+                      openAndPrint(generateTicketHTML({
+                        ...s,
+                        ticketNumber: fallbackTicket.ticket_number,
+                        dateStr: now.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+                        timeStr: now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+                        cashierLabel: fallbackTicket.cashier_name || s.cashierLabel,
+                        clientName: fallbackTicket.client_name ?? undefined,
+                        items: [{ name: '⚠️ Détail articles non disponible', qty: 1, price: fallbackTicket.total_amount, discount: 0, discountType: 'percent' as const }],
+                        subtotalHT: fallbackTicket.total_amount / 1.085,
+                        totalTVA: fallbackTicket.total_amount * 0.085 / 1.085,
+                        totalTTC: fallbackTicket.total_amount,
+                        paymentMethod: METHOD_LABELS[fallbackTicket.payment_method] || fallbackTicket.payment_method,
+                        isDuplicate: true,
+                      }));
+                    }}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 border border-border rounded-xl text-sm font-500 text-foreground hover:bg-muted transition-colors"
+                  >
+                    <Icon name="PrinterIcon" size={15} />
+                    Réimprimer le reçu simplifié
+                  </button>
+                </>
+              )}
             </div>
           ) : tab === 'detail' ? (
             <>
@@ -516,7 +571,7 @@ export default function CaisseHistoriquePage() {
   const [filterMethod, setFilterMethod] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [page, setPage] = useState(0);
-  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
+  const [selectedTicket, setSelectedTicket] = useState<TicketRow | null>(null);
   const PAGE_SIZE = 50;
 
   const [apiError, setApiError] = useState<string | null>(null);
@@ -823,7 +878,7 @@ export default function CaisseHistoriquePage() {
                       <tr
                         key={ticket.id}
                         className={`border-b border-border last:border-0 hover:bg-muted/20 transition-colors cursor-pointer ${isCancelled ? 'opacity-60' : ''}`}
-                        onClick={() => setSelectedTicketId(ticket.id)}
+                        onClick={() => setSelectedTicket(ticket)}
                       >
                         <td className="px-4 py-3 font-mono text-xs text-primary font-600">{ticket.ticket_number}</td>
                         <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{formatDateTime(ticket.created_at)}</td>
@@ -854,7 +909,7 @@ export default function CaisseHistoriquePage() {
                         </td>
                         <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                           <button
-                            onClick={() => setSelectedTicketId(ticket.id)}
+                            onClick={() => setSelectedTicket(ticket)}
                             className="p-1.5 rounded-lg hover:bg-primary/10 text-primary transition-colors"
                             title="Voir le détail"
                           >
@@ -898,10 +953,11 @@ export default function CaisseHistoriquePage() {
       </div>
 
       {/* Ticket Detail Modal */}
-      {selectedTicketId && (
+      {selectedTicket && (
         <TicketDetailModal
-          ticketId={selectedTicketId}
-          onClose={() => setSelectedTicketId(null)}
+          ticketId={selectedTicket.id}
+          fallbackTicket={selectedTicket}
+          onClose={() => setSelectedTicket(null)}
           onModified={loadTickets}
         />
       )}

@@ -1,21 +1,52 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createAdminClient } from '@/lib/supabase/admin';
+import { createClient } from '@supabase/supabase-js';
+
+function makeClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (!url) throw new Error('NEXT_PUBLIC_SUPABASE_URL not set');
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!key) throw new Error('No Supabase key configured');
+  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
+}
 
 // ─── GET /api/receipts/[id] ───────────────────────────────────────────────────
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const supabase = createAdminClient();
-  const { data, error } = await supabase
+
+  let supabase;
+  try {
+    supabase = makeClient();
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error('[api/receipts/[id] GET] client init failed:', msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+
+  // Try by UUID first
+  let { data, error } = await supabase
     .from('receipts')
     .select('*')
     .eq('id', id)
     .maybeSingle();
 
-  if (error) {
-    console.error('[api/receipts GET id]', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  // Fall back to ticket_number lookup
+  if (!data && !error) {
+    const fallback = await supabase
+      .from('receipts')
+      .select('*')
+      .eq('ticket_number', id)
+      .maybeSingle();
+    data = fallback.data;
+    error = fallback.error;
   }
-  if (!data) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+
+  if (error) {
+    console.error('[api/receipts/[id] GET] query error:', error.code, error.message);
+    return NextResponse.json({ error: error.message, code: error.code }, { status: 500 });
+  }
+  if (!data) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
 
   return NextResponse.json(data);
 }
@@ -30,7 +61,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const supabase = createAdminClient();
+  let supabase;
+  try {
+    supabase = makeClient();
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
 
   // Fetch current values for audit trail
   const { data: current } = await supabase
@@ -63,7 +100,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const { error: updateError } = await supabase.from('receipts').update(updateData).eq('id', id);
   if (updateError) {
-    console.error('[api/receipts PATCH]', updateError);
+    console.error('[api/receipts/[id] PATCH] update error:', updateError);
     return NextResponse.json({ ok: false, error: updateError.message }, { status: 500 });
   }
 
