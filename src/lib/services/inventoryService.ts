@@ -120,7 +120,7 @@ export async function fetchStockLevels(locationId?: string): Promise<StockLevel[
 
   // If inventory_stock_levels has data, use it
   if (!error && data && data.length > 0) {
-    return data.map((r: {
+    return (data as any[]).map((r: {
       id: string;
       quantity: number;
       alert_level: string;
@@ -232,7 +232,7 @@ export async function fetchMovements(locationId?: string, movementType?: string)
   const { data, error } = await query;
   if (error) { console.error('fetchMovements', error); return []; }
 
-  return (data || []).map((r: {
+  return ((data || []) as any[]).map((r: {
     id: string;
     movement_type: string;
     quantity: number;
@@ -312,7 +312,7 @@ export async function fetchSupplierCosts(): Promise<SupplierCostData[]> {
   if (error) { console.error('fetchSupplierCosts', error); return []; }
 
   const map: Record<string, { name: string; cost: number; count: number }> = {};
-  (data || []).forEach((r: { total_cost?: number; supplier_id?: string; suppliers?: { company_name: string } | null }) => {
+  ((data || []) as any[]).forEach((r: { total_cost?: number; supplier_id?: string; suppliers?: { company_name: string } | null }) => {
     const name = r.suppliers?.company_name || 'Inconnu';
     if (!map[name]) map[name] = { name, cost: 0, count: 0 };
     map[name].cost += r.total_cost || 0;

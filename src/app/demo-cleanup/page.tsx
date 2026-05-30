@@ -114,11 +114,10 @@ export default function DemoCleanupPage() {
       updateTask(task.id, { status: 'deleting' });
       try {
         // Delete all rows — using a filter that matches everything
-        const { error, count } = await supabase
+        const { error } = await supabase
           .from(task.table)
           .delete()
-          .gte('created_at', '2000-01-01')
-          .select('*', { count: 'exact', head: true } as any);
+          .gte('created_at', '2000-01-01');
 
         if (error) {
           updateTask(task.id, { status: 'error' });

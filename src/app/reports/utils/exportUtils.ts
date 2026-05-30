@@ -22,7 +22,7 @@ export interface ExportOptions {
   title: string;
   subtitle?: string;
   columns: ExportColumn[];
-  rows: Record<string, string | number>[];
+  rows: object[];
   filename: string;
 }
 
@@ -61,7 +61,7 @@ export function exportToPDF(options: ExportOptions) {
     startY = 44;
   }
 
-  const tableData = rows.map((row) => columns.map((col) => String(row[col.key] ?? '')));
+  const tableData = rows.map((row) => columns.map((col) => String((row as Record<string, unknown>)[col.key] ?? '')));
 
   autoTable(doc, {
     head: [columns.map((c) => c.header)],
@@ -100,7 +100,7 @@ export function exportToExcel(options: ExportOptions) {
     [title],
     [],
     columns.map((c) => c.header),
-    ...rows.map((row) => columns.map((col) => row[col.key] ?? '')),
+    ...rows.map((row) => columns.map((col) => (row as Record<string, unknown>)[col.key] ?? '')),
   ];
 
   const ws = XLSX.utils.aoa_to_sheet(worksheetData);

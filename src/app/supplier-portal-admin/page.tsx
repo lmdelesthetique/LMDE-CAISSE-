@@ -13,7 +13,7 @@ interface PortalUser {
   portal_email: string | null;
   is_active: boolean;
   created_at: string;
-  suppliers?: { company_name: string };
+  suppliers?: { company_name: string }[] | null;
 }
 
 export default function SupplierPortalAdminPage() {
@@ -120,7 +120,7 @@ export default function SupplierPortalAdminPage() {
                     <div className="flex items-center gap-3">
                       <div className={`w-2.5 h-2.5 rounded-full ${user.is_active ? 'bg-emerald-500' : 'bg-gray-300'}`} />
                       <div>
-                        <p className="text-sm font-600 text-foreground">{user.suppliers?.company_name ?? '—'}</p>
+                        <p className="text-sm font-600 text-foreground">{((user.suppliers as any)?.[0]?.company_name) ?? '—'}</p>
                         {user.pin_code ? (
                           <p className="text-xs text-muted-foreground font-mono tracking-widest">
                             PIN : <span className="font-700 text-foreground">{user.pin_code}</span>

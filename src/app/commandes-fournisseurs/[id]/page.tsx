@@ -341,7 +341,7 @@ export default function OrderDetailPage() {
       const newMargin = line.salePrice > 0 ? ((line.salePrice - newUnitCost) / line.salePrice) * 100 : 0;
       return {
         date: new Date().toISOString(),
-        productRef: line.productRef,
+        productRef: line.productRef ?? '',
         productName: line.productName,
         oldCost: oldUnitCost,
         newCost: newUnitCost,
@@ -542,7 +542,7 @@ export default function OrderDetailPage() {
 
     const productUpdates = JSON.parse(localStorage.getItem('beautypos_bulk_cost_updates') || '{}');
     lines.forEach((line) => {
-      productUpdates[line.productRef] = {
+      productUpdates[line.productRef ?? ''] = {
         newCost: avgCostPerProductLocal2,
         newMargin: line.salePrice > 0 ? ((line.salePrice - avgCostPerProductLocal2) / line.salePrice) * 100 : 0,
         updatedAt: new Date().toISOString(),

@@ -321,7 +321,7 @@ function QuickActionModal({ product, onClose, onSuccess, onOrderClick }: QuickAc
             ].map(a => (
               <button
                 key={a.id}
-                onClick={() => setAction(a.id as typeof action)}
+                onClick={() => setAction(a.id as NonNullable<typeof action>)}
                 className={`flex items-center gap-3 p-4 rounded-xl border border-border transition-all ${a.color}`}
               >
                 <Icon name={a.icon as Parameters<typeof Icon>[0]['name']} size={20} />
