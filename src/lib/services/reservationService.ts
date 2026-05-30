@@ -437,10 +437,7 @@ export const reservationService = {
       if (data) {
         for (const item of input.items) {
           if (item.productId) {
-            await supabase.rpc('deduct_stock_on_reservation', {
-              p_product_id: item.productId,
-              p_qty: item.qty,
-            }).catch(() => {});
+            try { await supabase.rpc('deduct_stock_on_reservation', { p_product_id: item.productId, p_qty: item.qty }); } catch {}
           }
         }
       }
@@ -597,10 +594,7 @@ export const reservationService = {
         const items: ReservationItem[] = Array.isArray(existing.items) ? existing.items : [];
         for (const item of items) {
           if (item.productId) {
-            await supabase.rpc('reinject_stock_on_cancel', {
-              p_product_id: item.productId,
-              p_qty: item.qty,
-            }).catch(() => {});
+            try { await supabase.rpc('reinject_stock_on_cancel', { p_product_id: item.productId, p_qty: item.qty }); } catch {}
           }
         }
       }
@@ -656,12 +650,12 @@ export const reservationService = {
         const oldItems: ReservationItem[] = Array.isArray(existing.items) ? existing.items : [];
         for (const item of oldItems) {
           if (item.productId) {
-            await supabase.rpc('reinject_stock_on_cancel', { p_product_id: item.productId, p_qty: item.qty }).catch(() => {});
+            try { await supabase.rpc('reinject_stock_on_cancel', { p_product_id: item.productId, p_qty: item.qty }); } catch {}
           }
         }
         for (const item of input.items) {
           if (item.productId) {
-            await supabase.rpc('deduct_stock_on_reservation', { p_product_id: item.productId, p_qty: item.qty }).catch(() => {});
+            try { await supabase.rpc('deduct_stock_on_reservation', { p_product_id: item.productId, p_qty: item.qty }); } catch {}
           }
         }
       }
