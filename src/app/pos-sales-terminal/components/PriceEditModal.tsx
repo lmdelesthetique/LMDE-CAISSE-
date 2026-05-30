@@ -13,6 +13,7 @@ interface PriceEditModalProps {
   currentPrice: number;
   onClose: () => void;
   onConfirm: (itemId: string, newPrice: number) => void;
+  cashierName?: string;
 }
 
 type Step = 'pin' | 'edit';
@@ -24,6 +25,7 @@ export default function PriceEditModal({
   currentPrice,
   onClose,
   onConfirm,
+  cashierName = 'Caisse',
 }: PriceEditModalProps) {
   const [step, setStep] = useState<Step>('pin');
   const [pin, setPin] = useState('');
@@ -54,7 +56,7 @@ export default function PriceEditModal({
         old_price: currentPrice,
         new_price: p,
         reason: reason.trim() || null,
-        cashier_name: 'Sophie Fontaine',
+        cashier_name: cashierName,
         changed_at: new Date().toISOString(),
       });
     } catch (e) {

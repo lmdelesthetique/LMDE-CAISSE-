@@ -22,6 +22,7 @@ interface PaymentModalProps {
   cartItems: CartItem[];
   onClose: () => void;
   onConfirm: (method: string) => void;
+  cashierName?: string;
 }
 
 const DEPOSIT_PRESETS = [
@@ -33,7 +34,7 @@ const DEPOSIT_PRESETS = [
 const RESERVATION_TYPES = Object.entries(RESERVATION_TYPE_CONFIG) as [ReservationType, any][];
 const RECOVERY_MODES = Object.entries(RECOVERY_MODE_CONFIG) as [RecoveryMode, any][];
 
-export default function PaymentModal({ mode, totalTTC, client, cartItems, onClose, onConfirm }: PaymentModalProps) {
+export default function PaymentModal({ mode, totalTTC, client, cartItems, onClose, onConfirm, cashierName = 'Caisse' }: PaymentModalProps) {
   const [method, setMethod] = useState<PaymentMethod>('SumUp (CB)');
   const [cashGiven, setCashGiven] = useState('');
   const [depositPercent, setDepositPercent] = useState<number | null>(null);
@@ -96,7 +97,7 @@ export default function PaymentModal({ mode, totalTTC, client, cartItems, onClos
           depositPaymentMethod: methodMap[method] ?? 'card',
           reservationType: reservationType ?? undefined,
           recoveryMode,
-          cashierName: 'Sophie Fontaine',
+          cashierName,
         });
 
         if (reservation) {

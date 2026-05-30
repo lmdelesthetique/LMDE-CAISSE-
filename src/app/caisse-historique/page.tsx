@@ -149,6 +149,7 @@ function TicketDetailModal({ ticketId, onClose, onModified }: TicketDetailModalP
       totalTVA,
       totalTTC: receipt.totalAmount,
       paymentMethod: METHOD_LABELS[receipt.paymentMethod] || receipt.paymentMethod,
+      isDuplicate: true,
     }));
   };
 

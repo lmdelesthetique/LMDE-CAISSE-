@@ -382,10 +382,8 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
                       <p style={{
                         fontSize: 10, fontWeight: 600, lineHeight: 1.3,
                         margin: 0, color: '#111827',
-                        overflow: 'hidden',
-                        display: '-webkit-box',
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: 'vertical',
+                        wordBreak: 'break-word',
+                        whiteSpace: 'normal',
                       } as React.CSSProperties}>
                         {product.name}
                       </p>

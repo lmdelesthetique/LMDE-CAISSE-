@@ -1250,6 +1250,7 @@ export default function POSTerminal() {
             totalTVA={totalTVA}
             totalTTC={totalTTC}
             tvaRate={LIVE_TAX_RATE}
+            cashierName={employee?.fullName || 'Caisse'}
           />
           {/* Payment buttons */}
           <div className="border-t border-border p-4 space-y-3 shrink-0">
@@ -1410,6 +1411,7 @@ export default function POSTerminal() {
           cartItems={cart}
           onClose={() => setShowPayment(false)}
           onConfirm={handlePaymentConfirm}
+          cashierName={employee?.fullName || 'Caisse'}
         />
       )}
 

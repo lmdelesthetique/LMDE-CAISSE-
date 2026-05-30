@@ -15,6 +15,7 @@ interface CartPanelProps {
   totalTVA: number;
   totalTTC: number;
   tvaRate?: number;
+  cashierName?: string;
 }
 
 function calcItemTotal(item: CartItem): number {
@@ -29,12 +30,14 @@ function CartRow({
   onUpdateDiscount,
   onUpdatePrice,
   onRemove,
+  cashierName = 'Caisse',
 }: {
   item: CartItem;
   onUpdateQty: (id: string, qty: number) => void;
   onUpdateDiscount: (id: string, discount: number, type: 'percent' | 'amount') => void;
   onUpdatePrice: (id: string, newPrice: number) => void;
   onRemove: (id: string) => void;
+  cashierName?: string;
 }) {
   const [showDiscount, setShowDiscount] = useState(false);
   const [discInput, setDiscInput] = useState(item.discount.toString());
@@ -53,7 +56,7 @@ function CartRow({
         <div className="flex items-start gap-2">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5">
-              <p className="text-sm font-500 text-foreground leading-tight truncate">{item.name}</p>
+              <p className="text-sm font-500 text-foreground leading-tight break-words">{item.name}</p>
               {item.isFreePrice && (
                 <span className="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-700 bg-violet-100 text-violet-700 border border-violet-200">
                   Prix libre
@@ -168,6 +171,7 @@ function CartRow({
           productId={item.productId}
           productName={item.name}
           currentPrice={item.price}
+          cashierName={cashierName}
           onClose={() => setShowPriceEdit(false)}
           onConfirm={(id, newPrice) => {
             onUpdatePrice(id, newPrice);
@@ -189,6 +193,7 @@ export default function CartPanel({
   totalTVA,
   totalTTC,
   tvaRate = 0.085,
+  cashierName = 'Caisse',
 }: CartPanelProps) {
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -219,6 +224,7 @@ export default function CartPanel({
               onUpdateDiscount={onUpdateDiscount}
               onUpdatePrice={onUpdatePrice}
               onRemove={onRemove}
+              cashierName={cashierName}
             />
           ))
         )}

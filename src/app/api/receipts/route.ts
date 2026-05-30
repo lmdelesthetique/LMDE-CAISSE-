@@ -1,24 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-const SESSION_COOKIE = 'app_session';
-
-function isSessionValid(req: NextRequest): boolean {
-  const value = req.cookies.get(SESSION_COOKIE)?.value;
-  if (!value) return false;
-  try {
-    const { exp } = JSON.parse(atob(value)) as { exp: number };
-    return Date.now() < exp;
-  } catch {
-    return false;
-  }
-}
-
 function makeClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   if (!url) throw new Error('NEXT_PUBLIC_SUPABASE_URL not set');
 
-  // Prefer service role (bypasses RLS); fall back to anon key if not configured
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -37,17 +23,6 @@ function makeClient() {
 // ─── GET /api/receipts — list with filters ────────────────────────────────────
 export async function GET(req: NextRequest) {
   console.log('[api/receipts GET] called');
-
-  const cookiePresent = !!req.cookies.get(SESSION_COOKIE)?.value;
-  console.log('[api/receipts GET] session cookie present:', cookiePresent);
-
-  if (!isSessionValid(req)) {
-    console.error('[api/receipts GET] session invalid');
-    return NextResponse.json(
-      { error: 'Session expirée — rechargez la page', code: 'SESSION_INVALID' },
-      { status: 401 }
-    );
-  }
 
   let supabase;
   try {
@@ -105,11 +80,6 @@ export async function GET(req: NextRequest) {
 // ─── POST /api/receipts — create receipt ──────────────────────────────────────
 export async function POST(req: NextRequest) {
   console.log('[api/receipts POST] called');
-
-  if (!isSessionValid(req)) {
-    console.error('[api/receipts POST] session invalid');
-    return NextResponse.json({ error: 'Unauthorized', code: 'SESSION_INVALID' }, { status: 401 });
-  }
 
   let body: Record<string, unknown>;
   try {

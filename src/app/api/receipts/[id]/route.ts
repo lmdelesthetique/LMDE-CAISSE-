@@ -1,25 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 
-const SESSION_COOKIE = 'app_session';
-
-function isSessionValid(req: NextRequest): boolean {
-  const value = req.cookies.get(SESSION_COOKIE)?.value;
-  if (!value) return false;
-  try {
-    const { exp } = JSON.parse(atob(value)) as { exp: number };
-    return Date.now() < exp;
-  } catch {
-    return false;
-  }
-}
-
 // ─── GET /api/receipts/[id] ───────────────────────────────────────────────────
-export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  if (!isSessionValid(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = createAdminClient();
   const { data, error } = await supabase
@@ -39,10 +22,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
 // ─── PATCH /api/receipts/[id] — modify ticket ─────────────────────────────────
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  if (!isSessionValid(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
   const { id } = await params;
   let body: { changes: Record<string, unknown>; modifiedBy: string; reason: string };
   try {

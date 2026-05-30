@@ -361,7 +361,7 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
       deliveryPhone: deliveryPhone.trim() || undefined,
       deliveryContact: deliveryContact.trim() || undefined,
       deliveryNotes: deliveryNotes.trim() || undefined,
-      cashierName: 'Sophie Fontaine',
+      cashierName: 'Caisse',
       remiseType: remiseType === 'none' ? null : remiseType,
       remiseValeur: remiseMontant > 0 ? (remiseType === 'percentage' ? remisePct : (parseFloat(remiseFixed) || 0)) : null,
       remiseMontant: remiseMontant > 0 ? remiseMontant : null,

@@ -21,7 +21,7 @@ const STATUS_LABELS: Record<string, string> = {
 // Company info from admin-config defaults (same as used in receipts)
 const DEFAULT_COMPANY = {
   name: "LE MONDE DE L\'ESTHETIQUE",
-  address: "aie des Flamands Appt 306 9 avenue Loulou Boislaville",
+  address: "Baie des Flamands Appt 306 9 avenue Loulou Boislaville",
   city: "Fort-de-France",
   postalCode: "97200",
   phone: "",
@@ -107,6 +107,7 @@ export default function ReservationTicket({ reservation, onClose }: ReservationT
     .total-row.main { font-size: 14px; font-weight: 900; color: #000; }
     .total-row.deposit { color: #000; font-weight: 700; }
     .total-row.balance { color: #000; font-weight: 900; font-size: 15px; border-top: 2px solid #000; padding-top: 6px; margin-top: 4px; }
+    .total-row.remise { color: #000; font-weight: 700; }
     .conditions { background: #fff; border: 2px solid #000; padding: 8px 10px; font-size: 10px; color: #000; font-weight: 700; border-radius: 4px; margin-top: 12px; line-height: 1.6; }
     .footer { text-align: center; margin-top: 16px; padding-top: 12px; border-top: 2px dashed #000; font-size: 10px; color: #000; font-weight: 700; }
     .notes { background: #fff; border-left: 3px solid #000; padding: 8px 10px; font-size: 11px; color: #000; font-weight: 700; border-radius: 0 4px 4px 0; margin-top: 8px; }
@@ -168,6 +169,10 @@ export default function ReservationTicket({ reservation, onClose }: ReservationT
   </div>
 
   <div class="totals">
+    ${reservation.remiseMontant && reservation.remiseMontant > 0 ? `
+      <div class="total-row"><span>Sous-total</span><span>${(reservation.totalAmount + reservation.remiseMontant).toFixed(2)} €</span></div>
+      <div class="total-row remise"><span>✂️ Remise${reservation.remiseType === 'percentage' && reservation.remiseValeur ? ` (${reservation.remiseValeur}%)` : ''}</span><span>− ${reservation.remiseMontant.toFixed(2)} €</span></div>
+    ` : ''}
     <div class="total-row main"><span>Total commande</span><span>${reservation.totalAmount.toFixed(2)} €</span></div>
     <div class="total-row deposit"><span>✅ Acompte versé</span><span>- ${reservation.depositPaid.toFixed(2)} €</span></div>
     <div class="total-row balance"><span>💳 Solde à régler</span><span>${reservation.balanceDue.toFixed(2)} €</span></div>
@@ -374,6 +379,15 @@ export default function ReservationTicket({ reservation, onClose }: ReservationT
 
             {/* Totals */}
             <div className="border-t border-dashed border-border pt-3 space-y-1.5">
+              {reservation.remiseMontant && reservation.remiseMontant > 0 ? (
+                <>
+                  <div className="flex justify-between text-muted-foreground font-500"><span>Sous-total</span><span>{(reservation.totalAmount + reservation.remiseMontant).toFixed(2)} €</span></div>
+                  <div className="flex justify-between text-violet-600 font-600">
+                    <span>✂️ Remise{reservation.remiseType === 'percentage' && reservation.remiseValeur ? ` (${reservation.remiseValeur}%)` : ''}</span>
+                    <span>− {reservation.remiseMontant.toFixed(2)} €</span>
+                  </div>
+                </>
+              ) : null}
               <div className="flex justify-between font-600 text-foreground text-sm"><span>Total commande</span><span>{reservation.totalAmount.toFixed(2)} €</span></div>
               <div className="flex justify-between text-emerald-600 font-500"><span>✅ Acompte versé</span><span>- {reservation.depositPaid.toFixed(2)} €</span></div>
               <div className="flex justify-between font-700 text-red-600 text-sm border-t border-border pt-1.5"><span>💳 Solde à régler</span><span>{reservation.balanceDue.toFixed(2)} €</span></div>

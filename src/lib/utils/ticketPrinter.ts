@@ -32,6 +32,7 @@ export interface TicketPrintData {
   companyPhone?: string;
   returnConditions?: string;
   receiptFooter?: string;
+  isDuplicate?: boolean;
   // template settings from ticket_settings table
   showTVADetails?: boolean;
   showPoints?: boolean;
@@ -162,6 +163,8 @@ ${d.returnConditions
 <p class="tc">${SEP}</p>
 <p class="tc"><strong>${esc(d.companyName)}</strong></p>
 <p class="tc">${SEP}</p>
+${d.isDuplicate ? `<p class="tc"><strong>*** DUPLICATA ***</strong></p>
+<p class="tc">${SEP}</p>` : ''}
 ${d.companyLine1 ? `<p class="tc">${esc(d.companyLine1)}</p>` : ''}
 ${d.companyLine2 ? `<p class="tc">${esc(d.companyLine2)}</p>` : ''}
 ${d.companyCity ? `<p class="tc">${esc(d.companyCity)}</p>` : ''}

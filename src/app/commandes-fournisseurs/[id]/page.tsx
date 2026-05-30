@@ -283,7 +283,7 @@ export default function OrderDetailPage() {
 
   const handleStatusChange = async () => {
     if (!targetStatus || !order) return;
-    await supplierOrderService.changeStatus(order.id, targetStatus, 'Sophie Fontaine', statusComment || undefined);
+    await supplierOrderService.changeStatus(order.id, targetStatus, 'Caisse', statusComment || undefined);
     if (targetStatus === 'fully_received') {
       const qtys: Record<string, number> = {};
       (order.lines || []).forEach(l => { qtys[l.id] = l.qtyOrdered; });
@@ -317,7 +317,7 @@ export default function OrderDetailPage() {
         newPct: structurePct,
         oldImportCost: importCost,
         newBusinessCost: importCost, // structure is info only, not added to cost
-        changedBy: 'Sophie Fontaine',
+        changedBy: 'Caisse',
       };
       const newHistory = [...structureHistory, entry];
       setStructureHistory(newHistory);
@@ -351,7 +351,7 @@ export default function OrderDetailPage() {
         newSellPrice: line.salePrice,
         orderId: order.id,
         supplierName: order.supplierName || '',
-        changedBy: 'Sophie Fontaine',
+        changedBy: 'Caisse',
       };
     });
     const allCostHistory = [...costHistory, ...newCostEntries];
@@ -463,7 +463,7 @@ export default function OrderDetailPage() {
       newSellPrice: newPrice,
       orderId: order.id,
       supplierName: order.supplierName || '',
-      changedBy: 'Sophie Fontaine',
+      changedBy: 'Caisse',
     };
     const allCostHistory = [...costHistory, entry];
     setCostHistory(allCostHistory);
@@ -512,7 +512,7 @@ export default function OrderDetailPage() {
           old_margin_amount: oldSellPriceHT - costPrice,
           new_margin_amount: newSellPriceHT - costPrice,
           supplier_order_id: order.id,
-          changed_by: 'Sophie Fontaine',
+          changed_by: 'Caisse',
           change_reason: 'profitability_adjustment',
         });
       }
@@ -675,7 +675,7 @@ export default function OrderDetailPage() {
 
   const handleFullReception = async () => {
     if (!order) return;
-    await supplierOrderService.changeStatus(order.id, 'fully_received', 'Sophie Fontaine', 'Réception totale');
+    await supplierOrderService.changeStatus(order.id, 'fully_received', 'Caisse', 'Réception totale');
     const qtys: Record<string, number> = {};
     (order.lines || []).forEach(l => { qtys[l.id] = l.qtyOrdered; });
     await updateStockForReception(qtys);
@@ -684,7 +684,7 @@ export default function OrderDetailPage() {
 
   const handlePartialReception = async () => {
     if (!order) return;
-    await supplierOrderService.changeStatus(order.id, 'partially_received', 'Sophie Fontaine', 'Réception partielle');
+    await supplierOrderService.changeStatus(order.id, 'partially_received', 'Caisse', 'Réception partielle');
     const qtys = { ...receivedQtys };
     await updateStockForReception(qtys);
     load();
