@@ -32,6 +32,10 @@ interface B2BDocument {
   clientAddress: string;
   clientSiret: string;
   clientTva: string;
+  sellerName: string;
+  sellerAddress: string;
+  sellerSiret: string;
+  sellerTva: string;
   issueDate: string;
   dueDate: string;
   lines: LineItem[];
@@ -97,6 +101,7 @@ const SEED_DOCS: B2BDocument[] = [
     clientAddress: '12 Rue de la Paix, 75001 Paris',
     clientSiret: '123 456 789 00012',
     clientTva: 'FR12345678901',
+    sellerName: '', sellerAddress: '', sellerSiret: '', sellerTva: '',
     issueDate: '2026-04-15',
     dueDate: '2026-05-15',
     lines: [
@@ -121,6 +126,7 @@ const SEED_DOCS: B2BDocument[] = [
     clientAddress: '45 Avenue des Fleurs, 69001 Lyon',
     clientSiret: '987 654 321 00034',
     clientTva: 'FR98765432100',
+    sellerName: '', sellerAddress: '', sellerSiret: '', sellerTva: '',
     issueDate: '2026-05-01',
     dueDate: '2026-05-31',
     lines: [
@@ -144,6 +150,7 @@ const SEED_DOCS: B2BDocument[] = [
     clientAddress: '8 Rue du Commerce, 33000 Bordeaux',
     clientSiret: '456 789 123 00056',
     clientTva: 'FR45678912300',
+    sellerName: '', sellerAddress: '', sellerSiret: '', sellerTva: '',
     issueDate: '2026-05-10',
     dueDate: '2026-06-10',
     lines: [
@@ -248,10 +255,26 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
   const [productResults, setProductResults] = useState<Record<string, any[]>>({});
   const [showProductDropdown, setShowProductDropdown] = useState<Record<string, boolean>>({});
   // Seller info
-  const [sellerName, setSellerName] = useState('BeautyPOS');
-  const [sellerAddress, setSellerAddress] = useState('');
-  const [sellerSiret, setSellerSiret] = useState('');
-  const [sellerTva, setSellerTva] = useState('');
+  const [sellerName, setSellerName] = useState(doc?.sellerName ?? '');
+  const [sellerAddress, setSellerAddress] = useState(doc?.sellerAddress ?? '');
+  const [sellerSiret, setSellerSiret] = useState(doc?.sellerSiret ?? '');
+  const [sellerTva, setSellerTva] = useState(doc?.sellerTva ?? '');
+
+  // Load seller info from settings on mount (only for new docs)
+  useEffect(() => {
+    if (doc?.id) return;
+    try {
+      const raw = localStorage.getItem('beautypos_settings');
+      if (!raw) return;
+      const s = JSON.parse(raw);
+      const addr = [s.address, s.city, s.postal_code].filter(Boolean).join(', ');
+      if (s.company_name) setSellerName(s.company_name);
+      if (addr) setSellerAddress(addr);
+      if (s.siret) setSellerSiret(s.siret);
+      if (s.tva_number) setSellerTva(s.tva_number);
+    } catch { /* ignore */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // Legal mentions
   const [latePenaltyRate, setLatePenaltyRate] = useState('3');
   const [recoveryFee, setRecoveryFee] = useState('40');
@@ -270,8 +293,8 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
     const q = query.trim();
     const { data } = await supabase
       .from('products')
-      .select('id, name, ref, barcode, sell_price_ttc, tva_rate, stock, image_url')
-      .neq('status', 'archived')
+      .select('id, name, ref, barcode, sell_price_ttc, sell_price_ht, tva, stock, image_url')
+      .eq('product_status', 'active')
       .or(`name.ilike.%${q}%,ref.ilike.%${q}%,barcode.ilike.%${q}%`)
       .order('name')
       .limit(10);
@@ -280,17 +303,17 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
   };
 
   const selectProduct = (lineId: string, product: any) => {
-    const tvaRate = product.tva_rate || 8.5;
-    const priceHt = product.sell_price_ttc
+    const tvaRate = product.tva ?? 8.5;
+    const priceHt = product.sell_price_ht ?? (product.sell_price_ttc
       ? Math.round((product.sell_price_ttc / (1 + tvaRate / 100)) * 100) / 100
-      : 0;
+      : 0);
     setLines((prev) => prev.map((l) => l.id === lineId ? {
       ...l,
       description: product.name + (product.ref ? ` (Réf: ${product.ref})` : ''),
       unitPrice: priceHt,
       tvaRate,
     } : l));
-    setProductSearches((prev) => ({ ...prev, [lineId]: product.name }));
+    setProductSearches((prev) => ({ ...prev, [lineId]: '' }));
     setShowProductDropdown((prev) => ({ ...prev, [lineId]: false }));
     setProductResults((prev) => ({ ...prev, [lineId]: [] }));
   };
@@ -341,6 +364,10 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
       clientAddress,
       clientSiret,
       clientTva,
+      sellerName,
+      sellerAddress,
+      sellerSiret,
+      sellerTva,
       issueDate,
       dueDate,
       lines,
@@ -598,7 +625,7 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
                                           <span className={isRupture ? 'text-red-500 font-medium' : ''}>
                                             Stock: {p.stock ?? 0}
                                           </span>
-                                          <span>TVA {p.tva_rate ?? 8.5}%</span>
+                                          <span>TVA {p.tva ?? 8.5}%</span>
                                         </div>
                                       </div>
                                     </button>
@@ -744,7 +771,7 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
               </div>
             </div>
           )}
-          {(type === 'estimate' || type === 'quote') && (
+          {type === 'estimate' && (
             <div>
               <label className="block text-xs font-medium text-muted-foreground mb-1.5">Conditions de paiement</label>
               <select value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)}
@@ -834,12 +861,11 @@ function DocPreviewModal({ doc, onClose, onSendEmail }: { doc: B2BDocument; onCl
           {/* Header */}
           <div className="flex justify-between items-start">
             <div>
-              <div className="text-2xl font-bold text-foreground mb-1">BeautyPOS</div>
+              <div className="text-2xl font-bold text-foreground mb-1">{doc.sellerName || 'Vendeur'}</div>
               <div className="text-xs text-muted-foreground leading-relaxed">
-                123 Rue de la Beauté<br />
-                75001 Paris, France<br />
-                SIRET : 000 000 000 00000<br />
-                TVA : FR00000000000
+                {doc.sellerAddress && <>{doc.sellerAddress}<br /></>}
+                {doc.sellerSiret && <>SIRET : {doc.sellerSiret}<br /></>}
+                {doc.sellerTva && <>TVA : {doc.sellerTva}</>}
               </div>
             </div>
             <div className="text-right">

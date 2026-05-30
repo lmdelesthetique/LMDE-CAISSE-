@@ -482,3 +482,40 @@ export async function addDailyExpense(expense: Omit<DailyExpense, 'id'>): Promis
   if (error) { console.error('addDailyExpense error:', error); return false; }
   return true;
 }
+
+export async function updateDailyExpense(id: string, expense: Omit<DailyExpense, 'id'>): Promise<boolean> {
+  const supabase = createClient();
+  const { error } = await supabase.from('daily_expenses').update({
+    expense_date: expense.expenseDate,
+    amount: expense.amount,
+    category: expense.category,
+    payment_method: expense.paymentMethod,
+    note: expense.note,
+    performed_by: expense.performedBy,
+  }).eq('id', id);
+  if (error) { console.error('updateDailyExpense error:', error); return false; }
+  return true;
+}
+
+export async function deleteDailyExpense(id: string): Promise<boolean> {
+  const supabase = createClient();
+  const { error } = await supabase.from('daily_expenses').delete().eq('id', id);
+  if (error) { console.error('deleteDailyExpense error:', error); return false; }
+  return true;
+}
+
+export async function syncExpenseToBusinessExpenses(expense: DailyExpense & { cashierName?: string }): Promise<void> {
+  const supabase = createClient();
+  const payload = {
+    category: 'daily' as const,
+    expense_type: expense.category || 'other',
+    label: expense.note || expense.category,
+    amount: expense.amount,
+    expense_date: expense.expenseDate,
+    payment_method: (expense.paymentMethod === 'cash' ? 'cash' : expense.paymentMethod === 'card' ? 'card' : expense.paymentMethod === 'transfer' ? 'transfer' : 'other') as any,
+    note: `[Caisse] ${expense.note || ''} — Caissier: ${expense.cashierName || expense.performedBy || ''}`.trim(),
+    is_recurring: false,
+  };
+  // Insert only (no upsert — let duplicates be; caller decides)
+  await supabase.from('business_expenses').insert(payload);
+}

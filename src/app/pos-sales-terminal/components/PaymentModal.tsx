@@ -40,6 +40,8 @@ export default function PaymentModal({ mode, totalTTC, client, cartItems, onClos
   const [depositCustom, setDepositCustom] = useState('');
   const [almaInstallments, setAlmaInstallments] = useState<2 | 3 | 4>(3);
   const [cbAmount, setCbAmount] = useState('');
+  const [dossierFee, setDossierFee] = useState('');
+  const [cashMixGiven, setCashMixGiven] = useState('');
   const [loading, setLoading] = useState(false);
   const [sendReceipt, setSendReceipt] = useState<'none' | 'email' | 'whatsapp'>('none');
   const [reservationType, setReservationType] = useState<ReservationType | null>(null);
@@ -49,6 +51,8 @@ export default function PaymentModal({ mode, totalTTC, client, cartItems, onClos
   const changeAmount = Math.max(0, cashGivenNum - totalTTC);
   const cbAmountNum = parseFloat(cbAmount) || 0;
   const cashRemainder = totalTTC - cbAmountNum;
+  const cashMixGivenNum = parseFloat(cashMixGiven) || 0;
+  const mixChange = cashMixGivenNum - Math.max(0, cashRemainder);
 
   // Deposit calculation
   const depositNum = depositPercent !== null
@@ -103,7 +107,11 @@ export default function PaymentModal({ mode, totalTTC, client, cartItems, onClos
 
     await new Promise((r) => setTimeout(r, 600));
     setLoading(false);
-    onConfirm(method);
+    const confirmMethod = (mode === 'installment')
+      ? 'Alma ' + almaInstallments + 'x' + (parseFloat(dossierFee) > 0 ? ' (+' + parseFloat(dossierFee).toFixed(2) + '€ frais)' : '')
+      : method === 'Alma (3x/4x)' ? 'Alma ' + almaInstallments + 'x'
+      : method;
+    onConfirm(confirmMethod);
   };
 
   const modeLabels: Record<PaymentMode, string> = {
@@ -218,6 +226,12 @@ export default function PaymentModal({ mode, totalTTC, client, cartItems, onClos
                       <span className="text-lg font-700 tabular-nums text-emerald-700">{changeAmount.toFixed(2)} €</span>
                     </div>
                   )}
+                  {cashGivenNum > 0 && cashGivenNum < totalTTC && (
+                    <div className="mt-2 flex items-center justify-between bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                      <span className="text-sm text-red-700 font-500">Montant insuffisant</span>
+                      <span className="text-base font-700 tabular-nums text-red-700">−{(totalTTC - cashGivenNum).toFixed(2)} €</span>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -234,6 +248,28 @@ export default function PaymentModal({ mode, totalTTC, client, cartItems, onClos
                     <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
                       <span className="text-sm text-blue-700 font-500">Reste en espèces</span>
                       <span className="text-base font-700 tabular-nums text-blue-700">{Math.max(0, cashRemainder).toFixed(2)} €</span>
+                    </div>
+                  )}
+                  {cbAmountNum > 0 && cashRemainder > 0 && (
+                    <div>
+                      <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1.5">Espèces remises par le client</label>
+                      <input
+                        type="number" value={cashMixGiven} onChange={(e) => setCashMixGiven(e.target.value)}
+                        placeholder={`Minimum ${Math.max(0, cashRemainder).toFixed(2)} €`}
+                        className="w-full px-3 py-2.5 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                      />
+                      {cashMixGivenNum >= cashRemainder && cashMixGivenNum > 0 && (
+                        <div className="mt-2 flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                          <span className="text-sm text-emerald-700 font-500">Monnaie à rendre</span>
+                          <span className="text-lg font-700 tabular-nums text-emerald-700">{mixChange.toFixed(2)} €</span>
+                        </div>
+                      )}
+                      {cashMixGivenNum > 0 && cashMixGivenNum < cashRemainder && (
+                        <div className="mt-2 flex items-center justify-between bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                          <span className="text-sm text-red-700 font-500">Montant insuffisant</span>
+                          <span className="text-base font-700 tabular-nums text-red-700">−{(cashRemainder - cashMixGivenNum).toFixed(2)} €</span>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -389,6 +425,34 @@ export default function PaymentModal({ mode, totalTTC, client, cartItems, onClos
                     <p className="text-xs text-pink-600 mt-2 text-center">
                       {almaInstallments}× {(totalTTC / almaInstallments).toFixed(2)} € pour le client
                     </p>
+                  </div>
+                  <div className="mt-3">
+                    <label className="text-xs font-600 text-pink-700 uppercase tracking-wide block mb-1.5">Frais de dossier (€)</label>
+                    <input
+                      type="number" value={dossierFee} onChange={(e) => setDossierFee(e.target.value)}
+                      placeholder="0.00 (optionnel)"
+                      className="w-full px-3 py-2 border border-pink-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-pink-300 focus:border-pink-400 bg-white"
+                    />
+                    <div className="mt-2 bg-pink-50 border border-pink-100 rounded-lg px-3 py-2 space-y-1">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-pink-700">Base total</span>
+                        <span className="font-600 text-pink-800 tabular-nums">{totalTTC.toFixed(2)} €</span>
+                      </div>
+                      {parseFloat(dossierFee) > 0 && (
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-pink-700">Frais de dossier</span>
+                          <span className="font-600 text-pink-800 tabular-nums">{parseFloat(dossierFee).toFixed(2)} €</span>
+                        </div>
+                      )}
+                      <div className="border-t border-pink-200 pt-1 flex items-center justify-between text-xs">
+                        <span className="text-pink-700 font-700">Total à payer</span>
+                        <span className="font-700 text-pink-900 tabular-nums">{(totalTTC + (parseFloat(dossierFee) || 0)).toFixed(2)} €</span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-pink-600">Soit {almaInstallments}×</span>
+                        <span className="text-pink-700 tabular-nums">{((totalTTC + (parseFloat(dossierFee) || 0)) / almaInstallments).toFixed(2)} €/fois</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
                 <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2.5">

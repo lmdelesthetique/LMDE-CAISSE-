@@ -112,6 +112,8 @@ export default function POSTerminal() {
   const [availableRewards, setAvailableRewards] = useState<ClientLoyaltyReward[]>([]);
   const [showAvailableRewards, setShowAvailableRewards] = useState(false);
   const [appliedReward, setAppliedReward] = useState<ClientLoyaltyReward | null>(null);
+  const [allClientRewards, setAllClientRewards] = useState<ClientLoyaltyReward[]>([]);
+  const [showAllRewards, setShowAllRewards] = useState(false);
   // Newly unlocked rewards (shown after payment)
   const [newlyUnlockedRewards, setNewlyUnlockedRewards] = useState<{
     rewards: ClientLoyaltyReward[];
@@ -244,6 +246,8 @@ export default function POSTerminal() {
     if (rewards.length > 0) {
       setShowAvailableRewards(true);
     }
+    const allRewards = await loyaltyService.getClientRewards(posClient.id);
+    setAllClientRewards(allRewards);
   }, []);
 
   const handleClientClear = useCallback(() => {
@@ -251,6 +255,8 @@ export default function POSTerminal() {
     setAppliedReward(null);
     setAvailableRewards([]);
     setShowAvailableRewards(false);
+    setAllClientRewards([]);
+    setShowAllRewards(false);
   }, []);
 
   // ── Handle reward use now ─────────────────────────────────────────────────
@@ -757,6 +763,65 @@ export default function POSTerminal() {
                   }}
                 />
               </div>
+            </div>
+          )}
+
+          {/* Voir récompenses button */}
+          {client && (
+            <button
+              onClick={() => setShowAllRewards(!showAllRewards)}
+              className="mx-3 mb-1 w-[calc(100%-24px)] flex items-center justify-between bg-violet-50 border border-violet-200 rounded-lg px-3 py-2 hover:bg-violet-100 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-sm">🎁</span>
+                <span className="text-xs font-600 text-violet-800">Voir récompenses disponibles</span>
+              </div>
+              <div className="flex items-center gap-1">
+                {availableRewards.length > 0 && (
+                  <span className="text-[10px] font-700 bg-violet-500 text-white rounded-full px-1.5 py-0.5">{availableRewards.length}</span>
+                )}
+                <Icon name={showAllRewards ? 'ChevronUpIcon' : 'ChevronDownIcon'} size={13} className="text-violet-500" />
+              </div>
+            </button>
+          )}
+
+          {/* Expandable all rewards panel */}
+          {client && showAllRewards && (
+            <div className="mx-3 mb-2 bg-violet-50 border border-violet-200 rounded-xl overflow-hidden">
+              {allClientRewards.length === 0 ? (
+                <p className="text-xs text-violet-600 text-center py-3">Aucune récompense débloquée</p>
+              ) : (
+                <div className="max-h-48 overflow-y-auto divide-y divide-violet-100">
+                  {allClientRewards.map((r) => {
+                    const isAvailable = r.status === 'available';
+                    return (
+                      <div key={r.id} className="px-3 py-2 flex items-center gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-600 text-violet-900 truncate">{r.rewardDescription}</p>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className={`text-[9px] font-700 px-1.5 py-0.5 rounded-full ${
+                              isAvailable ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'
+                            }`}>
+                              {isAvailable ? 'DISPONIBLE' : r.status === 'used' ? 'UTILISÉE' : r.status.toUpperCase()}
+                            </span>
+                            {r.expiryDate && isAvailable && (
+                              <span className="text-[9px] text-amber-600">Expire {new Date(r.expiryDate).toLocaleDateString('fr-FR')}</span>
+                            )}
+                          </div>
+                        </div>
+                        {isAvailable && !appliedReward && (
+                          <button
+                            onClick={() => { handleUseRewardNow(r); setShowAllRewards(false); }}
+                            className="shrink-0 text-[10px] font-700 px-2 py-1 bg-violet-500 text-white rounded-lg hover:bg-violet-600 transition-colors"
+                          >
+                            Appliquer
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 

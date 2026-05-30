@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
-import { computeDaySummary, saveDaySummary, addDailyExpense, type DaySummaryData, type DailyExpense } from '@/lib/services/posService';
+import { computeDaySummary, saveDaySummary, addDailyExpense, updateDailyExpense, deleteDailyExpense, syncExpenseToBusinessExpenses, type DaySummaryData, type DailyExpense } from '@/lib/services/posService';
 import { toast } from 'sonner';
 
 const METHOD_LABELS: Record<string, string> = {
@@ -61,6 +61,8 @@ export default function ClotureCaissePage() {
   const [notes, setNotes] = useState('');
   const [cashierName, setCashierName] = useState('');
   const [showExpenseForm, setShowExpenseForm] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<(DailyExpense & { _idx: number }) | null>(null);
+  const [deletingExpenseIdx, setDeletingExpenseIdx] = useState<number | null>(null);
   const [expenseForm, setExpenseForm] = useState({
     amount: '',
     category: 'other',
@@ -126,9 +128,47 @@ export default function ClotureCaissePage() {
       toast.success('Dépense ajoutée');
       setShowExpenseForm(false);
       setExpenseForm({ amount: '', category: 'other', paymentMethod: 'cash', note: '', performedBy: '' });
+      await syncExpenseToBusinessExpenses({ ...expense, cashierName });
       await loadSummary();
     } else {
       toast.error('Erreur lors de l\'ajout de la dépense');
+    }
+  };
+
+  const handleEditExpenseSave = async () => {
+    if (!editingExpense || !summary) return;
+    const id = summary.expenses[editingExpense._idx]?.id;
+    if (!id) { toast.error('ID de dépense introuvable'); return; }
+    const amount = editingExpense.amount;
+    if (!amount || amount <= 0) { toast.error('Montant invalide'); return; }
+    const ok = await updateDailyExpense(id, {
+      expenseDate: editingExpense.expenseDate,
+      amount: editingExpense.amount,
+      category: editingExpense.category,
+      paymentMethod: editingExpense.paymentMethod,
+      note: editingExpense.note,
+      performedBy: editingExpense.performedBy,
+    });
+    if (ok) {
+      toast.success('Dépense modifiée');
+      setEditingExpense(null);
+      await loadSummary();
+    } else {
+      toast.error('Erreur lors de la modification');
+    }
+  };
+
+  const handleDeleteExpense = async (idx: number) => {
+    if (!summary) return;
+    const id = summary.expenses[idx]?.id;
+    if (!id) { toast.error('ID de dépense introuvable'); return; }
+    const ok = await deleteDailyExpense(id);
+    if (ok) {
+      toast.success('Dépense supprimée');
+      setDeletingExpenseIdx(null);
+      await loadSummary();
+    } else {
+      toast.error('Erreur lors de la suppression');
     }
   };
 
@@ -612,27 +652,92 @@ ${notes ? `<h2>Notes de clôture</h2><p style="padding:8px;background:#f9f9f9;bo
                         <th className="text-left px-3 py-2 text-xs font-600 text-muted-foreground">Mode</th>
                         <th className="text-left px-3 py-2 text-xs font-600 text-muted-foreground">Effectué par</th>
                         <th className="text-right px-3 py-2 text-xs font-600 text-muted-foreground">Montant</th>
+                        <th className="px-2 py-2"></th>
                       </tr>
                     </thead>
                     <tbody>
                       {summary.expenses.map((e, i) => (
-                        <tr key={i} className="border-b border-border last:border-0">
-                          <td className="px-3 py-2.5">
-                            <span className="text-xs font-500 bg-muted px-2 py-0.5 rounded-full">
-                              {EXPENSE_CATEGORIES.find(c => c.id === e.category)?.label || e.category}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2.5 text-sm text-foreground">{e.note || '—'}</td>
-                          <td className="px-3 py-2.5 text-xs text-muted-foreground">{e.paymentMethod}</td>
-                          <td className="px-3 py-2.5 text-xs text-muted-foreground">{e.performedBy || '—'}</td>
-                          <td className="px-3 py-2.5 text-right font-700 text-red-600 tabular-nums">{fmt(e.amount)} €</td>
-                        </tr>
+                        editingExpense?._idx === i ? (
+                          // Inline edit row
+                          <tr key={i} className="border-b border-border bg-amber-50">
+                            <td className="px-2 py-2">
+                              <select value={editingExpense.category} onChange={(ev) => setEditingExpense(prev => prev ? {...prev, category: ev.target.value} : prev)}
+                                className="w-full border border-border rounded px-2 py-1 text-xs bg-white">
+                                {EXPENSE_CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                              </select>
+                            </td>
+                            <td className="px-2 py-2">
+                              <input value={editingExpense.note} onChange={(ev) => setEditingExpense(prev => prev ? {...prev, note: ev.target.value} : prev)}
+                                className="w-full border border-border rounded px-2 py-1 text-xs" placeholder="Note" />
+                            </td>
+                            <td className="px-2 py-2">
+                              <select value={editingExpense.paymentMethod} onChange={(ev) => setEditingExpense(prev => prev ? {...prev, paymentMethod: ev.target.value} : prev)}
+                                className="w-full border border-border rounded px-2 py-1 text-xs bg-white">
+                                <option value="cash">Espèces</option>
+                                <option value="card">Carte</option>
+                                <option value="transfer">Virement</option>
+                                <option value="check">Chèque</option>
+                              </select>
+                            </td>
+                            <td className="px-2 py-2">
+                              <input value={editingExpense.performedBy} onChange={(ev) => setEditingExpense(prev => prev ? {...prev, performedBy: ev.target.value} : prev)}
+                                className="w-full border border-border rounded px-2 py-1 text-xs" placeholder="Nom" />
+                            </td>
+                            <td className="px-2 py-2 text-right">
+                              <input type="number" value={editingExpense.amount} onChange={(ev) => setEditingExpense(prev => prev ? {...prev, amount: parseFloat(ev.target.value) || 0} : prev)}
+                                className="w-20 border border-border rounded px-2 py-1 text-xs text-right" />
+                            </td>
+                            <td className="px-2 py-2">
+                              <div className="flex gap-1">
+                                <button onClick={handleEditExpenseSave} className="p-1 bg-primary text-primary-foreground rounded hover:opacity-90"><Icon name="CheckIcon" size={12} /></button>
+                                <button onClick={() => setEditingExpense(null)} className="p-1 bg-muted text-muted-foreground rounded hover:bg-muted/80"><Icon name="XMarkIcon" size={12} /></button>
+                              </div>
+                            </td>
+                          </tr>
+                        ) : deletingExpenseIdx === i ? (
+                          // Confirm delete row
+                          <tr key={i} className="border-b border-border bg-red-50">
+                            <td colSpan={5} className="px-3 py-2.5 text-sm text-red-700 font-500">Supprimer cette dépense de {fmt(e.amount)} € ?</td>
+                            <td className="px-2 py-2">
+                              <div className="flex gap-1">
+                                <button onClick={() => handleDeleteExpense(i)} className="p-1 bg-red-500 text-white rounded hover:bg-red-600"><Icon name="CheckIcon" size={12} /></button>
+                                <button onClick={() => setDeletingExpenseIdx(null)} className="p-1 bg-muted text-muted-foreground rounded"><Icon name="XMarkIcon" size={12} /></button>
+                              </div>
+                            </td>
+                          </tr>
+                        ) : (
+                          // Normal display row
+                          <tr key={i} className="border-b border-border last:border-0">
+                            <td className="px-3 py-2.5">
+                              <span className="text-xs font-500 bg-muted px-2 py-0.5 rounded-full">
+                                {EXPENSE_CATEGORIES.find(c => c.id === e.category)?.label || e.category}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2.5 text-sm text-foreground">{e.note || '—'}</td>
+                            <td className="px-3 py-2.5 text-xs text-muted-foreground">{e.paymentMethod}</td>
+                            <td className="px-3 py-2.5 text-xs text-muted-foreground">{e.performedBy || '—'}</td>
+                            <td className="px-3 py-2.5 text-right font-700 text-red-600 tabular-nums">{fmt(e.amount)} €</td>
+                            <td className="px-3 py-2.5">
+                              <div className="flex gap-1">
+                                <button onClick={() => setEditingExpense({ ...e, expenseDate: e.expenseDate || selectedDate, _idx: i })}
+                                  className="p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded transition-colors">
+                                  <Icon name="PencilIcon" size={13} />
+                                </button>
+                                <button onClick={() => setDeletingExpenseIdx(i)}
+                                  className="p-1 text-muted-foreground hover:text-red-500 hover:bg-red-50 rounded transition-colors">
+                                  <Icon name="TrashIcon" size={13} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        )
                       ))}
                     </tbody>
                     <tfoot>
                       <tr className="bg-red-50 border-t-2 border-red-200">
                         <td colSpan={4} className="px-3 py-2.5 text-sm font-700 text-red-700">Total dépenses</td>
                         <td className="px-3 py-2.5 text-right font-700 text-red-700 tabular-nums">{fmt(summary.totalExpenses)} €</td>
+                        <td></td>
                       </tr>
                     </tfoot>
                   </table>

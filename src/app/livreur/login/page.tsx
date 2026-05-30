@@ -2,9 +2,19 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { deliveryService } from '@/lib/services/deliveryService';
+import { createClient } from '@/lib/supabase/client';
 
 const DRIVER_SESSION_KEY = 'beautypos_driver_session';
+
+function normalizePhone(raw: string): string {
+  // Strip all whitespace
+  const stripped = raw.replace(/\s/g, '').trim();
+  // French Antilles: 0696... → +596696... / 0596... → +596596...
+  if (/^0[0-9]{9}$/.test(stripped)) {
+    return '+596' + stripped.slice(1);
+  }
+  return stripped;
+}
 
 export default function LivreurLoginPage() {
   const router = useRouter();
@@ -44,20 +54,44 @@ export default function LivreurLoginPage() {
     if (val.length === 4) {
       setSubmitting(true);
       try {
-        const result = await deliveryService.driverLogin(phone.trim(), val);
-        if (!result) {
+        const supabase = createClient();
+        const phoneRaw = phone.replace(/\s/g, '').trim();
+        const phoneNorm = normalizePhone(phone);
+        const pinTrimmed = val.trim();
+
+        console.log('[login] searching drivers:', { phoneRaw, phoneNorm, pin: pinTrimmed });
+
+        // Try raw phone first, then normalized form
+        let driver: { id: string; first_name: string; last_name: string } | null = null;
+
+        for (const phoneCandidate of Array.from(new Set([phoneRaw, phoneNorm]))) {
+          const { data, error: dbErr } = await supabase
+            .from('drivers')
+            .select('id, first_name, last_name')
+            .eq('phone', phoneCandidate)
+            .eq('pin_code', pinTrimmed)
+            .eq('status', 'active')
+            .maybeSingle();
+
+          console.log('[login] candidate', phoneCandidate, '→ data:', data, 'error:', dbErr);
+
+          if (data) { driver = data; break; }
+        }
+
+        if (!driver) {
           setError('Téléphone ou PIN incorrect.');
           setPin('');
           setTimeout(() => pinRef.current?.focus(), 50);
         } else {
           localStorage.setItem(DRIVER_SESSION_KEY, JSON.stringify({
-            driverId: result.id,
-            name: result.name,
+            driverId: driver.id,
+            name: `${driver.first_name ?? ''} ${driver.last_name ?? ''}`.trim(),
             role: 'driver',
           }));
           router.replace('/livreur/dashboard');
         }
-      } catch {
+      } catch (err) {
+        console.error('[login] unexpected error:', err);
         setError('Erreur de connexion. Réessayez.');
         setPin('');
       } finally {
