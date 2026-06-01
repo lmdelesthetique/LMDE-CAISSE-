@@ -607,12 +607,61 @@ export default function POSTerminal() {
   const handleClientSelect = useCallback(async (posClient: import('./POSTerminal').POSClient) => {
     setClient(posClient);
     setAppliedReward(null);
-    // Load available rewards for this client
+    // Use server API to backfill any tier rewards the client earned outside
+    // the POS flow (manual point adjustments, imports, etc.), then return
+    // the up-to-date list of available rewards.
+    try {
+      const res = await fetch(`/api/loyalty/client-rewards?clientId=${posClient.id}`);
+      if (res.ok) {
+        const json = await res.json();
+        const available: ClientLoyaltyReward[] = (json.available ?? []).map((r: any) => ({
+          id: r.id,
+          clientId: r.client_id,
+          tierId: r.tier_id ?? null,
+          rewardType: r.reward_type,
+          rewardDescription: r.reward_description,
+          rewardValue: parseFloat(r.reward_value ?? 0),
+          rewardProductId: r.reward_product_id ?? null,
+          status: r.status,
+          unlockedAt: r.unlocked_at,
+          pointsAtUnlock: r.points_at_unlock ?? 0,
+          expiryDate: r.expiry_date ?? null,
+          usedAt: r.used_at ?? null,
+          ticketRef: r.ticket_ref ?? null,
+          cashierName: r.cashier_name ?? null,
+          notes: r.notes ?? null,
+          createdAt: r.created_at,
+          updatedAt: r.updated_at,
+        }));
+        const all: ClientLoyaltyReward[] = (json.all ?? []).map((r: any) => ({
+          id: r.id,
+          clientId: r.client_id,
+          tierId: r.tier_id ?? null,
+          rewardType: r.reward_type,
+          rewardDescription: r.reward_description,
+          rewardValue: parseFloat(r.reward_value ?? 0),
+          rewardProductId: r.reward_product_id ?? null,
+          status: r.status,
+          unlockedAt: r.unlocked_at,
+          pointsAtUnlock: r.points_at_unlock ?? 0,
+          expiryDate: r.expiry_date ?? null,
+          usedAt: r.used_at ?? null,
+          ticketRef: r.ticket_ref ?? null,
+          cashierName: r.cashier_name ?? null,
+          notes: r.notes ?? null,
+          createdAt: r.created_at,
+          updatedAt: r.updated_at,
+        }));
+        setAvailableRewards(available);
+        setAllClientRewards(all);
+        if (available.length > 0) setShowAvailableRewards(true);
+        return;
+      }
+    } catch { /* fall through to direct fetch */ }
+    // Fallback: direct Supabase fetch (no backfill)
     const rewards = await loyaltyService.getClientAvailableRewards(posClient.id);
     setAvailableRewards(rewards);
-    if (rewards.length > 0) {
-      setShowAvailableRewards(true);
-    }
+    if (rewards.length > 0) setShowAvailableRewards(true);
     const allRewards = await loyaltyService.getClientRewards(posClient.id);
     setAllClientRewards(allRewards);
   }, []);
