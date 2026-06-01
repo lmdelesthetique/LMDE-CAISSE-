@@ -102,7 +102,8 @@ export async function saveReceipt(params: SaveReceiptParams): Promise<{ id: stri
     loyalty_reward_used: params.loyaltyRewardUsed || null,
     notes: params.notes || null,
     status: 'completed',
-    is_demo: params.isDemo || false,
+    // Only include is_demo when true — avoids 42703 if migration not yet applied
+    ...(params.isDemo ? { is_demo: true } : {}),
   };
 
   try {

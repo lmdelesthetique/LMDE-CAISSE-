@@ -85,7 +85,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   // Cancellation
   if (changes.status === 'cancelled') {
     updateData.status = 'cancelled';
-    updateData.cancelled_at = new Date().toISOString();
     auditEntries.push({ receipt_id: id, modified_by: modifiedBy, field_changed: 'status', old_value: 'completed', new_value: 'cancelled', reason });
   }
 

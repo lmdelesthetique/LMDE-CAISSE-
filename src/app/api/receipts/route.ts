@@ -45,20 +45,29 @@ export async function GET(req: NextRequest) {
 
   console.log('[api/receipts GET] querying from:', from, 'to:', to);
 
-  let query = supabase
-    .from('receipts')
-    .select(
-      'id, ticket_number, created_at, total_amount, payment_method, client_id, client_name, items_count, status, cashier_name, discount_amount, is_demo'
-    )
-    .gte('created_at', from)
-    .lte('created_at', to)
-    .order('created_at', { ascending: false })
-    .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+  const baseSelect = 'id, ticket_number, created_at, total_amount, payment_method, client_id, client_name, items_count, status, cashier_name, discount_amount, is_demo';
+  const fallbackSelect = 'id, ticket_number, created_at, total_amount, payment_method, client_id, client_name, items_count, status, cashier_name, discount_amount';
 
-  if (method !== 'all') query = query.eq('payment_method', method);
-  if (status !== 'all') query = query.eq('status', status);
+  const buildQuery = (selectCols: string) => {
+    let q = supabase
+      .from('receipts')
+      .select(selectCols)
+      .gte('created_at', from)
+      .lte('created_at', to)
+      .order('created_at', { ascending: false })
+      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+    if (method !== 'all') q = q.eq('payment_method', method);
+    if (status !== 'all') q = q.eq('status', status);
+    return q;
+  };
 
-  const { data, error } = await query;
+  let { data, error } = await buildQuery(baseSelect);
+
+  // If is_demo column doesn't exist yet (migration pending), retry without it
+  if (error?.code === '42703' || (error && error.message?.includes('is_demo'))) {
+    console.warn('[api/receipts GET] is_demo column missing, falling back');
+    ({ data, error } = await buildQuery(fallbackSelect));
+  }
 
   if (error) {
     console.error('[api/receipts GET] Supabase error:', error.code, error.message, error.details);

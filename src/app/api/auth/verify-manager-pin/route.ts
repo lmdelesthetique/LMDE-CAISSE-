@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
     // Fetch all employees (not terminated/inactive) so we can check PIN locally
     const { data: employees, error } = await supabase
       .from('employees')
-      .select('id, first_name, last_name, role, status, pos_pin, pin_code, pin')
+      .select('id, first_name, last_name, role, status, pos_pin, pin_code')
       .not('status', 'in', '(inactive,terminated)');
 
     if (error) {
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
       if (!['admin', 'manager'].includes(role)) continue;
 
       // Check all possible PIN column names (plain-text only)
-      const candidates: string[] = [emp.pos_pin, emp.pin_code, emp.pin]
+      const candidates: string[] = [emp.pos_pin, emp.pin_code]
         .filter((v): v is string => v != null && v !== '')
         .map((v) => v.toString().trim());
 
