@@ -87,14 +87,18 @@ export default function ClientFormModal({ client, onClose, onSaved }: ClientForm
       if (isEdit && client) {
         saved = await clientService.update(client.id, payload);
       } else {
-        saved = await clientService.create(payload);
+        const result = await clientService.create(payload);
+        if (result.error) throw new Error(result.error);
+        saved = result.client;
       }
       if (saved) {
         toast.success(isEdit ? 'Client enregistré' : 'Client créé');
         onSaved(saved);
       } else {
-        toast.error('Erreur lors de l\'enregistrement — vérifiez la console');
+        toast.error('Erreur lors de l\'enregistrement');
       }
+    } catch (err: any) {
+      toast.error(`Erreur: ${err?.message ?? 'inconnue'}`);
     } finally {
       setLoading(false);
     }

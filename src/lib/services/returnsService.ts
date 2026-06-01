@@ -162,159 +162,65 @@ export const returnsService = {
   },
 
   async create(input: CreateReturnInput): Promise<ReturnRecord | null> {
-    const supabase = createClient();
     try {
-      const { data: avoirData, error: avoirError } = await supabase.rpc('generate_avoir_number');
-      if (avoirError) { console.error('generate_avoir_number', avoirError.message); return null; }
-
-      const totalAmount = input.quantity * input.unitPrice;
-      const isLoss = input.productCondition === 'damaged' && !input.returnToStock;
-
-      const { data, error } = await supabase
-        .from('returns')
-        .insert({
-          avoir_number: avoirData as string,
-          client_id: input.clientId || null,
-          product_id: input.productId || null,
-          product_name: input.productName,
-          product_ref: input.productRef || null,
-          quantity: input.quantity,
-          unit_price: input.unitPrice,
-          total_amount: totalAmount,
-          reason: input.reason,
-          reason_notes: input.reasonNotes || null,
-          refund_type: input.refundType,
-          return_status: 'pending',
-          product_condition: input.productCondition,
-          return_to_stock: input.returnToStock,
-          is_internal_loss: isLoss || Boolean(input.isInternalLoss),
-          loss_amount: isLoss ? totalAmount : 0,
-          avoir_status: input.refundType === 'store_credit' ? 'available' : 'available',
-          exchange_product_id: input.exchangeProductId || null,
-          exchange_product_name: input.exchangeProductName || null,
-          exchange_price_diff: input.exchangePriceDiff || 0,
-          decision: input.decision || null,
-          stock_updated: false,
-          credit_applied: false,
-          original_receipt: input.originalReceipt || null,
-          processed_by: input.processedBy || 'Admin',
-        })
-        .select('*, clients(first_name, last_name)')
-        .single();
-
-      if (error) { console.error('returnsService.create', error.message); return null; }
-      return data ? mapReturn(data) : null;
+      const res = await fetch('/api/returns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      const data = await res.json();
+      if (!res.ok) { console.error('returnsService.create API error:', data.error); return null; }
+      return mapReturn(data);
     } catch (e: any) { console.error('returnsService.create exception', e.message); return null; }
   },
 
   async approve(id: string): Promise<boolean> {
-    const supabase = createClient();
     try {
-      const { error } = await supabase
-        .from('returns')
-        .update({ return_status: 'approved', updated_at: new Date().toISOString() })
-        .eq('id', id);
-      if (error) { console.error('returnsService.approve', error.message); return false; }
-      return true;
-    } catch (e: any) { console.error('returnsService.approve exception', e.message); return false; }
+      const res = await fetch(`/api/returns/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ return_status: 'approved' }),
+      });
+      return res.ok;
+    } catch { return false; }
   },
 
   async reject(id: string): Promise<boolean> {
-    const supabase = createClient();
     try {
-      const { error } = await supabase
-        .from('returns')
-        .update({ return_status: 'rejected', updated_at: new Date().toISOString() })
-        .eq('id', id);
-      if (error) { console.error('returnsService.reject', error.message); return false; }
-      return true;
-    } catch (e: any) { console.error('returnsService.reject exception', e.message); return false; }
+      const res = await fetch(`/api/returns/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ return_status: 'rejected' }),
+      });
+      return res.ok;
+    } catch { return false; }
   },
 
   async updateStockAndComplete(
     returnId: string,
-    productId: string,
-    productName: string,
-    currentStock: number,
-    qty: number,
-    clientId: string | null,
-    refundType: ReturnRefundType,
-    totalAmount: number,
-    returnToStock: boolean = true,
-    isInternalLoss: boolean = false,
-    productCondition: ProductCondition = 'good'
+    _productId: string,
+    _productName: string,
+    _currentStock: number,
+    _qty: number,
+    _clientId: string | null,
+    _refundType: ReturnRefundType,
+    _totalAmount: number,
+    _returnToStock: boolean = true,
+    _isInternalLoss: boolean = false,
+    _productCondition: ProductCondition = 'good'
   ): Promise<{ success: boolean; error?: string }> {
-    const supabase = createClient();
+    // Stock + credit updates are now handled atomically in POST /api/returns at creation time.
+    // This method just marks the return as completed via the API.
     try {
-      let stockUpdated = false;
-
-      // 1. Update stock only if product is in good condition and should return to stock
-      if (returnToStock && productCondition !== 'damaged' && productId) {
-        const newStock = currentStock + qty;
-        const { error: stockError } = await supabase
-          .from('products')
-          .update({ stock: newStock, updated_at: new Date().toISOString() })
-          .eq('id', productId);
-        if (stockError) return { success: false, error: stockError.message };
-
-        await supabase.from('stock_movements_log').insert({
-          product_id: productId,
-          product_name: productName,
-          movement_type: 'entry',
-          quantity_before: currentStock,
-          quantity_after: newStock,
-          quantity_change: qty,
-          reason: 'Retour client — bon état',
-          performed_by: 'Admin',
-        });
-        stockUpdated = true;
-      } else if (isInternalLoss || productCondition === 'damaged') {
-        // Log as internal loss — no stock increase
-        await supabase.from('return_losses').insert({
-          return_id: returnId,
-          product_id: productId || null,
-          product_name: productName,
-          quantity: qty,
-          total_loss: totalAmount,
-          loss_reason: 'damaged_return',
-          is_boutique_fault: isInternalLoss,
-          recorded_by: 'Admin',
-        }).select();
-        stockUpdated = false;
+      const res = await fetch(`/api/returns/${returnId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ return_status: 'completed' }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        return { success: false, error: d.error ?? 'Erreur API' };
       }
-
-      // 2. Apply store credit if applicable
-      let creditApplied = false;
-      if (clientId && refundType === 'store_credit') {
-        const { data: clientData } = await supabase
-          .from('clients')
-          .select('store_credit')
-          .eq('id', clientId)
-          .maybeSingle();
-
-        if (clientData) {
-          const newCredit = parseFloat(clientData.store_credit || 0) + totalAmount;
-          await supabase
-            .from('clients')
-            .update({ store_credit: newCredit, updated_at: new Date().toISOString() })
-            .eq('id', clientId);
-          creditApplied = true;
-        }
-      }
-
-      // 3. Mark return as completed
-      const { error: returnError } = await supabase
-        .from('returns')
-        .update({
-          return_status: 'completed',
-          stock_updated: stockUpdated,
-          credit_applied: creditApplied,
-          avoir_status: refundType === 'store_credit' && creditApplied ? 'available' : undefined,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', returnId);
-
-      if (returnError) return { success: false, error: returnError.message };
       return { success: true };
     } catch (e: any) {
       return { success: false, error: e.message };
@@ -322,18 +228,13 @@ export const returnsService = {
   },
 
   async useAvoir(returnId: string, amountUsed: number, totalAmount: number): Promise<boolean> {
-    const supabase = createClient();
     try {
-      const { data: ret } = await supabase.from('returns').select('avoir_used_amount').eq('id', returnId).maybeSingle();
-      if (!ret) return false;
-      const newUsed = (parseFloat(ret.avoir_used_amount) || 0) + amountUsed;
-      const newStatus: AvoirStatus = newUsed >= totalAmount ? 'used' : 'partial';
-      const { error } = await supabase.from('returns').update({
-        avoir_used_amount: newUsed,
-        avoir_status: newStatus,
-        updated_at: new Date().toISOString(),
-      }).eq('id', returnId);
-      return !error;
+      const res = await fetch(`/api/returns/${returnId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ avoir_used_amount_delta: amountUsed, total_amount_ref: totalAmount }),
+      });
+      return res.ok;
     } catch { return false; }
   },
 
@@ -373,10 +274,9 @@ export const returnsService = {
   },
 
   async delete(id: string): Promise<boolean> {
-    const supabase = createClient();
     try {
-      const { error } = await supabase.from('returns').delete().eq('id', id);
-      if (error) { console.error('returnsService.delete', error.message); return false; }
+      const res = await fetch(`/api/returns/${id}`, { method: 'DELETE' });
+      if (!res.ok) { console.error('returnsService.delete', await res.text()); return false; }
       return true;
     } catch (e: any) { console.error('returnsService.delete exception', e.message); return false; }
   },

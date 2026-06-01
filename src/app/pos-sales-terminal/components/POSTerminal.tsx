@@ -77,6 +77,7 @@ export interface POSClient {
   clientType?: string;
   subscriptionStatus?: string | null;
   subscriptionType?: string | null;
+  avoirApplied?: boolean;
 }
 
 const TAX_RATE = 0.085; // fallback — overridden by settings context at runtime
@@ -88,9 +89,10 @@ interface ClientFicheSlideOverProps {
   loyaltyTiers: LoyaltyTier[];
   onClose: () => void;
   onPointsUpdated?: (newPoints: number) => void;
+  onUseAvoir?: (amount: number) => void;
 }
 
-function ClientFicheSlideOver({ client, allRewards, loyaltyTiers, onClose, onPointsUpdated }: ClientFicheSlideOverProps) {
+function ClientFicheSlideOver({ client, allRewards, loyaltyTiers, onClose, onPointsUpdated, onUseAvoir }: ClientFicheSlideOverProps) {
   const [fullClient, setFullClient] = useState<FullClient | null>(null);
   const [purchases, setPurchases] = useState<ClientPurchase[]>([]);
   const [subscription, setSubscription] = useState<ClientSubscription | null>(null);
@@ -297,10 +299,20 @@ function ClientFicheSlideOver({ client, allRewards, loyaltyTiers, onClose, onPoi
                   </div>
                 </div>
               )}
-              {client.balance > 0 && (
+              {client.balance > 0 && !client.avoirApplied && (
                 <div className="mt-2 flex items-center justify-between bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-1.5">
-                  <span className="text-xs text-emerald-700 font-500">Avoir disponible</span>
-                  <span className="text-sm font-700 tabular-nums text-emerald-700">{client.balance.toFixed(2)} €</span>
+                  <div>
+                    <p className="text-xs text-emerald-700 font-500">Avoir disponible</p>
+                    <p className="text-sm font-700 tabular-nums text-emerald-700">{client.balance.toFixed(2)} €</p>
+                  </div>
+                  {onUseAvoir && (
+                    <button
+                      onClick={() => onUseAvoir(client.balance)}
+                      className="text-[11px] font-700 px-2.5 py-1 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
+                    >
+                      Utiliser
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -986,6 +998,16 @@ export default function POSTerminal() {
       });
       if (!saved) toast.error('Ticket non enregistré — vérifiez la connexion', { duration: 8000 });
 
+      // Deduct avoir from client store_credit if used
+      if (globalDiscount?.isAvoir && !isDemoCart) {
+        const remaining = Math.max(0, client.balance - globalDiscountAmount);
+        fetch(`/api/clients/${client.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ store_credit: remaining }),
+        }).catch(() => {});
+      }
+
       if (unlocked.length > 0) {
         const persistedRewards: ClientLoyaltyReward[] = [];
         for (const tier of unlocked) {
@@ -1094,6 +1116,16 @@ export default function POSTerminal() {
         isDemo: isDemoCart,
       });
       if (!saved2) toast.error('Ticket non enregistré — vérifiez la connexion', { duration: 8000 });
+
+      // Deduct avoir from client store_credit if used
+      if (globalDiscount?.isAvoir && client && !isDemoCart) {
+        const remaining = Math.max(0, client.balance - globalDiscountAmount);
+        fetch(`/api/clients/${client.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ store_credit: remaining }),
+        }).catch(() => {});
+      }
 
       setShowPayment(false);
       setLastSaleTotal(total);
@@ -1299,6 +1331,41 @@ export default function POSTerminal() {
               <span className="text-xs font-600 text-blue-700">Voir fiche client</span>
               <Icon name="ChevronRightIcon" size={13} className="text-blue-400 ml-auto" />
             </button>
+          )}
+
+          {/* Avoir disponible button */}
+          {client && client.balance > 0 && cart.length > 0 && !globalDiscount?.isAvoir && (
+            <button
+              onClick={() => {
+                setGlobalDiscount({ type: 'amount', value: client.balance, isAvoir: true });
+                setClient(prev => prev ? { ...prev, avoirApplied: true } : prev);
+                toast.success(`Avoir de ${client.balance.toFixed(2)} € appliqué`, { duration: 2000 });
+              }}
+              className="mx-3 mt-1 flex items-center gap-2 px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors w-[calc(100%-24px)]"
+            >
+              <Icon name="GiftIcon" size={13} className="text-emerald-600" />
+              <span className="text-xs font-600 text-emerald-700">
+                Utiliser avoir — {client.balance.toFixed(2)} €
+              </span>
+              <Icon name="ChevronRightIcon" size={13} className="text-emerald-400 ml-auto" />
+            </button>
+          )}
+          {client && globalDiscount?.isAvoir && (
+            <div className="mx-3 mt-1 flex items-center justify-between px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg w-[calc(100%-24px)]">
+              <div className="flex items-center gap-2">
+                <Icon name="GiftIcon" size={13} className="text-emerald-600" />
+                <span className="text-xs font-600 text-emerald-700">Avoir appliqué — -{globalDiscountAmount.toFixed(2)} €</span>
+              </div>
+              <button
+                onClick={() => {
+                  setGlobalDiscount(null);
+                  setClient(prev => prev ? { ...prev, avoirApplied: false } : prev);
+                }}
+                className="text-[10px] text-emerald-600 hover:text-red-500"
+              >
+                Retirer
+              </button>
+            </div>
           )}
 
           {/* Loyalty progress bar for selected client */}
@@ -1649,6 +1716,12 @@ export default function POSTerminal() {
           loyaltyTiers={loyaltyTiers}
           onClose={() => setShowClientFiche(false)}
           onPointsUpdated={(newPts) => setClient((prev) => prev ? { ...prev, points: newPts } : prev)}
+          onUseAvoir={(amount) => {
+            setGlobalDiscount({ type: 'amount', value: amount, isAvoir: true });
+            setClient((prev) => prev ? { ...prev, avoirApplied: true } : prev);
+            setShowClientFiche(false);
+            toast.success(`Avoir de ${amount.toFixed(2)} € appliqué`, { duration: 2000 });
+          }}
         />
       )}
 

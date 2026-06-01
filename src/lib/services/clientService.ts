@@ -252,7 +252,7 @@ export const clientService = {
     const supabase = createClient();
     try {
       const data = await fetchAll<any>((from, to) =>
-        supabase.from('clients').select('*').eq('is_active', true).order('last_name', { ascending: true }).range(from, to)
+        supabase.from('clients').select('*').neq('is_active', false).order('last_name', { ascending: true }).range(from, to)
       );
       return data.map(mapClient);
     } catch (e: any) { console.log('clientService.getAll exception:', e.message); return []; }
@@ -287,33 +287,40 @@ export const clientService = {
     } catch (e: any) { console.log('clientService.getById exception:', e.message); return null; }
   },
 
-  async create(input: CreateClientInput): Promise<Client | null> {
-    const supabase = createClient();
+  async create(input: CreateClientInput): Promise<{ client: Client | null; error?: string }> {
     try {
-      const { data, error } = await supabase
-        .from('clients')
-        .insert({
-          first_name: input.firstName,
-          last_name: input.lastName,
-          email: input.email || null,
-          phone: input.phone || null,
-          whatsapp: input.whatsapp || null,
-          date_of_birth: input.dateOfBirth || null,
-          gender: input.gender || 'not_specified',
-          address: input.address || null,
-          city: input.city || null,
-          postal_code: input.postalCode || null,
-          country: input.country || 'France',
-          notes: input.notes || null,
-          client_type: input.clientType || 'particulier',
-          loyalty_discount_type: input.loyaltyDiscountType || null,
-          loyalty_discount_value: input.loyaltyDiscountValue || 0,
-        })
-        .select()
-        .single();
-      if (error) { console.log('clientService.create error:', error.message); return null; }
-      return data ? mapClient(data) : null;
-    } catch (e: any) { console.log('clientService.create exception:', e.message); return null; }
+      const body = {
+        first_name: input.firstName,
+        last_name: input.lastName,
+        email: input.email || null,
+        phone: input.phone || null,
+        whatsapp: input.whatsapp || null,
+        date_of_birth: input.dateOfBirth || null,
+        gender: input.gender || 'not_specified',
+        address: input.address || null,
+        city: input.city || null,
+        postal_code: input.postalCode || null,
+        country: input.country || 'France',
+        notes: input.notes || null,
+        client_type: input.clientType || 'particulier',
+        loyalty_discount_type: input.loyaltyDiscountType || null,
+        loyalty_discount_value: input.loyaltyDiscountValue || 0,
+      };
+      const res = await fetch('/api/clients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        console.error('clientService.create error:', data.error);
+        return { client: null, error: data.error ?? 'Erreur lors de la création' };
+      }
+      return { client: mapClient(data) };
+    } catch (e: any) {
+      console.error('clientService.create exception:', e.message);
+      return { client: null, error: e.message };
+    }
   },
 
   async update(id: string, input: Partial<CreateClientInput>): Promise<Client | null> {
@@ -342,11 +349,12 @@ export const clientService = {
       });
       const data = await res.json();
       if (!res.ok) {
-        console.error('clientService.update error:', data.error);
-        return null;
+        const msg = data.error ?? `Erreur HTTP ${res.status}`;
+        console.error('clientService.update error:', msg);
+        throw new Error(msg);
       }
       return mapClient(data);
-    } catch (e: any) { console.error('clientService.update exception:', e.message); return null; }
+    } catch (e: any) { console.error('clientService.update exception:', e.message); throw e; }
   },
 
   async delete(id: string): Promise<boolean> {

@@ -8,6 +8,7 @@ import PriceEditModal from './PriceEditModal';
 export interface GlobalDiscount {
   value: number;
   type: 'percent' | 'amount';
+  isAvoir?: boolean;
 }
 
 interface CartPanelProps {
@@ -318,15 +319,18 @@ export default function CartPanel({
           {!showGDForm && globalDiscount && (
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
-                <Icon name="TagIcon" size={12} className="text-rose-500" />
+                <Icon name={globalDiscount.isAvoir ? 'GiftIcon' : 'TagIcon'} size={12} className="text-rose-500" />
                 <span className="text-sm text-rose-600 font-600">
-                  Remise globale
-                  {globalDiscount.type === 'percent' ? ` (${globalDiscount.value}%)` : ''}
+                  {globalDiscount.isAvoir
+                    ? 'Avoir client'
+                    : `Remise globale${globalDiscount.type === 'percent' ? ` (${globalDiscount.value}%)` : ''}`}
                 </span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-sm font-700 tabular-nums text-rose-600">-{globalDiscountAmount.toFixed(2)} €</span>
-                <button onClick={openForm} className="text-[10px] text-muted-foreground hover:text-primary">✏️</button>
+                {!globalDiscount.isAvoir && (
+                  <button onClick={openForm} className="text-[10px] text-muted-foreground hover:text-primary">✏️</button>
+                )}
                 <button onClick={removeGD} className="text-[10px] text-muted-foreground hover:text-red-500">✕</button>
               </div>
             </div>

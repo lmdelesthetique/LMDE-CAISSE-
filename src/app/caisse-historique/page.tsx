@@ -577,6 +577,8 @@ export default function CaisseHistoriquePage() {
   const PAGE_SIZE = 50;
 
   const [apiError, setApiError] = useState<string | null>(null);
+  const [returnsTotal, setReturnsTotal] = useState(0);
+  const [returnsCount, setReturnsCount] = useState(0);
   const [diagnosing, setDiagnosing] = useState(false);
   const [setupSql, setSetupSql] = useState<string | null>(null);
 
@@ -644,6 +646,18 @@ export default function CaisseHistoriquePage() {
       }));
 
       setTickets(mapped);
+
+      // Also fetch returns/avoirs for the period to compute CA net
+      try {
+        const retParams = new URLSearchParams({ from, to });
+        const retRes = await fetch(`/api/returns?${retParams}`);
+        if (retRes.ok) {
+          const retData: any[] = await retRes.json();
+          const completed = retData.filter(r => r.return_status === 'completed');
+          setReturnsTotal(completed.reduce((s, r) => s + parseFloat(r.total_amount ?? 0), 0));
+          setReturnsCount(completed.length);
+        }
+      } catch { /* returns fetch is best-effort */ }
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Erreur réseau';
       console.error('[caisse-historique] fetch error:', e);
@@ -748,7 +762,7 @@ export default function CaisseHistoriquePage() {
         {/* KPI strip */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
           {[
-            { label: 'CA encaissé', value: `${fmt(totalCA)} €`, icon: 'BanknotesIcon', color: 'text-emerald-600 bg-emerald-50' },
+            { label: returnsTotal > 0 ? 'CA brut encaissé' : 'CA encaissé', value: `${fmt(totalCA)} €`, icon: 'BanknotesIcon', color: 'text-emerald-600 bg-emerald-50' },
             { label: 'Tickets validés', value: String(totalTickets), icon: 'ReceiptRefundIcon', color: 'text-blue-600 bg-blue-50' },
             { label: 'Panier moyen', value: `${fmt(avgBasket)} €`, icon: 'CalculatorIcon', color: 'text-indigo-600 bg-indigo-50' },
             { label: 'Annulés', value: String(cancelledCount), icon: 'XCircleIcon', color: 'text-red-600 bg-red-50' },
@@ -764,6 +778,32 @@ export default function CaisseHistoriquePage() {
             </div>
           ))}
         </div>
+
+        {/* Returns/Avoirs deduction strip */}
+        {returnsTotal > 0 && (
+          <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 mb-4 flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-2">
+              <Icon name="ArrowUturnLeftIcon" size={16} className="text-rose-600" />
+              <span className="text-sm font-600 text-rose-700">
+                {returnsCount} retour{returnsCount > 1 ? 's' : ''} / avoir{returnsCount > 1 ? 's' : ''} sur la période
+              </span>
+            </div>
+            <div className="flex items-center gap-6 ml-auto text-sm">
+              <div className="text-right">
+                <p className="text-xs text-muted-foreground">CA brut</p>
+                <p className="font-700 text-foreground tabular-nums">{fmt(totalCA)} €</p>
+              </div>
+              <div className="text-right">
+                <p className="text-xs text-rose-600">Avoirs émis</p>
+                <p className="font-700 text-rose-700 tabular-nums">-{fmt(returnsTotal)} €</p>
+              </div>
+              <div className="text-right border-l border-rose-200 pl-6">
+                <p className="text-xs text-emerald-700 font-600">CA net</p>
+                <p className="text-lg font-700 text-emerald-700 tabular-nums">{fmt(Math.max(0, totalCA - returnsTotal))} €</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Filters row */}
         <div className="bg-white border border-border rounded-xl p-4 mb-4 flex flex-wrap gap-3">
