@@ -68,7 +68,19 @@ export default function ClientFormModal({ client, onClose, onSaved }: ClientForm
     try {
       let saved: Client | null = null;
       const payload: CreateClientInput = {
-        ...form,
+        firstName: form.firstName.trim(),
+        lastName: form.lastName.trim(),
+        phone: form.phone?.trim() || undefined,
+        whatsapp: form.whatsapp?.trim() || undefined,
+        email: form.email?.trim() || undefined,
+        dateOfBirth: form.dateOfBirth || undefined,
+        gender: form.gender,
+        address: form.address?.trim() || undefined,
+        city: form.city?.trim() || undefined,
+        postalCode: form.postalCode?.trim() || undefined,
+        country: form.country || 'France',
+        notes: form.notes?.trim() || undefined,
+        clientType: form.clientType,
         loyaltyDiscountType: (form.loyaltyDiscountType || null) as any,
         loyaltyDiscountValue: form.loyaltyDiscountValue,
       };
@@ -101,7 +113,7 @@ export default function ClientFormModal({ client, onClose, onSaved }: ClientForm
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="overflow-y-auto flex-1 px-6 py-5 space-y-4">
+        <form onSubmit={handleSubmit} noValidate className="overflow-y-auto flex-1 px-6 py-5 space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1">Prénom *</label>
@@ -202,10 +214,10 @@ export default function ClientFormModal({ client, onClose, onSaved }: ClientForm
         </form>
 
         <div className="flex gap-3 px-6 pb-6 pt-4 border-t border-border shrink-0">
-          <button onClick={onClose} className="flex-1 py-2.5 border border-border rounded-xl text-sm font-600 text-muted-foreground hover:bg-muted transition-colors">
+          <button type="button" onClick={onClose} className="flex-1 py-2.5 border border-border rounded-xl text-sm font-600 text-muted-foreground hover:bg-muted transition-colors">
             Annuler
           </button>
-          <button onClick={handleSubmit as any} disabled={loading || !form.firstName.trim() || !form.lastName.trim()}
+          <button type="button" onClick={handleSubmit as any} disabled={loading || !form.firstName.trim() || !form.lastName.trim()}
             className="flex-1 py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-700 hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
             {loading ? <><Icon name="ArrowPathIcon" size={14} className="animate-spin" />Enregistrement…</> : <><Icon name="CheckIcon" size={14} />{isEdit ? 'Enregistrer' : 'Créer le client'}</>}
           </button>
