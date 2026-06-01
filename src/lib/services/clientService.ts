@@ -415,7 +415,22 @@ export const clientService = {
         .neq('status', 'cancelled')
         .order('created_at', { ascending: false })
         .limit(50);
-      return (receipts ?? []).map(mapReceiptToPurchase);
+      if (receipts && receipts.length > 0) return receipts.map(mapReceiptToPurchase);
+
+      // Secondary fallback: some old receipts may only have client_name, not client_id.
+      // Load the client's name to do a name-based search.
+      const { data: clientRow } = await supabase.from('clients').select('first_name, last_name').eq('id', clientId).maybeSingle();
+      if (clientRow?.last_name) {
+        const { data: byName } = await supabase
+          .from('receipts')
+          .select('*')
+          .ilike('client_name', `%${clientRow.last_name}%`)
+          .neq('status', 'cancelled')
+          .order('created_at', { ascending: false })
+          .limit(50);
+        return (byName ?? []).map(mapReceiptToPurchase);
+      }
+      return [];
     } catch (e: any) { console.log('clientService.getPurchases exception:', e.message); return []; }
   },
 

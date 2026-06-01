@@ -315,7 +315,7 @@ function ClientFicheSlideOver({ client, allRewards, loyaltyTiers, onClose, onPoi
                   <div className="h-1.5 bg-amber-100 rounded-full overflow-hidden">
                     <div
                       className="h-full bg-gradient-to-r from-amber-400 to-orange-400 rounded-full"
-                      style={{ width: `${Math.min(100, Math.max(3, ((displayPoints % nextTier.pointsRequired) / nextTier.pointsRequired) * 100))}%` }}
+                      style={{ width: `${Math.min(100, Math.max(3, ((displayPoints - (currentTier?.pointsRequired ?? 0)) / Math.max(1, nextTier.pointsRequired - (currentTier?.pointsRequired ?? 0))) * 100))}%` }}
                     />
                   </div>
                 </div>
@@ -401,18 +401,24 @@ function ClientFicheSlideOver({ client, allRewards, loyaltyTiers, onClose, onPoi
                   ))}
                 </div>
               )}
-              {fullClient && (
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  <div className="bg-muted/30 rounded-lg p-2 text-center">
-                    <p className="text-sm font-700 tabular-nums text-foreground">{fullClient.totalVisits}</p>
-                    <p className="text-[10px] text-muted-foreground">Visites</p>
+              {(fullClient || purchases.length > 0) && (() => {
+                const computedVisits = purchases.length > 0 ? purchases.length : (fullClient?.totalVisits ?? 0);
+                const computedSpent = purchases.length > 0
+                  ? purchases.reduce((s, p) => s + p.totalTtc, 0)
+                  : (fullClient?.totalSpent ?? 0);
+                return (
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <div className="bg-muted/30 rounded-lg p-2 text-center">
+                      <p className="text-sm font-700 tabular-nums text-foreground">{computedVisits}</p>
+                      <p className="text-[10px] text-muted-foreground">Visites</p>
+                    </div>
+                    <div className="bg-muted/30 rounded-lg p-2 text-center">
+                      <p className="text-sm font-700 tabular-nums text-foreground">{computedSpent.toFixed(2)} €</p>
+                      <p className="text-[10px] text-muted-foreground">Total dépensé</p>
+                    </div>
                   </div>
-                  <div className="bg-muted/30 rounded-lg p-2 text-center">
-                    <p className="text-sm font-700 tabular-nums text-foreground">{fullClient.totalSpent.toFixed(2)} €</p>
-                    <p className="text-[10px] text-muted-foreground">Total dépensé</p>
-                  </div>
-                </div>
-              )}
+                );
+              })()}
             </div>
           </div>
         )}
@@ -521,7 +527,10 @@ export default function POSTerminal() {
 
   // Load loyalty tiers + demo product on mount
   useEffect(() => {
-    loyaltyService.getTiers().then(setLoyaltyTiers);
+    fetch('/api/loyalty/tiers')
+      .then(r => r.ok ? r.json() : [])
+      .then(tiers => { if (Array.isArray(tiers)) setLoyaltyTiers(tiers); })
+      .catch(() => loyaltyService.getTiers().then(setLoyaltyTiers));
     import('@/lib/supabase/client').then(({ createClient }) => {
       createClient()
         .from('products')

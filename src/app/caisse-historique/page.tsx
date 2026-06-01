@@ -112,22 +112,35 @@ function PinCancelModal({ onConfirm, onClose }: { onConfirm: () => void; onClose
     return () => clearInterval(interval);
   }, [locked]);
 
-  const handleSubmit = () => {
-    const managerPin = typeof window !== 'undefined'
-      ? (localStorage.getItem('beautypos_manager_pin') ?? '1234')
-      : '1234';
-    if (pin === managerPin) {
-      onConfirm();
-    } else {
-      const next = attempts + 1;
-      setAttempts(next);
-      setPin('');
-      if (next >= 3) {
-        setLocked(true);
-        setError('3 tentatives incorrectes — accès bloqué 60 secondes');
+  const [checking, setChecking] = useState(false);
+
+  const handleSubmit = async () => {
+    if (checking || locked || pin.length < 4) return;
+    setChecking(true);
+    try {
+      const res = await fetch('/api/auth/verify-manager-pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (json.valid) {
+        onConfirm();
       } else {
-        setError(`Code incorrect. ${3 - next} tentative(s) restante(s).`);
+        const next = attempts + 1;
+        setAttempts(next);
+        setPin('');
+        if (next >= 3) {
+          setLocked(true);
+          setError('3 tentatives incorrectes — accès bloqué 60 secondes');
+        } else {
+          setError(`Code incorrect. ${3 - next} tentative(s) restante(s).`);
+        }
       }
+    } catch {
+      setError('Erreur réseau — réessayez');
+    } finally {
+      setChecking(false);
     }
   };
 
@@ -167,10 +180,10 @@ function PinCancelModal({ onConfirm, onClose }: { onConfirm: () => void; onClose
               </button>
               <button
                 onClick={handleSubmit}
-                disabled={pin.length < 4}
-                className="flex-1 py-2.5 bg-red-600 text-white rounded-xl text-sm font-700 hover:bg-red-700 disabled:opacity-40 transition-colors"
+                disabled={pin.length < 4 || checking}
+                className="flex-1 py-2.5 bg-red-600 text-white rounded-xl text-sm font-700 hover:bg-red-700 disabled:opacity-40 transition-colors flex items-center justify-center gap-2"
               >
-                Confirmer
+                {checking ? <><Icon name="ArrowPathIcon" size={13} className="animate-spin" />Vérif…</> : 'Confirmer'}
               </button>
             </div>
           </>
