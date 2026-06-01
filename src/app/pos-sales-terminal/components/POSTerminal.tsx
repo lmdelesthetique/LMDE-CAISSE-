@@ -165,7 +165,32 @@ function ClientFicheSlideOver({ client, allRewards, loyaltyTiers, onClose, onPoi
       .catch(() => {});
   }, [client.id]);
 
-  const displayRewards = localRewards.length > 0 ? localRewards : allRewards;
+  const dbRewards = localRewards.length > 0 ? localRewards : allRewards;
+  // Fallback: compute earned tiers from points vs thresholds when no DB rows exist yet
+  const computedRewards: ClientLoyaltyReward[] = dbRewards.length === 0 && loyaltyTiers.length > 0
+    ? loyaltyTiers
+        .filter(t => t.isActive !== false && displayPoints >= t.pointsRequired)
+        .map(t => ({
+          id: `computed-${t.id}`,
+          clientId: client.id,
+          tierId: t.id,
+          rewardType: t.rewardType,
+          rewardDescription: t.rewardDescription,
+          rewardValue: t.rewardValue,
+          rewardProductId: t.rewardProductId ?? null,
+          status: 'available' as const,
+          unlockedAt: new Date().toISOString(),
+          pointsAtUnlock: t.pointsRequired,
+          expiryDate: null,
+          usedAt: null,
+          ticketRef: null,
+          cashierName: null,
+          notes: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }))
+    : [];
+  const displayRewards = dbRewards.length > 0 ? dbRewards : computedRewards;
   const availableCount = displayRewards.filter((r) => r.status === 'available').length;
 
   const TYPE_LABELS: Record<string, string> = {
@@ -1231,7 +1256,35 @@ export default function POSTerminal() {
 
   // Next tier progress bar for cart panel
   const nextTierForClient = client && loyaltyTiers.length > 0 ? getNextTier(loyaltyTiers, client.points) : null;
+  const currentTierForClient = client && loyaltyTiers.length > 0 ? getCurrentTier(loyaltyTiers, client.points) : null;
   const ptsToNextForClient = client && loyaltyTiers.length > 0 ? pointsToNextTier(loyaltyTiers, client.points) : 0;
+
+  // If the DB has no reward rows yet, compute earned rewards from tier thresholds
+  const cartComputedRewards: ClientLoyaltyReward[] = allClientRewards.length === 0 && client && loyaltyTiers.length > 0
+    ? loyaltyTiers
+        .filter(t => t.isActive !== false && client.points >= t.pointsRequired)
+        .map(t => ({
+          id: `computed-${t.id}`,
+          clientId: client.id,
+          tierId: t.id,
+          rewardType: t.rewardType,
+          rewardDescription: t.rewardDescription,
+          rewardValue: t.rewardValue,
+          rewardProductId: t.rewardProductId ?? null,
+          status: 'available' as const,
+          unlockedAt: new Date().toISOString(),
+          pointsAtUnlock: t.pointsRequired,
+          expiryDate: null,
+          usedAt: null,
+          ticketRef: null,
+          cashierName: null,
+          notes: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }))
+    : [];
+  const effectiveAllRewards = allClientRewards.length > 0 ? allClientRewards : cartComputedRewards;
+  const effectiveAvailableCount = effectiveAllRewards.filter(r => r.status === 'available').length;
 
   return (
     <div className="h-screen flex flex-col bg-background overflow-hidden">
@@ -1420,7 +1473,7 @@ export default function POSTerminal() {
                 <div
                   className="h-full bg-gradient-to-r from-amber-400 to-orange-400 rounded-full transition-all"
                   style={{
-                    width: `${Math.min(100, Math.max(3, ((client.points % nextTierForClient.pointsRequired) / nextTierForClient.pointsRequired) * 100))}%`,
+                    width: `${Math.min(100, Math.max(3, ((client.points - (currentTierForClient?.pointsRequired ?? 0)) / Math.max(1, nextTierForClient.pointsRequired - (currentTierForClient?.pointsRequired ?? 0))) * 100))}%`,
                   }}
                 />
               </div>
@@ -1438,8 +1491,8 @@ export default function POSTerminal() {
                 <span className="text-xs font-600 text-violet-800">Voir récompenses disponibles</span>
               </div>
               <div className="flex items-center gap-1">
-                {availableRewards.length > 0 && (
-                  <span className="text-[10px] font-700 bg-violet-500 text-white rounded-full px-1.5 py-0.5">{availableRewards.length}</span>
+                {effectiveAvailableCount > 0 && (
+                  <span className="text-[10px] font-700 bg-violet-500 text-white rounded-full px-1.5 py-0.5">{effectiveAvailableCount}</span>
                 )}
                 <Icon name={showAllRewards ? 'ChevronUpIcon' : 'ChevronDownIcon'} size={13} className="text-violet-500" />
               </div>
@@ -1449,11 +1502,11 @@ export default function POSTerminal() {
           {/* Expandable all rewards panel */}
           {client && showAllRewards && (
             <div className="mx-3 mb-2 bg-violet-50 border border-violet-200 rounded-xl overflow-hidden">
-              {allClientRewards.length === 0 ? (
+              {effectiveAllRewards.length === 0 ? (
                 <p className="text-xs text-violet-600 text-center py-3">Aucune récompense débloquée</p>
               ) : (
                 <div className="max-h-48 overflow-y-auto divide-y divide-violet-100">
-                  {allClientRewards.map((r) => {
+                  {effectiveAllRewards.map((r) => {
                     const isAvailable = r.status === 'available';
                     return (
                       <div key={r.id} className="px-3 py-2 flex items-center gap-2">
