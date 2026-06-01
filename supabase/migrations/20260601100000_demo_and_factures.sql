@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS factures (
 
 ALTER TABLE factures ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "allow_all_factures" ON factures;
 CREATE POLICY "allow_all_factures" ON factures
   FOR ALL USING (true) WITH CHECK (true);
 
