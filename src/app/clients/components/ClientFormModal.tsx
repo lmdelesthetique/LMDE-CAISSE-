@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Icon from '@/components/ui/AppIcon';
+import { toast } from 'sonner';
 import { clientService, type Client, type CreateClientInput } from '@/lib/services/clientService';
 
 interface ClientFormModalProps {
@@ -76,7 +77,12 @@ export default function ClientFormModal({ client, onClose, onSaved }: ClientForm
       } else {
         saved = await clientService.create(payload);
       }
-      if (saved) onSaved(saved);
+      if (saved) {
+        toast.success(isEdit ? 'Client enregistré' : 'Client créé');
+        onSaved(saved);
+      } else {
+        toast.error('Erreur lors de l\'enregistrement — vérifiez la console');
+      }
     } finally {
       setLoading(false);
     }

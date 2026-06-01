@@ -317,34 +317,36 @@ export const clientService = {
   },
 
   async update(id: string, input: Partial<CreateClientInput>): Promise<Client | null> {
-    const supabase = createClient();
     try {
       const updateData: any = {};
       if (input.firstName !== undefined) updateData.first_name = input.firstName;
       if (input.lastName !== undefined) updateData.last_name = input.lastName;
-      if (input.email !== undefined) updateData.email = input.email;
-      if (input.phone !== undefined) updateData.phone = input.phone;
-      if (input.whatsapp !== undefined) updateData.whatsapp = input.whatsapp;
-      if (input.dateOfBirth !== undefined) updateData.date_of_birth = input.dateOfBirth;
+      if (input.email !== undefined) updateData.email = input.email || null;
+      if (input.phone !== undefined) updateData.phone = input.phone || null;
+      if (input.whatsapp !== undefined) updateData.whatsapp = input.whatsapp || null;
+      if (input.dateOfBirth !== undefined) updateData.date_of_birth = input.dateOfBirth || null;
       if (input.gender !== undefined) updateData.gender = input.gender;
-      if (input.address !== undefined) updateData.address = input.address;
-      if (input.city !== undefined) updateData.city = input.city;
-      if (input.postalCode !== undefined) updateData.postal_code = input.postalCode;
+      if (input.address !== undefined) updateData.address = input.address || null;
+      if (input.city !== undefined) updateData.city = input.city || null;
+      if (input.postalCode !== undefined) updateData.postal_code = input.postalCode || null;
       if (input.country !== undefined) updateData.country = input.country;
-      if (input.notes !== undefined) updateData.notes = input.notes;
+      if (input.notes !== undefined) updateData.notes = input.notes || null;
       if (input.clientType !== undefined) updateData.client_type = input.clientType;
       if (input.loyaltyDiscountType !== undefined) updateData.loyalty_discount_type = input.loyaltyDiscountType;
       if (input.loyaltyDiscountValue !== undefined) updateData.loyalty_discount_value = input.loyaltyDiscountValue;
 
-      const { data, error } = await supabase
-        .from('clients')
-        .update(updateData)
-        .eq('id', id)
-        .select()
-        .single();
-      if (error) { console.log('clientService.update error:', error.message); return null; }
-      return data ? mapClient(data) : null;
-    } catch (e: any) { console.log('clientService.update exception:', e.message); return null; }
+      const res = await fetch(`/api/clients/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updateData),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        console.error('clientService.update error:', data.error);
+        return null;
+      }
+      return mapClient(data);
+    } catch (e: any) { console.error('clientService.update exception:', e.message); return null; }
   },
 
   async delete(id: string): Promise<boolean> {
