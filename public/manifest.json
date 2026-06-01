@@ -1,69 +1,44 @@
 {
-    "name": "LMDE Caisse",
-    "short_name": "LMDE Caisse",
-    "description": "Logiciel de caisse professionnel pour boutiques beaut\u00e9 \u2014 ventes, stock, r\u00e9servations et fid\u00e9lit\u00e9.",
-    "start_url": "/dashboard",
-    "scope": "/",
-    "display": "standalone",
-    "orientation": "any",
-    "background_color": "#1a0a2e",
-    "theme_color": "#1a0a2e",
-    "lang": "fr",
-    "categories": [
-        "business",
-        "productivity"
-    ],
-    "icons": [
-        {
-            "src": "/assets/images/lmde-caisse-icon-192.png",
-            "sizes": "192x192",
-            "type": "image/png",
-            "purpose": "any maskable"
-        },
-        {
-            "src": "/assets/images/lmde-caisse-icon-512.png",
-            "sizes": "512x512",
-            "type": "image/png",
-            "purpose": "any maskable"
-        }
-    ],
-    "screenshots": [],
-    "shortcuts": [
-        {
-            "name": "Caisse",
-            "short_name": "Caisse",
-            "description": "Ouvrir la caisse enregistreuse",
-            "url": "/pos-sales-terminal",
-            "icons": [
-                {
-                    "src": "/assets/images/lmde-caisse-icon-192.png",
-                    "sizes": "192x192"
-                }
-            ]
-        },
-        {
-            "name": "Stock",
-            "short_name": "Stock",
-            "description": "Consulter le stock",
-            "url": "/stock",
-            "icons": [
-                {
-                    "src": "/assets/images/lmde-caisse-icon-192.png",
-                    "sizes": "192x192"
-                }
-            ]
-        },
-        {
-            "name": "Dashboard",
-            "short_name": "Dashboard",
-            "description": "Tableau de bord",
-            "url": "/dashboard",
-            "icons": [
-                {
-                    "src": "/assets/images/lmde-caisse-icon-192.png",
-                    "sizes": "192x192"
-                }
-            ]
-        }
-    ]
+  "name": "BeautyPOS — Le Monde de l'Esthétique",
+  "short_name": "BeautyPOS",
+  "description": "Logiciel de caisse beauté",
+  "start_url": "/pos-sales-terminal",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ec4899",
+  "orientation": "landscape",
+  "lang": "fr",
+  "categories": ["business", "productivity"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Caisse",
+      "short_name": "Caisse",
+      "description": "Ouvrir la caisse enregistreuse",
+      "url": "/pos-sales-terminal",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Historique",
+      "short_name": "Historique",
+      "description": "Historique des tickets",
+      "url": "/caisse-historique",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
 }
