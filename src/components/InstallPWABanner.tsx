@@ -6,24 +6,38 @@ export function InstallPWABanner() {
   const [show, setShow] = useState(false);
 
   useEffect(() => {
-    if (window.matchMedia('(display-mode: standalone)').matches) return;
+    try {
+      if (typeof window === 'undefined') return;
+      if (window.matchMedia?.('(display-mode: standalone)').matches) return;
 
-    const handler = (e: Event) => {
-      e.preventDefault();
-      setPrompt(e as BeforeInstallPromptEvent);
-      setShow(true);
-    };
-    window.addEventListener('beforeinstallprompt', handler);
-    return () => window.removeEventListener('beforeinstallprompt', handler);
+      const handler = (e: Event) => {
+        try {
+          e.preventDefault();
+          setPrompt(e as BeforeInstallPromptEvent);
+          setShow(true);
+        } catch {
+          // ignore
+        }
+      };
+      window.addEventListener('beforeinstallprompt', handler);
+      return () => window.removeEventListener('beforeinstallprompt', handler);
+    } catch (err) {
+      console.error('[PWA Banner] init error:', err);
+    }
   }, []);
 
   if (!show) return null;
 
   async function install() {
-    if (!prompt) return;
-    prompt.prompt();
-    const result = await prompt.userChoice;
-    if (result.outcome === 'accepted') setShow(false);
+    try {
+      if (!prompt) return;
+      prompt.prompt();
+      const result = await prompt.userChoice;
+      if (result.outcome === 'accepted') setShow(false);
+    } catch (err) {
+      console.error('[PWA Banner] install error:', err);
+      setShow(false);
+    }
   }
 
   return (
