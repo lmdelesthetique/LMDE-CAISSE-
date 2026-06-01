@@ -145,7 +145,28 @@ function ClientFicheSlideOver({ client, allRewards, loyaltyTiers, onClose, onPoi
 
   const nextTier = loyaltyTiers.length > 0 ? getNextTier(loyaltyTiers, displayPoints) : null;
   const ptsToNext = loyaltyTiers.length > 0 ? pointsToNextTier(loyaltyTiers, displayPoints) : 0;
-  const availableCount = allRewards.filter((r) => r.status === 'available').length;
+  const currentTier = loyaltyTiers.length > 0 ? getCurrentTier(loyaltyTiers, displayPoints) : null;
+
+  // Load rewards independently so the slide-over always has them regardless of
+  // whether handleClientSelect ran the backfill before the slide-over opened.
+  const [localRewards, setLocalRewards] = useState<ClientLoyaltyReward[]>([]);
+  useEffect(() => {
+    fetch(`/api/loyalty/client-rewards?clientId=${client.id}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(json => { if (json?.all) setLocalRewards(json.all.map((r: any) => ({
+        id: r.id, clientId: r.client_id, tierId: r.tier_id ?? null,
+        rewardType: r.reward_type, rewardDescription: r.reward_description,
+        rewardValue: parseFloat(r.reward_value ?? 0), rewardProductId: r.reward_product_id ?? null,
+        status: r.status, unlockedAt: r.unlocked_at, pointsAtUnlock: r.points_at_unlock ?? 0,
+        expiryDate: r.expiry_date ?? null, usedAt: r.used_at ?? null,
+        ticketRef: r.ticket_ref ?? null, cashierName: r.cashier_name ?? null,
+        notes: r.notes ?? null, createdAt: r.created_at, updatedAt: r.updated_at,
+      }))); })
+      .catch(() => {});
+  }, [client.id]);
+
+  const displayRewards = localRewards.length > 0 ? localRewards : allRewards;
+  const availableCount = displayRewards.filter((r) => r.status === 'available').length;
 
   const TYPE_LABELS: Record<string, string> = {
     particulier: 'Particulier', professionnel: 'Pro', vip: 'VIP',
@@ -232,7 +253,7 @@ function ClientFicheSlideOver({ client, allRewards, loyaltyTiers, onClose, onPoi
                   </button>
                 </div>
                 <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-center">
-                  <p className="text-sm font-700 text-amber-700 capitalize">{fullClient?.loyaltyTier ?? '—'}</p>
+                  <p className="text-sm font-700 text-amber-700 leading-tight">{currentTier?.name ?? '—'}</p>
                   <p className="text-[10px] text-amber-600">Palier</p>
                 </div>
               </div>
@@ -336,17 +357,20 @@ function ClientFicheSlideOver({ client, allRewards, loyaltyTiers, onClose, onPoi
             )}
 
             {/* Rewards */}
-            {allRewards.length > 0 && (
+            {displayRewards.length > 0 && (
               <div className="p-4 border-b border-border">
                 <p className="text-[10px] font-700 text-muted-foreground uppercase tracking-wide mb-2">
                   Récompenses{availableCount > 0 && <span className="text-violet-600 font-700"> · {availableCount} disponible{availableCount > 1 ? 's' : ''}</span>}
                 </p>
-                <div className="space-y-1.5 max-h-36 overflow-y-auto">
-                  {allRewards.map((r) => {
+                <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                  {displayRewards.map((r) => {
                     const isAvail = r.status === 'available';
                     return (
                       <div key={r.id} className="flex items-center gap-2 bg-muted/20 rounded-lg px-3 py-2">
-                        <p className="text-xs font-500 text-foreground flex-1 min-w-0 truncate">{r.rewardDescription}</p>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-600 text-foreground truncate">{r.rewardDescription}</p>
+                          <p className="text-[10px] text-muted-foreground">{r.pointsAtUnlock} pts</p>
+                        </div>
                         <span className={`shrink-0 text-[9px] font-700 px-1.5 py-0.5 rounded-full ${isAvail ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
                           {isAvail ? 'DISPO' : 'UTILISÉE'}
                         </span>

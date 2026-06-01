@@ -503,6 +503,22 @@ export default function LoyaltyPage() {
   const [showProductForm, setShowProductForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState<LoyaltyRewardProduct | null>(null);
   const [suggestionTarget, setSuggestionTarget] = useState<SlowMoverProduct | null>(null);
+  const [recalculating, setRecalculating] = useState(false);
+
+  const handleRecalculatePaliers = async () => {
+    setRecalculating(true);
+    try {
+      const res = await fetch('/api/admin/recalculate-paliers', { method: 'POST' });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+      toast.success(`✓ ${json.rewardsInserted} récompense(s) ajoutée(s) pour ${json.clientsProcessed} clientes`);
+      await loadData();
+    } catch (e: any) {
+      toast.error(`Erreur : ${e?.message ?? 'Recalcul impossible'}`);
+    } finally {
+      setRecalculating(false);
+    }
+  };
 
   const loadSlowMovers = useCallback(async (existingRewardProducts: LoyaltyRewardProduct[]) => {
     const supabase = createClient();
@@ -607,6 +623,15 @@ export default function LoyaltyPage() {
             <p className="text-sm text-muted-foreground mt-0.5">Paliers automatiques, récompenses intelligentes, dashboard complet</p>
           </div>
           <div className="flex items-center gap-2">
+            {tab === 'dashboard' && (
+              <button onClick={handleRecalculatePaliers} disabled={recalculating}
+                className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-lg text-sm font-600 hover:opacity-90 transition-opacity disabled:opacity-40">
+                {recalculating
+                  ? <><Icon name="ArrowPathIcon" size={15} className="animate-spin" />Calcul…</>
+                  : <><Icon name="SparklesIcon" size={15} />Recalculer tous les paliers</>
+                }
+              </button>
+            )}
             {tab === 'tiers' && (
               <button onClick={() => { setEditingTier(null); setShowTierForm(true); }}
                 className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-600 hover:opacity-90 transition-opacity">

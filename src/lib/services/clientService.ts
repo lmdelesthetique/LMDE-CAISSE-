@@ -191,6 +191,33 @@ function mapPurchase(row: any): ClientPurchase {
   };
 }
 
+function mapReceiptToPurchase(row: any): ClientPurchase {
+  return {
+    id: row.id,
+    clientId: row.client_id ?? '',
+    receiptNumber: row.ticket_number ?? '',
+    items: Array.isArray(row.items) ? row.items.map((i: any) => ({
+      name: i.name ?? '',
+      qty: i.qty ?? i.quantity ?? 1,
+      price: i.price ?? 0,
+      total: i.total ?? 0,
+      sku: i.sku ?? undefined,
+    })) : [],
+    subtotalHt: parseFloat(row.subtotal_ht ?? 0),
+    totalTva: parseFloat(row.total_tva ?? 0),
+    totalTtc: parseFloat(row.total_amount ?? 0),
+    discountAmount: parseFloat(row.discount_amount ?? 0),
+    paymentMethod: row.payment_method ?? '',
+    status: row.status ?? 'completed',
+    loyaltyPointsEarned: row.loyalty_points_earned ?? 0,
+    loyaltyPointsUsed: 0,
+    storeCreditUsed: 0,
+    cashierName: row.cashier_name ?? null,
+    notes: row.notes ?? null,
+    purchasedAt: row.created_at ?? '',
+  };
+}
+
 function mapLoyaltyTransaction(row: any): LoyaltyTransaction {
   return {
     id: row.id,
@@ -372,13 +399,23 @@ export const clientService = {
   async getPurchases(clientId: string): Promise<ClientPurchase[]> {
     const supabase = createClient();
     try {
-      const { data, error } = await supabase
+      const { data: cp } = await supabase
         .from('client_purchases')
         .select('*')
         .eq('client_id', clientId)
         .order('purchased_at', { ascending: false });
-      if (error) { console.log('clientService.getPurchases error:', error.message); return []; }
-      return (data ?? []).map(mapPurchase);
+      if (cp && cp.length > 0) return cp.map(mapPurchase);
+
+      // client_purchases is empty (recordPurchase was never wired up) —
+      // fall back to the receipts table which is always populated via API.
+      const { data: receipts } = await supabase
+        .from('receipts')
+        .select('*')
+        .eq('client_id', clientId)
+        .neq('status', 'cancelled')
+        .order('created_at', { ascending: false })
+        .limit(50);
+      return (receipts ?? []).map(mapReceiptToPurchase);
     } catch (e: any) { console.log('clientService.getPurchases exception:', e.message); return []; }
   },
 
@@ -427,27 +464,19 @@ export const clientService = {
   },
 
   async adjustLoyaltyPoints(clientId: string, pointsChange: number, reason: string): Promise<boolean> {
-    const supabase = createClient();
     try {
-      const client = await this.getById(clientId);
-      if (!client) return false;
-      const newBalance = Math.max(0, client.loyaltyPoints + pointsChange);
-      const { error: updateError } = await supabase
-        .from('clients')
-        .update({ loyalty_points: newBalance })
-        .eq('id', clientId);
-      if (updateError) { console.log('adjustLoyaltyPoints update error:', updateError.message); return false; }
-      const { error: txError } = await supabase
-        .from('loyalty_transactions')
-        .insert({
-          client_id: clientId,
-          points_change: pointsChange,
-          reason,
-          balance_after: newBalance,
-        });
-      if (txError) { console.log('adjustLoyaltyPoints tx error:', txError.message); }
+      const res = await fetch('/api/loyalty/adjust-points', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, pointsChange, reason }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        console.error('adjustLoyaltyPoints API error:', d.error);
+        return false;
+      }
       return true;
-    } catch (e: any) { console.log('adjustLoyaltyPoints exception:', e.message); return false; }
+    } catch (e: any) { console.error('adjustLoyaltyPoints exception:', e.message); return false; }
   },
 
   // ── Subscriptions ──────────────────────────────────────────────────────────
