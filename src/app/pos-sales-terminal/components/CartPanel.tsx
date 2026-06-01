@@ -5,6 +5,11 @@ import Icon from '@/components/ui/AppIcon';
 import type { CartItem } from './POSTerminal';
 import PriceEditModal from './PriceEditModal';
 
+export interface GlobalDiscount {
+  value: number;
+  type: 'percent' | 'amount';
+}
+
 interface CartPanelProps {
   items: CartItem[];
   onUpdateQty: (id: string, qty: number) => void;
@@ -14,6 +19,9 @@ interface CartPanelProps {
   subtotalHT: number;
   totalTVA: number;
   totalTTC: number;
+  globalDiscount: GlobalDiscount | null;
+  globalDiscountAmount: number;
+  onGlobalDiscountChange: (d: GlobalDiscount | null) => void;
   tvaRate?: number;
   cashierName?: string;
 }
@@ -203,10 +211,41 @@ export default function CartPanel({
   subtotalHT,
   totalTVA,
   totalTTC,
+  globalDiscount,
+  globalDiscountAmount,
+  onGlobalDiscountChange,
   tvaRate = 0.085,
   cashierName = 'Caisse',
 }: CartPanelProps) {
   const hasDemoItems = items.some(i => i.isDemo);
+  const [showGDForm, setShowGDForm] = useState(false);
+  const [gdType, setGdType] = useState<'percent' | 'amount'>(globalDiscount?.type ?? 'amount');
+  const [gdInput, setGdInput] = useState(globalDiscount?.value.toString() ?? '');
+
+  const previewBase = subtotalHT + totalTVA; // cart total before global discount
+  const gdVal = parseFloat(gdInput) || 0;
+  const previewDiscount = gdType === 'percent'
+    ? Math.min(previewBase, previewBase * (gdVal / 100))
+    : Math.min(previewBase, gdVal);
+  const previewFinal = Math.max(0, previewBase - previewDiscount);
+
+  const applyGD = () => {
+    if (gdVal <= 0) return;
+    onGlobalDiscountChange({ value: gdVal, type: gdType });
+    setShowGDForm(false);
+  };
+
+  const removeGD = () => {
+    onGlobalDiscountChange(null);
+    setGdInput('');
+    setShowGDForm(false);
+  };
+
+  const openForm = () => {
+    setGdType(globalDiscount?.type ?? 'amount');
+    setGdInput(globalDiscount?.value.toString() ?? '');
+    setShowGDForm(true);
+  };
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -264,6 +303,94 @@ export default function CartPanel({
             <span>TVA {(tvaRate * 100).toFixed(1).replace('.0', '')}%</span>
             <span className="tabular-nums">{totalTVA.toFixed(2)} €</span>
           </div>
+
+          {/* Global discount button / applied row */}
+          {!showGDForm && !globalDiscount && (
+            <button
+              onClick={openForm}
+              className="w-full flex items-center justify-center gap-1.5 py-1.5 text-xs font-600 text-primary border border-dashed border-primary/40 rounded-lg hover:bg-primary/5 transition-colors"
+            >
+              <Icon name="TagIcon" size={12} />
+              Ajouter une remise sur le total
+            </button>
+          )}
+
+          {!showGDForm && globalDiscount && (
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Icon name="TagIcon" size={12} className="text-rose-500" />
+                <span className="text-sm text-rose-600 font-600">
+                  Remise globale
+                  {globalDiscount.type === 'percent' ? ` (${globalDiscount.value}%)` : ''}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-700 tabular-nums text-rose-600">-{globalDiscountAmount.toFixed(2)} €</span>
+                <button onClick={openForm} className="text-[10px] text-muted-foreground hover:text-primary">✏️</button>
+                <button onClick={removeGD} className="text-[10px] text-muted-foreground hover:text-red-500">✕</button>
+              </div>
+            </div>
+          )}
+
+          {/* Inline discount form */}
+          {showGDForm && (
+            <div className="border border-border rounded-xl p-3 space-y-2.5 bg-white animate-slide-up">
+              <p className="text-xs font-700 text-foreground">Remise sur le total</p>
+
+              {/* Type toggle */}
+              <div className="flex rounded-lg overflow-hidden border border-border text-xs">
+                <button onClick={() => setGdType('amount')} className={`flex-1 py-1.5 font-600 transition-colors ${gdType === 'amount' ? 'bg-primary text-white' : 'bg-white text-muted-foreground hover:bg-muted'}`}>€ Montant</button>
+                <button onClick={() => setGdType('percent')} className={`flex-1 py-1.5 font-600 transition-colors ${gdType === 'percent' ? 'bg-primary text-white' : 'bg-white text-muted-foreground hover:bg-muted'}`}>% Pourcentage</button>
+              </div>
+
+              {/* Input */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  value={gdInput}
+                  onChange={(e) => setGdInput(e.target.value)}
+                  placeholder="0"
+                  className="flex-1 px-2 py-1.5 text-sm border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary/40 tabular-nums"
+                  autoFocus
+                />
+                <span className="text-sm font-600 text-muted-foreground w-5">{gdType === 'percent' ? '%' : '€'}</span>
+              </div>
+
+              {/* Quick amounts */}
+              <div className="flex flex-wrap gap-1">
+                {(gdType === 'amount'
+                  ? [5, 10, 20, 40, 50]
+                  : [5, 10, 15, 20, 50]
+                ).map((v) => (
+                  <button key={v} onClick={() => setGdInput(v.toString())}
+                    className="px-2 py-1 text-[11px] font-600 border border-border rounded-lg hover:bg-muted transition-colors">
+                    -{v}{gdType === 'percent' ? '%' : '€'}
+                  </button>
+                ))}
+              </div>
+
+              {/* Preview */}
+              {gdVal > 0 && (
+                <div className="text-[11px] text-muted-foreground space-y-0.5 bg-muted/20 rounded-lg px-2.5 py-2">
+                  <div className="flex justify-between"><span>Avant remise</span><span className="tabular-nums">{previewBase.toFixed(2)} €</span></div>
+                  <div className="flex justify-between text-rose-600"><span>Remise</span><span className="tabular-nums">-{previewDiscount.toFixed(2)} €</span></div>
+                  <div className="flex justify-between font-700 text-foreground border-t border-border pt-1 mt-1"><span>Total</span><span className="tabular-nums">{previewFinal.toFixed(2)} €</span></div>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex gap-2">
+                <button onClick={() => setShowGDForm(false)} className="flex-1 py-1.5 border border-border rounded-lg text-xs font-600 text-muted-foreground hover:bg-muted transition-colors">Annuler</button>
+                <button onClick={applyGD} disabled={gdVal <= 0}
+                  className="flex-1 py-1.5 bg-primary text-white rounded-lg text-xs font-700 hover:opacity-90 transition-opacity disabled:opacity-40 flex items-center justify-center gap-1">
+                  <Icon name="CheckIcon" size={12} />
+                  Appliquer
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="flex justify-between text-base font-700 text-foreground pt-1.5 border-t border-border">
             <span>Total TTC</span>
             <span className="tabular-nums">{totalTTC.toFixed(2)} €</span>

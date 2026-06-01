@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
 import ProductGrid from './ProductGrid';
-import CartPanel from './CartPanel';
+import CartPanel, { type GlobalDiscount } from './CartPanel';
 import HeldTicketsDrawer from './HeldTicketsDrawer';
 import PaymentModal from './PaymentModal';
 import OuvertureCaisseModal from './OuvertureCaisseModal';
@@ -399,6 +399,7 @@ export default function POSTerminal() {
 
   const [cart, setCart] = useState<CartItem[]>([]);
   const isDemoCart = cart.some(i => i.isDemo);
+  const [globalDiscount, setGlobalDiscount] = useState<GlobalDiscount | null>(null);
   const [demoProductRef, setDemoProductRef] = useState<{ id: string; name: string; ref: string } | null>(null);
   const [client, setClient] = useState<POSClient | null>(null);
   const [heldTickets, setHeldTickets] = useState<HeldTicket[]>([]);
@@ -815,6 +816,7 @@ export default function POSTerminal() {
     logAction('hold', `Ticket mis en attente${client ? ` — Client : ${client.name}` : ''}`, total, { itemsCount: cart.length, clientName: client?.name });
     setCart([]);
     setClient(null);
+    setGlobalDiscount(null);
     toast.success('Ticket mis en attente');
   }, [cart, client, logAction]);
 
@@ -832,6 +834,7 @@ export default function POSTerminal() {
     }
     setCart([]);
     setClient(null);
+    setGlobalDiscount(null);
   }, [cart, client, logAction]);
 
   const handleLogout = useCallback(async () => {
@@ -841,9 +844,15 @@ export default function POSTerminal() {
 
   // ── Loyalty: handle payment confirmation with points ──────────────────────
   // Prices in the catalog are already TTC (VAT-inclusive) — extract HT and TVA from the total
-  const totalTTC = cart.reduce((s, i) => s + calcItemTotal(i), 0);
-  const subtotalHT = totalTTC / (1 + LIVE_TAX_RATE);
-  const totalTVA = totalTTC - subtotalHT;
+  const cartTotalTTC = cart.reduce((s, i) => s + calcItemTotal(i), 0);
+  const subtotalHT = cartTotalTTC / (1 + LIVE_TAX_RATE);
+  const totalTVA = cartTotalTTC - subtotalHT;
+  const globalDiscountAmount = globalDiscount
+    ? globalDiscount.type === 'percent'
+      ? Math.min(cartTotalTTC, cartTotalTTC * (globalDiscount.value / 100))
+      : Math.min(cartTotalTTC, globalDiscount.value)
+    : 0;
+  const totalTTC = Math.max(0, cartTotalTTC - globalDiscountAmount);
 
   const handlePaymentConfirm = useCallback(async (method: string) => {
     const total = totalTTC;
@@ -881,11 +890,12 @@ export default function POSTerminal() {
     }
 
     // ── Save receipt to DB ────────────────────────────────────────────────
-    const discountAmount = cart.reduce((s, i) => {
+    const itemDiscountAmount = cart.reduce((s, i) => {
       const base = i.price * i.qty;
       const disc = i.discountType === 'percent' ? base * (i.discount / 100) : i.discount;
       return s + disc;
     }, 0);
+    const discountAmount = itemDiscountAmount + globalDiscountAmount;
 
     let loyaltyPointsEarned = 0;
     let loyaltyRewardUsed: string | undefined;
@@ -956,11 +966,13 @@ export default function POSTerminal() {
 
       // Save receipt to DB — reward item already in cart if pre-added
       const receiptItems = cart;
+      const receiptSubHT = total / (1 + LIVE_TAX_RATE);
+      const receiptTVA = total - receiptSubHT;
       const saved = await saveReceipt({
         ticketNumber: ticketRef,
         items: receiptItems,
-        subtotalHT,
-        totalTVA,
+        subtotalHT: receiptSubHT,
+        totalTVA: receiptTVA,
         totalTTC: total,
         discountAmount,
         paymentMethod: method,
@@ -1015,6 +1027,7 @@ export default function POSTerminal() {
         });
 
         setCart([]);
+        setGlobalDiscount(null);
         setClient(null);
 
         if (persistedRewards.length > 0) {
@@ -1064,11 +1077,13 @@ export default function POSTerminal() {
       }
     } else {
       // No client / no loyalty — save receipt and show doc choice
+      const receiptSubHT2 = total / (1 + LIVE_TAX_RATE);
+      const receiptTVA2 = total - receiptSubHT2;
       const saved2 = await saveReceipt({
         ticketNumber: ticketRef,
         items: cart,
-        subtotalHT,
-        totalTVA,
+        subtotalHT: receiptSubHT2,
+        totalTVA: receiptTVA2,
         totalTTC: total,
         discountAmount,
         paymentMethod: method,
@@ -1089,11 +1104,12 @@ export default function POSTerminal() {
       setLastSaleLoyalty(null);
       setCart([]);
       setAppliedReward(null);
+      setGlobalDiscount(null);
       setClient(null);
       setShowDocChoice(true);
       toast.success(`Paiement encaissé — ${total.toFixed(2)} € via ${method}`);
     }
-  }, [cart, client, paymentMode, totalTTC, subtotalHT, totalTVA, loyaltyTiers, logAction, employee, appliedReward]);
+  }, [cart, client, paymentMode, totalTTC, subtotalHT, totalTVA, globalDiscountAmount, loyaltyTiers, logAction, employee, appliedReward]);
 
   const handleLoyaltyValidate = useCallback((tier: LoyaltyTier) => {
     toast.success(`🎁 Récompense validée : ${tier.rewardDescription}`, { duration: 4000 });
@@ -1103,6 +1119,7 @@ export default function POSTerminal() {
     setLoyaltyNotification(null);
     setShowPayment(false);
     setCart([]);
+    setGlobalDiscount(null);
     setClient(null);
   }, []);
 
@@ -1404,6 +1421,9 @@ export default function POSTerminal() {
             subtotalHT={subtotalHT}
             totalTVA={totalTVA}
             totalTTC={totalTTC}
+            globalDiscount={globalDiscount}
+            globalDiscountAmount={globalDiscountAmount}
+            onGlobalDiscountChange={setGlobalDiscount}
             tvaRate={LIVE_TAX_RATE}
             cashierName={employee?.fullName || 'Caisse'}
           />
