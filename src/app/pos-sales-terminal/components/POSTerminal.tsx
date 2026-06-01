@@ -25,7 +25,7 @@ import {
   type LoyaltyTier,
   type ClientLoyaltyReward,
 } from '@/lib/services/loyaltyService';
-import { generateTicketHTML, loadSettingsFromCache, openAndPrint } from '@/lib/utils/ticketPrinter';
+import { generateTicketHTML, generateFactureHTML, loadSettingsFromCache, openAndPrint } from '@/lib/utils/ticketPrinter';
 import { clientService, type Client as FullClient, type ClientPurchase, type ClientSubscription } from '@/lib/services/clientService';
 import {
   sendReceiptEmail,
@@ -56,6 +56,7 @@ export interface CartItem {
   isReward?: boolean;
   originalPrice?: number;
   promoName?: string;
+  isDemo?: boolean;
 }
 
 export interface HeldTicket {
@@ -397,6 +398,8 @@ export default function POSTerminal() {
   const LIVE_TAX_RATE = settingsTvaRate;
 
   const [cart, setCart] = useState<CartItem[]>([]);
+  const isDemoCart = cart.some(i => i.isDemo);
+  const [demoProductRef, setDemoProductRef] = useState<{ id: string; name: string; ref: string } | null>(null);
   const [client, setClient] = useState<POSClient | null>(null);
   const [heldTickets, setHeldTickets] = useState<HeldTicket[]>([]);
   const [showHeld, setShowHeld] = useState(false);
@@ -478,12 +481,21 @@ export default function POSTerminal() {
 
   const [barcodeStatus, setBarcodeStatus] = useState<'idle' | 'scanning' | 'found' | 'notfound'>('idle');
 
-  // Load loyalty tiers on mount
+  // Load loyalty tiers + demo product on mount
   useEffect(() => {
     loyaltyService.getTiers().then(setLoyaltyTiers);
+    import('@/lib/supabase/client').then(({ createClient }) => {
+      createClient()
+        .from('products')
+        .select('id, name, ref')
+        .eq('ref', 'DEMO-001')
+        .eq('is_demo', true)
+        .maybeSingle()
+        .then(({ data }) => { if (data) setDemoProductRef(data as { id: string; name: string; ref: string }); });
+    });
   }, []);
 
-  const addToCart = useCallback(async (product: { id: string; name: string; sku: string; price: number; imageUrl?: string; stock?: number; variantName?: string; costPrice?: number; promoDiscount?: number; promoDiscountType?: 'percent' | 'amount'; promoName?: string }) => {
+  const addToCart = useCallback(async (product: { id: string; name: string; sku: string; price: number; imageUrl?: string; stock?: number; variantName?: string; costPrice?: number; promoDiscount?: number; promoDiscountType?: 'percent' | 'amount'; promoName?: string; isDemo?: boolean }) => {
     // Fetch stock for display purposes only — never blocks the sale
     let availableStock = product.stock;
     if (product.stock === undefined && !product.id.startsWith('free-')) {
@@ -512,6 +524,7 @@ export default function POSTerminal() {
         costPrice: product.costPrice,
         stock: availableStock,
         promoName: product.promoName,
+        isDemo: product.isDemo || false,
       }];
     });
   }, [cart]);
@@ -796,24 +809,26 @@ export default function POSTerminal() {
       { method, itemsCount, clientName, mode: paymentMode }
     );
 
-    // ── Deduct stock for all sold items ───────────────────────────────────
-    const stockItems = cart.map((i) => ({
-      productId: i.productId,
-      name: i.name,
-      qty: i.qty,
-      isFreePrice: i.isFreePrice,
-    }));
-    const { errors: stockErrors } = await deductStockForSale(
-      stockItems,
-      ticketRef,
-      method,
-      employee?.fullName || 'Caisse',
-      'completed',
-      'vente'
-    );
-    if (stockErrors.length > 0) {
-      console.warn('Stock deduction errors:', stockErrors);
-      toast.warning(`Stock mis à jour avec ${stockErrors.length} avertissement(s)`, { duration: 3000 });
+    // ── Deduct stock (skipped for demo/training sales) ────────────────────
+    if (!isDemoCart) {
+      const stockItems = cart.map((i) => ({
+        productId: i.productId,
+        name: i.name,
+        qty: i.qty,
+        isFreePrice: i.isFreePrice,
+      }));
+      const { errors: stockErrors } = await deductStockForSale(
+        stockItems,
+        ticketRef,
+        method,
+        employee?.fullName || 'Caisse',
+        'completed',
+        'vente'
+      );
+      if (stockErrors.length > 0) {
+        console.warn('Stock deduction errors:', stockErrors);
+        toast.warning(`Stock mis à jour avec ${stockErrors.length} avertissement(s)`, { duration: 3000 });
+      }
     }
 
     // ── Save receipt to DB ────────────────────────────────────────────────
@@ -826,8 +841,8 @@ export default function POSTerminal() {
     let loyaltyPointsEarned = 0;
     let loyaltyRewardUsed: string | undefined;
 
-    // Award loyalty points if client is selected
-    if (client && loyaltyTiers.length > 0) {
+    // Award loyalty points if client is selected (skipped for demo sales)
+    if (client && loyaltyTiers.length > 0 && !isDemoCart) {
       loyaltyPointsEarned = Math.floor(total);
       const previousPoints = client.points;
       const newPoints = previousPoints + loyaltyPointsEarned;
@@ -906,6 +921,7 @@ export default function POSTerminal() {
         cashierName: employee?.fullName || 'Caisse',
         loyaltyPointsEarned,
         loyaltyRewardUsed,
+        isDemo: isDemoCart,
       });
       if (!saved) toast.error('Ticket non enregistré — vérifiez la connexion', { duration: 8000 });
 
@@ -1011,6 +1027,7 @@ export default function POSTerminal() {
         clientId: client?.id,
         clientName: client?.name,
         cashierName: employee?.fullName || 'Caisse',
+        isDemo: isDemoCart,
       });
       if (!saved2) toast.error('Ticket non enregistré — vérifiez la connexion', { duration: 8000 });
 
@@ -1155,6 +1172,23 @@ export default function POSTerminal() {
             className="px-3 py-1.5 border border-border rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Mettre en attente
+          </button>
+          <button
+            onClick={() => {
+              if (isDemoCart) {
+                setCart(prev => prev.filter(i => !i.isDemo));
+              } else if (demoProductRef) {
+                addToCart({ id: demoProductRef.id, name: demoProductRef.name, sku: demoProductRef.ref, price: 0.01, stock: 999, isDemo: true });
+              }
+            }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-sm font-medium transition-colors ${
+              isDemoCart
+                ? 'border-amber-400 bg-amber-100 text-amber-800 hover:bg-amber-200'
+                : 'border-amber-200 text-amber-700 hover:bg-amber-50'
+            }`}
+            title="Mode formation — ne compte pas dans le CA"
+          >
+            🎓 {isDemoCart ? 'Quitter formation' : 'Formation'}
           </button>
           <button
             onClick={clearCart}
@@ -1678,6 +1712,8 @@ function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, l
       pointsToNext: loyaltyInfo.pointsToNext,
     } : undefined;
 
+    const isDemoMode = items.some(i => i.isDemo);
+
     if (actions.print) {
       setSt('print', 'running');
       try {
@@ -1688,6 +1724,7 @@ function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, l
           subtotalHT, totalTVA, totalTTC: total,
           paymentMethod: paymentMethod || 'Carte / Espèces',
           loyalty: loyaltyBlock,
+          isDemo: isDemoMode,
         }));
         setSt('print', 'done');
       } catch { setSt('print', 'error'); setErr('print', "Erreur ouverture impression"); }
@@ -1695,14 +1732,70 @@ function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, l
 
     if (actions.facture) {
       setSt('facture', 'running');
-      window.open('/b2b-invoicing', '_blank');
-      setSt('facture', 'done');
+      try {
+        const d = now;
+        const yy = String(d.getFullYear()).slice(-2);
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        const factureNum = `FAC-${yy}${mm}${dd}-${String(Date.now()).slice(-4)}`;
+        openAndPrint(generateFactureHTML({
+          ...s, numero: factureNum, docType: 'facture',
+          dateStr, timeStr,
+          clientName: client?.name,
+          items: items.map(i => ({ name: i.name, qty: i.qty, price: i.price, discount: i.discount, discountType: i.discountType })),
+          subtotalHT, totalTVA, totalTTC: total,
+          paymentMethod: paymentMethod || 'Carte / Espèces',
+        }));
+        fetch('/api/factures', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            numero: factureNum, doc_type: 'facture',
+            client_name: client?.name ?? null,
+            items: items.map(i => ({ name: i.name, qty: i.qty, price: i.price })),
+            total_ht: subtotalHT, total_tva: totalTVA, total_ttc: total,
+            tva_rate: s.tvaRate, payment_method: paymentMethod || 'Carte / Espèces',
+            status: 'payee', receipt_ref: ticketNumber,
+          }),
+        }).catch(console.error);
+        setSt('facture', 'done');
+      } catch (e: unknown) {
+        setSt('facture', 'error');
+        setErr('facture', e instanceof Error ? e.message : 'Erreur impression');
+      }
     }
 
     if (actions.devis) {
       setSt('devis', 'running');
-      window.open('/b2b-invoicing', '_blank');
-      setSt('devis', 'done');
+      try {
+        const d = now;
+        const yy = String(d.getFullYear()).slice(-2);
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        const devisNum = `DEV-${yy}${mm}${dd}-${String(Date.now()).slice(-4)}`;
+        openAndPrint(generateFactureHTML({
+          ...s, numero: devisNum, docType: 'devis',
+          dateStr, timeStr,
+          clientName: client?.name,
+          items: items.map(i => ({ name: i.name, qty: i.qty, price: i.price, discount: i.discount, discountType: i.discountType })),
+          subtotalHT, totalTVA, totalTTC: total,
+        }));
+        fetch('/api/factures', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            numero: devisNum, doc_type: 'devis',
+            client_name: client?.name ?? null,
+            items: items.map(i => ({ name: i.name, qty: i.qty, price: i.price })),
+            total_ht: subtotalHT, total_tva: totalTVA, total_ttc: total,
+            tva_rate: s.tvaRate, status: 'en_attente', receipt_ref: ticketNumber,
+          }),
+        }).catch(console.error);
+        setSt('devis', 'done');
+      } catch (e: unknown) {
+        setSt('devis', 'error');
+        setErr('devis', e instanceof Error ? e.message : 'Erreur impression');
+      }
     }
 
     if (actions.email) {

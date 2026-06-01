@@ -31,6 +31,7 @@ export interface SaveReceiptParams {
   loyaltyPointsEarned?: number;
   loyaltyRewardUsed?: string;
   notes?: string;
+  isDemo?: boolean;
 }
 
 export interface ReceiptRecord {
@@ -101,6 +102,7 @@ export async function saveReceipt(params: SaveReceiptParams): Promise<{ id: stri
     loyalty_reward_used: params.loyaltyRewardUsed || null,
     notes: params.notes || null,
     status: 'completed',
+    is_demo: params.isDemo || false,
   };
 
   try {

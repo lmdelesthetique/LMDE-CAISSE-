@@ -34,6 +34,7 @@ export interface TicketPrintData {
   returnConditions?: string;
   receiptFooter?: string;
   isDuplicate?: boolean;
+  isDemo?: boolean;
   // template settings from ticket_settings table
   showTVADetails?: boolean;
   showPoints?: boolean;
@@ -160,6 +161,9 @@ ${d.returnConditions
 <style>${css}</style>
 </head><body>
 
+${d.isDemo ? `<p class="tc">${SEP}</p>
+<p class="tc"><strong>*** FORMATION ***</strong></p>
+<p class="tc">NE PAS CONSERVER CE TICKET</p>` : ''}
 <p class="tc">${SEP}</p>
 <p class="tc"><strong>${esc(d.companyName)}</strong></p>
 <p class="tc">${SEP}</p>
@@ -206,6 +210,10 @@ ${retHTML}
 <p class="tc">${SEP}</p>
 ${d.companySiret ? `<p class="tc">RCS Fort-de-France ${esc(d.companySiret)}</p>` : ''}
 <p class="tc">${SEP}</p>
+${d.isDemo ? `<p class="tc">${SEP}</p>
+<p class="tc"><strong>*** TICKET DE FORMATION ***</strong></p>
+<p class="tc"><strong>*** NE COMPTE PAS EN CA  ***</strong></p>
+<p class="tc">${SEP}</p>` : ''}
 
 <script>window.onload=function(){window.print();}</script>
 </body></html>`;
@@ -270,4 +278,228 @@ export function openAndPrint(html: string): void {
   if (!win) return;
   win.document.write(html);
   win.document.close();
+}
+
+// ─── Facture / Devis ─────────────────────────────────────────────────────────
+
+export interface FacturePrintData {
+  numero: string;
+  docType: 'facture' | 'devis';
+  dateStr: string;
+  timeStr: string;
+  clientName?: string;
+  clientAddress?: string;
+  clientEmail?: string;
+  items: Array<{
+    name: string;
+    qty: number;
+    price: number;
+    discount?: number;
+    discountType?: 'percent' | 'amount';
+  }>;
+  subtotalHT: number;
+  totalTVA: number;
+  totalTTC: number;
+  tvaRate: number;
+  paymentMethod?: string;
+  companyName: string;
+  companyLine1?: string;
+  companyLine2?: string;
+  companyCity?: string;
+  companyTva?: string;
+  companySiret?: string;
+  companyPhone?: string;
+  paperWidth?: string;
+}
+
+export function generateFactureHTML(d: FacturePrintData): string {
+  const isFacture = d.docType === 'facture';
+  const title = isFacture ? 'FACTURE' : 'DEVIS';
+  const width = d.paperWidth ?? '80mm';
+  const isThermal = width === '80mm' || width === '58mm';
+
+  // Compute per-item totals
+  const itemRows = d.items.map((i) => {
+    const disc = i.discountType === 'percent'
+      ? i.price * i.qty * ((i.discount ?? 0) / 100)
+      : (i.discount ?? 0);
+    const total = Math.max(0, i.price * i.qty - disc);
+    return { ...i, lineTotal: total };
+  });
+
+  if (isThermal) {
+    // ── Thermal format (same monospace as ticket) ────────────────────────────
+    const css = `
+      *{box-sizing:border-box;margin:0;padding:0;}
+      html,body{font-family:'Courier New',Courier,monospace!important;font-size:12px;font-weight:700;
+        width:${width};margin:0 auto;padding:6px 2px 20px 2px;color:#000;background:#fff;
+        -webkit-print-color-adjust:exact;print-color-adjust:exact;}
+      p{margin:0;padding:0;line-height:1.4;color:#000!important;font-family:'Courier New',Courier,monospace!important;font-weight:700;}
+      .tc{text-align:center;}
+      .tl{display:flex;justify-content:space-between;font-weight:700;line-height:1.4;}
+      .tl span{font-family:'Courier New',Courier,monospace!important;}
+      .item-name{font-weight:700;margin-top:4px;}
+      .ttc{font-size:14px;font-weight:900;border-top:3px solid #000;border-bottom:3px solid #000;padding:4px 0;margin:4px 0;}
+      @media print{@page{size:${width} auto;margin:2mm;}
+        *{color:#000!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+        html,body{font-size:12px!important;width:${width}!important;margin:0!important;padding:0!important;}
+        .tl{display:flex!important;justify-content:space-between!important;}
+        .ttc{font-size:14px!important;font-weight:900!important;border-top:3px solid #000!important;border-bottom:3px solid #000!important;}}
+    `;
+    const SEP2 = '================================';
+    const SEP3 = '--------------------------------';
+    const tl = (l: string, v: string) => `<div class="tl"><span>${esc(l)}</span><span>${esc(v)}</span></div>`;
+    const itemsHTML = itemRows.map((i) => {
+      const discHTML = (i.discount ?? 0) > 0
+        ? `<div class="tl" style="font-size:11px;font-style:italic"><span>  Remise : -${i.discountType === 'percent' ? `${i.discount}%` : `${(i.discount ?? 0).toFixed(2)}€`}</span><span></span></div>`
+        : '';
+      return `<p class="item-name">${esc(i.name)}</p>${tl(`  ${i.qty} x ${i.price.toFixed(2)}€`, `${i.lineTotal.toFixed(2)}€`)}${discHTML}`;
+    }).join(`<p>${SEP3}</p>`);
+
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title} ${esc(d.numero)}</title><style>${css}</style></head><body>
+<p class="tc">${SEP2}</p>
+<p class="tc"><strong>${esc(d.companyName)}</strong></p>
+<p class="tc">${SEP2}</p>
+${d.companyLine1 ? `<p class="tc">${esc(d.companyLine1)}</p>` : ''}
+${d.companyLine2 ? `<p class="tc">${esc(d.companyLine2)}</p>` : ''}
+${d.companyCity ? `<p class="tc">${esc(d.companyCity)}</p>` : ''}
+${d.companySiret ? `<p class="tc">SIRET : ${esc(d.companySiret)}</p>` : ''}
+${d.companyTva ? `<p class="tc">TVA : ${esc(d.companyTva)}</p>` : ''}
+<p class="tc">${SEP2}</p>
+<p class="tc"><strong>*** ${title} ***</strong></p>
+${tl('N° :', d.numero)}
+${tl('Date :', `${d.dateStr}  ${d.timeStr}`)}
+${isFacture ? `<p class="tc"><strong>*** PAYEE ***</strong></p>` : `<p class="tc">Valable 30 jours</p>`}
+<p class="tc">${SEP2}</p>
+${d.clientName ? `${tl('Client :', d.clientName.toUpperCase())}` : ''}
+${d.clientAddress ? `<p>  ${esc(d.clientAddress)}</p>` : ''}
+${d.clientEmail ? `<p>  ${esc(d.clientEmail)}</p>` : ''}
+<p>${SEP2}</p>
+<p>ARTICLES</p>
+<p>${SEP3}</p>
+${itemsHTML}
+<p>${SEP2}</p>
+${tl('Sous-total HT :', `${d.subtotalHT.toFixed(2)}€`)}
+${tl(`TVA ${d.tvaRate}% :`, `${d.totalTVA.toFixed(2)}€`)}
+<p>${SEP2}</p>
+<div class="tl ttc"><span>TOTAL TTC :</span><span>${d.totalTTC.toFixed(2)}€</span></div>
+<p>${SEP2}</p>
+${isFacture && d.paymentMethod ? `${tl('Paiement :', d.paymentMethod)}${tl('Acquittée le :', d.dateStr)}` : ''}
+<p>${SEP2}</p>
+${d.companySiret ? `<p class="tc">SIRET ${esc(d.companySiret)}</p>` : ''}
+${d.companyTva ? `<p class="tc">TVA Intracommunautaire</p><p class="tc">${esc(d.companyTva)}</p>` : ''}
+<p class="tc">${SEP2}</p>
+<script>window.onload=function(){window.print();}</script>
+</body></html>`;
+  }
+
+  // ── A4 format ──────────────────────────────────────────────────────────────
+  const itemsTableRows = itemRows.map((i, idx) => {
+    const priceHT = i.price / (1 + d.tvaRate / 100);
+    return `<tr style="${idx % 2 === 1 ? 'background:#f9f9f9' : ''}">
+      <td style="padding:5px 8px;border-bottom:1px solid #eee;font-size:10pt">${esc(i.name)}</td>
+      <td style="padding:5px 8px;border-bottom:1px solid #eee;font-size:10pt;text-align:center">${i.qty}</td>
+      <td style="padding:5px 8px;border-bottom:1px solid #eee;font-size:10pt;text-align:right">${priceHT.toFixed(2)} €</td>
+      <td style="padding:5px 8px;border-bottom:1px solid #eee;font-size:10pt;text-align:right">${(i.lineTotal / (1 + d.tvaRate / 100)).toFixed(2)} €</td>
+      <td style="padding:5px 8px;border-bottom:1px solid #eee;font-size:10pt;font-weight:bold;text-align:right">${i.lineTotal.toFixed(2)} €</td>
+    </tr>`;
+  }).join('');
+
+  const badgeStyle = isFacture
+    ? 'background:#dcfce7;color:#15803d;padding:3px 10px;border-radius:4px;font-weight:bold;font-size:10pt;display:inline-block'
+    : 'background:#fef9c3;color:#a16207;padding:3px 10px;border-radius:4px;font-weight:bold;font-size:10pt;display:inline-block';
+  const badgeLabel = isFacture ? '✅ PAYÉE' : '⏳ EN ATTENTE';
+
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>${title} ${esc(d.numero)}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:Arial,Helvetica,sans-serif;font-size:11pt;color:#000;background:#fff;}
+.page{width:190mm;margin:0 auto;padding:12mm 0 15mm;}
+@media print{@page{size:A4;margin:10mm;}body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}.page{padding:0;}}
+</style></head><body>
+<div class="page">
+
+  <!-- Header -->
+  <table style="width:100%;border-collapse:collapse;margin-bottom:8mm;border-bottom:2px solid #1a0a2e;padding-bottom:6mm">
+    <tr>
+      <td style="vertical-align:top;width:60%">
+        <p style="font-size:15pt;font-weight:bold;color:#1a0a2e">${esc(d.companyName)}</p>
+        ${d.companyLine1 ? `<p style="font-size:9pt;color:#555;margin-top:3px">${esc(d.companyLine1)}</p>` : ''}
+        ${d.companyLine2 ? `<p style="font-size:9pt;color:#555">${esc(d.companyLine2)}</p>` : ''}
+        ${d.companyCity ? `<p style="font-size:9pt;color:#555">${esc(d.companyCity)}</p>` : ''}
+        ${d.companyPhone ? `<p style="font-size:9pt;color:#555">Tél : ${esc(d.companyPhone)}</p>` : ''}
+        ${d.companySiret ? `<p style="font-size:9pt;color:#555">SIRET : ${esc(d.companySiret)}</p>` : ''}
+        ${d.companyTva ? `<p style="font-size:9pt;color:#555">TVA : ${esc(d.companyTva)}</p>` : ''}
+      </td>
+      <td style="vertical-align:top;text-align:right">
+        <p style="font-size:24pt;font-weight:bold;color:#1a0a2e">${title}</p>
+        <p style="font-size:11pt;font-weight:bold;color:#333;margin-top:4px">${esc(d.numero)}</p>
+        <p style="font-size:10pt;color:#555;margin-top:2px">Date : ${esc(d.dateStr)}</p>
+        <div style="margin-top:6px"><span style="${badgeStyle}">${badgeLabel}</span></div>
+      </td>
+    </tr>
+  </table>
+
+  <!-- Client block -->
+  ${d.clientName ? `
+  <div style="background:#f9f9f9;border:1px solid #ddd;border-radius:4px;padding:4mm 5mm;margin-bottom:6mm;display:inline-block;min-width:80mm">
+    <p style="font-size:8pt;font-weight:bold;text-transform:uppercase;color:#888;letter-spacing:0.5px;margin-bottom:3px">CLIENT</p>
+    <p style="font-weight:bold;font-size:11pt">${esc(d.clientName.toUpperCase())}</p>
+    ${d.clientAddress ? `<p style="font-size:9pt;color:#555;margin-top:1px">${esc(d.clientAddress)}</p>` : ''}
+    ${d.clientEmail ? `<p style="font-size:9pt;color:#555">${esc(d.clientEmail)}</p>` : ''}
+  </div>` : ''}
+
+  <!-- Items table -->
+  <table style="width:100%;border-collapse:collapse;margin-bottom:4mm">
+    <thead>
+      <tr style="background:#1a0a2e;color:#fff">
+        <th style="padding:5px 8px;font-size:9pt;text-align:left;font-weight:bold">Désignation</th>
+        <th style="padding:5px 8px;font-size:9pt;text-align:center;font-weight:bold">Qté</th>
+        <th style="padding:5px 8px;font-size:9pt;text-align:right;font-weight:bold">P.U. HT</th>
+        <th style="padding:5px 8px;font-size:9pt;text-align:right;font-weight:bold">Total HT</th>
+        <th style="padding:5px 8px;font-size:9pt;text-align:right;font-weight:bold">Total TTC</th>
+      </tr>
+    </thead>
+    <tbody>${itemsTableRows}</tbody>
+  </table>
+
+  <!-- Totals -->
+  <div style="display:flex;justify-content:flex-end;margin-bottom:6mm">
+    <table style="width:72mm;border-collapse:collapse">
+      <tr>
+        <td style="padding:3px 4px;font-size:10pt">Sous-total HT</td>
+        <td style="padding:3px 4px;font-size:10pt;text-align:right">${d.subtotalHT.toFixed(2)} €</td>
+      </tr>
+      <tr>
+        <td style="padding:3px 4px;font-size:10pt">TVA ${d.tvaRate}%</td>
+        <td style="padding:3px 4px;font-size:10pt;text-align:right">${d.totalTVA.toFixed(2)} €</td>
+      </tr>
+      <tr>
+        <td style="padding:5px 4px;font-size:13pt;font-weight:bold;border-top:2px solid #000;border-bottom:2px solid #000">TOTAL TTC</td>
+        <td style="padding:5px 4px;font-size:13pt;font-weight:bold;text-align:right;border-top:2px solid #000;border-bottom:2px solid #000">${d.totalTTC.toFixed(2)} €</td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- Payment / validity -->
+  ${isFacture && d.paymentMethod ? `
+  <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:4px;padding:3mm 5mm;margin-bottom:8mm;font-size:10pt">
+    <strong>Paiement reçu :</strong> ${esc(d.paymentMethod)} — le ${esc(d.dateStr)}<br>
+    <strong>Montant acquitté :</strong> ${d.totalTTC.toFixed(2)} €
+  </div>` : !isFacture ? `
+  <div style="background:#fefce8;border:1px solid #fde047;border-radius:4px;padding:3mm 5mm;margin-bottom:8mm;font-size:10pt;font-style:italic">
+    Devis valable 30 jours à compter du ${esc(d.dateStr)}. Sans engagement de votre part.
+  </div>` : ''}
+
+  <!-- Legal footer -->
+  <div style="border-top:1px solid #ccc;padding-top:4mm;font-size:8pt;color:#666;line-height:1.6">
+    ${d.companySiret ? `SIRET : ${esc(d.companySiret)} &nbsp;|&nbsp; ` : ''}
+    ${d.companyTva ? `N° TVA Intracommunautaire : ${esc(d.companyTva)} &nbsp;|&nbsp; ` : ''}
+    TVA applicable au taux de ${d.tvaRate}% (Art. 278 du CGI)
+  </div>
+
+</div>
+<script>window.onload=function(){window.print();}</script>
+</body></html>`;
 }

@@ -206,8 +206,20 @@ export default function CartPanel({
   tvaRate = 0.085,
   cashierName = 'Caisse',
 }: CartPanelProps) {
+  const hasDemoItems = items.some(i => i.isDemo);
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
+      {/* Demo mode banner */}
+      {hasDemoItems && (
+        <div className="bg-amber-50 border-b border-amber-200 px-3 py-2 flex items-center gap-2 shrink-0">
+          <span className="text-base">🎓</span>
+          <div className="min-w-0">
+            <p className="text-xs font-700 text-amber-800">MODE FORMATION ACTIF</p>
+            <p className="text-[10px] text-amber-700 leading-tight">Cette vente ne sera pas comptabilisée</p>
+          </div>
+        </div>
+      )}
       {/* Cart header */}
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-border bg-muted/20">
         <span className="text-sm font-600 text-foreground">

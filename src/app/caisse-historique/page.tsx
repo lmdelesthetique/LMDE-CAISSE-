@@ -19,6 +19,7 @@ interface TicketRow {
   status: string;
   cashier_name: string | null;
   discount_amount: number | null;
+  is_demo?: boolean;
 }
 
 const METHOD_LABELS: Record<string, string> = {
@@ -570,6 +571,7 @@ export default function CaisseHistoriquePage() {
   const [customTo, setCustomTo] = useState('');
   const [filterMethod, setFilterMethod] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
+  const [filterType, setFilterType] = useState<'all' | 'real' | 'demo'>('real');
   const [page, setPage] = useState(0);
   const [selectedTicket, setSelectedTicket] = useState<TicketRow | null>(null);
   const PAGE_SIZE = 50;
@@ -638,6 +640,7 @@ export default function CaisseHistoriquePage() {
         status: t.status ?? 'completed',
         cashier_name: t.cashier_name ?? null,
         discount_amount: t.discount_amount ?? null,
+        is_demo: t.is_demo ?? false,
       }));
 
       setTickets(mapped);
@@ -655,6 +658,8 @@ export default function CaisseHistoriquePage() {
   useEffect(() => { loadTickets(); }, [loadTickets]);
 
   const filtered = tickets.filter(t => {
+    if (filterType === 'real' && t.is_demo) return false;
+    if (filterType === 'demo' && !t.is_demo) return false;
     if (!search.trim()) return true;
     const q = search.toLowerCase();
     return (
@@ -664,10 +669,11 @@ export default function CaisseHistoriquePage() {
     );
   });
 
-  const totalCA = filtered.reduce((sum, t) => sum + (t.status !== 'cancelled' ? (t.total_amount ?? 0) : 0), 0);
-  const totalTickets = filtered.filter(t => t.status !== 'cancelled').length;
+  const realFiltered = filtered.filter(t => !t.is_demo);
+  const totalCA = realFiltered.reduce((sum, t) => sum + (t.status !== 'cancelled' ? (t.total_amount ?? 0) : 0), 0);
+  const totalTickets = realFiltered.filter(t => t.status !== 'cancelled').length;
   const avgBasket = totalTickets > 0 ? totalCA / totalTickets : 0;
-  const cancelledCount = filtered.filter(t => t.status === 'cancelled').length;
+  const cancelledCount = realFiltered.filter(t => t.status === 'cancelled').length;
 
   const PERIOD_OPTS: { id: PeriodFilter; label: string }[] = [
     { id: 'today', label: "Aujourd'hui" },
@@ -789,6 +795,15 @@ export default function CaisseHistoriquePage() {
             <option value="completed">Validés</option>
             <option value="cancelled">Annulés</option>
           </select>
+          <select
+            value={filterType}
+            onChange={e => { setFilterType(e.target.value as 'all' | 'real' | 'demo'); setPage(0); }}
+            className="border border-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white"
+          >
+            <option value="real">Réelles</option>
+            <option value="all">Toutes</option>
+            <option value="demo">🎓 Formation</option>
+          </select>
         </div>
 
         {/* Table */}
@@ -880,7 +895,10 @@ export default function CaisseHistoriquePage() {
                         className={`border-b border-border last:border-0 hover:bg-muted/20 transition-colors cursor-pointer ${isCancelled ? 'opacity-60' : ''}`}
                         onClick={() => setSelectedTicket(ticket)}
                       >
-                        <td className="px-4 py-3 font-mono text-xs text-primary font-600">{ticket.ticket_number}</td>
+                        <td className="px-4 py-3 font-mono text-xs text-primary font-600">
+                          {ticket.ticket_number}
+                          {ticket.is_demo && <span className="ml-1 text-[10px] font-700 text-amber-700 bg-amber-100 px-1 py-0.5 rounded">🎓</span>}
+                        </td>
                         <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{formatDateTime(ticket.created_at)}</td>
                         <td className="px-4 py-3 text-sm text-foreground">{ticket.client_name ?? <span className="text-muted-foreground italic">Anonyme</span>}</td>
                         <td className="px-4 py-3 text-xs text-muted-foreground">{ticket.cashier_name ?? '—'}</td>

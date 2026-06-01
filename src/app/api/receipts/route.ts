@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
   let query = supabase
     .from('receipts')
     .select(
-      'id, ticket_number, created_at, total_amount, payment_method, client_id, client_name, items_count, status, cashier_name, discount_amount'
+      'id, ticket_number, created_at, total_amount, payment_method, client_id, client_name, items_count, status, cashier_name, discount_amount, is_demo'
     )
     .gte('created_at', from)
     .lte('created_at', to)

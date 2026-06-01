@@ -32,6 +32,7 @@ interface DBProduct {
   is_kit?: boolean;
   has_color_variants?: boolean;
   is_favorite?: boolean;
+  is_demo?: boolean;
 }
 
 interface ColorVariantRow {
@@ -54,6 +55,7 @@ interface ProductGridProps {
     promoDiscount?: number;
     promoDiscountType?: 'percent' | 'amount';
     promoName?: string;
+    isDemo?: boolean;
   }) => void;
 }
 
@@ -100,8 +102,8 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
       fetchAll<DBProduct>((from, to) =>
         supabase
           .from('products')
-          .select('id, name, ref, barcode, sell_price_ttc, sell_price_ht, buy_price, transport, customs, other_fees, structure_pct, stock, min_stock, category, image_url, status, product_status, is_kit, has_color_variants, is_favorite')
-          .in('status', ['active', 'rupture'])
+          .select('id, name, ref, barcode, sell_price_ttc, sell_price_ht, buy_price, transport, customs, other_fees, structure_pct, stock, min_stock, category, image_url, status, product_status, is_kit, has_color_variants, is_favorite, is_demo')
+          .in('status', ['active', 'actif', 'rupture'])
           .order('name')
           .range(from, to)
       ),
@@ -109,7 +111,10 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
     ]);
     setProducts(allProds);
     setPromos(activePromos);
-    const cats = Array.from(new Set(allProds.map((p) => p.category).filter(Boolean))).sort() as string[];
+    // Exclude demo products from normal category list
+    const cats = Array.from(new Set(
+      allProds.filter(p => !p.is_demo).map((p) => p.category).filter(Boolean)
+    )).sort() as string[];
     setRawCategories(cats);
     setLoading(false);
   }, []);
@@ -124,14 +129,19 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
   useEffect(() => { loadData(); }, [loadData]);
   useRealtimeSync({ tables: ['products', 'stock_movements'], onRefresh: loadData });
 
-  const favCount = useMemo(() => products.filter(p => p.is_favorite).length, [products]);
+  const favCount = useMemo(() => products.filter(p => p.is_favorite && !p.is_demo).length, [products]);
+  const demoCount = useMemo(() => products.filter(p => p.is_demo).length, [products]);
   const promoCount = useMemo(() => {
-    // Count distinct products that have at least one active promo
-    return products.filter(p => getProductPromo(promos, p.id) !== null).length;
+    return products.filter(p => !p.is_demo && getProductPromo(promos, p.id) !== null).length;
   }, [products, promos]);
 
   const displayedProducts = useMemo(() => {
     const filtered = products.filter((p) => {
+      if (activeCategory === '__demo__') {
+        return !!p.is_demo;
+      }
+      // All other tabs exclude demo products
+      if (p.is_demo) return false;
       if (activeCategory === '__fav__') {
         if (!p.is_favorite) return false;
       } else if (activeCategory === '__promo__') {
@@ -157,7 +167,8 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
     { id: '__fav__', label: `⭐ Favoris${favCount > 0 ? ` (${favCount})` : ''}` },
     ...(promoCount > 0 ? [{ id: '__promo__', label: `🏷️ Promos (${promoCount})` }] : []),
     ...rawCategories.map(c => ({ id: c, label: c })),
-  ], [rawCategories, favCount, promoCount]);
+    ...(demoCount > 0 ? [{ id: '__demo__', label: `🎓 Formation` }] : []),
+  ], [rawCategories, favCount, promoCount, demoCount]);
 
   const handleProductClick = useCallback((product: DBProduct) => {
     const promo = getProductPromo(promos, product.id);
@@ -179,6 +190,7 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
         promoDiscount: promoDiscount ?? undefined,
         promoDiscountType: promoDiscountType ?? undefined,
         promoName,
+        isDemo: product.is_demo || false,
       });
     }
   }, [promos, onAddToCart, openVariantPicker]);
@@ -259,6 +271,9 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
           {categoryList.map((cat) => {
             const isActive = activeCategory === cat.id;
             const isPromoTab = cat.id === '__promo__';
+            const isDemoTab = cat.id === '__demo__';
+            const activeBg = isPromoTab ? '#ef4444' : isDemoTab ? '#d97706' : 'hsl(var(--primary))';
+            const inactiveColor = isPromoTab ? '#dc2626' : isDemoTab ? '#b45309' : '#374151';
             return (
               <button
                 key={cat.id}
@@ -270,10 +285,8 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
                   padding: '9px 10px',
                   fontSize: 12,
                   fontWeight: isActive ? 700 : 400,
-                  background: isActive
-                    ? (isPromoTab ? '#ef4444' : 'hsl(var(--primary))')
-                    : 'transparent',
-                  color: isActive ? '#fff' : isPromoTab ? '#dc2626' : '#374151',
+                  background: isActive ? activeBg : 'transparent',
+                  color: isActive ? '#fff' : inactiveColor,
                   border: 'none',
                   borderBottom: '1px solid #f3f4f6',
                   cursor: 'pointer',
@@ -297,10 +310,11 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
             </div>
           ) : displayedProducts.length === 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 200, textAlign: 'center', gap: 8 }}>
-              <Icon name={activeCategory === '__fav__' ? 'StarIcon' : activeCategory === '__promo__' ? 'TagIcon' : 'MagnifyingGlassIcon'} size={32} className="text-muted-foreground" />
+              <Icon name={activeCategory === '__fav__' ? 'StarIcon' : activeCategory === '__promo__' ? 'TagIcon' : activeCategory === '__demo__' ? 'AcademicCapIcon' : 'MagnifyingGlassIcon'} size={32} className="text-muted-foreground" />
               <p className="text-sm font-500 text-foreground">
                 {activeCategory === '__fav__' ? 'Aucun favori configuré'
                   : activeCategory === '__promo__' ? 'Aucune promotion active'
+                  : activeCategory === '__demo__' ? 'Aucun produit formation'
                   : 'Aucun produit trouvé'}
               </p>
               {activeCategory === '__promo__' && (
@@ -314,10 +328,11 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, 100px)', gap: 6 }}>
               {displayedProducts.map((product) => {
                 const isFav = Boolean(product.is_favorite);
-                const isOutOfStock = product.stock <= 0;
+                const isDemo = Boolean(product.is_demo);
+                const isOutOfStock = !isDemo && product.stock <= 0;
                 const minStock = product.min_stock || 3;
-                const isLowStock = !isOutOfStock && product.stock <= minStock;
-                const promo = getProductPromo(promos, product.id);
+                const isLowStock = !isOutOfStock && !isDemo && product.stock <= minStock;
+                const promo = !isDemo ? getProductPromo(promos, product.id) : null;
                 const hasPromo = !!promo;
 
                 return (
@@ -332,8 +347,8 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
                       display: 'flex',
                       flexDirection: 'column',
                       borderRadius: 8,
-                      border: `1px solid ${hasPromo ? '#fca5a5' : isOutOfStock ? '#fecaca' : isLowStock ? '#fde68a' : '#e5e7eb'}`,
-                      background: isOutOfStock ? '#fff5f5' : '#ffffff',
+                      border: `1px solid ${isDemo ? '#fde68a' : hasPromo ? '#fca5a5' : isOutOfStock ? '#fecaca' : isLowStock ? '#fde68a' : '#e5e7eb'}`,
+                      background: isDemo ? '#fffbeb' : isOutOfStock ? '#fff5f5' : '#ffffff',
                       cursor: 'pointer',
                       overflow: 'hidden',
                       padding: 0,
@@ -360,8 +375,17 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
                         </div>
                       )}
 
-                      {/* PROMO badge — top right (overrides other badges) */}
-                      {hasPromo && !isOutOfStock ? (
+                      {/* Badge — top right */}
+                      {isDemo ? (
+                        <span style={{
+                          position: 'absolute', top: 2, right: 2,
+                          background: '#d97706', color: '#fff',
+                          fontSize: 7, fontWeight: 800,
+                          padding: '1px 3px', borderRadius: 3, lineHeight: 1.4,
+                        }}>
+                          DEMO
+                        </span>
+                      ) : hasPromo && !isOutOfStock ? (
                         <span style={{
                           position: 'absolute', top: 2, right: 2,
                           background: '#ef4444', color: '#fff',
@@ -530,6 +554,7 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
                           promoDiscount: pendingPromo?.discountValue ?? undefined,
                           promoDiscountType: pendingPromo?.discountType ?? undefined,
                           promoName: pendingPromo?.name ?? undefined,
+                          isDemo: variantPickerProduct.is_demo || false,
                         });
                         setVariantPickerProduct(null);
                         setVariantPickerRows([]);
