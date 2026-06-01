@@ -82,6 +82,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const updateData: Record<string, unknown> = {};
   const auditEntries: Array<Record<string, unknown>> = [];
 
+  // Cancellation
+  if (changes.status === 'cancelled') {
+    updateData.status = 'cancelled';
+    updateData.cancelled_at = new Date().toISOString();
+    auditEntries.push({ receipt_id: id, modified_by: modifiedBy, field_changed: 'status', old_value: 'completed', new_value: 'cancelled', reason });
+  }
+
   if (changes.clientName !== undefined && changes.clientName !== current.client_name) {
     updateData.client_name = changes.clientName;
     updateData.client_id = changes.clientId ?? null;

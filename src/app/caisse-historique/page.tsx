@@ -90,6 +90,101 @@ function getPeriodDates(period: PeriodFilter, customFrom: string, customTo: stri
   };
 }
 
+// ─── PIN Cancel Modal ─────────────────────────────────────────────────────────
+const PIN_LOCK_DURATION = 60; // seconds
+
+function PinCancelModal({ onConfirm, onClose }: { onConfirm: () => void; onClose: () => void }) {
+  const [pin, setPin] = useState('');
+  const [attempts, setAttempts] = useState(0);
+  const [locked, setLocked] = useState(false);
+  const [lockCountdown, setLockCountdown] = useState(0);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!locked) return;
+    setLockCountdown(PIN_LOCK_DURATION);
+    const interval = setInterval(() => {
+      setLockCountdown((c) => {
+        if (c <= 1) { clearInterval(interval); setLocked(false); setAttempts(0); setError(''); return 0; }
+        return c - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [locked]);
+
+  const handleSubmit = () => {
+    const managerPin = typeof window !== 'undefined'
+      ? (localStorage.getItem('beautypos_manager_pin') ?? '1234')
+      : '1234';
+    if (pin === managerPin) {
+      onConfirm();
+    } else {
+      const next = attempts + 1;
+      setAttempts(next);
+      setPin('');
+      if (next >= 3) {
+        setLocked(true);
+        setError('3 tentatives incorrectes — accès bloqué 60 secondes');
+      } else {
+        setError(`Code incorrect. ${3 - next} tentative(s) restante(s).`);
+      }
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 space-y-4">
+        <div className="flex items-center gap-3 mb-2">
+          <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
+            <Icon name="LockClosedIcon" size={20} className="text-red-600" />
+          </div>
+          <div>
+            <h3 className="font-700 text-foreground text-sm">Autorisation manager</h3>
+            <p className="text-xs text-muted-foreground">Entrez le code PIN pour annuler ce ticket</p>
+          </div>
+        </div>
+        {locked ? (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-center">
+            <p className="text-sm font-700 text-red-700">Accès bloqué</p>
+            <p className="text-3xl font-700 text-red-600 tabular-nums mt-1">{lockCountdown}s</p>
+          </div>
+        ) : (
+          <>
+            <input
+              type="password"
+              maxLength={6}
+              value={pin}
+              onChange={(e) => { setPin(e.target.value); setError(''); }}
+              onKeyDown={(e) => { if (e.key === 'Enter' && pin.length >= 4) handleSubmit(); }}
+              placeholder="Code PIN manager"
+              className="w-full border border-border rounded-lg px-4 py-3 text-lg text-center tracking-widest focus:outline-none focus:ring-2 focus:ring-red-300 focus:border-red-400"
+              autoFocus
+            />
+            {error && <p className="text-xs text-red-600 text-center">{error}</p>}
+            <div className="flex gap-2">
+              <button onClick={onClose} className="flex-1 py-2.5 border border-border rounded-xl text-sm font-600 text-muted-foreground hover:bg-muted transition-colors">
+                Annuler
+              </button>
+              <button
+                onClick={handleSubmit}
+                disabled={pin.length < 4}
+                className="flex-1 py-2.5 bg-red-600 text-white rounded-xl text-sm font-700 hover:bg-red-700 disabled:opacity-40 transition-colors"
+              >
+                Confirmer
+              </button>
+            </div>
+          </>
+        )}
+        {locked && (
+          <button onClick={onClose} className="w-full py-2.5 border border-border rounded-xl text-sm font-600 text-muted-foreground hover:bg-muted transition-colors">
+            Fermer
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Ticket Detail Modal ──────────────────────────────────────────────────────
 interface TicketDetailModalProps {
   ticketId: string;
@@ -109,6 +204,8 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
   const [sendingEmail, setSendingEmail] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [showPinCancel, setShowPinCancel] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -185,6 +282,32 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
       toast.success(`Ticket envoyé à ${emailAddr}`);
     } else {
       toast.error(`Erreur d'envoi : ${(result as any).error}`);
+    }
+  };
+
+  const handleCancelTicket = async () => {
+    if (!receipt) return;
+    setCancelling(true);
+    setShowPinCancel(false);
+    try {
+      const res = await fetch(`/api/receipts/${receipt.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          changes: { status: 'cancelled' },
+          modifiedBy: 'Manager',
+          reason: 'Annulation ticket — autorisation manager',
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+      toast.success('Ticket annulé');
+      setReceipt((prev) => prev ? { ...prev, status: 'cancelled' } : prev);
+      onModified();
+    } catch (e: any) {
+      toast.error(`Erreur annulation : ${e?.message}`);
+    } finally {
+      setCancelling(false);
     }
   };
 
@@ -420,6 +543,18 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
                   Créer facture
                 </button>
               </div>
+              {receipt.status !== 'cancelled' && (
+                <button
+                  onClick={() => setShowPinCancel(true)}
+                  disabled={cancelling}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 border border-red-200 bg-red-50 rounded-xl text-sm font-600 text-red-700 hover:bg-red-100 transition-colors disabled:opacity-40"
+                >
+                  {cancelling
+                    ? <><Icon name="ArrowPathIcon" size={15} className="animate-spin" />Annulation…</>
+                    : <><Icon name="XCircleIcon" size={15} />Annuler ce ticket</>
+                  }
+                </button>
+              )}
 
               {/* Email send */}
               <div className="border border-border rounded-xl p-4">
@@ -557,6 +692,9 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
           )}
         </div>
       </div>
+      {showPinCancel && (
+        <PinCancelModal onConfirm={handleCancelTicket} onClose={() => setShowPinCancel(false)} />
+      )}
     </div>
   );
 }

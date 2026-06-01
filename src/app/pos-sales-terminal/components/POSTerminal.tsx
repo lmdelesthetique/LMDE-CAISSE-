@@ -489,6 +489,7 @@ export default function POSTerminal() {
   // Camera scanner state
   const [showCameraScanner, setShowCameraScanner] = useState(false);
   const [cameraManualBarcode, setCameraManualBarcode] = useState('');
+  const [paying, setPaying] = useState(false);
 
   // Loyalty state
   const [loyaltyTiers, setLoyaltyTiers] = useState<LoyaltyTier[]>([]);
@@ -891,6 +892,8 @@ export default function POSTerminal() {
   const totalTTC = Math.max(0, cartTotalTTC - globalDiscountAmount);
 
   const handlePaymentConfirm = useCallback(async (method: string) => {
+    if (paying) return;
+    setPaying(true);
     const total = totalTTC;
     const itemsCount = cart.length;
     const clientName = client?.name;
@@ -1165,7 +1168,8 @@ export default function POSTerminal() {
       setShowDocChoice(true);
       toast.success(`Paiement encaissé — ${total.toFixed(2)} € via ${method}`);
     }
-  }, [cart, client, paymentMode, totalTTC, subtotalHT, totalTVA, globalDiscountAmount, loyaltyTiers, logAction, employee, appliedReward]);
+    setPaying(false);
+  }, [cart, client, paymentMode, totalTTC, subtotalHT, totalTVA, globalDiscountAmount, loyaltyTiers, logAction, employee, appliedReward, paying]);
 
   const handleLoyaltyValidate = useCallback((tier: LoyaltyTier) => {
     toast.success(`🎁 Récompense validée : ${tier.rewardDescription}`, { duration: 4000 });
@@ -1547,10 +1551,10 @@ export default function POSTerminal() {
             </button>
             <button
               onClick={() => { setPaymentMode('immediate'); setShowPayment(true); }}
-              disabled={cart.length === 0}
+              disabled={cart.length === 0 || paying}
               className="w-full py-3 bg-primary text-primary-foreground rounded-lg text-[15px] font-700 hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 shadow-sm"
             >
-              Encaisser — {totalTTC.toFixed(2)} €
+              {paying ? 'Traitement…' : `Encaisser — ${totalTTC.toFixed(2)} €`}
             </button>
           </div>
         </div>
