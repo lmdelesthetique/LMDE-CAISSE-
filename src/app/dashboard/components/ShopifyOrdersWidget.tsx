@@ -72,8 +72,10 @@ function OrderDetailModal({ order, onClose }: DetailModalProps) {
       });
       setCreated(true);
       setTimeout(() => { onClose(); router.push('/livraisons'); }, 1200);
-    } catch {
-      setCreateError('Erreur lors de la création.');
+    } catch (err: any) {
+      const msg: string = err?.message ?? String(err ?? 'Erreur inconnue');
+      console.error('[ShopifyOrdersWidget] create delivery error:', msg);
+      setCreateError(`Erreur : ${msg}`);
     } finally {
       setCreating(false);
     }

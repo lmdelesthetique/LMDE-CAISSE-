@@ -47,36 +47,42 @@ export default function LivraisonsPage() {
   const channelRef = useRef<any>(null);
 
   const loadAll = useCallback(async () => {
-    try {
-      const [dels, drvs] = await Promise.all([
-        deliveryService.getAll(),
-        deliveryService.getActiveDrivers(),
-      ]);
-      setDeliveries(dels);
-      setDrivers(drvs);
+    // Load deliveries and drivers independently so a missing table on one side
+    // does not prevent the other from loading (e.g. drivers populate the dropdown
+    // even while the deliveries table is being created).
+    const [dels, drvs] = await Promise.all([
+      deliveryService.getAll().catch((e: any) => {
+        console.error('[livraisons] deliveries load error:', e?.message ?? e);
+        return [] as Delivery[];
+      }),
+      deliveryService.getActiveDrivers().catch((e: any) => {
+        console.error('[livraisons] drivers load error:', e?.message ?? e);
+        return [] as DriverOption[];
+      }),
+    ]);
 
-      // Track new Shopify orders that arrive after initial load
-      if (!initialLoadDone.current) {
-        dels.forEach((d) => seenIdsRef.current.add(d.id));
-        initialLoadDone.current = true;
-      } else {
-        const incoming = dels.filter(
-          (d) => d.shopifyOrderId && !seenIdsRef.current.has(d.id)
-        );
-        if (incoming.length > 0) {
-          setNewShopifyIds((prev) => {
-            const next = new Set(prev);
-            incoming.forEach((d) => next.add(d.id));
-            return next;
-          });
-          incoming.forEach((d) => seenIdsRef.current.add(d.id));
-        }
+    setDeliveries(dels);
+    setDrivers(drvs);
+
+    // Track new Shopify orders that arrive after initial load
+    if (!initialLoadDone.current) {
+      dels.forEach((d) => seenIdsRef.current.add(d.id));
+      initialLoadDone.current = true;
+    } else {
+      const incoming = dels.filter(
+        (d) => d.shopifyOrderId && !seenIdsRef.current.has(d.id)
+      );
+      if (incoming.length > 0) {
+        setNewShopifyIds((prev) => {
+          const next = new Set(prev);
+          incoming.forEach((d) => next.add(d.id));
+          return next;
+        });
+        incoming.forEach((d) => seenIdsRef.current.add(d.id));
       }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
     }
+
+    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -135,8 +141,10 @@ export default function LivraisonsPage() {
       setForm(EMPTY_FORM);
       setShowForm(false);
       loadAll();
-    } catch {
-      setFormError('Erreur lors de la création.');
+    } catch (err: any) {
+      const msg: string = err?.message ?? String(err ?? 'Erreur inconnue');
+      console.error('[livraisons] create error:', msg);
+      setFormError(`Erreur : ${msg}`);
     } finally {
       setSubmitting(false);
     }

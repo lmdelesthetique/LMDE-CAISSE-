@@ -3,8 +3,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
-const supabase = createClient();
-
 export interface AppSettings {
   company_name: string;
   legal_name: string;
@@ -125,6 +123,7 @@ const SettingsContext = createContext<SettingsContextValue>({
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
+  const [supabase] = useState(() => createClient());
 
   const reload = useCallback(async () => {
     try {

@@ -5,6 +5,7 @@ import { Toaster } from 'sonner';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { SettingsProvider } from '@/contexts/SettingsContext';
 import { InstallPWABanner } from '@/components/InstallPWABanner';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -31,11 +32,13 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="fr">
       <body>
-        <AuthProvider>
-          <SettingsProvider>
-            {children}
-          </SettingsProvider>
-        </AuthProvider>
+        <ErrorBoundary>
+          <AuthProvider>
+            <SettingsProvider>
+              {children}
+            </SettingsProvider>
+          </AuthProvider>
+        </ErrorBoundary>
         <Toaster position="bottom-right" toastOptions={{ style: { fontFamily: 'DM Sans, sans-serif', fontSize: '14px' } }} />
         <InstallPWABanner />
       </body>
