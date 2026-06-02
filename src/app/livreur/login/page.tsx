@@ -103,15 +103,12 @@ export default function LivreurLoginPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-orange-50 via-amber-50/40 to-stone-50">
       {/* Back to main app */}
-      <div className="p-4">
+      <div className="bg-gray-100 px-4 py-2 flex items-center gap-2">
         <a
           href="/livraisons"
-          className="inline-flex items-center gap-2 text-gray-500 hover:text-orange-600 text-sm font-medium transition-colors"
+          className="text-sm text-gray-600 hover:text-pink-600 flex items-center gap-1 transition-colors"
         >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-          </svg>
-          Retour au dashboard
+          ← Retour à l'admin
         </a>
       </div>
 

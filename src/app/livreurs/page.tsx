@@ -433,16 +433,19 @@ export default function LivreursPage() {
           )}
 
           {/* Portal link info */}
-          <div className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 flex items-start gap-3">
-            <svg className="w-5 h-5 text-orange-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
-            </svg>
-            <div>
-              <p className="text-sm font-semibold text-orange-800">Portail livreur</p>
-              <p className="text-xs text-orange-600 mt-0.5">
-                Les livreurs se connectent sur <span className="font-mono font-bold">/livreur/login</span> avec leur téléphone et code PIN.
-              </p>
-            </div>
+          <div className="bg-orange-50 border border-orange-200 rounded-xl p-4">
+            <p className="font-bold text-orange-800">🚚 Portail Livreur</p>
+            <p className="text-sm text-orange-600 mt-1">Les livreurs se connectent sur :</p>
+            <p className="font-mono font-bold text-orange-800 mt-1">lmdecaisse.com/livreur/login</p>
+            <p className="text-sm text-orange-600 mt-2">Avec leur téléphone et code PIN</p>
+            <a
+              href="/livreur/login"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-3 inline-block bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-600 transition-colors"
+            >
+              Ouvrir le portail →
+            </a>
           </div>
         </div>
       </div>

@@ -18,6 +18,7 @@ const TABS: { key: DeliveryStatus | 'all'; label: string }[] = [
   { key: 'assigned',  label: 'Assignées' },
   { key: 'en_route',  label: 'En route' },
   { key: 'delivered', label: 'Livrées' },
+  { key: 'problem',   label: 'Problèmes' },
   { key: 'cancelled', label: 'Annulées' },
 ];
 
@@ -111,7 +112,9 @@ export default function LivraisonsPage() {
   const todayDelivered = deliveries.filter((d) => d.status === 'delivered' && d.deliveredAt?.startsWith(todayStr)).length;
   const enRouteCount   = deliveries.filter((d) => d.status === 'en_route').length;
 
-  const filtered = tab === 'all' ? deliveries : deliveries.filter((d) => d.status === tab);
+  const filtered = tab === 'all'
+    ? deliveries.filter((d) => d.status !== 'cancelled')
+    : deliveries.filter((d) => d.status === tab);
 
   const handleAssign = async (deliveryId: string, driverId: string) => {
     setAssigningId(deliveryId);
@@ -174,15 +177,25 @@ export default function LivraisonsPage() {
           <h1 className="text-2xl font-black text-gray-900">Livraisons</h1>
           <p className="text-sm text-gray-500">Gestion des livraisons en temps réel</p>
         </div>
-        <button
-          onClick={() => { setShowForm(true); setFormError(''); }}
-          className="flex items-center gap-2 px-4 py-2.5 bg-orange-500 text-white font-bold rounded-xl hover:bg-orange-600 transition-colors text-sm"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-          </svg>
-          Nouvelle livraison
-        </button>
+        <div className="flex items-center gap-2">
+          <a
+            href="/livreur/login"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 px-4 py-2.5 border-2 border-orange-500 text-orange-500 font-bold rounded-xl hover:bg-orange-50 transition-colors text-sm"
+          >
+            🚚 Portail Livreur
+          </a>
+          <button
+            onClick={() => { setShowForm(true); setFormError(''); }}
+            className="flex items-center gap-2 px-4 py-2.5 bg-orange-500 text-white font-bold rounded-xl hover:bg-orange-600 transition-colors text-sm"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            Nouvelle livraison
+          </button>
+        </div>
       </div>
 
       {/* Shopify new-order notification banner */}
@@ -232,7 +245,9 @@ export default function LivraisonsPage() {
       {/* Tabs */}
       <div className="flex gap-1 overflow-x-auto pb-1 -mx-1 px-1">
         {TABS.map((t) => {
-          const count = t.key === 'all' ? deliveries.length : deliveries.filter((d) => d.status === t.key).length;
+          const count = t.key === 'all'
+            ? deliveries.filter((d) => d.status !== 'cancelled').length
+            : deliveries.filter((d) => d.status === t.key).length;
           const shopifyPendingCount = t.key === 'pending'
             ? deliveries.filter((d) => d.status === 'pending' && d.shopifyOrderId).length
             : 0;

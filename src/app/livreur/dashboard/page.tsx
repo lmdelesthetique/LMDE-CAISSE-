@@ -11,7 +11,7 @@ function PortalHeader({ name, onLogout }: { name: string; onLogout: () => void }
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
-    <div className="bg-orange-500 text-white sticky top-0 z-50 shadow-md">
+    <div className="bg-pink-600 text-white sticky top-0 z-50 shadow-md">
       {/* Desktop + mobile bar */}
       <div className="px-4 py-3 flex items-center justify-between">
         {/* Left: back link + brand */}
@@ -23,12 +23,11 @@ function PortalHeader({ name, onLogout }: { name: string; onLogout: () => void }
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
             </svg>
-            <span className="hidden sm:inline">Admin</span>
+            <span className="hidden sm:inline">← Admin</span>
           </a>
           <span className="text-white/40 hidden sm:inline">|</span>
           <div className="min-w-0">
-            <p className="font-bold text-sm leading-tight">BeautyPOS</p>
-            <p className="text-[10px] text-white/70 leading-none hidden sm:block">Portail Livreur</p>
+            <p className="font-bold text-sm leading-tight">🚚 Portail Livreur</p>
           </div>
         </div>
 
@@ -37,7 +36,7 @@ function PortalHeader({ name, onLogout }: { name: string; onLogout: () => void }
           <span className="text-sm font-medium opacity-90 truncate max-w-[140px]">{name}</span>
           <button
             onClick={onLogout}
-            className="bg-white text-orange-600 hover:bg-orange-50 px-3 py-1.5 rounded-lg text-sm font-bold transition-colors"
+            className="bg-white text-pink-600 hover:bg-pink-50 px-3 py-1.5 rounded-lg text-sm font-bold transition-colors"
           >
             Déconnexion
           </button>
@@ -66,7 +65,7 @@ function PortalHeader({ name, onLogout }: { name: string; onLogout: () => void }
 
       {/* Mobile dropdown menu */}
       {menuOpen && (
-        <div className="sm:hidden bg-orange-600 border-t border-white/20 py-2">
+        <div className="sm:hidden bg-pink-700 border-t border-white/20 py-2">
           <a
             href="/livraisons"
             className="flex items-center gap-2 px-4 py-3 text-sm font-medium text-white hover:bg-white/10 transition-colors"
@@ -185,6 +184,18 @@ export default function DriverDashboard() {
     } catch { /* ignore */ }
   };
 
+  const handleProblem = async (d: Delivery) => {
+    if (!confirm('Signaler un problème pour cette livraison ?')) return;
+    try {
+      await fetch(`/api/livraisons/${d.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'problem' }),
+      });
+      await loadDeliveries(session!.driverId);
+    } catch { /* ignore */ }
+  };
+
   const handleOpenDetail = (d: Delivery) => {
     router.push(`/livreur/livraison/${d.id}`);
   };
@@ -255,7 +266,7 @@ export default function DriverDashboard() {
           <div className="space-y-3">
             {/* En route first, then pending, then delivered */}
             {[...enRoute, ...pending, ...delivered].map((d) => (
-              <DeliveryCard key={d.id} delivery={d} onStart={handleStart} onOpen={handleOpenDetail} />
+              <DeliveryCard key={d.id} delivery={d} onStart={handleStart} onOpen={handleOpenDetail} onProblem={handleProblem} />
             ))}
           </div>
         )}
@@ -286,10 +297,12 @@ function DeliveryCard({
   delivery: d,
   onStart,
   onOpen,
+  onProblem,
 }: {
   delivery: Delivery;
   onStart: (d: Delivery) => void;
   onOpen: (d: Delivery) => void;
+  onProblem: (d: Delivery) => void;
 }) {
   const cfg = DELIVERY_STATUS_CONFIG[d.status];
   const mapsUrl = `https://maps.google.com/?q=${encodeURIComponent(d.deliveryAddress)}`;
@@ -363,32 +376,49 @@ function DeliveryCard({
 
         {/* Actions */}
         <div className="pt-1">
-          {d.status === 'pending' || d.status === 'assigned' ? (
-            <button
-              onClick={() => onStart(d)}
-              className="w-full py-3.5 bg-orange-500 text-white font-black text-base rounded-xl hover:bg-orange-600 active:scale-95 transition-all"
-            >
-              🚀 Démarrer la livraison
-            </button>
-          ) : d.status === 'en_route' ? (
-            <button
-              onClick={() => onOpen(d)}
-              className="w-full py-3.5 bg-green-500 text-white font-black text-base rounded-xl hover:bg-green-600 active:scale-95 transition-all"
-            >
-              ✅ Confirmer la livraison
-            </button>
-          ) : d.status === 'delivered' ? (
+          {(d.status === 'pending' || d.status === 'assigned') && (
+            <div className="flex gap-2">
+              <button
+                onClick={() => onStart(d)}
+                className="flex-1 py-3.5 bg-orange-500 text-white font-black text-base rounded-xl hover:bg-orange-600 active:scale-95 transition-all"
+              >
+                🚀 Démarrer
+              </button>
+              <button
+                onClick={() => onProblem(d)}
+                className="px-4 py-3.5 bg-red-100 text-red-600 font-bold rounded-xl hover:bg-red-200 active:scale-95 transition-all text-lg"
+                title="Signaler un problème"
+              >
+                ⚠️
+              </button>
+            </div>
+          )}
+          {d.status === 'en_route' && (
+            <div className="flex gap-2">
+              <button
+                onClick={() => onOpen(d)}
+                className="flex-1 py-3.5 bg-green-500 text-white font-black text-base rounded-xl hover:bg-green-600 active:scale-95 transition-all"
+              >
+                ✅ Marquer livré
+              </button>
+              <button
+                onClick={() => onProblem(d)}
+                className="px-4 py-3.5 bg-red-100 text-red-600 font-bold rounded-xl hover:bg-red-200 active:scale-95 transition-all text-lg"
+                title="Signaler un problème"
+              >
+                ⚠️
+              </button>
+            </div>
+          )}
+          {d.status === 'delivered' && (
             <div className="w-full py-3.5 bg-green-100 text-green-700 font-black text-base rounded-xl text-center">
               ✅ Livré
             </div>
-          ) : null}
-          {(d.status === 'en_route') && (
-            <button
-              onClick={() => onOpen(d)}
-              className="w-full mt-2 py-2.5 border-2 border-gray-200 text-gray-600 font-semibold text-sm rounded-xl hover:bg-gray-50 transition-colors"
-            >
-              Voir les détails
-            </button>
+          )}
+          {d.status === 'problem' && (
+            <div className="w-full py-3.5 bg-red-100 text-red-700 font-black text-base rounded-xl text-center">
+              ⚠️ Problème signalé
+            </div>
           )}
         </div>
       </div>

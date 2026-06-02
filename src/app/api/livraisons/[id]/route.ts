@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 // PATCH /api/livraisons/[id] — assign driver or update status
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const body = await req.json().catch(() => null);
     if (!body) return NextResponse.json({ error: 'Corps JSON invalide' }, { status: 400 });
 
@@ -31,7 +32,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     const { data, error } = await supabase
       .from('deliveries')
       .update(updates)
-      .eq('id', params.id)
+      .eq('id', id)
       .select('*, drivers(first_name, last_name, phone)')
       .single();
 

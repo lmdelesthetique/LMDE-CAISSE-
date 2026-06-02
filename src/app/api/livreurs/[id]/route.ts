@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 // PATCH /api/livreurs/[id] — update driver (status toggle, edit details)
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const body = await req.json().catch(() => null);
     if (!body) return NextResponse.json({ error: 'Corps JSON invalide' }, { status: 400 });
 
@@ -24,7 +25,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     const { data, error } = await supabase
       .from('drivers')
       .update(updates)
-      .eq('id', params.id)
+      .eq('id', id)
       .select()
       .single();
 
@@ -36,10 +37,11 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 }
 
 // DELETE /api/livreurs/[id] — remove driver
-export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
+export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const supabase = createAdminClient();
-    const { error } = await supabase.from('drivers').delete().eq('id', params.id);
+    const { error } = await supabase.from('drivers').delete().eq('id', id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ success: true });
   } catch (e: any) {

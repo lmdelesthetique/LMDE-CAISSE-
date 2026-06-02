@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/client';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type DeliveryStatus = 'pending' | 'assigned' | 'en_route' | 'delivered' | 'cancelled';
+export type DeliveryStatus = 'pending' | 'assigned' | 'en_route' | 'delivered' | 'cancelled' | 'problem';
 
 export interface DeliveryProduct {
   name: string;
@@ -295,4 +295,5 @@ export const DELIVERY_STATUS_CONFIG: Record<DeliveryStatus, { label: string; col
   en_route:  { label: 'En route',    color: 'text-orange-800', bg: 'bg-orange-100 border-orange-300', dot: 'bg-orange-400' },
   delivered: { label: 'Livré',       color: 'text-green-800',  bg: 'bg-green-100 border-green-300',   dot: 'bg-green-400'  },
   cancelled: { label: 'Annulé',      color: 'text-red-800',    bg: 'bg-red-100 border-red-300',       dot: 'bg-red-400'    },
+  problem:   { label: 'Problème',    color: 'text-red-800',    bg: 'bg-red-50 border-red-200',        dot: 'bg-red-500'    },
 };
