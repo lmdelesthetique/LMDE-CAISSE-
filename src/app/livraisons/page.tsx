@@ -17,6 +17,7 @@ const TABS: { key: DeliveryStatus | 'all'; label: string }[] = [
   { key: 'pending',   label: 'En attente' },
   { key: 'assigned',  label: 'Assignées' },
   { key: 'en_route',  label: 'En route' },
+  { key: 'arrived',   label: 'Arrivées' },
   { key: 'delivered', label: 'Livrées' },
   { key: 'problem',   label: 'Problèmes' },
   { key: 'cancelled', label: 'Annulées' },

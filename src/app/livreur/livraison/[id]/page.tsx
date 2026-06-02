@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { deliveryService, type Delivery } from '@/lib/services/deliveryService';
+import { deliveryService, type Delivery, DELIVERY_STATUS_CONFIG } from '@/lib/services/deliveryService';
 import SignaturePad from '@/components/SignaturePad';
 
 const SESSION_KEY = 'beautypos_driver_session';
@@ -29,17 +29,15 @@ export default function DeliveryDetailPage() {
   const [session, setSession] = useState<DriverSession | null>(null);
   const [delivery, setDelivery] = useState<Delivery | null>(null);
   const [loading, setLoading] = useState(true);
-
-  // Checklist
   const [checkedItems, setCheckedItems] = useState<boolean[]>([]);
 
-  // Confirmation form
+  // Confirmation form state
   const [signatureBase64, setSignatureBase64] = useState<string | null>(null);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [driverNotes, setDriverNotes] = useState('');
-  const [confirming, setConfirming] = useState(false);
-  const [confirmError, setConfirmError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState('');
   const [confirmSuccess, setConfirmSuccess] = useState(false);
 
   const photoInputRef = useRef<HTMLInputElement>(null);
@@ -75,29 +73,49 @@ export default function DeliveryDetailPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     setPhotoFile(file);
-    const url = URL.createObjectURL(file);
-    setPhotoPreview(url);
+    setPhotoPreview(URL.createObjectURL(file));
   };
 
-  const handleStartRoute = async () => {
+  const clearPhoto = () => {
+    setPhotoFile(null);
+    setPhotoPreview(null);
+    if (photoInputRef.current) photoInputRef.current.value = '';
+  };
+
+  // Step 1: depart (assigned → en_route)
+  const handleDepart = async () => {
     if (!delivery) return;
-    setConfirming(true);
+    setBusy(true);
+    setActionError('');
     try {
       await deliveryService.startRoute(delivery.id);
       await loadDelivery();
-    } catch { setConfirmError('Erreur. Réessayez.'); } finally { setConfirming(false); }
+    } catch { setActionError('Erreur. Réessayez.'); } finally { setBusy(false); }
   };
 
+  // Step 2: arrived (en_route → arrived)
+  const handleMarkArrived = async () => {
+    if (!delivery) return;
+    setBusy(true);
+    setActionError('');
+    try {
+      await deliveryService.markArrived(delivery.id);
+      await loadDelivery();
+    } catch { setActionError('Erreur. Réessayez.'); } finally { setBusy(false); }
+  };
+
+  // Step 3: confirm delivery (arrived → delivered)
   const handleConfirm = async () => {
     if (!delivery) return;
-    if (!signatureBase64) { setConfirmError('La signature est requise.'); return; }
-    setConfirmError('');
-    setConfirming(true);
+    setActionError('');
+    setBusy(true);
     try {
       let signatureUrl: string | undefined;
       let photoUrl: string | undefined;
 
-      signatureUrl = await deliveryService.uploadSignature(delivery.id, signatureBase64);
+      if (signatureBase64) {
+        signatureUrl = await deliveryService.uploadSignature(delivery.id, signatureBase64);
+      }
       if (photoFile) {
         photoUrl = await deliveryService.uploadPhoto(delivery.id, photoFile);
       }
@@ -108,11 +126,26 @@ export default function DeliveryDetailPage() {
       });
       setConfirmSuccess(true);
       setTimeout(() => router.replace('/livreur/dashboard'), 2000);
-    } catch (e: any) {
-      setConfirmError('Erreur lors de la confirmation. Réessayez.');
+    } catch {
+      setActionError('Erreur lors de la confirmation. Réessayez.');
     } finally {
-      setConfirming(false);
+      setBusy(false);
     }
+  };
+
+  // Report problem
+  const handleProblem = async () => {
+    if (!delivery) return;
+    if (!confirm('Signaler un problème pour cette livraison ?')) return;
+    setBusy(true);
+    try {
+      await fetch(`/api/livraisons/${delivery.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'problem' }),
+      });
+      router.replace('/livreur/dashboard');
+    } catch { setActionError('Erreur. Réessayez.'); } finally { setBusy(false); }
   };
 
   if (!session || loading) {
@@ -127,6 +160,7 @@ export default function DeliveryDetailPage() {
 
   const products = delivery.products ?? [];
   const mapsUrl = `https://maps.google.com/?q=${encodeURIComponent(delivery.deliveryAddress)}`;
+  const cfg = DELIVERY_STATUS_CONFIG[delivery.status] ?? DELIVERY_STATUS_CONFIG.pending;
 
   if (confirmSuccess) {
     return (
@@ -138,10 +172,12 @@ export default function DeliveryDetailPage() {
     );
   }
 
+  const isActive = ['pending', 'assigned', 'en_route', 'arrived'].includes(delivery.status);
+
   return (
     <div className="min-h-screen bg-gray-50 pb-24">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-4 pt-safe-top sticky top-0 z-30">
+      <div className="bg-white border-b border-gray-200 px-4 sticky top-0 z-30">
         <div className="flex items-center gap-3 py-3">
           <button
             onClick={() => router.back()}
@@ -157,8 +193,13 @@ export default function DeliveryDetailPage() {
               <p className="text-xs text-gray-400 font-mono">#{delivery.shopifyOrderNumber}</p>
             )}
           </div>
-          <StatusBadge status={delivery.status} />
+          <span className={`text-xs font-bold px-2.5 py-1 rounded-full border ${cfg.bg} ${cfg.color}`}>
+            {cfg.label}
+          </span>
         </div>
+
+        {/* Progress bar */}
+        <WorkflowProgress status={delivery.status} />
       </div>
 
       <div className="px-4 py-4 space-y-4">
@@ -219,9 +260,7 @@ export default function DeliveryDetailPage() {
                   key={i}
                   className={[
                     'flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all select-none',
-                    checkedItems[i]
-                      ? 'bg-green-50 border-green-300'
-                      : 'bg-gray-50 border-gray-200',
+                    checkedItems[i] ? 'bg-green-50 border-green-300' : 'bg-gray-50 border-gray-200',
                   ].join(' ')}
                 >
                   <input
@@ -234,12 +273,10 @@ export default function DeliveryDetailPage() {
                       setCheckedItems(next);
                     }}
                   />
-                  <div
-                    className={[
-                      'w-6 h-6 rounded-lg border-2 flex items-center justify-center shrink-0 transition-all',
-                      checkedItems[i] ? 'bg-green-500 border-green-500' : 'bg-white border-gray-300',
-                    ].join(' ')}
-                  >
+                  <div className={[
+                    'w-6 h-6 rounded-lg border-2 flex items-center justify-center shrink-0 transition-all',
+                    checkedItems[i] ? 'bg-green-500 border-green-500' : 'bg-white border-gray-300',
+                  ].join(' ')}>
                     {checkedItems[i] && (
                       <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -264,39 +301,56 @@ export default function DeliveryDetailPage() {
 
             {!allChecked && (
               <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-center font-semibold">
-                ✓ Cochez tous les articles avant de confirmer
+                ✓ Cochez tous les articles avant de continuer
               </p>
             )}
           </div>
         )}
 
-        {/* ── Section 3 — Status actions ── */}
-        {delivery.status === 'pending' || delivery.status === 'assigned' ? (
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Action</p>
+        {/* ── Section 3 — Workflow actions ── */}
+
+        {/* STEP 1: Depart (pending / assigned) */}
+        {(delivery.status === 'pending' || delivery.status === 'assigned') && (
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 space-y-3">
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Étape 1 — Départ</p>
             <button
-              onClick={handleStartRoute}
-              disabled={confirming || !allChecked}
+              onClick={handleDepart}
+              disabled={busy || !allChecked}
               className="w-full py-4 bg-orange-500 text-white font-black text-lg rounded-xl hover:bg-orange-600 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {confirming ? (
-                <span className="flex items-center justify-center gap-2">
-                  <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  Démarrage…
-                </span>
-              ) : '🚀 Démarrer la livraison'}
+              {busy ? <SpinLabel text="Démarrage…" /> : '▶️ Partir en livraison'}
             </button>
+            {actionError && <ErrorBanner msg={actionError} />}
+            <ProblemBtn onClick={handleProblem} disabled={busy} />
           </div>
-        ) : delivery.status === 'en_route' ? (
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 space-y-4">
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Confirmation de livraison</p>
+        )}
 
-            {/* Photo upload (optional) */}
+        {/* STEP 2: Arrived (en_route) */}
+        {delivery.status === 'en_route' && (
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 space-y-3">
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Étape 2 — Arrivée</p>
+            <button
+              onClick={handleMarkArrived}
+              disabled={busy}
+              className="w-full py-4 bg-blue-500 text-white font-black text-lg rounded-xl hover:bg-blue-600 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {busy ? <SpinLabel text="Mise à jour…" /> : '📍 Je suis arrivé'}
+            </button>
+            {actionError && <ErrorBanner msg={actionError} />}
+            <ProblemBtn onClick={handleProblem} disabled={busy} />
+          </div>
+        )}
+
+        {/* STEP 3: Confirm delivery (arrived) */}
+        {delivery.status === 'arrived' && (
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 space-y-4">
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Étape 3 — Confirmation</p>
+
+            {/* Photo */}
             <div>
-              <p className="text-sm font-bold text-gray-700 mb-2">📷 Photo de livraison <span className="text-gray-400 font-normal">(optionnelle)</span></p>
+              <p className="text-sm font-bold text-gray-700 mb-2">
+                📸 Photo <span className="text-gray-400 font-normal">(optionnelle)</span>
+              </p>
               <input
                 ref={photoInputRef}
                 type="file"
@@ -310,7 +364,7 @@ export default function DeliveryDetailPage() {
                   <img src={photoPreview} alt="Preview" className="w-full h-40 object-cover rounded-xl border-2 border-green-300" />
                   <button
                     type="button"
-                    onClick={() => { setPhotoFile(null); setPhotoPreview(null); if (photoInputRef.current) photoInputRef.current.value = ''; }}
+                    onClick={clearPhoto}
                     className="absolute top-2 right-2 w-7 h-7 bg-white border border-gray-200 rounded-full flex items-center justify-center text-gray-600 hover:text-red-500 shadow"
                   >
                     ×
@@ -331,11 +385,10 @@ export default function DeliveryDetailPage() {
               )}
             </div>
 
-            {/* Signature (required) */}
+            {/* Signature */}
             <div>
               <p className="text-sm font-bold text-gray-700 mb-2">
-                ✍️ Signature du client
-                <span className="text-red-500 ml-1">*</span>
+                ✍️ Signature client <span className="text-gray-400 font-normal">(optionnelle)</span>
               </p>
               <SignaturePad
                 onSave={(b64) => setSignatureBase64(b64)}
@@ -343,46 +396,37 @@ export default function DeliveryDetailPage() {
                 width={320}
                 height={160}
               />
-              {!signatureBase64 && (
-                <p className="text-xs text-gray-400 text-center mt-1">La signature est obligatoire</p>
-              )}
             </div>
 
-            {/* Driver notes */}
+            {/* Notes */}
             <div>
-              <p className="text-sm font-bold text-gray-700 mb-2">📝 Notes <span className="text-gray-400 font-normal">(optionnelles)</span></p>
+              <p className="text-sm font-bold text-gray-700 mb-2">
+                📝 Notes <span className="text-gray-400 font-normal">(optionnelles)</span>
+              </p>
               <textarea
                 value={driverNotes}
                 onChange={(e) => setDriverNotes(e.target.value)}
-                placeholder="Ex: Laissé devant la porte, interphone cassé…"
+                placeholder="Laissé devant la porte, interphone cassé…"
                 rows={3}
                 className="w-full px-3 py-2.5 rounded-xl border-2 border-gray-200 focus:border-orange-400 focus:outline-none text-sm resize-none transition-colors"
               />
             </div>
 
-            {confirmError && (
-              <div className="bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-sm text-red-700 text-center font-semibold">
-                {confirmError}
-              </div>
-            )}
+            {actionError && <ErrorBanner msg={actionError} />}
 
             <button
               onClick={handleConfirm}
-              disabled={confirming || !signatureBase64 || !allChecked}
+              disabled={busy || !allChecked}
               className="w-full py-4 bg-green-500 text-white font-black text-lg rounded-xl hover:bg-green-600 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {confirming ? (
-                <span className="flex items-center justify-center gap-2">
-                  <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  Confirmation…
-                </span>
-              ) : '✅ Confirmer la livraison'}
+              {busy ? <SpinLabel text="Confirmation…" /> : '✅ Livré'}
             </button>
+            <ProblemBtn onClick={handleProblem} disabled={busy} />
           </div>
-        ) : delivery.status === 'delivered' ? (
+        )}
+
+        {/* Done */}
+        {delivery.status === 'delivered' && (
           <div className="bg-green-50 rounded-2xl border border-green-200 p-6 text-center">
             <p className="text-3xl mb-2">✅</p>
             <p className="font-black text-green-800 text-lg">Livraison effectuée</p>
@@ -392,26 +436,94 @@ export default function DeliveryDetailPage() {
               </p>
             )}
           </div>
-        ) : null}
+        )}
+
+        {/* Problem */}
+        {delivery.status === 'problem' && (
+          <div className="bg-red-50 rounded-2xl border border-red-200 p-6 text-center">
+            <p className="text-3xl mb-2">⚠️</p>
+            <p className="font-black text-red-800 text-lg">Problème signalé</p>
+            <p className="text-sm text-red-600 mt-1">Le responsable a été notifié</p>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-// ─── Status badge ─────────────────────────────────────────────────────────────
+// ─── Workflow progress indicator ──────────────────────────────────────────────
 
-function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { label: string; cls: string }> = {
-    pending:   { label: 'En attente', cls: 'bg-yellow-100 text-yellow-800 border-yellow-300' },
-    assigned:  { label: 'Assigné',    cls: 'bg-blue-100 text-blue-800 border-blue-300' },
-    en_route:  { label: 'En route',   cls: 'bg-orange-100 text-orange-800 border-orange-300' },
-    delivered: { label: 'Livré',      cls: 'bg-green-100 text-green-800 border-green-300' },
-    cancelled: { label: 'Annulé',     cls: 'bg-red-100 text-red-800 border-red-300' },
-  };
-  const cfg = map[status] ?? { label: status, cls: 'bg-gray-100 text-gray-800 border-gray-300' };
+const STEPS = [
+  { key: 'assigned',  label: 'Assigné' },
+  { key: 'en_route',  label: 'En route' },
+  { key: 'arrived',   label: 'Arrivé' },
+  { key: 'delivered', label: 'Livré' },
+];
+
+function WorkflowProgress({ status }: { status: string }) {
+  const idx = STEPS.findIndex((s) => s.key === status);
+  if (idx < 0) return null;
   return (
-    <span className={`text-xs font-bold px-2.5 py-1 rounded-full border ${cfg.cls}`}>
-      {cfg.label}
+    <div className="flex items-center gap-0 pb-3 overflow-x-auto">
+      {STEPS.map((step, i) => {
+        const done  = i < idx;
+        const active = i === idx;
+        return (
+          <React.Fragment key={step.key}>
+            {i > 0 && (
+              <div className={`h-0.5 flex-1 min-w-[16px] ${done ? 'bg-green-400' : 'bg-gray-200'}`} />
+            )}
+            <div className="flex flex-col items-center shrink-0">
+              <div className={[
+                'w-6 h-6 rounded-full border-2 flex items-center justify-center text-[10px] font-black transition-all',
+                done   ? 'bg-green-500 border-green-500 text-white' :
+                active ? 'bg-orange-500 border-orange-500 text-white' :
+                         'bg-white border-gray-300 text-gray-400',
+              ].join(' ')}>
+                {done ? '✓' : i + 1}
+              </div>
+              <span className={`text-[9px] font-semibold mt-0.5 ${active ? 'text-orange-600' : done ? 'text-green-600' : 'text-gray-400'}`}>
+                {step.label}
+              </span>
+            </div>
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Micro components ─────────────────────────────────────────────────────────
+
+function SpinLabel({ text }: { text: string }) {
+  return (
+    <span className="flex items-center justify-center gap-2">
+      <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+      </svg>
+      {text}
     </span>
+  );
+}
+
+function ErrorBanner({ msg }: { msg: string }) {
+  return (
+    <div className="bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-sm text-red-700 text-center font-semibold">
+      {msg}
+    </div>
+  );
+}
+
+function ProblemBtn({ onClick, disabled }: { onClick: () => void; disabled: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="w-full py-2.5 border-2 border-red-200 text-red-500 font-semibold text-sm rounded-xl hover:bg-red-50 active:scale-95 transition-all disabled:opacity-40"
+    >
+      ⚠️ Signaler un problème
+    </button>
   );
 }

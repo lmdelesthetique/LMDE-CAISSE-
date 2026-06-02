@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/client';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type DeliveryStatus = 'pending' | 'assigned' | 'en_route' | 'delivered' | 'cancelled' | 'problem';
+export type DeliveryStatus = 'pending' | 'assigned' | 'en_route' | 'arrived' | 'delivered' | 'cancelled' | 'problem';
 
 export interface DeliveryProduct {
   name: string;
@@ -28,6 +28,7 @@ export interface Delivery {
   assignedTo: string | null;       // driver UUID (assigned_to_driver)
   assignedAt: string | null;
   enRouteAt: string | null;
+  arrivedAt: string | null;
   deliveredAt: string | null;
   estimatedTime: string | null;
   signatureUrl: string | null;
@@ -69,6 +70,7 @@ function mapDelivery(row: any): Delivery {
     assignedTo: row.assigned_to_driver ?? null,
     assignedAt: row.assigned_at ?? null,
     enRouteAt: row.en_route_at ?? null,
+    arrivedAt: row.arrived_at ?? null,
     deliveredAt: row.delivered_at ?? null,
     estimatedTime: row.estimated_time ?? null,
     signatureUrl: row.signature_url ?? null,
@@ -170,6 +172,18 @@ export const deliveryService = {
     const { data, error } = await supabase
       .from('deliveries')
       .update({ status: 'en_route', en_route_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return mapDelivery(data);
+  },
+
+  async markArrived(id: string): Promise<Delivery> {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from('deliveries')
+      .update({ status: 'arrived', arrived_at: new Date().toISOString() })
       .eq('id', id)
       .select()
       .single();
@@ -292,8 +306,9 @@ function base64ToBlob(base64: string, type: string): Blob {
 export const DELIVERY_STATUS_CONFIG: Record<DeliveryStatus, { label: string; color: string; bg: string; dot: string }> = {
   pending:   { label: 'En attente',  color: 'text-yellow-800', bg: 'bg-yellow-100 border-yellow-300', dot: 'bg-yellow-400' },
   assigned:  { label: 'Assigné',     color: 'text-blue-800',   bg: 'bg-blue-100 border-blue-300',     dot: 'bg-blue-400'   },
-  en_route:  { label: 'En route',    color: 'text-orange-800', bg: 'bg-orange-100 border-orange-300', dot: 'bg-orange-400' },
-  delivered: { label: 'Livré',       color: 'text-green-800',  bg: 'bg-green-100 border-green-300',   dot: 'bg-green-400'  },
+  en_route:  { label: 'En route',    color: 'text-orange-800',  bg: 'bg-orange-100 border-orange-300',  dot: 'bg-orange-400'  },
+  arrived:   { label: 'Arrivé',      color: 'text-purple-800', bg: 'bg-purple-100 border-purple-300', dot: 'bg-purple-400'  },
+  delivered: { label: 'Livré',       color: 'text-green-800',  bg: 'bg-green-100 border-green-300',   dot: 'bg-green-400'   },
   cancelled: { label: 'Annulé',      color: 'text-red-800',    bg: 'bg-red-100 border-red-300',       dot: 'bg-red-400'    },
   problem:   { label: 'Problème',    color: 'text-red-800',    bg: 'bg-red-50 border-red-200',        dot: 'bg-red-500'    },
 };

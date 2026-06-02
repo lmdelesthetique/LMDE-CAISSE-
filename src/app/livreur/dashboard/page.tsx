@@ -184,6 +184,13 @@ export default function DriverDashboard() {
     } catch { /* ignore */ }
   };
 
+  const handleArrived = async (d: Delivery) => {
+    try {
+      await deliveryService.markArrived(d.id);
+      await loadDeliveries(session!.driverId);
+    } catch { /* ignore */ }
+  };
+
   const handleProblem = async (d: Delivery) => {
     if (!confirm('Signaler un problème pour cette livraison ?')) return;
     try {
@@ -205,6 +212,7 @@ export default function DriverDashboard() {
   const todayStr = new Date().toISOString().slice(0, 10);
   const pending   = deliveries.filter((d) => d.status === 'pending' || d.status === 'assigned');
   const enRoute   = deliveries.filter((d) => d.status === 'en_route');
+  const arrived   = deliveries.filter((d) => d.status === 'arrived');
   const delivered = deliveries.filter((d) => d.status === 'delivered' && d.deliveredAt?.startsWith(todayStr));
   const total = deliveries.filter((d) => d.status !== 'cancelled');
 
@@ -265,8 +273,8 @@ export default function DriverDashboard() {
         ) : (
           <div className="space-y-3">
             {/* En route first, then pending, then delivered */}
-            {[...enRoute, ...pending, ...delivered].map((d) => (
-              <DeliveryCard key={d.id} delivery={d} onStart={handleStart} onOpen={handleOpenDetail} onProblem={handleProblem} />
+            {[...arrived, ...enRoute, ...pending, ...delivered].map((d) => (
+              <DeliveryCard key={d.id} delivery={d} onStart={handleStart} onArrived={handleArrived} onOpen={handleOpenDetail} onProblem={handleProblem} />
             ))}
           </div>
         )}
@@ -296,11 +304,13 @@ export default function DriverDashboard() {
 function DeliveryCard({
   delivery: d,
   onStart,
+  onArrived,
   onOpen,
   onProblem,
 }: {
   delivery: Delivery;
   onStart: (d: Delivery) => void;
+  onArrived: (d: Delivery) => void;
   onOpen: (d: Delivery) => void;
   onProblem: (d: Delivery) => void;
 }) {
@@ -375,39 +385,41 @@ function DeliveryCard({
         )}
 
         {/* Actions */}
-        <div className="pt-1">
+        <div className="pt-1 space-y-2">
+          {/* Step 1: depart */}
           {(d.status === 'pending' || d.status === 'assigned') && (
             <div className="flex gap-2">
               <button
                 onClick={() => onStart(d)}
                 className="flex-1 py-3.5 bg-orange-500 text-white font-black text-base rounded-xl hover:bg-orange-600 active:scale-95 transition-all"
               >
-                🚀 Démarrer
+                ▶️ Partir en livraison
               </button>
-              <button
-                onClick={() => onProblem(d)}
-                className="px-4 py-3.5 bg-red-100 text-red-600 font-bold rounded-xl hover:bg-red-200 active:scale-95 transition-all text-lg"
-                title="Signaler un problème"
-              >
-                ⚠️
-              </button>
+              <button onClick={() => onProblem(d)} className="px-4 py-3.5 bg-red-100 text-red-600 font-bold rounded-xl hover:bg-red-200 active:scale-95 transition-all text-lg" title="Signaler un problème">⚠️</button>
             </div>
           )}
+          {/* Step 2: arrived */}
           {d.status === 'en_route' && (
+            <div className="flex gap-2">
+              <button
+                onClick={() => onArrived(d)}
+                className="flex-1 py-3.5 bg-blue-500 text-white font-black text-base rounded-xl hover:bg-blue-600 active:scale-95 transition-all"
+              >
+                📍 Je suis arrivé
+              </button>
+              <button onClick={() => onProblem(d)} className="px-4 py-3.5 bg-red-100 text-red-600 font-bold rounded-xl hover:bg-red-200 active:scale-95 transition-all text-lg" title="Signaler un problème">⚠️</button>
+            </div>
+          )}
+          {/* Step 3: confirm (navigate to detail page) */}
+          {d.status === 'arrived' && (
             <div className="flex gap-2">
               <button
                 onClick={() => onOpen(d)}
                 className="flex-1 py-3.5 bg-green-500 text-white font-black text-base rounded-xl hover:bg-green-600 active:scale-95 transition-all"
               >
-                ✅ Marquer livré
+                ✅ Confirmer la livraison
               </button>
-              <button
-                onClick={() => onProblem(d)}
-                className="px-4 py-3.5 bg-red-100 text-red-600 font-bold rounded-xl hover:bg-red-200 active:scale-95 transition-all text-lg"
-                title="Signaler un problème"
-              >
-                ⚠️
-              </button>
+              <button onClick={() => onProblem(d)} className="px-4 py-3.5 bg-red-100 text-red-600 font-bold rounded-xl hover:bg-red-200 active:scale-95 transition-all text-lg" title="Signaler un problème">⚠️</button>
             </div>
           )}
           {d.status === 'delivered' && (
