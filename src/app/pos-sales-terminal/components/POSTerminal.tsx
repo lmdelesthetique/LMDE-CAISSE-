@@ -125,12 +125,12 @@ function ClientFicheSlideOver({ client, allRewards, loyaltyTiers, onClose, onPoi
     if (isNaN(newVal) || newVal < 0) return;
     setSavingPoints(true);
     const delta = newVal - displayPoints;
-    const ok = await clientService.adjustLoyaltyPoints(
+    const result = await clientService.adjustLoyaltyPoints(
       client.id,
       delta,
       `${pointsReason} (manuel) — ${displayPoints} → ${newVal} pts`
     );
-    if (ok) {
+    if (result.ok) {
       const prev = displayPoints;
       setDisplayPoints(newVal);
       onPointsUpdated?.(newVal);
@@ -138,7 +138,7 @@ function ClientFicheSlideOver({ client, allRewards, loyaltyTiers, onClose, onPoi
       setNewPointsInput('');
       toast.success(`Points mis à jour : ${prev} → ${newVal}`, { duration: 3000, icon: '⭐' });
     } else {
-      toast.error('Erreur lors de la mise à jour des points');
+      toast.error(`Erreur : ${result.error ?? 'mise à jour des points échouée'}`, { duration: 6000 });
     }
     setSavingPoints(false);
   };
@@ -980,11 +980,12 @@ export default function POSTerminal() {
       const newPoints = previousPoints + loyaltyPointsEarned;
 
       // Persist points to DB
-      await clientService.adjustLoyaltyPoints(
+      const { ok: ptsOk, error: ptsErr } = await clientService.adjustLoyaltyPoints(
         client.id,
         loyaltyPointsEarned,
         `Achat en caisse — ${total.toFixed(2)} € — ${new Date().toLocaleDateString('fr-FR')}`
       );
+      if (!ptsOk) console.error('[handleCompleteSale] adjustLoyaltyPoints failed:', ptsErr);
 
       // If a reward was applied, mark it as used
       if (appliedReward) {

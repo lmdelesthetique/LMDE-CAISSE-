@@ -8,45 +8,61 @@ export async function POST(req: NextRequest) {
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
 
   const { clientId, pointsChange, reason } = body ?? {};
-  if (!clientId || pointsChange === undefined) {
+  if (!clientId || pointsChange === undefined || pointsChange === null) {
     return NextResponse.json({ error: 'clientId and pointsChange are required' }, { status: 400 });
+  }
+
+  const delta = Number(pointsChange);
+  if (isNaN(delta)) {
+    return NextResponse.json({ error: 'pointsChange must be a number' }, { status: 400 });
   }
 
   try {
     const supabase = createAdminClient();
 
-    const { data: client, error: clientError } = await supabase
+    // Use maybeSingle to avoid error when 0 rows (returns null instead of error)
+    const { data: clientRow, error: clientError } = await supabase
       .from('clients')
-      .select('loyalty_points')
+      .select('id, loyalty_points')
       .eq('id', clientId)
-      .single();
+      .maybeSingle();
 
-    if (clientError || !client) {
-      return NextResponse.json({ error: clientError?.message ?? 'Client introuvable' }, { status: 404 });
+    if (clientError) {
+      console.error('[api/loyalty/adjust-points] fetch client:', clientError.code, clientError.message);
+      return NextResponse.json({ error: `Lecture client: ${clientError.message}` }, { status: 500 });
+    }
+    if (!clientRow) {
+      return NextResponse.json({ error: 'Client introuvable' }, { status: 404 });
     }
 
-    const currentPoints = client.loyalty_points ?? 0;
-    const newBalance = Math.max(0, currentPoints + (pointsChange as number));
+    const currentPoints = clientRow.loyalty_points ?? 0;
+    const newBalance = Math.max(0, currentPoints + delta);
 
+    // Don't include updated_at — the trigger handles it automatically
     const { error: updateError } = await supabase
       .from('clients')
-      .update({ loyalty_points: newBalance, updated_at: new Date().toISOString() })
+      .update({ loyalty_points: newBalance })
       .eq('id', clientId);
 
     if (updateError) {
-      console.error('[api/loyalty/adjust-points] update:', updateError.message);
-      return NextResponse.json({ error: updateError.message }, { status: 500 });
+      console.error('[api/loyalty/adjust-points] update loyalty_points:', updateError.code, updateError.message);
+      return NextResponse.json({ error: `Mise à jour points: ${updateError.message}` }, { status: 500 });
     }
 
-    await supabase.from('loyalty_transactions').insert({
+    // Insert transaction log (best-effort — non-blocking)
+    const { error: txError } = await supabase.from('loyalty_transactions').insert({
       client_id: clientId,
-      points_change: pointsChange,
+      points_change: delta,
       reason: reason ?? 'Ajustement',
       balance_after: newBalance,
     });
+    if (txError) {
+      console.warn('[api/loyalty/adjust-points] loyalty_transactions insert failed (non-fatal):', txError.message);
+    }
 
     return NextResponse.json({ success: true, newBalance });
   } catch (e: any) {
+    console.error('[api/loyalty/adjust-points] exception:', e.message);
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }

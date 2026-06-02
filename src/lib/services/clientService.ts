@@ -478,20 +478,24 @@ export const clientService = {
     } catch (e: any) { console.log('clientService.getLoyaltyTransactions exception:', e.message); return []; }
   },
 
-  async adjustLoyaltyPoints(clientId: string, pointsChange: number, reason: string): Promise<boolean> {
+  async adjustLoyaltyPoints(clientId: string, pointsChange: number, reason: string): Promise<{ ok: boolean; error?: string; newBalance?: number }> {
     try {
       const res = await fetch('/api/loyalty/adjust-points', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ clientId, pointsChange, reason }),
       });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        console.error('adjustLoyaltyPoints API error:', d.error);
-        return false;
+        const msg = data?.error ?? `HTTP ${res.status}`;
+        console.error('adjustLoyaltyPoints API error:', msg);
+        return { ok: false, error: msg };
       }
-      return true;
-    } catch (e: any) { console.error('adjustLoyaltyPoints exception:', e.message); return false; }
+      return { ok: true, newBalance: data.newBalance };
+    } catch (e: any) {
+      console.error('adjustLoyaltyPoints exception:', e.message);
+      return { ok: false, error: e.message };
+    }
   },
 
   // ── Subscriptions ──────────────────────────────────────────────────────────

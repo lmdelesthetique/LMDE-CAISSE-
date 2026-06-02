@@ -577,12 +577,10 @@ export default function ClientDetailPanel({
                     </button>
                   </div>
 
-                  {/* Redemptions history */}
-                  <div>
-                    <h3 className="text-xs font-600 uppercase tracking-wide text-muted-foreground mb-3">Récompenses débloquées</h3>
-                    {clientRedemptions.length === 0 ? (
-                      <p className="text-sm text-muted-foreground text-center py-6">Aucune récompense débloquée</p>
-                    ) : (
+                  {/* Redemptions history — usage records only */}
+                  {clientRedemptions.length > 0 && (
+                    <div>
+                      <h3 className="text-xs font-600 uppercase tracking-wide text-muted-foreground mb-3">Historique des utilisations</h3>
                       <div className="space-y-2">
                         {clientRedemptions.map((r) => (
                           <div key={r.id} className="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-muted/20 transition-colors border border-border">
@@ -597,14 +595,47 @@ export default function ClientDetailPanel({
                           </div>
                         ))}
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
 
-                  {/* ── PERSISTENT REWARDS HISTORY ── */}
-                  {clientRewards.length > 0 && (() => {
-                    const available = clientRewards.filter((r) => r.status === 'available');
-                    const used = clientRewards.filter((r) => r.status === 'used');
-                    const expired = clientRewards.filter((r) => r.status === 'expired' || r.status === 'cancelled');
+                  {/* ── EARNED REWARDS (DB rows or computed from tiers) ── */}
+                  {(() => {
+                    // Computed fallback: when no DB rows, derive from tiers vs points
+                    const computedRewards: ClientLoyaltyReward[] = clientRewards.length === 0 && loyaltyTiers.length > 0
+                      ? loyaltyTiers
+                          .filter((t) => t.isActive !== false && client.loyaltyPoints >= t.pointsRequired)
+                          .map((t) => ({
+                            id: `computed-${t.id}`,
+                            clientId: client.id,
+                            tierId: t.id,
+                            rewardType: t.rewardType,
+                            rewardDescription: t.rewardDescription,
+                            rewardValue: t.rewardValue ?? 0,
+                            rewardProductId: t.rewardProductId ?? null,
+                            status: 'available' as const,
+                            unlockedAt: new Date().toISOString(),
+                            pointsAtUnlock: t.pointsRequired,
+                            expiryDate: null,
+                            usedAt: null,
+                            ticketRef: null,
+                            cashierName: null,
+                            notes: null,
+                            createdAt: new Date().toISOString(),
+                            updatedAt: new Date().toISOString(),
+                          }))
+                      : [];
+                    const effectiveRewards = clientRewards.length > 0 ? clientRewards : computedRewards;
+                    if (effectiveRewards.length === 0) {
+                      return (
+                        <div>
+                          <h3 className="text-xs font-600 uppercase tracking-wide text-muted-foreground mb-3">Récompenses disponibles</h3>
+                          <p className="text-sm text-muted-foreground text-center py-6">Aucune récompense débloquée</p>
+                        </div>
+                      );
+                    }
+                    const available = effectiveRewards.filter((r) => r.status === 'available');
+                    const used = effectiveRewards.filter((r) => r.status === 'used');
+                    const expired = effectiveRewards.filter((r) => r.status === 'expired' || r.status === 'cancelled');
                     return (
                       <div className="space-y-4">
                         {/* Summary KPIs */}

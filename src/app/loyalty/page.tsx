@@ -504,6 +504,22 @@ export default function LoyaltyPage() {
   const [editingProduct, setEditingProduct] = useState<LoyaltyRewardProduct | null>(null);
   const [suggestionTarget, setSuggestionTarget] = useState<SlowMoverProduct | null>(null);
   const [recalculating, setRecalculating] = useState(false);
+  const [recalcPoints, setRecalcPoints] = useState(false);
+
+  const handleRecalculatePoints = async () => {
+    setRecalcPoints(true);
+    try {
+      const res = await fetch('/api/admin/recalculate-points', { method: 'POST' });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+      toast.success(`✓ Points recalculés pour ${json.clientsUpdated} client(s) (${json.clientsWithReceipts} avec tickets)`);
+      await loadData();
+    } catch (e: any) {
+      toast.error(`Erreur : ${e?.message ?? 'Recalcul points impossible'}`);
+    } finally {
+      setRecalcPoints(false);
+    }
+  };
 
   const handleRecalculatePaliers = async () => {
     setRecalculating(true);
@@ -624,13 +640,22 @@ export default function LoyaltyPage() {
           </div>
           <div className="flex items-center gap-2">
             {tab === 'dashboard' && (
-              <button onClick={handleRecalculatePaliers} disabled={recalculating}
-                className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-lg text-sm font-600 hover:opacity-90 transition-opacity disabled:opacity-40">
-                {recalculating
-                  ? <><Icon name="ArrowPathIcon" size={15} className="animate-spin" />Calcul…</>
-                  : <><Icon name="SparklesIcon" size={15} />Recalculer tous les paliers</>
-                }
-              </button>
+              <>
+                <button onClick={handleRecalculatePoints} disabled={recalcPoints}
+                  className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg text-sm font-600 hover:opacity-90 transition-opacity disabled:opacity-40">
+                  {recalcPoints
+                    ? <><Icon name="ArrowPathIcon" size={15} className="animate-spin" />Calcul…</>
+                    : <><Icon name="CalculatorIcon" size={15} />Recalc. points (tickets)</>
+                  }
+                </button>
+                <button onClick={handleRecalculatePaliers} disabled={recalculating}
+                  className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-lg text-sm font-600 hover:opacity-90 transition-opacity disabled:opacity-40">
+                  {recalculating
+                    ? <><Icon name="ArrowPathIcon" size={15} className="animate-spin" />Calcul…</>
+                    : <><Icon name="SparklesIcon" size={15} />Recalculer tous les paliers</>
+                  }
+                </button>
+              </>
             )}
             {tab === 'tiers' && (
               <button onClick={() => { setEditingTier(null); setShowTierForm(true); }}
