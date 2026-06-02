@@ -107,8 +107,31 @@ export default function DriverDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50 pb-24">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-4 pt-safe-top sticky top-0 z-30">
+      {/* Portal brand header */}
+      <div className="bg-orange-500 text-white px-4 py-3 flex items-center justify-between">
+        <div>
+          <p className="font-bold text-base leading-tight">BeautyPOS</p>
+          <p className="text-xs opacity-80">Portail Livreur</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold truncate max-w-[120px]">{session.name}</span>
+          <a
+            href="/dashboard"
+            className="text-xs bg-white/20 hover:bg-white/30 px-2 py-1 rounded-lg font-semibold transition-colors"
+          >
+            ← Admin
+          </a>
+          <button
+            onClick={handleLogout}
+            className="text-xs bg-white text-orange-600 hover:bg-orange-50 px-2 py-1 rounded-lg font-bold transition-colors"
+          >
+            Déconnexion
+          </button>
+        </div>
+      </div>
+
+      {/* Sub-header */}
+      <div className="bg-white border-b border-gray-200 px-4 sticky top-0 z-30">
         <div className="flex items-center justify-between py-3">
           <div>
             <p className="text-xs text-gray-500 capitalize">{TODAY}</p>
@@ -180,9 +203,9 @@ export default function DriverDashboard() {
           <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" /></svg>
           <span className="text-xs font-semibold">Livraisons</span>
         </button>
-        <button onClick={handleLogout} className="flex flex-col items-center gap-1 text-gray-400">
+        <button onClick={handleLogout} className="flex flex-col items-center gap-1 text-gray-400 hover:text-red-500 transition-colors">
           <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" /></svg>
-          <span className="text-xs font-semibold">Déconnexion</span>
+          <span className="text-xs font-semibold">Déco.</span>
         </button>
       </nav>
     </div>

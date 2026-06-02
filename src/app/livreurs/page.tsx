@@ -4,6 +4,16 @@ import React, { useState, useEffect, useCallback } from 'react';
 import AppLayout from '@/components/AppLayout';
 import { driverService, type Driver, type CreateDriverInput } from '@/lib/services/driverService';
 
+async function apiDriver(url: string, method: string, body?: object): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(url, {
+    method,
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  return res.ok ? { ok: true } : { ok: false, error: data.error ?? `HTTP ${res.status}` };
+}
+
 function generatePin(): string {
   return String(Math.floor(1000 + Math.random() * 9000));
 }
@@ -48,26 +58,30 @@ function DriverModal({ driver, onClose, onSaved }: DriverModalProps) {
     setError('');
     setSaving(true);
     try {
-      if (isEdit) {
-        await driverService.update(driver!.id, form);
-      } else {
-        await driverService.create(form);
+      const payload = {
+        firstName: form.firstName,
+        lastName: form.lastName,
+        phone: form.phone,
+        pinCode: form.pinCode,
+        notes: form.notes || null,
+      };
+      const result = isEdit
+        ? await apiDriver(`/api/livreurs/${driver!.id}`, 'PATCH', payload)
+        : await apiDriver('/api/livreurs', 'POST', payload);
+
+      if (!result.ok) {
+        const msg = result.error ?? 'Erreur inconnue';
+        if (msg.includes('duplicate') || msg.includes('unique') || msg.includes('23505')) {
+          setError('Ce numéro de téléphone est déjà utilisé.');
+        } else {
+          setError(msg);
+        }
+        return;
       }
       onSaved(isEdit);
       onClose();
     } catch (err: any) {
-      console.error('Driver save error:', err);
-      const msg: string = err?.message ?? String(err ?? '');
-      const code: string = err?.code ?? '';
-      if (code === '23505' || msg.includes('duplicate') || msg.includes('unique')) {
-        setError('Ce numéro de téléphone est déjà utilisé.');
-      } else if (code === '42P01' || msg.includes('does not exist') || msg.includes("relation")) {
-        setError('Table drivers introuvable — exécutez la migration SQL dans Supabase Dashboard.');
-      } else if (code === '42501' || msg.includes('permission') || msg.includes('policy') || msg.includes('RLS')) {
-        setError('Accès refusé — vérifiez les politiques RLS dans Supabase (ALTER TABLE drivers DISABLE ROW LEVEL SECURITY).');
-      } else {
-        setError(msg || 'Erreur inconnue lors de la sauvegarde.');
-      }
+      setError(err?.message ?? 'Erreur inconnue lors de la sauvegarde.');
     } finally {
       setSaving(false);
     }
@@ -236,7 +250,9 @@ export default function LivreursPage() {
   const handleToggleStatus = async (driver: Driver) => {
     setTogglingId(driver.id);
     try {
-      await driverService.toggleStatus(driver.id, driver.status);
+      await apiDriver(`/api/livreurs/${driver.id}`, 'PATCH', {
+        status: driver.status === 'active' ? 'inactive' : 'active',
+      });
       await load();
     } catch { /* ignore */ } finally {
       setTogglingId(null);
@@ -247,7 +263,7 @@ export default function LivreursPage() {
     if (!confirm(`Supprimer ${driver.firstName} ${driver.lastName} ? Cette action est irréversible.`)) return;
     setDeletingId(driver.id);
     try {
-      await driverService.delete(driver.id);
+      await apiDriver(`/api/livreurs/${driver.id}`, 'DELETE');
       await load();
     } catch { /* ignore */ } finally {
       setDeletingId(null);

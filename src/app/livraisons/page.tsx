@@ -55,10 +55,18 @@ export default function LivraisonsPage() {
         console.error('[livraisons] deliveries load error:', e?.message ?? e);
         return [] as Delivery[];
       }),
-      deliveryService.getActiveDrivers().catch((e: any) => {
-        console.error('[livraisons] drivers load error:', e?.message ?? e);
-        return [] as DriverOption[];
-      }),
+      fetch('/api/livreurs')
+        .then((r) => r.json())
+        .then((d) => (d.drivers ?? []).map((dr: any) => ({
+          id: dr.id,
+          name: `${dr.first_name ?? ''} ${dr.last_name ?? ''}`.trim(),
+          phone: dr.phone ?? null,
+          driverStatus: dr.driver_status ?? 'off',
+        })))
+        .catch((e: any) => {
+          console.error('[livraisons] drivers load error:', e?.message ?? e);
+          return [] as DriverOption[];
+        }),
     ]);
 
     setDeliveries(dels);
@@ -105,13 +113,21 @@ export default function LivraisonsPage() {
 
   const filtered = tab === 'all' ? deliveries : deliveries.filter((d) => d.status === tab);
 
-  const handleAssign = async (deliveryId: string, employeeId: string) => {
+  const handleAssign = async (deliveryId: string, driverId: string) => {
     setAssigningId(deliveryId);
     try {
-      if (employeeId) {
-        await deliveryService.assign(deliveryId, employeeId);
+      const res = await fetch(`/api/livraisons/${deliveryId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assigned_to_driver: driverId || null }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        console.error('[livraisons] assign error:', d.error);
       }
-    } catch { /* ignore */ } finally {
+    } catch (e: any) {
+      console.error('[livraisons] assign error:', e.message);
+    } finally {
       setAssigningId(null);
       loadAll();
     }
