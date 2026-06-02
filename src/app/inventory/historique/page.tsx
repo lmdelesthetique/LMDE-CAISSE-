@@ -88,8 +88,7 @@ export default function InventaireHistoriquePage() {
       .select('id, product_id, product_name, quantity_before, quantity_after, quantity_change, performed_by, created_at')
       .eq('performed_by', 'Inventaire')
       .eq('movement_type', 'adjustment')
-      .order('created_at', { ascending: false })
-      .limit(500);
+      .order('created_at', { ascending: false });
 
     if (error) {
       console.error('inventaire historique', error);

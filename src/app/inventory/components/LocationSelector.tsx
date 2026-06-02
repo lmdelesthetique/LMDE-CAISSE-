@@ -30,6 +30,16 @@ export default function LocationSelector({ locations, selectedId, onSelect, load
     );
   }
 
+  if (locations.length === 0) {
+    return (
+      <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-dashed border-border bg-white text-sm text-muted-foreground">
+        <Icon name="ArchiveBoxIcon" size={16} className="shrink-0 opacity-40" />
+        <span>Aucun emplacement —</span>
+        <a href="/settings" className="text-primary font-600 hover:underline">Créer un emplacement</a>
+      </div>
+    );
+  }
+
   const allOption: Location = {
     id: 'all',
     name: 'Tous les emplacements',
