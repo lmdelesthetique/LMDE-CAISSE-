@@ -190,8 +190,8 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
     buildReceiptsQuery(prevStart, prevEnd),
     buildReceiptsQuery(dayRange.start, dayRange.end),
     buildReceiptsQuery(prevDayRange.start, prevDayRange.end),
-    supabase.from('products').select('*', { count: 'exact', head: true })
-      .or('product_status.eq.rupture,and(stock.gt.0,stock.lte.min_stock)'),
+    supabase.from('products').select('id, stock, min_stock, product_status')
+      .neq('product_status', 'inactive'),
     supabase.from('products').select('*', { count: 'exact', head: true })
       .eq('product_status', 'active'),
     supabase.from('products')
@@ -200,7 +200,9 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
     shopifyRevenuePromise,
   ]);
 
-  const stockAlertCount = stockAlertResult.count;
+  const stockAlertCount = (stockAlertResult.data ?? []).filter((p: any) =>
+    p.product_status === 'rupture' || Number(p.stock ?? 0) <= Number(p.min_stock || 5)
+  ).length;
   const activeProductsCount = activeProductsResult.count;
   // caShopify is already resolved from the parallel Promise.all above
 
@@ -407,14 +409,16 @@ export async function fetchTopProducts(filters?: DashboardFiltersState): Promise
 export async function fetchStockAlerts(): Promise<StockAlert[]> {
   const supabase = createClient();
 
-  const { data } = await supabase
+  const { data: rawData } = await supabase
     .from('products')
     .select('id, name, stock, min_stock, product_status')
-    .or('product_status.eq.rupture,and(stock.gt.0,stock.lte.min_stock)')
+    .neq('product_status', 'inactive')
     .order('stock', { ascending: true })
-    .limit(10);
+    .limit(100);
 
-  if (!data) return [];
+  const data = (rawData ?? [])
+    .filter((p) => p.product_status === 'rupture' || Number(p.stock ?? 0) <= Number(p.min_stock || 5))
+    .slice(0, 10);
 
   return data.map((p) => ({
     id: p.id,

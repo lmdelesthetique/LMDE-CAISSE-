@@ -40,10 +40,11 @@ export default function RealMarginDashboard() {
         }
 
         // Load supplier orders for import costs
-        const { data: orders } = await supabase
+        const ordersResult = await supabase
           .from('fo_orders')
           .select('subtotal, transport_cost, customs_cost, vat_import, freight_forwarder_cost, bank_fees, exchange_fees, local_delivery, other_costs, total_real_cost, supplier_payment_amount, order_status')
           .gte('created_at', startDate);
+        const orders = ordersResult.error ? [] : (ordersResult.data ?? []);
 
         // Load business expenses
         const { data: expenses } = await supabase
@@ -62,10 +63,10 @@ export default function RealMarginDashboard() {
         // Load client purchases for revenue
         const { data: purchases } = await supabase
           .from('client_purchases')
-          .select('amount')
-          .gte('created_at', startDate);
+          .select('total_ttc')
+          .gte('purchased_at', startDate);
 
-        const revenue = (purchases ?? []).reduce((s: number, p: any) => s + (p.amount || 0), 0);
+        const revenue = (purchases ?? []).reduce((s: number, p: any) => s + (p.total_ttc || 0), 0);
         const supplierPayments = (orders ?? [])
           .filter((o: any) => ['paid', 'payment_received_by_supplier'].includes(o.order_status))
           .reduce((s: number, o: any) => s + (o.supplier_payment_amount || o.subtotal || 0), 0);
