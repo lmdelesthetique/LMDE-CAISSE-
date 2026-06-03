@@ -1966,46 +1966,60 @@ function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, l
     if (actions.facture) {
       setSt('facture', 'running');
       try {
-        const d = now;
-        const yy = String(d.getFullYear()).slice(-2);
-        const mm = String(d.getMonth() + 1).padStart(2, '0');
-        const dd = String(d.getDate()).padStart(2, '0');
-        const factureNum = `FAC-${yy}${mm}${dd}-${String(Date.now()).slice(-4)}`;
         openAndPrint(generateFactureHTML({
-          ...s, numero: factureNum, docType: 'facture',
+          ...s, numero: 'FAC-…', docType: 'facture',
           dateStr, timeStr,
           clientName: client?.name,
           items: items.map(i => ({ name: i.name, qty: i.qty, price: i.price, discount: i.discount, discountType: i.discountType })),
           subtotalHT, totalTVA, totalTTC: total,
           paymentMethod: paymentMethod || 'Carte / Espèces',
         }));
-        fetch('/api/factures', {
+        const res = await fetch('/api/factures', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            numero: factureNum, doc_type: 'facture',
+            doc_type: 'facture',
             client_name: client?.name ?? null,
             items: items.map(i => ({ name: i.name, qty: i.qty, price: i.price })),
             total_ht: subtotalHT, total_tva: totalTVA, total_ttc: total,
             tva_rate: s.tvaRate, payment_method: paymentMethod || 'Carte / Espèces',
             status: 'payee', receipt_ref: ticketNumber,
+            is_counted_in_ca: true,
           }),
-        }).catch(console.error);
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || `HTTP ${res.status}`);
+        }
         setSt('facture', 'done');
       } catch (e: unknown) {
         setSt('facture', 'error');
-        setErr('facture', e instanceof Error ? e.message : 'Erreur impression');
+        setErr('facture', e instanceof Error ? e.message : 'Erreur sauvegarde facture');
       }
     }
 
     if (actions.devis) {
       setSt('devis', 'running');
       try {
-        const d = now;
-        const yy = String(d.getFullYear()).slice(-2);
-        const mm = String(d.getMonth() + 1).padStart(2, '0');
-        const dd = String(d.getDate()).padStart(2, '0');
-        const devisNum = `DEV-${yy}${mm}${dd}-${String(Date.now()).slice(-4)}`;
+        // Save to DB first to get the server-assigned numero
+        const res = await fetch('/api/factures', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            doc_type: 'devis',
+            client_name: client?.name ?? null,
+            items: items.map(i => ({ name: i.name, qty: i.qty, price: i.price })),
+            total_ht: subtotalHT, total_tva: totalTVA, total_ttc: total,
+            tva_rate: s.tvaRate, status: 'en_attente', receipt_ref: ticketNumber,
+            is_counted_in_ca: false,  // devis never counts in CA
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || `HTTP ${res.status}`);
+        }
+        const saved = await res.json();
+        const devisNum = saved.numero ?? `DEV-${now.getFullYear()}-????`;
         openAndPrint(generateFactureHTML({
           ...s, numero: devisNum, docType: 'devis',
           dateStr, timeStr,
@@ -2013,21 +2027,10 @@ function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, l
           items: items.map(i => ({ name: i.name, qty: i.qty, price: i.price, discount: i.discount, discountType: i.discountType })),
           subtotalHT, totalTVA, totalTTC: total,
         }));
-        fetch('/api/factures', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            numero: devisNum, doc_type: 'devis',
-            client_name: client?.name ?? null,
-            items: items.map(i => ({ name: i.name, qty: i.qty, price: i.price })),
-            total_ht: subtotalHT, total_tva: totalTVA, total_ttc: total,
-            tva_rate: s.tvaRate, status: 'en_attente', receipt_ref: ticketNumber,
-          }),
-        }).catch(console.error);
         setSt('devis', 'done');
       } catch (e: unknown) {
         setSt('devis', 'error');
-        setErr('devis', e instanceof Error ? e.message : 'Erreur impression');
+        setErr('devis', e instanceof Error ? e.message : 'Erreur sauvegarde devis');
       }
     }
 

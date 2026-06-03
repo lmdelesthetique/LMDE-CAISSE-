@@ -1086,8 +1086,20 @@ export default function B2BInvoicingPage() {
   const [previewDoc, setPreviewDoc] = useState<B2BDocument | null>(null);
   const [emailDoc, setEmailDoc] = useState<B2BDocument | null>(null);
 
+  // Devis emitted from POS (stored in factures table with doc_type='devis')
+  const [posDevis, setPosDevis] = useState<any[]>([]);
+  const [posDevisLoading, setPosDevisLoading] = useState(true);
+
   useEffect(() => {
     clientService.getAll().then(setClients).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetch('/api/factures?type=devis')
+      .then((r) => r.json())
+      .then((data) => setPosDevis(Array.isArray(data) ? data : []))
+      .catch(() => setPosDevis([]))
+      .finally(() => setPosDevisLoading(false));
   }, []);
 
   const filtered = docs.filter((d) => {
@@ -1320,6 +1332,65 @@ export default function B2BInvoicingPage() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* ── Devis émis depuis la caisse ── */}
+      <div className="mx-6 mb-6 mt-2 border border-border rounded-xl overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 bg-blue-50 border-b border-blue-100">
+          <div className="flex items-center gap-2">
+            <span className="text-base">📋</span>
+            <p className="text-sm font-semibold text-blue-800">Devis émis depuis la caisse</p>
+            {!posDevisLoading && (
+              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                {posDevis.length}
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-blue-600">⚠️ Non comptabilisés dans le CA</p>
+        </div>
+
+        {posDevisLoading ? (
+          <div className="flex justify-center py-6">
+            <div className="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : posDevis.length === 0 ? (
+          <div className="px-4 py-6 text-center text-sm text-muted-foreground">
+            Aucun devis caisse enregistré
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-muted/30 border-b border-border">
+                  <th className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground">Numéro</th>
+                  <th className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground">Client</th>
+                  <th className="text-right px-4 py-2 text-xs font-semibold text-muted-foreground">Montant TTC</th>
+                  <th className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground">Statut</th>
+                  <th className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground">Date</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {posDevis.map((d) => (
+                  <tr key={d.id} className="hover:bg-muted/20 transition-colors">
+                    <td className="px-4 py-2.5 font-mono text-xs text-foreground">{d.numero}</td>
+                    <td className="px-4 py-2.5 text-sm text-foreground">{d.client_name ?? '—'}</td>
+                    <td className="px-4 py-2.5 text-sm font-semibold text-right">
+                      {d.total_ttc != null ? `${Number(d.total_ttc).toFixed(2)} €` : '—'}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
+                        {d.status === 'en_attente' ? 'En attente' : d.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-muted-foreground">
+                      {new Date(d.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Modals */}
