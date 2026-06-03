@@ -34,8 +34,9 @@ export async function POST(req: NextRequest) {
     .neq('status', 'terminated');
 
   if (error) {
-    console.error('[verify-manager-pin] DB error:', error.message);
-    return NextResponse.json({ valid: false, error: error.message }, { status: 500 });
+    console.error('[verify-manager-pin] DB error:', error.code, error.message);
+    // Don't return 500 — caller just needs to know pin is invalid
+    return NextResponse.json({ valid: false });
   }
 
   for (const emp of employees ?? []) {
