@@ -28,7 +28,7 @@ interface StatusBadgeProps {
 }
 
 export default function StatusBadge({ variant, label, size = 'md' }: StatusBadgeProps) {
-  const styles = variantMap[variant];
+  const styles = variantMap[variant] ?? variantMap.inactive;
   const displayLabel = label ?? styles.label;
 
   return (
