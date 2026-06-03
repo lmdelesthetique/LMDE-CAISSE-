@@ -23,6 +23,7 @@ interface CartPanelProps {
   globalDiscount: GlobalDiscount | null;
   globalDiscountAmount: number;
   onGlobalDiscountChange: (d: GlobalDiscount | null) => void;
+  rewardDiscountAmount?: number;
   tvaRate?: number;
   cashierName?: string;
 }
@@ -215,6 +216,7 @@ export default function CartPanel({
   globalDiscount,
   globalDiscountAmount,
   onGlobalDiscountChange,
+  rewardDiscountAmount = 0,
   tvaRate = 0.085,
   cashierName = 'Caisse',
 }: CartPanelProps) {
@@ -392,6 +394,16 @@ export default function CartPanel({
                   Appliquer
                 </button>
               </div>
+            </div>
+          )}
+
+          {rewardDiscountAmount > 0 && (
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm">🎁</span>
+                <span className="text-sm text-violet-600 font-600">Récompense fidélité</span>
+              </div>
+              <span className="text-sm font-700 tabular-nums text-violet-600">-{rewardDiscountAmount.toFixed(2)} €</span>
             </div>
           )}
 

@@ -924,11 +924,19 @@ export default function POSTerminal() {
       : Math.min(cartTotalTTC, globalDiscount.value)
     : 0;
   const totalTTC = Math.max(0, cartTotalTTC - globalDiscountAmount);
+  const rewardDiscountAmount =
+    appliedReward &&
+    appliedReward.rewardValue > 0 &&
+    appliedReward.rewardType !== 'free_product' &&
+    appliedReward.rewardType !== 'surprise_gift'
+      ? Math.min(totalTTC, totalTTC * (appliedReward.rewardValue / 100))
+      : 0;
+  const finalTTC = Math.max(0, totalTTC - rewardDiscountAmount);
 
   const handlePaymentConfirm = useCallback(async (method: string) => {
     if (paying) return;
     setPaying(true);
-    const total = totalTTC;
+    const total = finalTTC;
     const itemsCount = cart.length;
     const clientName = client?.name;
     const ticketRef = generateTicketNumber();
@@ -968,7 +976,7 @@ export default function POSTerminal() {
       const disc = i.discountType === 'percent' ? base * (i.discount / 100) : i.discount;
       return s + disc;
     }, 0);
-    const discountAmount = itemDiscountAmount + globalDiscountAmount;
+    const discountAmount = itemDiscountAmount + globalDiscountAmount + rewardDiscountAmount;
 
     let loyaltyPointsEarned = 0;
     let loyaltyRewardUsed: string | undefined;
@@ -1141,6 +1149,7 @@ export default function POSTerminal() {
 
         setShowPayment(false);
         setLastSaleTotal(total);
+        setLastSaleRewardDiscount(rewardDiscountAmount);
         setLastSaleClient(client);
         setLastSaleItems([...cart]);
         setLastSaleMethod(method);
@@ -1191,6 +1200,7 @@ export default function POSTerminal() {
 
       setShowPayment(false);
       setLastSaleTotal(total);
+      setLastSaleRewardDiscount(rewardDiscountAmount);
       setLastSaleClient(client);
       setLastSaleItems([...cart]);
       setLastSaleMethod(method);
@@ -1204,7 +1214,7 @@ export default function POSTerminal() {
       toast.success(`Paiement encaissé — ${total.toFixed(2)} € via ${method}`);
     }
     setPaying(false);
-  }, [cart, client, paymentMode, totalTTC, subtotalHT, totalTVA, globalDiscountAmount, loyaltyTiers, logAction, employee, appliedReward, paying]);
+  }, [cart, client, paymentMode, totalTTC, subtotalHT, totalTVA, globalDiscountAmount, rewardDiscountAmount, finalTTC, loyaltyTiers, logAction, employee, appliedReward, paying]);
 
   const handleLoyaltyValidate = useCallback((tier: LoyaltyTier) => {
     toast.success(`🎁 Récompense validée : ${tier.rewardDescription}`, { duration: 4000 });
@@ -1231,6 +1241,7 @@ export default function POSTerminal() {
   const [lastSaleMethod, setLastSaleMethod] = useState('');
   const [lastSaleTicketRef, setLastSaleTicketRef] = useState('');
   const [lastSaleLoyalty, setLastSaleLoyalty] = useState<{ pointsEarned: number; totalPoints: number; nextTier: LoyaltyTier | null; pointsToNext: number; currentTierName: string | null } | null>(null);
+  const [lastSaleRewardDiscount, setLastSaleRewardDiscount] = useState(0);
 
   const handleDocChoiceClose = useCallback(() => {
     setShowDocChoice(false);
@@ -1544,7 +1555,7 @@ export default function POSTerminal() {
           {appliedReward && (
             <RewardAppliedBanner
               reward={appliedReward}
-              discountAmount={appliedReward.rewardValue > 0 ? (subtotalHT * appliedReward.rewardValue) / 100 : 0}
+              discountAmount={rewardDiscountAmount}
               onRemove={handleRemoveAppliedReward}
             />
           )}
@@ -1578,10 +1589,11 @@ export default function POSTerminal() {
             onRemove={removeItem}
             subtotalHT={subtotalHT}
             totalTVA={totalTVA}
-            totalTTC={totalTTC}
+            totalTTC={finalTTC}
             globalDiscount={globalDiscount}
             globalDiscountAmount={globalDiscountAmount}
             onGlobalDiscountChange={setGlobalDiscount}
+            rewardDiscountAmount={rewardDiscountAmount}
             tvaRate={LIVE_TAX_RATE}
             cashierName={employee?.fullName || 'Caisse'}
           />
@@ -1617,7 +1629,7 @@ export default function POSTerminal() {
               disabled={cart.length === 0 || paying}
               className="w-full py-3 bg-primary text-primary-foreground rounded-lg text-[15px] font-700 hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 shadow-sm"
             >
-              {paying ? 'Traitement…' : `Encaisser — ${totalTTC.toFixed(2)} €`}
+              {paying ? 'Traitement…' : `Encaisser — ${finalTTC.toFixed(2)} €`}
             </button>
           </div>
         </div>
@@ -1739,7 +1751,7 @@ export default function POSTerminal() {
       {showPayment && (
         <PaymentModal
           mode={paymentMode}
-          totalTTC={totalTTC}
+          totalTTC={finalTTC}
           client={client}
           cartItems={cart}
           onClose={() => setShowPayment(false)}
@@ -1795,6 +1807,7 @@ export default function POSTerminal() {
           paymentMethod={lastSaleMethod}
           ticketRef={lastSaleTicketRef}
           loyaltyInfo={lastSaleLoyalty}
+          rewardDiscountAmount={lastSaleRewardDiscount}
           onClose={handleDocChoiceClose}
         />
       )}
@@ -1833,6 +1846,7 @@ interface PostPaymentDocModalProps {
   paymentMethod?: string;
   ticketRef?: string;
   loyaltyInfo?: { pointsEarned: number; totalPoints: number; nextTier: LoyaltyTier | null; pointsToNext: number; currentTierName?: string | null } | null;
+  rewardDiscountAmount?: number;
   onClose: () => void;
 }
 
@@ -1898,7 +1912,7 @@ function ActionRow({ checked, onToggle, emoji, label, desc, status, errorMsg, ch
   );
 }
 
-function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, loyaltyInfo, onClose }: PostPaymentDocModalProps) {
+function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, loyaltyInfo, rewardDiscountAmount = 0, onClose }: PostPaymentDocModalProps) {
   const [actions, setActions] = useState<Record<ActionKey, boolean>>(() => ({
     print: !client,
     facture: total > 100,
@@ -1958,6 +1972,7 @@ function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, l
           paymentMethod: paymentMethod || 'Carte / Espèces',
           loyalty: loyaltyBlock,
           isDemo: isDemoMode,
+          rewardDiscountAmount: rewardDiscountAmount > 0 ? rewardDiscountAmount : undefined,
         }));
         setSt('print', 'done');
       } catch { setSt('print', 'error'); setErr('print', "Erreur ouverture impression"); }

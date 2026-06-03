@@ -35,6 +35,8 @@ export interface TicketPrintData {
   receiptFooter?: string;
   isDuplicate?: boolean;
   isDemo?: boolean;
+  rewardDiscountAmount?: number;
+  rewardDescription?: string;
   // template settings from ticket_settings table
   showTVADetails?: boolean;
   showPoints?: boolean;
@@ -191,6 +193,7 @@ ${itemsHTML}
 ${showTVA ? `${line('Sous-total HT :', `${d.subtotalHT.toFixed(2)}€`)}
 ${line(`TVA ${d.tvaRate}% :`, `${d.totalTVA.toFixed(2)}€`)}
 <p>${SEP}</p>` : ''}
+${(d.rewardDiscountAmount ?? 0) > 0 ? `${line('🎁 Récompense :', `-${d.rewardDiscountAmount!.toFixed(2)}€`)}` : ''}
 <div class="tl ttc"><span>TOTAL TTC :</span><span>${d.totalTTC.toFixed(2)}€</span></div>
 <p>${SEP}</p>
 
