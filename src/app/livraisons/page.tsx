@@ -175,6 +175,9 @@ export default function LivraisonsPage() {
       {/* Page header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
+          <a href="/dashboard" className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-pink-600 font-medium transition-colors mb-1">
+            <span>←</span> Dashboard
+          </a>
           <h1 className="text-2xl font-black text-gray-900">Livraisons</h1>
           <p className="text-sm text-gray-500">Gestion des livraisons en temps réel</p>
         </div>

@@ -332,6 +332,9 @@ export default function ExpeditionsPage() {
         <div className="border-b border-border bg-white px-6 lg:px-8 py-4 sticky top-0 z-20">
           <div className="max-w-screen-xl mx-auto flex items-center justify-between">
             <div>
+              <a href="/dashboard" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-pink-600 font-medium transition-colors mb-1">
+                <span>←</span> Dashboard
+              </a>
               <h1 className="text-2xl font-semibold text-foreground">Expéditions</h1>
               <p className="text-sm text-muted-foreground mt-0.5">Gestion des envois Colissimo et retraits en magasin</p>
             </div>

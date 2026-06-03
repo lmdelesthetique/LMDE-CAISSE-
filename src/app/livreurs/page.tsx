@@ -280,6 +280,9 @@ export default function LivreursPage() {
         <div className="border-b border-border bg-white px-6 lg:px-8 py-4 sticky top-0 z-20">
           <div className="max-w-screen-xl mx-auto flex items-center justify-between">
             <div>
+              <a href="/livraisons" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-pink-600 font-medium transition-colors mb-1">
+                <span>←</span> Livraisons
+              </a>
               <h1 className="text-2xl font-semibold text-foreground">Livreurs</h1>
               <p className="text-sm text-muted-foreground mt-0.5">Gestion des livreurs et accès au portail</p>
             </div>
