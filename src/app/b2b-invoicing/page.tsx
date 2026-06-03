@@ -284,7 +284,6 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
   const searchProducts = async (lineId: string, query: string) => {
     setProductSearches((prev) => ({ ...prev, [lineId]: query }));
     if (query.trim().length < 2) {
-      setProductResults((prev) => ({ ...prev, [lineId]: [] }));
       setShowProductDropdown((prev) => ({ ...prev, [lineId]: false }));
       return;
     }
@@ -294,7 +293,7 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
       setProductResults((prev) => ({ ...prev, [lineId]: json.products ?? [] }));
       setShowProductDropdown((prev) => ({ ...prev, [lineId]: true }));
     } catch {
-      // silently ignore network errors
+      setShowProductDropdown((prev) => ({ ...prev, [lineId]: false }));
     }
   };
 
@@ -555,18 +554,18 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
                 Ajouter une ligne
               </button>
             </div>
-            <div className="border border-border rounded-xl overflow-hidden">
+            <div className="border border-border rounded-xl overflow-visible">
               <table className="w-full text-sm">
                 <thead className="bg-muted/50">
                   <tr>
-                    <th className="text-left px-3 py-2.5 text-xs font-medium text-muted-foreground w-[35%]">Description</th>
+                    <th className="text-left px-3 py-2.5 text-xs font-medium text-muted-foreground w-[35%] rounded-tl-xl">Description</th>
                     <th className="text-center px-2 py-2.5 text-xs font-medium text-muted-foreground w-[8%]">Qté</th>
                     <th className="text-right px-2 py-2.5 text-xs font-medium text-muted-foreground w-[12%]">P.U. HT</th>
                     <th className="text-center px-2 py-2.5 text-xs font-medium text-muted-foreground w-[10%]">TVA %</th>
                     <th className="text-center px-2 py-2.5 text-xs font-medium text-muted-foreground w-[8%]">Remise %</th>
                     <th className="text-right px-2 py-2.5 text-xs font-medium text-muted-foreground w-[12%]">Total HT</th>
                     <th className="text-right px-2 py-2.5 text-xs font-medium text-muted-foreground w-[12%]">Total TTC</th>
-                    <th className="w-[3%]"></th>
+                    <th className="w-[3%] rounded-tr-xl"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -586,50 +585,49 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
                                 const q = productSearches[line.id] ?? line.description;
                                 if (q.length >= 2) searchProducts(line.id, q);
                               }}
-                              onBlur={() => setTimeout(() => setShowProductDropdown((prev) => ({ ...prev, [line.id]: false })), 150)}
+                              onBlur={() => setTimeout(() => setShowProductDropdown((prev) => ({ ...prev, [line.id]: false })), 200)}
                               className="w-full bg-transparent border-0 focus:outline-none text-sm text-foreground placeholder:text-muted-foreground"
                               placeholder="Rechercher par nom, référence ou code-barre…"
                             />
-                            {showProductDropdown[line.id] && (productResults[line.id] ?? []).length > 0 && (
-                              <div className="absolute z-20 top-full mt-1 left-0 w-96 bg-white border border-border rounded-xl shadow-lg max-h-72 overflow-y-auto">
-                                {(productResults[line.id] ?? []).map((p: any) => {
-                                  const isRupture = (p.stock ?? 0) <= 0;
-                                  return (
-                                    <button
-                                      key={p.id}
-                                      onClick={() => selectProduct(line.id, p)}
-                                      className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-muted text-left text-sm border-b border-border/50 last:border-0"
-                                    >
-                                      {p.image_url ? (
-                                        <img src={p.image_url} alt={p.name} className="w-9 h-9 rounded-lg object-cover shrink-0" />
-                                      ) : (
-                                        <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                                          <Icon name="TagIcon" size={13} className="text-primary" />
+                            {showProductDropdown[line.id] && (
+                              <div className="absolute z-[100] top-full mt-1 left-0 w-96 bg-white border border-border rounded-xl shadow-xl max-h-72 overflow-y-auto">
+                                {(productResults[line.id] ?? []).length > 0 ? (
+                                  (productResults[line.id] ?? []).map((p: any) => {
+                                    const isRupture = (p.stock ?? 0) <= 0;
+                                    return (
+                                      <button
+                                        key={p.id}
+                                        type="button"
+                                        onMouseDown={(e) => { e.preventDefault(); selectProduct(line.id, p); }}
+                                        className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-muted text-left text-sm border-b border-border/50 last:border-0"
+                                      >
+                                        {p.image_url ? (
+                                          <img src={p.image_url} alt={p.name} className="w-9 h-9 rounded-lg object-cover shrink-0" />
+                                        ) : (
+                                          <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                                            <Icon name="TagIcon" size={13} className="text-primary" />
+                                          </div>
+                                        )}
+                                        <div className="flex-1 min-w-0">
+                                          <div className="flex items-center gap-1.5 flex-wrap">
+                                            <span className="font-medium text-foreground truncate">{p.name}</span>
+                                            {isRupture && (
+                                              <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 border border-red-200 leading-none">RUPTURE</span>
+                                            )}
+                                          </div>
+                                          <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground flex-wrap">
+                                            {p.ref && <span>Réf: <strong>{p.ref}</strong></span>}
+                                            {p.sell_price_ttc != null && <span>{Number(p.sell_price_ttc).toFixed(2)} € TTC</span>}
+                                            <span className={isRupture ? 'text-red-500 font-medium' : ''}>Stock: {p.stock ?? 0}</span>
+                                            <span>TVA {p.tva ?? 8.5}%</span>
+                                          </div>
                                         </div>
-                                      )}
-                                      <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                          <span className="font-medium text-foreground truncate">{p.name}</span>
-                                          {isRupture && (
-                                            <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 border border-red-200 leading-none">
-                                              RUPTURE
-                                            </span>
-                                          )}
-                                        </div>
-                                        <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground flex-wrap">
-                                          {p.ref && <span>Réf: <strong>{p.ref}</strong></span>}
-                                          {p.sell_price_ttc != null && (
-                                            <span>{p.sell_price_ttc.toFixed(2)} € TTC</span>
-                                          )}
-                                          <span className={isRupture ? 'text-red-500 font-medium' : ''}>
-                                            Stock: {p.stock ?? 0}
-                                          </span>
-                                          <span>TVA {p.tva ?? 8.5}%</span>
-                                        </div>
-                                      </div>
-                                    </button>
-                                  );
-                                })}
+                                      </button>
+                                    );
+                                  })
+                                ) : (
+                                  <div className="px-4 py-3 text-sm text-muted-foreground text-center">Aucun produit trouvé</div>
+                                )}
                               </div>
                             )}
                           </div>
