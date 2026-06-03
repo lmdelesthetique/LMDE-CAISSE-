@@ -105,13 +105,17 @@ export async function GET(req: NextRequest) {
 
   let query = supabase
     .from('factures')
-    .select('id, numero, doc_type, client_name, total_ttc, status, is_counted_in_ca, created_at')
+    .select('id, numero, doc_type, client_name, total_ttc, status, created_at')
     .order('created_at', { ascending: false })
     .limit(200);
 
   if (docType !== 'all') query = query.eq('doc_type', docType);
 
   const { data, error } = await query;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error('[api/factures GET]', error.code, error.message);
+    // Return empty array instead of 500 so the page still renders
+    return NextResponse.json([]);
+  }
   return NextResponse.json(data ?? []);
 }

@@ -1112,7 +1112,7 @@ export default function B2BInvoicingPage() {
 
   useEffect(() => {
     fetch('/api/factures?type=devis')
-      .then((r) => r.json())
+      .then((r) => r.ok ? r.json() : Promise.resolve([]))
       .then((data) => setPosDevis(Array.isArray(data) ? data : []))
       .catch(() => setPosDevis([]))
       .finally(() => setPosDevisLoading(false));
