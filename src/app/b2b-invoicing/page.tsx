@@ -3,7 +3,6 @@
 import React, { useState, useEffect } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
-import { createClient } from '@/lib/supabase/client';
 import { clientService, type Client } from '@/lib/services/clientService';
 import { sendInvoiceEmail, sendEstimateEmail, type InvoiceEmailData } from '@/lib/services/emailService';
 
@@ -289,31 +288,31 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
       setShowProductDropdown((prev) => ({ ...prev, [lineId]: false }));
       return;
     }
-    const supabase = createClient();
-    const q = query.trim();
-    const { data } = await supabase
-      .from('products')
-      .select('id, name, ref, barcode, sell_price_ttc, sell_price_ht, tva, stock, image_url')
-      .eq('product_status', 'active')
-      .or(`name.ilike.%${q}%,ref.ilike.%${q}%,barcode.ilike.%${q}%`)
-      .order('name')
-      .limit(10);
-    setProductResults((prev) => ({ ...prev, [lineId]: data ?? [] }));
-    setShowProductDropdown((prev) => ({ ...prev, [lineId]: true }));
+    try {
+      const res = await fetch(`/api/products/search?q=${encodeURIComponent(query.trim())}&limit=8`);
+      const json = await res.json();
+      setProductResults((prev) => ({ ...prev, [lineId]: json.products ?? [] }));
+      setShowProductDropdown((prev) => ({ ...prev, [lineId]: true }));
+    } catch {
+      // silently ignore network errors
+    }
   };
 
   const selectProduct = (lineId: string, product: any) => {
     const tvaRate = product.tva ?? 8.5;
-    const priceHt = product.sell_price_ht ?? (product.sell_price_ttc
-      ? Math.round((product.sell_price_ttc / (1 + tvaRate / 100)) * 100) / 100
-      : 0);
+    const priceHt = product.sell_price_ht
+      ? Number(product.sell_price_ht)
+      : product.sell_price_ttc
+        ? Math.round((Number(product.sell_price_ttc) / (1 + tvaRate / 100)) * 100) / 100
+        : 0;
     setLines((prev) => prev.map((l) => l.id === lineId ? {
       ...l,
       description: product.name + (product.ref ? ` (Réf: ${product.ref})` : ''),
       unitPrice: priceHt,
       tvaRate,
     } : l));
-    setProductSearches((prev) => ({ ...prev, [lineId]: '' }));
+    // Remove search key so input falls back to showing line.description
+    setProductSearches((prev) => { const { [lineId]: _, ...rest } = prev; return rest; });
     setShowProductDropdown((prev) => ({ ...prev, [lineId]: false }));
     setProductResults((prev) => ({ ...prev, [lineId]: [] }));
   };
