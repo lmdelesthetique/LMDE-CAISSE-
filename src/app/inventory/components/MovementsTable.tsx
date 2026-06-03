@@ -82,7 +82,7 @@ export default function MovementsTable({ movements, loading, filterType, onFilte
             </thead>
             <tbody className="divide-y divide-border">
               {movements.map((m) => {
-                const cfg = typeConfig[m.movementType];
+                const cfg = typeConfig[m.movementType] ?? { label: m.movementType, color: 'text-gray-700', bg: 'bg-gray-50 border-gray-200', icon: 'TagIcon' };
                 return (
                   <tr key={m.id} className="hover:bg-muted/20 transition-colors">
                     <td className="px-5 py-3">

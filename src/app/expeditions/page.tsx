@@ -86,7 +86,7 @@ function printColissimoLabel(exp: Expedition) {
 // ── Expedition row ─────────────────────────────────────────────────────────────
 
 function ExpeditionRow({ exp, onRefresh }: { exp: Expedition; onRefresh: () => void }) {
-  const cfg = EXPEDITION_STATUS_CONFIG[exp.status];
+  const cfg = EXPEDITION_STATUS_CONFIG[exp.status] ?? { label: exp.status, color: 'text-gray-700', bg: 'bg-gray-50 border-gray-200', dot: 'bg-gray-400' };
   const [trackingInput, setTrackingInput] = useState('');
   const [showTrackingForm, setShowTrackingForm] = useState(false);
   const [loading, setLoading] = useState(false);

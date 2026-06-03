@@ -210,8 +210,8 @@ export default function EmployeesPage() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {filtered.map((emp) => {
-              const roleConf = ROLE_CONFIG[emp.role];
-              const statusConf = STATUS_CONFIG[emp.status];
+              const roleConf = ROLE_CONFIG[emp.role] ?? { label: emp.role, color: 'text-gray-600 bg-gray-50 border-gray-200', icon: 'UserIcon' };
+              const statusConf = STATUS_CONFIG[emp.status] ?? { label: emp.status, color: 'text-gray-600 bg-gray-50 border-gray-200', dot: 'bg-gray-400' };
               const activePerms = (Object.keys(emp.permissions) as (keyof EmployeePermissions)[]).filter((k) => emp.permissions[k]);
               return (
                 <div

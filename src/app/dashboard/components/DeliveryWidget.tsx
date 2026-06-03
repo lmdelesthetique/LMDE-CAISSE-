@@ -119,7 +119,7 @@ export default function DeliveryWidget() {
           <div className="space-y-1.5">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Dernières livraisons</p>
             {recent.map((d) => {
-              const cfg = DELIVERY_STATUS_CONFIG[d.status];
+              const cfg = DELIVERY_STATUS_CONFIG[d.status] ?? { label: d.status, color: 'text-gray-800', bg: 'bg-gray-100 border-gray-300', dot: 'bg-gray-400' };
               const late = isLate(d);
               const city = cityFromAddress(d.deliveryAddress);
               return (

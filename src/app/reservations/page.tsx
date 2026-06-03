@@ -467,12 +467,12 @@ export default function ReservationsPage() {
                 </thead>
                 <tbody>
                   {sorted.map((res) => {
-                    const sc = STATUS_CONFIG[res.reservationStatus];
+                    const sc = STATUS_CONFIG[res.reservationStatus] ?? { label: res.reservationStatus, color: 'text-gray-600 bg-gray-50 border-gray-200', dot: 'bg-gray-400', icon: 'ClockIcon' };
                     const nextAction = getNextAction(res.reservationStatus);
                     const isActing = actionLoading === res.id;
                     const firstProduct = getFirstProductImage(res.items);
-                    const typeCfg = res.reservationType ? RESERVATION_TYPE_CONFIG[res.reservationType] : null;
-                    const recoveryCfg = RECOVERY_MODE_CONFIG[res.recoveryMode];
+                    const typeCfg = res.reservationType ? (RESERVATION_TYPE_CONFIG[res.reservationType] ?? null) : null;
+                    const recoveryCfg = RECOVERY_MODE_CONFIG[res.recoveryMode] ?? { label: res.recoveryMode ?? '—', color: 'text-gray-600 bg-gray-50 border-gray-200', icon: 'QuestionMarkCircleIcon' };
                     const firstItem = res.items[0];
                     const variantLabel = firstItem ? getVariantLabel(firstItem) : '';
 

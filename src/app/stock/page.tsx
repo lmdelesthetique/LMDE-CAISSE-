@@ -692,7 +692,7 @@ export default function StockPage() {
                     ) : (
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                         {restockProducts.map(p => {
-                          const cfg = STATUS_CONFIG[p.stockStatus];
+                          const cfg = STATUS_CONFIG[p.stockStatus as keyof typeof STATUS_CONFIG] ?? STATUS_CONFIG.ok;
                           return (
                             <div key={p.id} className={`bg-white border rounded-2xl p-4 flex gap-4 hover:shadow-md transition-shadow ring-1 ${cfg.ring}`}>
                               <div className="w-14 h-14 rounded-xl overflow-hidden bg-muted shrink-0">
@@ -968,7 +968,7 @@ export default function StockPage() {
 
                   <div className="space-y-2">
                     {filteredProducts.map(p => {
-                      const cfg = STATUS_CONFIG[p.stockStatus];
+                      const cfg = STATUS_CONFIG[p.stockStatus as keyof typeof STATUS_CONFIG] ?? STATUS_CONFIG.ok;
                       return (
                         <div key={p.id} className="bg-white border border-border rounded-2xl p-4 hover:shadow-md transition-all">
                           <div className="flex items-center gap-4">

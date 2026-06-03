@@ -203,7 +203,7 @@ function formatDate(d: string) {
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function DocTypeBadge({ type }: { type: DocType }) {
-  const cfg = DOC_TYPE_CONFIG[type];
+  const cfg = DOC_TYPE_CONFIG[type] ?? { label: type, color: 'text-gray-600 bg-gray-50 border-gray-200', icon: 'DocumentIcon' };
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${cfg.color}`}>
       <Icon name={cfg.icon as any} size={11} />
@@ -213,7 +213,7 @@ function DocTypeBadge({ type }: { type: DocType }) {
 }
 
 function StatusBadge({ status }: { status: DocStatus }) {
-  const cfg = STATUS_CONFIG[status];
+  const cfg = STATUS_CONFIG[status] ?? { label: status, color: 'text-gray-600 bg-gray-50 border-gray-200' };
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${cfg.color}`}>
       {cfg.label}
@@ -839,7 +839,7 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
 // ─── Document Preview Modal ───────────────────────────────────────────────────
 
 function DocPreviewModal({ doc, onClose, onSendEmail }: { doc: B2BDocument; onClose: () => void; onSendEmail: (doc: B2BDocument) => void }) {
-  const cfg = DOC_TYPE_CONFIG[doc.type];
+  const cfg = DOC_TYPE_CONFIG[doc.type] ?? { label: doc.type, color: 'text-gray-600 bg-gray-50 border-gray-200', icon: 'DocumentIcon', prefix: '?' };
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 overflow-y-auto py-6 px-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl">
@@ -964,9 +964,10 @@ function DocPreviewModal({ doc, onClose, onSendEmail }: { doc: B2BDocument; onCl
 
 function EmailModal({ doc, onClose }: { doc: B2BDocument; onClose: () => void }) {
   const [to, setTo] = useState(doc.clientEmail);
-  const [subject, setSubject] = useState(`${DOC_TYPE_CONFIG[doc.type].label} ${doc.number} — BeautyPOS`);
+  const docTypeLabel = (DOC_TYPE_CONFIG[doc.type] ?? { label: doc.type }).label;
+  const [subject, setSubject] = useState(`${docTypeLabel} ${doc.number} — BeautyPOS`);
   const [body, setBody] = useState(
-    `Bonjour,\n\nVeuillez trouver ci-joint votre ${DOC_TYPE_CONFIG[doc.type].label.toLowerCase()} n° ${doc.number} d'un montant de ${formatCurrency(doc.totalTtc)} TTC.\n\n${doc.paymentTerms}.\n\nCordialement,\nL'équipe BeautyPOS`
+    `Bonjour,\n\nVeuillez trouver ci-joint votre ${docTypeLabel.toLowerCase()} n° ${doc.number} d'un montant de ${formatCurrency(doc.totalTtc)} TTC.\n\n${doc.paymentTerms}.\n\nCordialement,\nL'équipe BeautyPOS`
   );
   const [sent, setSent] = useState(false);
   const [sending, setSending] = useState(false);

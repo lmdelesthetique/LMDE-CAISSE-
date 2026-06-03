@@ -85,7 +85,7 @@ export default function StockAlertsTable({ items, loading, showOnlyAlerts, onTog
             </thead>
             <tbody className="divide-y divide-border">
               {alertItems.map((item) => {
-                const cfg = alertConfig[item.alertLevel];
+                const cfg = alertConfig[item.alertLevel] ?? { label: item.alertLevel, color: 'text-gray-700', bg: 'bg-gray-50 border-gray-200', dot: 'bg-gray-400' };
                 const pct = item.minStockLevel > 0 ? Math.min(100, Math.round((item.quantity / item.minStockLevel) * 100)) : 100;
                 return (
                   <tr key={`${item.id}-${item.locationName}`} className="hover:bg-muted/20 transition-colors">

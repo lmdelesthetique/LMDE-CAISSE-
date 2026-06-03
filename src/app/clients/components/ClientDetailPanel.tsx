@@ -162,7 +162,7 @@ export default function ClientDetailPanel({
   const nextTier = loyaltyTiers.length > 0 ? getNextTier(loyaltyTiers, client.loyaltyPoints) : null;
   const ptsToNext = loyaltyTiers.length > 0 ? pointsToNextTier(loyaltyTiers, client.loyaltyPoints) : 0;
 
-  const tier = TIER_CONFIG[client.loyaltyTier];
+  const tier = TIER_CONFIG[client.loyaltyTier as keyof typeof TIER_CONFIG] ?? TIER_CONFIG.bronze;
   const typeCfg = CLIENT_TYPE_CONFIG[client.clientType] ?? CLIENT_TYPE_CONFIG.particulier;
   const effectiveDiscount = getClientDiscount(client, subscription);
 
@@ -373,18 +373,21 @@ export default function ClientDetailPanel({
               )}
 
               {/* Subscription summary */}
-              {subscription && (
-                <div className={`rounded-xl border px-4 py-3 flex items-center justify-between ${SUB_STATUS_CONFIG[subscription.status].color}`}>
+              {subscription && (() => {
+                const subCfg = SUB_STATUS_CONFIG[subscription.status as keyof typeof SUB_STATUS_CONFIG] ?? { label: subscription.status, color: 'text-gray-600 bg-gray-50 border-gray-200' };
+                return (
+                <div className={`rounded-xl border px-4 py-3 flex items-center justify-between ${subCfg.color}`}>
                   <div className="flex items-center gap-2">
                     <Icon name="CheckBadgeIcon" size={16} />
                     <div>
                       <p className="text-sm font-600">{subscription.subscriptionType}</p>
-                      <p className="text-xs opacity-70">-{subscription.discountPercent}% · {subscription.status === 'active' ? `jusqu'au ${subscription.endDate ? new Date(subscription.endDate).toLocaleDateString('fr-FR') : '∞'}` : SUB_STATUS_CONFIG[subscription.status].label}</p>
+                      <p className="text-xs opacity-70">-{subscription.discountPercent}% · {subscription.status === 'active' ? `jusqu'au ${subscription.endDate ? new Date(subscription.endDate).toLocaleDateString('fr-FR') : '∞'}` : subCfg.label}</p>
                     </div>
                   </div>
-                  <span className={`text-xs font-600 px-2 py-0.5 rounded-full border ${SUB_STATUS_CONFIG[subscription.status].color}`}>{SUB_STATUS_CONFIG[subscription.status].label}</span>
+                  <span className={`text-xs font-600 px-2 py-0.5 rounded-full border ${subCfg.color}`}>{subCfg.label}</span>
                 </div>
-              )}
+                );
+              })()}
 
               {/* Notes */}
               {client.notes && (
@@ -425,7 +428,7 @@ export default function ClientDetailPanel({
               ) : (
                 <div className="space-y-3">
                   {purchases.map((p) => {
-                    const statusCfg = STATUS_CONFIG[p.status];
+                    const statusCfg = STATUS_CONFIG[p.status as keyof typeof STATUS_CONFIG] ?? { label: p.status, color: 'text-gray-600 bg-gray-50' };
                     return (
                       <div key={p.id} className="border border-border rounded-xl overflow-hidden">
                         <div className="flex items-center justify-between px-4 py-3 bg-muted/20">
@@ -790,15 +793,17 @@ export default function ClientDetailPanel({
           {tab === 'subscription' && (
             <div className="p-6 space-y-5">
               {/* Current subscription status */}
-              {subscription ? (
-                <div className={`rounded-xl border p-4 ${SUB_STATUS_CONFIG[subscription.status].color}`}>
+              {subscription ? (() => {
+                const subCfg2 = SUB_STATUS_CONFIG[subscription.status as keyof typeof SUB_STATUS_CONFIG] ?? { label: subscription.status, color: 'text-gray-600 bg-gray-50 border-gray-200' };
+                return (
+                <div className={`rounded-xl border p-4 ${subCfg2.color}`}>
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
                       <Icon name="CheckBadgeIcon" size={18} />
                       <span className="text-base font-700">{subscription.subscriptionType}</span>
                     </div>
-                    <span className={`text-xs font-600 px-2 py-0.5 rounded-full border ${SUB_STATUS_CONFIG[subscription.status].color}`}>
-                      {SUB_STATUS_CONFIG[subscription.status].label}
+                    <span className={`text-xs font-600 px-2 py-0.5 rounded-full border ${subCfg2.color}`}>
+                      {subCfg2.label}
                     </span>
                   </div>
                   <div className="grid grid-cols-2 gap-3 text-sm">
@@ -825,7 +830,7 @@ export default function ClientDetailPanel({
                     <p className="mt-3 text-xs opacity-80 bg-white/40 rounded-lg px-3 py-2">{subscription.notes}</p>
                   )}
                 </div>
-              ) : (
+              ); })() : (
                 <div className="flex flex-col items-center justify-center py-8 text-center border border-dashed border-border rounded-xl">
                   <Icon name="CheckBadgeIcon" size={32} className="text-muted-foreground mb-3" />
                   <p className="text-sm font-500 text-foreground">Aucun abonnement actif</p>

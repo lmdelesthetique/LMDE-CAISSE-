@@ -314,7 +314,7 @@ function DeliveryCard({
   onOpen: (d: Delivery) => void;
   onProblem: (d: Delivery) => void;
 }) {
-  const cfg = DELIVERY_STATUS_CONFIG[d.status];
+  const cfg = DELIVERY_STATUS_CONFIG[d.status] ?? { label: d.status, color: 'text-gray-800', bg: 'bg-gray-100 border-gray-300', dot: 'bg-gray-400' };
   const mapsUrl = `https://maps.google.com/?q=${encodeURIComponent(d.deliveryAddress)}`;
   const products = d.products ?? [];
 

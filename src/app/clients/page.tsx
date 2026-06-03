@@ -248,7 +248,7 @@ export default function ClientsPage() {
                 <tbody className="divide-y divide-border">
                   {filtered.map((client) => {
                     const typeCfg = CLIENT_TYPE_CONFIG[client.clientType] ?? CLIENT_TYPE_CONFIG.particulier;
-                    const tier = TIER_CONFIG[client.loyaltyTier];
+                    const tier = TIER_CONFIG[client.loyaltyTier as keyof typeof TIER_CONFIG] ?? TIER_CONFIG.bronze;
                     return (
                       <tr key={client.id} className="hover:bg-muted/20 transition-colors cursor-pointer" onClick={() => openDetail(client)}>
                         <td className="px-4 py-3">
@@ -332,7 +332,7 @@ export default function ClientsPage() {
 // ── Client Card Component ──────────────────────────────────────────────────────
 
 function ClientCard({ client, onClick }: { client: Client; onClick: () => void }) {
-  const tier = TIER_CONFIG[client.loyaltyTier];
+  const tier = TIER_CONFIG[client.loyaltyTier as keyof typeof TIER_CONFIG] ?? TIER_CONFIG.bronze;
   const typeCfg = CLIENT_TYPE_CONFIG[client.clientType] ?? CLIENT_TYPE_CONFIG.particulier;
   const hasDiscount = client.loyaltyDiscountType !== null;
 

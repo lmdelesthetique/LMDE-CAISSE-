@@ -80,8 +80,8 @@ export default function EmployeeDetailPanel({ employee, onEdit, onClose, onDelet
     }
   };
 
-  const roleConf = ROLE_CONFIG[employee.role];
-  const statusConf = STATUS_CONFIG[employee.status];
+  const roleConf = ROLE_CONFIG[employee.role] ?? { label: employee.role, color: 'text-gray-600 bg-gray-50 border-gray-200', icon: 'UserIcon' };
+  const statusConf = STATUS_CONFIG[employee.status] ?? { label: employee.status, color: 'text-gray-600 bg-gray-50 border-gray-200', dot: 'bg-gray-400' };
 
   const PERIOD_OPTS: { id: PeriodFilter; label: string }[] = [
     { id: '7d', label: '7 jours' },

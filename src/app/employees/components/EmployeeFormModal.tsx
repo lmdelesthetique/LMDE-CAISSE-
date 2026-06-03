@@ -143,7 +143,7 @@ export default function EmployeeFormModal({ employee, onClose, onSaved }: Employ
   };
 
   const initials = `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase() || '??';
-  const roleConf = ROLE_CONFIG[role];
+  const roleConf = ROLE_CONFIG[role] ?? { label: role, color: 'text-gray-600 bg-gray-50 border-gray-200', icon: 'UserIcon' };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">

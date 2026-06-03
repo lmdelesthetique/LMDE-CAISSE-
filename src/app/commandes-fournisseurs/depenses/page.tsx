@@ -802,7 +802,7 @@ export default function DepensesFournisseursPage() {
                     </thead>
                     <tbody className="divide-y divide-border">
                       {filteredExpenses.map((e) => {
-                        const catCfg = CATEGORY_CONFIG[e.category];
+                        const catCfg = CATEGORY_CONFIG[e.category as ExpenseCategory] ?? { label: e.category, color: 'text-gray-600', bg: 'bg-gray-50', icon: 'TagIcon' };
                         return (
                           <tr key={e.id} className="hover:bg-muted/20 transition-colors">
                             <td className="px-4 py-3 text-muted-foreground text-xs">

@@ -110,7 +110,7 @@ function ProductSearchDropdown({ onSelect, onClose }: ProductSearchDropdownProps
             </div>
           )}
           {results.map((product) => {
-            const sc = STOCK_STATUS_CONFIG[product.stockStatus];
+            const sc = STOCK_STATUS_CONFIG[product.stockStatus as keyof typeof STOCK_STATUS_CONFIG] ?? { label: 'Inconnu', color: 'text-gray-600 bg-gray-50 border-gray-200' };
             return (
               <button
                 key={product.id}
@@ -532,10 +532,10 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
                             <span className="text-muted-foreground">Rechercher dans la base produits...</span>
                           )}
                         </button>
-                        {item.stockStatus && (
+                        {item.stockStatus && STOCK_STATUS_CONFIG[item.stockStatus as keyof typeof STOCK_STATUS_CONFIG] && (
                           <div className="mt-1">
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-600 border ${STOCK_STATUS_CONFIG[item.stockStatus].color}`}>
-                              {STOCK_STATUS_CONFIG[item.stockStatus].label}
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-600 border ${STOCK_STATUS_CONFIG[item.stockStatus as keyof typeof STOCK_STATUS_CONFIG].color}`}>
+                              {STOCK_STATUS_CONFIG[item.stockStatus as keyof typeof STOCK_STATUS_CONFIG].label}
                               {item.availableStock !== undefined && ` · ${item.availableStock} dispo`}
                             </span>
                           </div>

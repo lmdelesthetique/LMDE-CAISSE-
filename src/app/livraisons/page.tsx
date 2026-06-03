@@ -310,7 +310,7 @@ export default function LivraisonsPage() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filtered.map((d) => {
-                  const cfg = DELIVERY_STATUS_CONFIG[d.status];
+                  const cfg = DELIVERY_STATUS_CONFIG[d.status] ?? { label: d.status, color: 'text-gray-800', bg: 'bg-gray-100 border-gray-300', dot: 'bg-gray-400' };
                   const products = d.products ?? [];
                   const isNewShopify = newShopifyIds.has(d.id);
                   return (
