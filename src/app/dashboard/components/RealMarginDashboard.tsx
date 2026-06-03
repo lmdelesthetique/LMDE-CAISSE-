@@ -42,7 +42,7 @@ export default function RealMarginDashboard() {
         // Load supplier orders for import costs
         const ordersResult = await supabase
           .from('fo_orders')
-          .select('subtotal, transport_cost, customs_cost, vat_import, freight_forwarder_cost, bank_fees, exchange_fees, local_delivery, other_costs, total_real_cost, supplier_payment_amount, order_status')
+          .select('subtotal, transport_cost, customs_cost, vat_import, freight_forwarder_cost, bank_fees, exchange_fees, local_delivery, other_costs, total_real_cost, payment_amount, order_status')
           .gte('created_at', startDate);
         const orders = ordersResult.error ? [] : (ordersResult.data ?? []);
 
@@ -69,7 +69,7 @@ export default function RealMarginDashboard() {
         const revenue = (purchases ?? []).reduce((s: number, p: any) => s + (p.total_ttc || 0), 0);
         const supplierPayments = (orders ?? [])
           .filter((o: any) => ['paid', 'payment_received_by_supplier'].includes(o.order_status))
-          .reduce((s: number, o: any) => s + (o.supplier_payment_amount || o.subtotal || 0), 0);
+          .reduce((s: number, o: any) => s + (o.payment_amount || o.subtotal || 0), 0);
         const importCosts = (orders ?? []).reduce((s: number, o: any) =>
           s + (o.transport_cost || 0) + (o.customs_cost || 0) + (o.vat_import || 0) +
           (o.freight_forwarder_cost || 0) + (o.bank_fees || 0) + (o.exchange_fees || 0) +
