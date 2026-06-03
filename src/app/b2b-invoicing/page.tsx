@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import { clientService, type Client } from '@/lib/services/clientService';
@@ -253,6 +253,9 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
   const [productSearches, setProductSearches] = useState<Record<string, string>>({});
   const [productResults, setProductResults] = useState<Record<string, any[]>>({});
   const [showProductDropdown, setShowProductDropdown] = useState<Record<string, boolean>>({});
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [activeDropdownLine, setActiveDropdownLine] = useState<string | null>(null);
+  const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   // Seller info
   const [sellerName, setSellerName] = useState(doc?.sellerName ?? '');
   const [sellerAddress, setSellerAddress] = useState(doc?.sellerAddress ?? '');
@@ -284,16 +287,30 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
   const searchProducts = async (lineId: string, query: string) => {
     setProductSearches((prev) => ({ ...prev, [lineId]: query }));
     if (query.trim().length < 2) {
-      setShowProductDropdown((prev) => ({ ...prev, [lineId]: false }));
+      setActiveDropdownLine(null);
+      setDropdownPos(null);
       return;
+    }
+    // Calculate fixed position from input rect before async gap
+    const inputEl = inputRefs.current[lineId];
+    if (inputEl) {
+      const rect = inputEl.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const dropH = 288; // max-h-72
+      setDropdownPos({
+        top: spaceBelow >= 120 ? rect.bottom + 4 : Math.max(8, rect.top - dropH - 4),
+        left: rect.left,
+        width: Math.max(rect.width, 384),
+      });
     }
     try {
       const res = await fetch(`/api/products/search?q=${encodeURIComponent(query.trim())}&limit=8`);
       const json = await res.json();
       setProductResults((prev) => ({ ...prev, [lineId]: json.products ?? [] }));
-      setShowProductDropdown((prev) => ({ ...prev, [lineId]: true }));
+      setActiveDropdownLine(lineId);
     } catch {
-      setShowProductDropdown((prev) => ({ ...prev, [lineId]: false }));
+      setActiveDropdownLine(null);
+      setDropdownPos(null);
     }
   };
 
@@ -310,10 +327,9 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
       unitPrice: priceHt,
       tvaRate,
     } : l));
-    // Remove search key so input falls back to showing line.description
     setProductSearches((prev) => { const { [lineId]: _, ...rest } = prev; return rest; });
-    setShowProductDropdown((prev) => ({ ...prev, [lineId]: false }));
-    setProductResults((prev) => ({ ...prev, [lineId]: [] }));
+    setActiveDropdownLine(null);
+    setDropdownPos(null);
   };
 
   const docNumber = isNew ? generateDocNumber(type, allDocs) : (doc?.number ?? '');
@@ -574,63 +590,21 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
                     return (
                       <tr key={line.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-muted/20'}>
                         <td className="px-3 py-2">
-                          <div className="relative">
-                            <input
-                              value={productSearches[line.id] ?? line.description}
-                              onChange={(e) => {
-                                updateLine(line.id, 'description', e.target.value);
-                                searchProducts(line.id, e.target.value);
-                              }}
-                              onFocus={() => {
-                                const q = productSearches[line.id] ?? line.description;
-                                if (q.length >= 2) searchProducts(line.id, q);
-                              }}
-                              onBlur={() => setTimeout(() => setShowProductDropdown((prev) => ({ ...prev, [line.id]: false })), 200)}
-                              className="w-full bg-transparent border-0 focus:outline-none text-sm text-foreground placeholder:text-muted-foreground"
-                              placeholder="Rechercher par nom, référence ou code-barre…"
-                            />
-                            {showProductDropdown[line.id] && (
-                              <div className="absolute z-[100] top-full mt-1 left-0 w-96 bg-white border border-border rounded-xl shadow-xl max-h-72 overflow-y-auto">
-                                {(productResults[line.id] ?? []).length > 0 ? (
-                                  (productResults[line.id] ?? []).map((p: any) => {
-                                    const isRupture = (p.stock ?? 0) <= 0;
-                                    return (
-                                      <button
-                                        key={p.id}
-                                        type="button"
-                                        onMouseDown={(e) => { e.preventDefault(); selectProduct(line.id, p); }}
-                                        className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-muted text-left text-sm border-b border-border/50 last:border-0"
-                                      >
-                                        {p.image_url ? (
-                                          <img src={p.image_url} alt={p.name} className="w-9 h-9 rounded-lg object-cover shrink-0" />
-                                        ) : (
-                                          <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                                            <Icon name="TagIcon" size={13} className="text-primary" />
-                                          </div>
-                                        )}
-                                        <div className="flex-1 min-w-0">
-                                          <div className="flex items-center gap-1.5 flex-wrap">
-                                            <span className="font-medium text-foreground truncate">{p.name}</span>
-                                            {isRupture && (
-                                              <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 border border-red-200 leading-none">RUPTURE</span>
-                                            )}
-                                          </div>
-                                          <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground flex-wrap">
-                                            {p.ref && <span>Réf: <strong>{p.ref}</strong></span>}
-                                            {p.sell_price_ttc != null && <span>{Number(p.sell_price_ttc).toFixed(2)} € TTC</span>}
-                                            <span className={isRupture ? 'text-red-500 font-medium' : ''}>Stock: {p.stock ?? 0}</span>
-                                            <span>TVA {p.tva ?? 8.5}%</span>
-                                          </div>
-                                        </div>
-                                      </button>
-                                    );
-                                  })
-                                ) : (
-                                  <div className="px-4 py-3 text-sm text-muted-foreground text-center">Aucun produit trouvé</div>
-                                )}
-                              </div>
-                            )}
-                          </div>
+                          <input
+                            ref={(el) => { inputRefs.current[line.id] = el; }}
+                            value={productSearches[line.id] ?? line.description}
+                            onChange={(e) => {
+                              updateLine(line.id, 'description', e.target.value);
+                              searchProducts(line.id, e.target.value);
+                            }}
+                            onFocus={() => {
+                              const q = productSearches[line.id] ?? line.description;
+                              if (q.trim().length >= 2) searchProducts(line.id, q);
+                            }}
+                            onBlur={() => setTimeout(() => setActiveDropdownLine(null), 200)}
+                            className="w-full bg-transparent border-0 focus:outline-none text-sm text-foreground placeholder:text-muted-foreground"
+                            placeholder="Rechercher par nom, référence ou code-barre…"
+                          />
                         </td>
                         <td className="px-2 py-2">
                           <input
@@ -814,6 +788,50 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
           </div>
         </div>
       </div>
+
+      {/* Product search dropdown — rendered fixed so overflow-y-auto modal can't clip it */}
+      {activeDropdownLine && dropdownPos && (
+        <div
+          style={{ position: 'fixed', top: dropdownPos.top, left: dropdownPos.left, width: dropdownPos.width, zIndex: 9999 }}
+          className="bg-white border border-border rounded-xl shadow-2xl max-h-72 overflow-y-auto"
+        >
+          {(productResults[activeDropdownLine] ?? []).length > 0 ? (
+            (productResults[activeDropdownLine] ?? []).map((p: any) => {
+              const isRupture = (p.stock ?? 0) <= 0;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onMouseDown={(e) => { e.preventDefault(); selectProduct(activeDropdownLine, p); }}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-muted text-left text-sm border-b border-border/50 last:border-0"
+                >
+                  {p.image_url ? (
+                    <img src={p.image_url} alt={p.name} className="w-9 h-9 rounded-lg object-cover shrink-0" />
+                  ) : (
+                    <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                      <Icon name="TagIcon" size={13} className="text-primary" />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-medium text-foreground truncate">{p.name}</span>
+                      {isRupture && <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 border border-red-200 leading-none">RUPTURE</span>}
+                    </div>
+                    <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground flex-wrap">
+                      {p.ref && <span>Réf: <strong>{p.ref}</strong></span>}
+                      {p.sell_price_ttc != null && <span>{Number(p.sell_price_ttc).toFixed(2)} € TTC</span>}
+                      <span className={isRupture ? 'text-red-500 font-medium' : ''}>Stock: {p.stock ?? 0}</span>
+                      <span>TVA {p.tva ?? 8.5}%</span>
+                    </div>
+                  </div>
+                </button>
+              );
+            })
+          ) : (
+            <div className="px-4 py-3 text-sm text-muted-foreground text-center">Aucun produit trouvé</div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
