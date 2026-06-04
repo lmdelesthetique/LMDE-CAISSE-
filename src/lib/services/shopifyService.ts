@@ -1,8 +1,46 @@
 import { createClient as createSupabase } from '@supabase/supabase-js';
 
 const STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN ?? '';
-const LOCATION_ID = process.env.SHOPIFY_LOCATION_ID ?? '';
 const API_VERSION = '2024-10';
+
+// Location ID: prefer env var, otherwise auto-discover and cache
+let _locationIdCache: string | null = null;
+
+async function getLocationId(): Promise<string> {
+  if (process.env.SHOPIFY_LOCATION_ID) return process.env.SHOPIFY_LOCATION_ID;
+  if (_locationIdCache) return _locationIdCache;
+
+  // Try app_config first
+  try {
+    const { data } = await getSupabase()
+      .from('app_config')
+      .select('value')
+      .eq('key', 'shopify_location_id')
+      .maybeSingle();
+    if (data?.value) { _locationIdCache = data.value; return data.value; }
+  } catch { /* fall through */ }
+
+  // Auto-discover from Shopify Locations API
+  try {
+    const res = await shopifyFetch('/locations.json?limit=1');
+    if (res.ok) {
+      const json = await res.json();
+      const loc = json.locations?.[0];
+      if (loc?.id) {
+        const id = String(loc.id);
+        _locationIdCache = id;
+        // Persist so subsequent calls skip the API round-trip
+        await getSupabase().from('app_config').upsert({ key: 'shopify_location_id', value: id, updated_at: new Date().toISOString() }).catch(() => {});
+        console.log('[shopify] auto-discovered location_id:', id);
+        return id;
+      }
+    }
+  } catch (e) {
+    console.error('[shopify] location auto-discovery failed:', e);
+  }
+
+  return '';
+}
 
 function getSupabase() {
   // Use service role key when available (bypasses RLS for server-side writes)
@@ -48,13 +86,15 @@ async function shopifyFetch(path: string, options: RequestInit = {}): Promise<Re
  * Adjust inventory level by a delta (positive = add, negative = deduct).
  */
 export async function adjustInventoryLevel(inventoryItemId: string, delta: number): Promise<boolean> {
-  if (!inventoryItemId || delta === 0 || !LOCATION_ID) return true;
+  if (!inventoryItemId || delta === 0) return true;
+  const locationId = await getLocationId();
+  if (!locationId) { console.error('[shopify] adjustInventory: no location_id'); return false; }
   try {
     const res = await shopifyFetch('/inventory_levels/adjust.json', {
       method: 'POST',
       body: JSON.stringify({
         inventory_item_id: Number(inventoryItemId),
-        location_id: Number(LOCATION_ID),
+        location_id: Number(locationId),
         available_adjustment: delta,
       }),
     });
@@ -73,13 +113,15 @@ export async function adjustInventoryLevel(inventoryItemId: string, delta: numbe
  * Set inventory to an absolute quantity.
  */
 export async function setInventoryLevel(inventoryItemId: string, qty: number): Promise<boolean> {
-  if (!inventoryItemId || !LOCATION_ID) return false;
+  if (!inventoryItemId) return false;
+  const locationId = await getLocationId();
+  if (!locationId) { console.error('[shopify] setInventory: no location_id'); return false; }
   try {
     const res = await shopifyFetch('/inventory_levels/set.json', {
       method: 'POST',
       body: JSON.stringify({
         inventory_item_id: Number(inventoryItemId),
-        location_id: Number(LOCATION_ID),
+        location_id: Number(locationId),
         available: qty,
       }),
     });
