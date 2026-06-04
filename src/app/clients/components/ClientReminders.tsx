@@ -41,8 +41,8 @@ export default function ClientReminders() {
 
       const { data: reservations } = await supabase
         .from('reservations')
-        .select('id, reservation_number, client_name, client_phone, client_email, balance_due, created_at, status')
-        .in('status', ['pending', 'deposit_paid', 'ready'])
+        .select('id, reservation_number, client_name, client_phone, client_email, balance_due, created_at, reservation_status')
+        .in('reservation_status', ['pending', 'deposit_paid', 'ready'])
         .gt('balance_due', 0)
         .lte('created_at', thirtyDaysAgo.toISOString());
 
@@ -70,14 +70,14 @@ export default function ClientReminders() {
       const clients = await fetchAll<any>((from, to) =>
         supabase
           .from('clients')
-          .select('id, first_name, last_name, phone, email, birth_date')
-          .not('birth_date', 'is', null)
+          .select('id, first_name, last_name, phone, email, date_of_birth')
+          .not('date_of_birth', 'is', null)
           .range(from, to)
       );
 
       for (const c of clients) {
-        if (!c.birth_date) continue;
-        const bDate = new Date(c.birth_date);
+        if (!c.date_of_birth) continue;
+        const bDate = new Date(c.date_of_birth);
         const bMD = `${String(bDate.getMonth() + 1).padStart(2, '0')}-${String(bDate.getDate()).padStart(2, '0')}`;
 
         // Check if birthday is within next 7 days
@@ -94,7 +94,7 @@ export default function ClientReminders() {
             type: 'birthday',
             detail: diffDays === 0 ? `🎂 Anniversaire aujourd'hui !` : `🎂 Anniversaire dans ${diffDays} jour${diffDays > 1 ? 's' : ''}`,
             urgency: diffDays === 0 ? 'high' : diffDays <= 2 ? 'medium' : 'low',
-            birthdayDate: c.birth_date,
+            birthdayDate: c.date_of_birth,
           });
         }
       }
