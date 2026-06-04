@@ -103,12 +103,23 @@ const defaultPaymentMethods: PaymentMethod[] = [
 ];
 
 const defaultTVARates: TVARate[] = [
-  { id: 'tva-20', label: 'TVA 20%', rate: 20, isDefault: true, description: 'Taux normal — produits cosmétiques, accessoires' },
+  { id: 'tva-8.5', label: 'TVA 8,5%', rate: 8.5, isDefault: true, description: 'Taux DOM-TOM — taux par défaut Martinique/Guadeloupe/Réunion' },
+  { id: 'tva-20', label: 'TVA 20%', rate: 20, isDefault: false, description: 'Taux normal France métropolitaine' },
   { id: 'tva-10', label: 'TVA 10%', rate: 10, isDefault: false, description: 'Taux intermédiaire — certains services' },
   { id: 'tva-5.5', label: 'TVA 5,5%', rate: 5.5, isDefault: false, description: 'Taux réduit — produits essentiels' },
   { id: 'tva-2.1', label: 'TVA 2,1%', rate: 2.1, isDefault: false, description: 'Taux super réduit — médicaments remboursables' },
   { id: 'tva-0', label: 'Exonéré', rate: 0, isDefault: false, description: 'Exonération de TVA' },
 ];
+
+const TVA_STORAGE_KEY = 'beautypos_tva_rates';
+
+function loadTVARates(): TVARate[] {
+  try {
+    const raw = localStorage.getItem(TVA_STORAGE_KEY);
+    if (raw) return JSON.parse(raw) as TVARate[];
+  } catch { /* ignore */ }
+  return defaultTVARates;
+}
 
 const defaultReceipt: ReceiptTemplate = {
   headerText: 'LE MONDE DE L\'ESTHETIQUE\nBaie des Flamands Appt 306 9 avenue Loulou Boislaville\n97200 Fort-de-France\nTVA : FR71 927747 725',
@@ -962,7 +973,10 @@ export default function AdminConfigPage() {
 
   const [company, setCompany] = useState<CompanyInfo>(defaultCompany);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>(defaultPaymentMethods);
-  const [tvaRates, setTVARates] = useState<TVARate[]>(defaultTVARates);
+  const [tvaRates, setTVARates] = useState<TVARate[]>(() => {
+    if (typeof window !== 'undefined') return loadTVARates();
+    return defaultTVARates;
+  });
   const [receiptTemplate, setReceiptTemplate] = useState<ReceiptTemplate>(defaultReceipt);
   const [magasin, setMagasin] = useState<MagasinSettings>(defaultMagasin);
 
@@ -991,6 +1005,37 @@ export default function AdminConfigPage() {
   const handleSave = async () => {
     setSaving(true);
     try {
+      if (activeTab === 'tva') {
+        // Persist TVA rates list to localStorage
+        try { localStorage.setItem(TVA_STORAGE_KEY, JSON.stringify(tvaRates)); } catch { /* ignore */ }
+
+        // Save default TVA rate to app_settings so the POS picks it up
+        const defaultRate = tvaRates.find((r) => r.isDefault)?.rate ?? 8.5;
+        const supabase = (await import('@/lib/supabase/client')).createClient();
+        const { error } = await supabase
+          .from('app_settings')
+          .upsert({ id: 'main', default_tva_rate: defaultRate, updated_at: new Date().toISOString() }, { onConflict: 'id' });
+        if (error) throw new Error(error.message);
+
+        // Notify SettingsContext listeners so POS updates without reload
+        if (typeof window !== 'undefined') {
+          const stored = localStorage.getItem('beautypos_settings');
+          if (stored) {
+            try {
+              const parsed = JSON.parse(stored);
+              parsed.default_tva_rate = defaultRate;
+              localStorage.setItem('beautypos_settings', JSON.stringify(parsed));
+            } catch { /* ignore */ }
+          }
+          window.dispatchEvent(new Event('beautypos:settings-updated'));
+        }
+
+        setSaved(true);
+        toast.success(`✓ TVA par défaut enregistrée : ${defaultRate}%`);
+        setTimeout(() => setSaved(false), 2500);
+        return;
+      }
+
       if (activeTab === 'receipt') {
         const body = {
           header_text: receiptTemplate.headerText,
