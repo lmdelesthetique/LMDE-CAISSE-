@@ -53,13 +53,13 @@ export default function MarginsReport({ dateRange }: MarginsReportProps) {
       const products = await fetchAll((from, to) =>
         supabase
           .from('products')
-          .select('id, name, category, buy_price, purchase_price, transport, customs, other_fees, structure_pct')
+          .select('id, name, category, buy_price, transport, customs, other_fees, structure_pct')
           .range(from, to)
       );
 
       const productLookup: Record<string, { name: string; category: string; purchase_price: number }> = {};
       products.forEach((p: any) => {
-        const buyPrice = Number(p.buy_price ?? p.purchase_price ?? 0);
+        const buyPrice = Number(p.buy_price ?? 0);
         const transport = Number(p.transport) || 0;
         const customs = Number(p.customs) || 0;
         const otherFees = Number(p.other_fees) || 0;
