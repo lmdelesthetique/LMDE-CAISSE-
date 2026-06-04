@@ -17,6 +17,7 @@ interface KPIData {
   sumupRevenue: number;
   cashRevenue: number;
   transferRevenue: number;
+  mixteRevenue: number;
   cancelledCount: number;
   reservationDeposits: number;
   reservationBalances: number;
@@ -137,7 +138,7 @@ export default function GeneralDashboardPage() {
 
   const [kpis, setKpis] = useState<KPIData>({
     totalRevenue: 0, totalTickets: 0, avgBasket: 0, totalDiscounts: 0,
-    almaRevenue: 0, sumupRevenue: 0, cashRevenue: 0, transferRevenue: 0,
+    almaRevenue: 0, sumupRevenue: 0, cashRevenue: 0, transferRevenue: 0, mixteRevenue: 0,
     cancelledCount: 0, reservationDeposits: 0, reservationBalances: 0,
   });
   const [revenueChart, setRevenueChart] = useState<RevenuePoint[]>([]);
@@ -166,13 +167,19 @@ export default function GeneralDashboardPage() {
       // Load receipts
       let receiptsQuery = supabase
         .from('receipts')
-        .select('id, total_amount, payment_method, status, created_at, discount_amount, cashier_name, items_count')
+        .select('id, total_amount, payment_method, status, created_at, discount_amount, cashier_name, items_count, is_demo, client_name')
         .gte('created_at', from)
         .lte('created_at', to);
 
       const { data: receipts } = await receiptsQuery;
-      const validReceipts = (receipts ?? []).filter(r => r.status !== 'cancelled');
-      const cancelledReceipts = (receipts ?? []).filter(r => r.status === 'cancelled');
+      const isReal = (r: any) => {
+        if (r.is_demo === true) return false;
+        const cn = (r.client_name ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
+        return cn !== 'CHRISTY LHOMME';
+      };
+      const realReceipts = (receipts ?? []).filter(isReal);
+      const validReceipts = realReceipts.filter(r => r.status !== 'cancelled');
+      const cancelledReceipts = realReceipts.filter(r => r.status === 'cancelled');
 
       // KPIs
       const totalRevenue = validReceipts.reduce((sum, r) => sum + (r.total_amount ?? 0), 0);
@@ -180,21 +187,33 @@ export default function GeneralDashboardPage() {
       const avgBasket = totalTickets > 0 ? totalRevenue / totalTickets : 0;
       const totalDiscounts = validReceipts.reduce((sum, r) => sum + (r.discount_amount ?? 0), 0);
 
+      // Normalise raw payment_method value (handles Mixte|cb|cash, aliases, etc.)
+      const normalizeMethod = (raw: string): string => {
+        if (!raw) return 'Autre';
+        if (raw.startsWith('Mixte')) return 'Mixte';
+        if (raw === 'CB' || raw === 'card') return 'SumUp (CB)';
+        if (raw === 'cash') return 'Espèces';
+        if (raw === 'transfer') return 'Virement';
+        if (raw === 'alma') return 'Alma (3x/4x)';
+        return raw;
+      };
+
       // Payment breakdown
       const paymentMap: Record<string, number> = {};
       for (const r of validReceipts) {
-        const method = r.payment_method ?? 'Autre';
-        paymentMap[method] = (paymentMap[method] ?? 0) + (r.total_amount ?? 0);
+        const key = normalizeMethod(r.payment_method ?? '');
+        paymentMap[key] = (paymentMap[key] ?? 0) + (r.total_amount ?? 0);
       }
 
-      const almaRevenue = (paymentMap['Alma (3x/4x)'] ?? 0) + (paymentMap['alma'] ?? 0);
-      const sumupRevenue = (paymentMap['SumUp (CB)'] ?? 0) + (paymentMap['CB'] ?? 0) + (paymentMap['card'] ?? 0);
-      const cashRevenue = (paymentMap['Espèces'] ?? 0) + (paymentMap['cash'] ?? 0);
-      const transferRevenue = (paymentMap['Virement'] ?? 0) + (paymentMap['transfer'] ?? 0);
+      const almaRevenue = paymentMap['Alma (3x/4x)'] ?? 0;
+      const sumupRevenue = paymentMap['SumUp (CB)'] ?? 0;
+      const cashRevenue = paymentMap['Espèces'] ?? 0;
+      const transferRevenue = paymentMap['Virement'] ?? 0;
+      const mixteRevenue = paymentMap['Mixte'] ?? 0;
 
       const paymentBreakdownData = Object.entries(paymentMap)
         .map(([name, value]) => ({
-          name: name === 'CB' || name === 'card' ? 'SumUp (CB)' : name === 'cash' ? 'Espèces' : name === 'transfer' ? 'Virement' : name,
+          name,
           value,
           color: PAYMENT_COLORS[name] ?? '#6b7280',
         }))
@@ -257,7 +276,7 @@ export default function GeneralDashboardPage() {
 
       setKpis({
         totalRevenue, totalTickets, avgBasket, totalDiscounts,
-        almaRevenue, sumupRevenue, cashRevenue, transferRevenue,
+        almaRevenue, sumupRevenue, cashRevenue, transferRevenue, mixteRevenue,
         cancelledCount: cancelledReceipts.length,
         reservationDeposits, reservationBalances,
       });
@@ -386,7 +405,7 @@ export default function GeneralDashboardPage() {
               </div>
 
               {/* KPI Grid — Row 2: Payment methods */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
                 <KPICard
                   label="SumUp (CB)"
                   value={`${fmt(kpis.sumupRevenue)} €`}
@@ -407,6 +426,13 @@ export default function GeneralDashboardPage() {
                   sub="CA total reçu via Alma"
                   icon="SparklesIcon"
                   accent="pink"
+                />
+                <KPICard
+                  label="Mixte CB + Espèces"
+                  value={`${fmt(kpis.mixteRevenue)} €`}
+                  sub="Paiements en deux fois"
+                  icon="ArrowsRightLeftIcon"
+                  accent="warning"
                 />
                 <KPICard
                   label="Virement"

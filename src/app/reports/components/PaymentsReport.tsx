@@ -47,14 +47,20 @@ export default function PaymentsReport({ dateRange }: PaymentsReportProps) {
     setLoading(true);
     const supabase = createClient();
     try {
-      const { data: sales } = await supabase
+      const { data: rawSales } = await supabase
         .from('receipts')
-        .select('id, created_at, ticket_number, total_amount, payment_method, client_id, client_name')
+        .select('id, created_at, ticket_number, total_amount, payment_method, client_id, client_name, is_demo')
         .gte('created_at', dateRange.from)
         .lte('created_at', dateRange.to + 'T23:59:59')
         .order('created_at', { ascending: false });
 
-      if (sales) {
+      const sales = (rawSales ?? []).filter((s: any) => {
+        if (s.is_demo === true) return false;
+        const cn = (s.client_name ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
+        return cn !== 'CHRISTY LHOMME';
+      });
+
+      if (sales.length >= 0) {
         const mapped: PaymentRow[] = sales.map((s: any) => ({
           date: s.created_at ? s.created_at.substring(0, 10) : '',
           ticket_number: s.ticket_number ?? s.id?.substring(0, 8) ?? '-',

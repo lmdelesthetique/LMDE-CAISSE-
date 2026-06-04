@@ -42,22 +42,28 @@ export default function TaxesReport({ dateRange }: TaxesReportProps) {
     try {
       const { data: sales } = await supabase
         .from('receipts')
-        .select('id, created_at, ticket_number, total_amount')
+        .select('id, created_at, ticket_number, total_amount, tva_rate, is_demo, client_name')
         .gte('created_at', dateRange.from)
         .lte('created_at', dateRange.to + 'T23:59:59')
         .order('created_at', { ascending: false });
 
       if (sales) {
-        const mapped: TaxRow[] = sales.map((s: any) => {
+        const realSales = sales.filter((s: any) => {
+          if (s.is_demo === true) return false;
+          const cn = (s.client_name ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
+          if (cn === 'CHRISTY LHOMME') return false;
+          return true;
+        });
+        const mapped: TaxRow[] = realSales.map((s: any) => {
           const total = s.total_amount ?? 0;
-          const tvaRate = TVA_RATES.find((r) => total >= 0 && total < r) ?? 20;
+          const tvaRate = s.tva_rate ?? 8.5;
           const tvaAmount = total - total / (1 + tvaRate / 100);
           const ht = total - tvaAmount;
           return {
             date: s.created_at ? s.created_at.substring(0, 10) : '',
             ticket_number: s.ticket_number ?? s.id?.substring(0, 8) ?? '-',
             total_ht: Math.round(ht * 100) / 100,
-            tva_rate: `${tvaRate}%`,
+            tva_rate: `${Number(tvaRate).toFixed(1)}%`,
             tva_amount: Math.round(tvaAmount * 100) / 100,
             total_ttc: Math.round(total * 100) / 100,
           };

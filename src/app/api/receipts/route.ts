@@ -40,10 +40,12 @@ export async function GET(req: NextRequest) {
   const to = searchParams.get('to') ?? new Date().toISOString();
   const method = searchParams.get('method') ?? 'all';
   const status = searchParams.get('status') ?? 'all';
+  // all=true bypasses pagination — used for KPI aggregations
+  const allMode = searchParams.get('all') === 'true';
   const page = parseInt(searchParams.get('page') ?? '0', 10);
-  const PAGE_SIZE = 50;
+  const PAGE_SIZE = 2000; // high enough for any realistic period
 
-  console.log('[api/receipts GET] querying from:', from, 'to:', to);
+  console.log('[api/receipts GET] querying from:', from, 'to:', to, 'allMode:', allMode);
 
   const baseSelect = 'id, ticket_number, created_at, total_amount, payment_method, client_id, client_name, items_count, status, cashier_name, discount_amount, is_demo';
   const fallbackSelect = 'id, ticket_number, created_at, total_amount, payment_method, client_id, client_name, items_count, status, cashier_name, discount_amount';
@@ -55,7 +57,8 @@ export async function GET(req: NextRequest) {
       .gte('created_at', from)
       .lte('created_at', to)
       .order('created_at', { ascending: false })
-      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+      .limit(PAGE_SIZE);
+    if (!allMode) q = q.range(page * 50, (page + 1) * 50 - 1);
     if (method !== 'all') q = q.eq('payment_method', method);
     if (status !== 'all') q = q.eq('status', status);
     return q;

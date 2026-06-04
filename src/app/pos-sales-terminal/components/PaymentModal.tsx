@@ -49,6 +49,8 @@ export default function PaymentModal({ mode, totalTTC, client, cartItems, onClos
   const [sendReceipt, setSendReceipt] = useState<'none' | 'email' | 'whatsapp'>('none');
   const [reservationType, setReservationType] = useState<ReservationType | null>(null);
   const [recoveryMode, setRecoveryMode] = useState<RecoveryMode>('sur_place');
+  // SumUp confirmation step — cashier must confirm terminal accepted payment
+  const [sumupStep, setSumupStep] = useState<'form' | 'awaiting'>('form');
 
   const cashGivenNum = parseFloat(cashGiven) || 0;
   const changeAmount = Math.max(0, cashGivenNum - totalTTC);
@@ -64,7 +66,24 @@ export default function PaymentModal({ mode, totalTTC, client, cartItems, onClos
   const remaining = Math.max(0, totalTTC - depositNum);
   const depositPct = totalTTC > 0 ? Math.round((depositNum / totalTTC) * 100) : 0;
 
+  // For SumUp: first step shows "present terminal", cashier then confirms accepted/refused
+  const handleSumupAccepted = async () => {
+    setSumupStep('form');
+    await handleConfirmFinal('SumUp (CB)');
+  };
+
   const handleConfirm = async () => {
+    // SumUp requires physical terminal confirmation — go to awaiting step first
+    if (mode === 'immediate' && method === 'SumUp (CB)') {
+      setSumupStep('awaiting');
+      return;
+    }
+    await handleConfirmFinal(method === 'Mixte' && cbAmountNum > 0
+      ? `Mixte|${cbAmountNum.toFixed(2)}|${Math.max(0, cashRemainder).toFixed(2)}`
+      : method);
+  };
+
+  const handleConfirmFinal = async (finalMethod: string) => {
     setLoading(true);
 
     // If acompte mode — auto-create reservation
@@ -110,11 +129,11 @@ export default function PaymentModal({ mode, totalTTC, client, cartItems, onClos
 
     await new Promise((r) => setTimeout(r, 600));
     setLoading(false);
-    const confirmMethod = (mode === 'installment')
+    const resolvedMethod = (mode === 'installment')
       ? 'Alma ' + almaInstallments + 'x' + (parseFloat(dossierFee) > 0 ? ' (+' + parseFloat(dossierFee).toFixed(2) + '€ frais)' : '')
       : method === 'Alma (3x/4x)' ? 'Alma ' + almaInstallments + 'x'
-      : method;
-    onConfirm(confirmMethod);
+      : finalMethod;
+    onConfirm(resolvedMethod);
   };
 
   const modeLabels: Record<PaymentMode, string> = {
@@ -499,41 +518,76 @@ export default function PaymentModal({ mode, totalTTC, client, cartItems, onClos
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="flex gap-3 px-6 pb-6 shrink-0">
-          <button onClick={onClose} className="flex-1 py-3 border border-border rounded-xl text-sm font-600 text-muted-foreground hover:bg-muted transition-colors">
-            Annuler
-          </button>
-          <button
-            onClick={handleConfirm}
-            disabled={
-              loading ||
-              (mode === 'acompte' && depositNum <= 0) ||
-              (mode === 'immediate' && method === 'Espèces' && cashGivenNum < totalTTC)
-            }
-            className={`flex-1 py-3 rounded-xl text-sm font-700 hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 flex items-center justify-center gap-2 ${
-              mode === 'installment' || method === 'Alma (3x/4x)'
-                ? 'bg-pink-600 text-white' :'bg-primary text-primary-foreground'
-            }`}
-          >
-            {loading ? (
-              <>
-                <Icon name="ArrowPathIcon" size={15} className="animate-spin" />
-                Traitement…
-              </>
-            ) : mode === 'installment' ? (
-              <>
-                <span>🌸</span>
-                Valider paiement Alma
-              </>
-            ) : (
-              <>
-                <Icon name="CheckIcon" size={15} />
-                {mode === 'acompte' ? "Valider l'acompte" : 'Valider le paiement'}
-              </>
-            )}
-          </button>
-        </div>
+        {/* SumUp awaiting confirmation step */}
+        {sumupStep === 'awaiting' ? (
+          <div className="px-6 pb-6 space-y-3 shrink-0">
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-center space-y-2">
+              <p className="text-2xl">💳</p>
+              <p className="text-sm font-700 text-blue-800">Présentez le terminal SumUp au client</p>
+              <p className="text-xs text-blue-600">Attendez la confirmation du terminal avant de valider</p>
+              <p className="text-xl font-700 tabular-nums text-blue-900 mt-1">{totalTTC.toFixed(2)} €</p>
+            </div>
+            <p className="text-xs text-center font-600 text-muted-foreground">Le terminal SumUp a-t-il accepté le paiement ?</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setSumupStep('form')}
+                className="flex-1 py-3 rounded-xl border border-red-200 bg-red-50 text-red-700 text-sm font-700 hover:bg-red-100 transition-colors flex items-center justify-center gap-2"
+              >
+                <Icon name="XMarkIcon" size={15} />
+                Non, refusé
+              </button>
+              <button
+                onClick={handleSumupAccepted}
+                disabled={loading}
+                className="flex-1 py-3 rounded-xl bg-emerald-600 text-white text-sm font-700 hover:bg-emerald-700 disabled:opacity-40 transition-colors flex items-center justify-center gap-2"
+              >
+                {loading ? <Icon name="ArrowPathIcon" size={15} className="animate-spin" /> : <Icon name="CheckIcon" size={15} />}
+                {loading ? 'Traitement…' : 'Oui, accepté'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* Footer */
+          <div className="flex gap-3 px-6 pb-6 shrink-0">
+            <button onClick={onClose} className="flex-1 py-3 border border-border rounded-xl text-sm font-600 text-muted-foreground hover:bg-muted transition-colors">
+              Annuler
+            </button>
+            <button
+              onClick={handleConfirm}
+              disabled={
+                loading ||
+                (mode === 'acompte' && depositNum <= 0) ||
+                (mode === 'immediate' && method === 'Espèces' && cashGivenNum < totalTTC)
+              }
+              className={`flex-1 py-3 rounded-xl text-sm font-700 hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 flex items-center justify-center gap-2 ${
+                mode === 'installment' || method === 'Alma (3x/4x)'
+                  ? 'bg-pink-600 text-white' : 'bg-primary text-primary-foreground'
+              }`}
+            >
+              {loading ? (
+                <>
+                  <Icon name="ArrowPathIcon" size={15} className="animate-spin" />
+                  Traitement…
+                </>
+              ) : mode === 'installment' ? (
+                <>
+                  <span>🌸</span>
+                  Valider paiement Alma
+                </>
+              ) : method === 'SumUp (CB)' ? (
+                <>
+                  <span>💳</span>
+                  Présenter au terminal
+                </>
+              ) : (
+                <>
+                  <Icon name="CheckIcon" size={15} />
+                  {mode === 'acompte' ? "Valider l'acompte" : 'Valider le paiement'}
+                </>
+              )}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

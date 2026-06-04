@@ -42,12 +42,17 @@ export default function MarginsReport({ dateRange }: MarginsReportProps) {
     setLoading(true);
     const supabase = createClient();
     try {
-      // Fetch receipts with items jsonb in the date range
-      const { data: receipts } = await supabase
+      // Fetch receipts with items jsonb in the date range (exclude demo)
+      const { data: rawReceipts } = await supabase
         .from('receipts')
-        .select('items')
+        .select('items, is_demo, client_name')
         .gte('created_at', dateRange.from)
         .lte('created_at', dateRange.to + 'T23:59:59');
+      const receipts = (rawReceipts ?? []).filter((r: any) => {
+        if (r.is_demo === true) return false;
+        const cn = (r.client_name ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
+        return cn !== 'CHRISTY LHOMME';
+      });
 
       // Fetch all products for purchase_price lookup (load all, bypass Supabase 1000-row default)
       const products = await fetchAll((from, to) =>

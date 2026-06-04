@@ -54,6 +54,22 @@ function fmt(n: number) {
   return n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function parseMethod(raw: string): { label: string; color: string; detail?: string } {
+  // Mixte|cbAmount|cashAmount — stored when Mixte payment amounts are known
+  if (raw.startsWith('Mixte|')) {
+    const [, cb, cash] = raw.split('|');
+    const cbNum = parseFloat(cb ?? '0');
+    const cashNum = parseFloat(cash ?? '0');
+    return {
+      label: 'Mixte',
+      color: METHOD_COLORS['Mixte'],
+      detail: `CB: ${fmt(cbNum)} € + Espèces: ${fmt(cashNum)} €`,
+    };
+  }
+  const label = METHOD_LABELS[raw] ?? raw;
+  return { label, color: METHOD_COLORS[label] ?? 'text-slate-700 bg-slate-50 border-slate-200' };
+}
+
 function formatDateTime(iso: string) {
   return new Date(iso).toLocaleString('fr-FR', {
     day: '2-digit', month: '2-digit', year: 'numeric',
@@ -264,7 +280,7 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
       subtotalHT,
       totalTVA,
       totalTTC: receipt.totalAmount,
-      paymentMethod: METHOD_LABELS[receipt.paymentMethod] || receipt.paymentMethod,
+      paymentMethod: parseMethod(receipt.paymentMethod ?? '').label,
       isDuplicate: true,
     }));
   };
@@ -285,7 +301,7 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
       subtotalHT: receipt.subtotalHT || receipt.totalAmount / 1.085,
       totalTVA: receipt.totalTVA || receipt.totalAmount * 0.085 / 1.085,
       totalTTC: receipt.totalAmount,
-      paymentMethod: METHOD_LABELS[receipt.paymentMethod] || receipt.paymentMethod,
+      paymentMethod: parseMethod(receipt.paymentMethod ?? '').label,
       cashierName: receipt.cashierName || undefined,
     };
     const result = await sendReceiptEmail(emailAddr, receiptData);
@@ -418,7 +434,7 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
                       { label: 'N° Ticket', value: fallbackTicket.ticket_number },
                       { label: 'Date', value: formatDateTime(fallbackTicket.created_at) },
                       { label: 'Client', value: fallbackTicket.client_name || 'Anonyme' },
-                      { label: 'Mode paiement', value: METHOD_LABELS[fallbackTicket.payment_method] || fallbackTicket.payment_method },
+                      { label: 'Mode paiement', value: parseMethod(fallbackTicket.payment_method ?? '').label },
                     ].map((info) => (
                       <div key={info.label} className="bg-muted/30 rounded-xl px-4 py-3">
                         <p className="text-xs text-muted-foreground mb-0.5">{info.label}</p>
@@ -445,7 +461,7 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
                         subtotalHT: fallbackTicket.total_amount / 1.085,
                         totalTVA: fallbackTicket.total_amount * 0.085 / 1.085,
                         totalTTC: fallbackTicket.total_amount,
-                        paymentMethod: METHOD_LABELS[fallbackTicket.payment_method] || fallbackTicket.payment_method,
+                        paymentMethod: parseMethod(fallbackTicket.payment_method ?? '').label,
                         isDuplicate: true,
                       }));
                     }}
@@ -464,7 +480,7 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
                 {[
                   { label: 'Client', value: receipt.clientName || 'Anonyme', icon: 'UserIcon' },
                   { label: 'Caissier', value: receipt.cashierName || '—', icon: 'UserCircleIcon' },
-                  { label: 'Mode paiement', value: METHOD_LABELS[receipt.paymentMethod] || receipt.paymentMethod, icon: 'CreditCardIcon' },
+                  { label: 'Mode paiement', value: parseMethod(receipt.paymentMethod ?? '').label, icon: 'CreditCardIcon' },
                   { label: 'Statut', value: receipt.status === 'completed' ? 'Validé' : receipt.status, icon: 'CheckCircleIcon' },
                 ].map((info) => (
                   <div key={info.label} className="bg-muted/30 rounded-xl px-4 py-3">
@@ -760,7 +776,7 @@ export default function CaisseHistoriquePage() {
         from, to,
         method: filterMethod,
         status: filterStatus,
-        page: String(page),
+        all: 'true',
       });
       const res = await fetch(`/api/receipts?${params}`);
       const body = await res.json().catch(() => ({}));
@@ -818,7 +834,7 @@ export default function CaisseHistoriquePage() {
     } finally {
       setLoading(false);
     }
-  }, [period, customFrom, customTo, filterMethod, filterStatus, page, runDiagnose]);
+  }, [period, customFrom, customTo, filterMethod, filterStatus, runDiagnose]);
 
   useEffect(() => { loadTickets(); }, [loadTickets]);
 
@@ -834,11 +850,46 @@ export default function CaisseHistoriquePage() {
     );
   });
 
+  // Client-side pagination — KPIs use all filtered, table uses current slice
+  const displayTickets = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+
   const realFiltered = filtered.filter(t => !t.is_demo);
   const totalCA = realFiltered.reduce((sum, t) => sum + (t.status !== 'cancelled' ? (t.total_amount ?? 0) : 0), 0);
   const totalTickets = realFiltered.filter(t => t.status !== 'cancelled').length;
   const avgBasket = totalTickets > 0 ? totalCA / totalTickets : 0;
   const cancelledCount = realFiltered.filter(t => t.status === 'cancelled').length;
+
+  // Payment breakdown — for reconciliation with SumUp/bank
+  // Use ALL non-cancelled tickets (including demo) to match terminal totals
+  const allNonCancelled = tickets.filter(t => t.status !== 'cancelled');
+  const isRealTicket = (t: TicketRow) => {
+    if (t.is_demo === true) return false;
+    const cn = (t.client_name ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
+    return cn !== 'CHRISTY LHOMME';
+  };
+  const realNonCancelled = allNonCancelled.filter(isRealTicket);
+  const demoNonCancelled = allNonCancelled.filter(t => !isRealTicket(t));
+
+  const payBreakdown: Record<string, number> = {};
+  realNonCancelled.forEach(t => {
+    const raw = t.payment_method ?? 'Autre';
+    const key = raw.startsWith('Mixte') ? 'Mixte' : (parseMethod(raw).label);
+    payBreakdown[key] = (payBreakdown[key] ?? 0) + (t.total_amount ?? 0);
+  });
+
+  // CB split: real customers vs formation (both went through SumUp terminal)
+  const cbReal = realNonCancelled
+    .filter(t => parseMethod(t.payment_method ?? '').label === 'SumUp (CB)')
+    .reduce((s, t) => s + (t.total_amount ?? 0), 0);
+  const cbFormation = demoNonCancelled
+    .filter(t => parseMethod(t.payment_method ?? '').label === 'SumUp (CB)')
+    .reduce((s, t) => s + (t.total_amount ?? 0), 0);
+  const cbTotal = cbReal + cbFormation;
+  const cashTotal = allNonCancelled
+    .filter(t => parseMethod(t.payment_method ?? '').label === 'Espèces')
+    .reduce((s, t) => s + (t.total_amount ?? 0), 0);
+  const demoCount = demoNonCancelled.length;
 
   const PERIOD_OPTS: { id: PeriodFilter; label: string }[] = [
     { id: 'today', label: "Aujourd'hui" },
@@ -930,6 +981,55 @@ export default function CaisseHistoriquePage() {
           ))}
         </div>
 
+        {/* Payment breakdown — reconciliation with SumUp/bank */}
+        <div className="bg-white border border-border rounded-xl p-4 mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs font-700 text-muted-foreground uppercase tracking-wide">Bilan par mode de paiement — rapprochement bancaire</p>
+            {demoCount > 0 && (
+              <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-600">
+                {demoCount} ticket(s) démo inclus (nécessaire pour rapprochement terminal)
+              </span>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-3">
+            {/* CB block — split real vs formation */}
+            <div className="flex-1 min-w-[200px] bg-blue-50 border border-blue-200 rounded-xl p-3 space-y-2">
+              <p className="text-xs text-blue-700 font-600">💳 SumUp (CB) — total terminal : <span className="font-700">{fmt(cbTotal)} €</span></p>
+              <div className="flex gap-2">
+                <div className="flex-1 bg-blue-100 rounded-lg px-2 py-1.5">
+                  <p className="text-[10px] text-blue-700 font-600">Clients réels</p>
+                  <p className="text-base font-700 tabular-nums text-blue-900">{fmt(cbReal)} €</p>
+                </div>
+                {cbFormation > 0 && (
+                  <div className="flex-1 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
+                    <p className="text-[10px] text-amber-700 font-600">🎓 Formation</p>
+                    <p className="text-base font-700 tabular-nums text-amber-800">{fmt(cbFormation)} €</p>
+                  </div>
+                )}
+              </div>
+              <p className="text-[10px] text-blue-600">Total = à comparer avec relevé SumUp</p>
+            </div>
+            <div className="flex-1 min-w-[140px] bg-emerald-50 border border-emerald-200 rounded-xl p-3">
+              <p className="text-xs text-emerald-700 font-600 mb-1">💵 Espèces</p>
+              <p className="text-xl font-700 tabular-nums text-emerald-900">{fmt(cashTotal)} €</p>
+            </div>
+            {Object.entries(payBreakdown)
+              .filter(([k]) => k !== 'SumUp (CB)' && k !== 'Espèces')
+              .map(([method, total]) => (
+                <div key={method} className="flex-1 min-w-[140px] bg-muted/40 border border-border rounded-xl p-3">
+                  <p className="text-xs text-muted-foreground font-600 mb-1">{method}</p>
+                  <p className="text-xl font-700 tabular-nums text-foreground">{fmt(total)} €</p>
+                </div>
+              ))
+            }
+          </div>
+          {cbFormation > 0 && (
+            <p className="text-[11px] text-amber-700 mt-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
+              {demoCount} ticket(s) de formation encaissé(s) sur SumUp ({fmt(cbFormation)} € CB). Ces montants apparaissent sur votre relevé SumUp mais ne font pas partie du CA réel.
+            </p>
+          )}
+        </div>
+
         {/* Returns/Avoirs deduction strip */}
         {returnsTotal > 0 && (
           <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 mb-4 flex flex-wrap items-center gap-4">
@@ -962,7 +1062,7 @@ export default function CaisseHistoriquePage() {
             <Icon name="MagnifyingGlassIcon" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input
               value={search}
-              onChange={e => setSearch(e.target.value)}
+              onChange={e => { setSearch(e.target.value); setPage(0); }}
               placeholder="Rechercher ticket, client, caissier..."
               className="w-full pl-9 pr-4 py-2.5 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
             />
@@ -1076,9 +1176,8 @@ export default function CaisseHistoriquePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map(ticket => {
-                    const methodLabel = METHOD_LABELS[ticket.payment_method] ?? ticket.payment_method;
-                    const methodColor = METHOD_COLORS[methodLabel] ?? 'text-slate-700 bg-slate-50 border-slate-200';
+                  {displayTickets.map(ticket => {
+                    const { label: methodLabel, color: methodColor, detail: methodDetail } = parseMethod(ticket.payment_method ?? '');
                     const isCancelled = ticket.status === 'cancelled';
                     return (
                       <tr
@@ -1098,6 +1197,9 @@ export default function CaisseHistoriquePage() {
                           <span className={`inline-flex items-center text-xs font-500 px-2 py-0.5 rounded-full border ${methodColor}`}>
                             {methodLabel}
                           </span>
+                          {methodDetail && (
+                            <p className="text-[10px] text-muted-foreground mt-0.5">{methodDetail}</p>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-right text-xs text-amber-600">
                           {ticket.discount_amount && ticket.discount_amount > 0 ? `-${fmt(ticket.discount_amount)} €` : '—'}
@@ -1134,10 +1236,10 @@ export default function CaisseHistoriquePage() {
           )}
 
           {/* Pagination */}
-          {!loading && (
+          {!loading && filtered.length > 0 && (
             <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-muted/20">
               <span className="text-xs text-muted-foreground">
-                {filtered.length} résultat{filtered.length > 1 ? 's' : ''} affiché{filtered.length > 1 ? 's' : ''}
+                {page * PAGE_SIZE + 1}–{Math.min(filtered.length, (page + 1) * PAGE_SIZE)} sur {filtered.length} résultat{filtered.length > 1 ? 's' : ''}
               </span>
               <div className="flex items-center gap-2">
                 <button
@@ -1147,10 +1249,10 @@ export default function CaisseHistoriquePage() {
                 >
                   <Icon name="ChevronLeftIcon" size={14} />
                 </button>
-                <span className="text-xs text-muted-foreground px-2">Page {page + 1}</span>
+                <span className="text-xs text-muted-foreground px-2">Page {page + 1} / {totalPages}</span>
                 <button
                   onClick={() => setPage(p => p + 1)}
-                  disabled={tickets.length < PAGE_SIZE}
+                  disabled={page >= totalPages - 1}
                   className="p-1.5 rounded-lg border border-border text-muted-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
                   <Icon name="ChevronRightIcon" size={14} />

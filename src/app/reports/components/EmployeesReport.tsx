@@ -32,72 +32,81 @@ export default function EmployeesReport({ dateRange }: EmployeesReportProps) {
     setLoading(true);
     const supabase = createClient();
     try {
-      // Get employee sessions with sales data
+      // Sessions from pos_sessions (actual table — no total_sales/tickets_count columns)
       const { data: sessions } = await supabase
-        .from('pos_employee_sessions')
-        .select('employee_id, started_at, ended_at, total_sales, tickets_count, employees(first_name, last_name, role)')
+        .from('pos_sessions')
+        .select('employee_id, started_at, ended_at, employees(first_name, last_name, role)')
         .gte('started_at', dateRange.from)
         .lte('started_at', dateRange.to + 'T23:59:59');
 
-      if (sessions) {
-        const empMap: Record<string, {
-          name: string; role: string; sessions: number;
-          total_sales: number; total_tickets: number; total_minutes: number;
-        }> = {};
+      // Sales aggregation from receipts, by cashier_name (exclude demo)
+      const { data: receipts } = await supabase
+        .from('receipts')
+        .select('cashier_name, total_amount, is_demo, client_name')
+        .gte('created_at', dateRange.from)
+        .lte('created_at', dateRange.to + 'T23:59:59')
+        .neq('status', 'cancelled');
 
-        sessions.forEach((s: any) => {
-          const empId = s.employee_id ?? 'unknown';
-          const emp = s.employees;
-          const name = emp ? `${emp.first_name ?? ''} ${emp.last_name ?? ''}`.trim() : 'Employé inconnu';
-          const role = emp?.role ?? 'Inconnu';
-          const sales = s.total_sales ?? 0;
-          const tickets = s.tickets_count ?? 0;
-          const start = s.started_at ? new Date(s.started_at).getTime() : 0;
-          const end = s.ended_at ? new Date(s.ended_at).getTime() : Date.now();
-          const minutes = start > 0 ? Math.round((end - start) / 60000) : 0;
+      const salesMap: Record<string, { total: number; tickets: number }> = {};
+      (receipts ?? []).forEach((r: any) => {
+        if (r.is_demo === true) return;
+        const cn = (r.client_name ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
+        if (cn === 'CHRISTY LHOMME') return;
+        const name = (r.cashier_name ?? '').trim();
+        if (!name) return;
+        if (!salesMap[name]) salesMap[name] = { total: 0, tickets: 0 };
+        salesMap[name].total += r.total_amount ?? 0;
+        salesMap[name].tickets += 1;
+      });
 
-          if (!empMap[empId]) empMap[empId] = { name, role, sessions: 0, total_sales: 0, total_tickets: 0, total_minutes: 0 };
-          empMap[empId].sessions += 1;
-          empMap[empId].total_sales += sales;
-          empMap[empId].total_tickets += tickets;
-          empMap[empId].total_minutes += minutes;
-        });
+      const empMap: Record<string, {
+        name: string; role: string; sessions: number;
+        total_sales: number; total_tickets: number; total_minutes: number;
+      }> = {};
 
-        const mapped: EmployeeRow[] = Object.values(empMap).map((e) => ({
-          employee_name: e.name,
-          role: e.role,
-          sessions: e.sessions,
-          total_sales: Math.round(e.total_sales * 100) / 100,
-          total_tickets: e.total_tickets,
-          avg_basket: e.total_tickets > 0 ? (e.total_sales / e.total_tickets).toFixed(2) : '0.00',
-          hours_worked: `${Math.floor(e.total_minutes / 60)}h${String(e.total_minutes % 60).padStart(2, '0')}`,
-        }));
+      (sessions ?? []).forEach((s: any) => {
+        const empId = s.employee_id ?? 'unknown';
+        const emp = s.employees;
+        const name = emp ? `${emp.first_name ?? ''} ${emp.last_name ?? ''}`.trim() : 'Employé inconnu';
+        const role = emp?.role ?? 'Inconnu';
+        const start = s.started_at ? new Date(s.started_at).getTime() : 0;
+        const end = s.ended_at ? new Date(s.ended_at).getTime() : Date.now();
+        const minutes = start > 0 ? Math.round((end - start) / 60000) : 0;
+        if (!empMap[empId]) empMap[empId] = { name, role, sessions: 0, total_sales: 0, total_tickets: 0, total_minutes: 0 };
+        empMap[empId].sessions += 1;
+        empMap[empId].total_minutes += minutes;
+      });
 
-        setRows(mapped);
-        const uniqueRoles = [...new Set(mapped.map((r) => r.role))].sort();
-        setRoles(uniqueRoles);
-      } else {
-        // Fallback: load employees directly
+      // If no sessions recorded yet, seed from active employees list
+      if (Object.keys(empMap).length === 0) {
         const { data: employees } = await supabase
           .from('employees')
-          .select('id, first_name, last_name, role, status')
-          .eq('status', 'active');
-
-        if (employees) {
-          const mapped: EmployeeRow[] = employees.map((e: any) => ({
-            employee_name: `${e.first_name ?? ''} ${e.last_name ?? ''}`.trim(),
-            role: e.role ?? '-',
-            sessions: 0,
-            total_sales: 0,
-            total_tickets: 0,
-            avg_basket: '0.00',
-            hours_worked: '0h00',
-          }));
-          setRows(mapped);
-          const uniqueRoles = [...new Set(mapped.map((r) => r.role))].sort();
-          setRoles(uniqueRoles);
-        }
+          .select('id, first_name, last_name, role')
+          .neq('status', 'terminated');
+        (employees ?? []).forEach((e: any) => {
+          const name = `${e.first_name ?? ''} ${e.last_name ?? ''}`.trim();
+          empMap[e.id] = { name, role: e.role ?? '-', sessions: 0, total_sales: 0, total_tickets: 0, total_minutes: 0 };
+        });
       }
+
+      // Overlay sales from receipts (matched by cashier_name == employee full name)
+      Object.values(empMap).forEach((emp) => {
+        const s = salesMap[emp.name];
+        if (s) { emp.total_sales += s.total; emp.total_tickets += s.tickets; }
+      });
+
+      const mapped: EmployeeRow[] = Object.values(empMap).map((e) => ({
+        employee_name: e.name,
+        role: e.role,
+        sessions: e.sessions,
+        total_sales: Math.round(e.total_sales * 100) / 100,
+        total_tickets: e.total_tickets,
+        avg_basket: e.total_tickets > 0 ? (e.total_sales / e.total_tickets).toFixed(2) : '0.00',
+        hours_worked: `${Math.floor(e.total_minutes / 60)}h${String(e.total_minutes % 60).padStart(2, '0')}`,
+      }));
+
+      setRows(mapped);
+      setRoles([...new Set(mapped.map((r) => r.role))].sort());
     } catch {
       // silent
     } finally {

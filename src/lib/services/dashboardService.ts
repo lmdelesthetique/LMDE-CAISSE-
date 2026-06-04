@@ -164,12 +164,18 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
   const dayRange = getDateRange('day');
   const prevDayRange = getDateRange('prevDay');
 
-  // Build receipt queries with optional employee filter
+  // Build receipt queries with optional employee filter (demo tickets excluded)
   const buildReceiptsQuery = (s: string, e: string) => {
-    let q = supabase.from('receipts').select('total_amount, items_count').eq('status', 'completed')
+    let q = supabase.from('receipts').select('total_amount, items_count, is_demo, client_name').eq('status', 'completed')
       .gte('created_at', s).lte('created_at', e);
     if (filters?.employeeId) q = q.eq('employee_id', filters.employeeId);
     return q;
+  };
+
+  const isReal = (r: any) => {
+    if (r.is_demo === true) return false;
+    const cn = (r.client_name ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
+    return cn !== 'CHRISTY LHOMME';
   };
 
   const shopifyRevenuePromise = fetch(
@@ -220,15 +226,15 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
   const productsBelow20Pct = marginPcts.filter((m: number) => m < 20).length;
   const productsAbove50Pct = marginPcts.filter((m: number) => m >= 50).length;
 
-  const sum = (arr: { data: { total_amount: number }[] | null }) =>
-    (arr.data ?? []).reduce((s, r) => s + (Number(r.total_amount) || 0), 0);
+  const sum = (arr: { data: any[] | null }) =>
+    (arr.data ?? []).filter(isReal).reduce((s, r) => s + (Number(r.total_amount) || 0), 0);
 
   const caMain = sum(currentReceipts);
   const caPrev = sum(prevReceipts);
   const caDay = sum(dayReceipts);
   const caDayPrev = sum(prevDayReceipts);
-  const salesDay = (dayReceipts.data ?? []).length;
-  const salesDayPrev = (prevDayReceipts.data ?? []).length;
+  const salesDay = (dayReceipts.data ?? []).filter(isReal).length;
+  const salesDayPrev = (prevDayReceipts.data ?? []).filter(isReal).length;
   const avgBasket = salesDay > 0 ? caDay / salesDay : 0;
 
   // Simpler: just use the filtered period values for the main KPI display
@@ -264,14 +270,19 @@ export async function fetchRevenueChart(filters?: DashboardFiltersState): Promis
 
   let query = supabase
     .from('receipts')
-    .select('total_amount, created_at')
+    .select('total_amount, created_at, is_demo, client_name')
     .eq('status', 'completed')
     .gte('created_at', since)
     .order('created_at', { ascending: true });
 
   if (filters?.employeeId) query = query.eq('employee_id', filters.employeeId);
 
-  const { data } = await query;
+  const { data: rawData } = await query;
+  const data = (rawData ?? []).filter((r: any) => {
+    if (r.is_demo === true) return false;
+    const cn = (r.client_name ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
+    return cn !== 'CHRISTY LHOMME';
+  });
 
   if (!data || data.length === 0) return [];
 
@@ -295,13 +306,18 @@ export async function fetchPaymentMethods(filters?: DashboardFiltersState): Prom
 
   let query = supabase
     .from('receipts')
-    .select('payment_method, total_amount')
+    .select('payment_method, total_amount, is_demo, client_name')
     .eq('status', 'completed')
     .gte('created_at', start);
 
   if (filters?.employeeId) query = query.eq('employee_id', filters.employeeId);
 
-  const { data } = await query;
+  const { data: rawPayData } = await query;
+  const data = (rawPayData ?? []).filter((r: any) => {
+    if (r.is_demo === true) return false;
+    const cn = (r.client_name ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
+    return cn !== 'CHRISTY LHOMME';
+  });
 
   if (!data || data.length === 0) return [];
 
@@ -339,7 +355,7 @@ export async function fetchTopProducts(filters?: DashboardFiltersState): Promise
 
   let receiptsQuery = supabase
     .from('receipts')
-    .select('items, total_amount')
+    .select('items, total_amount, is_demo, client_name')
     .eq('status', 'completed')
     .gte('created_at', start);
 
@@ -357,7 +373,11 @@ export async function fetchTopProducts(filters?: DashboardFiltersState): Promise
     }),
   ]);
 
-  const receipts = receiptsResult.data;
+  const receipts = (receiptsResult.data ?? []).filter((r: any) => {
+    if (r.is_demo === true) return false;
+    const cn = (r.client_name ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
+    return cn !== 'CHRISTY LHOMME';
+  });
 
   if (!receipts || !products) return [];
 
@@ -365,7 +385,7 @@ export async function fetchTopProducts(filters?: DashboardFiltersState): Promise
 
   const salesMap: Record<string, { qty: number; revenue: number; name: string; category: string }> = {};
 
-  receipts.forEach((receipt) => {
+  receipts.forEach((receipt: any) => {
     const items = receipt.items as any[];
     if (!Array.isArray(items)) return;
     items.forEach((item: any) => {
@@ -433,13 +453,19 @@ export async function fetchRecentSales(): Promise<RecentSale[]> {
   const supabase = createClient();
   const { start } = getDateRange('day');
 
-  const { data } = await supabase
+  const { data: rawRecent } = await supabase
     .from('receipts')
-    .select('id, total_amount, payment_method, client_name, items_count, created_at, ticket_number')
+    .select('id, total_amount, payment_method, client_name, items_count, created_at, ticket_number, is_demo')
     .eq('status', 'completed')
     .gte('created_at', start)
     .order('created_at', { ascending: false })
-    .limit(8);
+    .limit(20);
+
+  const data = (rawRecent ?? []).filter((r: any) => {
+    if (r.is_demo === true) return false;
+    const cn = (r.client_name ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
+    return cn !== 'CHRISTY LHOMME';
+  }).slice(0, 8);
 
   if (!data) return [];
 
