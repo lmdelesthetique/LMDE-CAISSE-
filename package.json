@@ -69,6 +69,7 @@
     "react-is": "^19.0.0",
     "recharts": "^3.8.1",
     "sonner": "^1.7.4",
+    "web-push": "^3.6.7",
     "xlsx": "0.18.5"
   },
   "devDependencies": {
@@ -77,6 +78,7 @@
     "@types/node": "^20",
     "@types/react": "19.0.3",
     "@types/react-dom": "19.0.3",
+    "@types/web-push": "^3.6.4",
     "@typescript-eslint/eslint-plugin": "^8.29.0",
     "@typescript-eslint/parser": "^8.29.0",
     "autoprefixer": "10.4.2",

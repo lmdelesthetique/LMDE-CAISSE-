@@ -108,6 +108,15 @@ function getSession(): DriverSession | null {
 
 const TODAY = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 
+function urlBase64ToUint8Array(base64String: string): ArrayBuffer {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const output = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; i++) output[i] = rawData.charCodeAt(i);
+  return output.buffer;
+}
+
 export default function DriverDashboard() {
   const router = useRouter();
   const [session, setSession] = useState<DriverSession | null>(null);
@@ -115,6 +124,7 @@ export default function DriverDashboard() {
   const [loading, setLoading] = useState(true);
   const [online, setOnline] = useState(false);
   const [togglingStatus, setTogglingStatus] = useState(false);
+  const [pushPermission, setPushPermission] = useState<NotificationPermission | 'unsupported'>('default');
   const channelRef = useRef<ReturnType<typeof createClient>['channel'] extends (...a: any[]) => infer R ? R : never>(null as any);
 
   // Auth check
@@ -123,6 +133,47 @@ export default function DriverDashboard() {
     if (!s || s.role !== 'driver') { router.replace('/livreur/login'); return; }
     setSession(s);
   }, [router]);
+
+  // Read current notification permission on mount
+  useEffect(() => {
+    if (!('Notification' in window)) { setPushPermission('unsupported'); return; }
+    setPushPermission(Notification.permission);
+  }, []);
+
+  const subscribeToPush = async (driverId: string) => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    try {
+      const permission = await Notification.requestPermission();
+      setPushPermission(permission);
+      if (permission !== 'granted') return;
+
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(
+          process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!
+        ),
+      });
+
+      await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ driverId, subscription: sub.toJSON() }),
+      });
+    } catch (err) {
+      console.error('[push] subscription failed:', err);
+    }
+  };
+
+  // Auto-subscribe once session is available and permission not yet granted
+  useEffect(() => {
+    if (!session) return;
+    if (pushPermission === 'granted') {
+      // Re-register subscription silently on each login to keep it fresh
+      subscribeToPush(session.driverId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.driverId]);
 
   const loadDeliveries = useCallback(async (empId: string) => {
     try {
@@ -242,6 +293,22 @@ export default function DriverDashboard() {
       </div>
 
       <div className="px-4 py-4 space-y-4">
+
+        {/* Push notification opt-in banner */}
+        {pushPermission === 'default' && (
+          <button
+            onClick={() => session && subscribeToPush(session.driverId)}
+            className="w-full bg-orange-500 hover:bg-orange-600 active:scale-95 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-sm"
+          >
+            🔔 Activer les notifications de livraison
+          </button>
+        )}
+        {pushPermission === 'denied' && (
+          <div className="w-full bg-gray-100 border border-gray-200 text-gray-500 py-2.5 px-4 rounded-xl text-sm text-center">
+            🔕 Notifications désactivées — activez-les dans les paramètres du navigateur
+          </div>
+        )}
+
         {/* KPI cards */}
         <div className="grid grid-cols-2 gap-3">
           {[
