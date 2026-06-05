@@ -74,46 +74,52 @@ export default function DriverDashboard() {
     setSession(s);
   }, [router]);
 
-  // Read current notification permission on mount
-  useEffect(() => {
-    if (!('Notification' in window)) { setPushPermission('unsupported'); return; }
-    setPushPermission(Notification.permission);
-  }, []);
-
-  const subscribeToPush = async (driverId: string) => {
+  const silentSubscribe = useCallback(async (driverId: string) => {
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
     try {
-      const permission = await Notification.requestPermission();
-      setPushPermission(permission);
-      if (permission !== 'granted') return;
-
       const reg = await navigator.serviceWorker.ready;
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(
-          process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!
-        ),
-      });
-
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!),
+        });
+      }
       await fetch('/api/push/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ driverId, subscription: sub.toJSON() }),
       });
     } catch (err) {
+      console.error('[push] silent subscribe failed:', err);
+    }
+  }, []);
+
+  const subscribeToPush = useCallback(async (driverId: string) => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    try {
+      const permission = await Notification.requestPermission();
+      setPushPermission(permission);
+      if (permission !== 'granted') return;
+      await silentSubscribe(driverId);
+    } catch (err) {
       console.error('[push] subscription failed:', err);
     }
-  };
+  }, [silentSubscribe]);
 
-  // Auto-subscribe once session is available and permission not yet granted
+  // Read real permission from browser on mount — sets the correct banner immediately
   useEffect(() => {
-    if (!session) return;
-    if (pushPermission === 'granted') {
-      // Re-register subscription silently on each login to keep it fresh
-      subscribeToPush(session.driverId);
+    if (!('Notification' in window)) { setPushPermission('unsupported'); return; }
+    setPushPermission(Notification.permission);
+  }, []);
+
+  // Auto-subscribe silently once session is loaded and permission already granted
+  useEffect(() => {
+    if (!session?.driverId) return;
+    if (Notification.permission === 'granted') {
+      silentSubscribe(session.driverId);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.driverId]);
+  }, [session?.driverId, silentSubscribe]);
 
   const loadDeliveries = useCallback(async (empId: string) => {
     try {
@@ -235,18 +241,28 @@ export default function DriverDashboard() {
 
       <div className="px-4 py-4 space-y-4">
 
-        {/* Push notification opt-in banner */}
+        {/* Push notification banner */}
         {pushPermission === 'default' && (
           <button
             onClick={() => session && subscribeToPush(session.driverId)}
-            className="w-full bg-orange-500 hover:bg-orange-600 active:scale-95 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-sm"
+            className="w-full bg-orange-500 hover:bg-orange-600 active:scale-95 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-md text-base"
           >
-            🔔 Activer les notifications de livraison
+            🔔 Activer mes notifications de livraison
           </button>
         )}
         {pushPermission === 'denied' && (
-          <div className="w-full bg-gray-100 border border-gray-200 text-gray-500 py-2.5 px-4 rounded-xl text-sm text-center">
-            🔕 Notifications désactivées — activez-les dans les paramètres du navigateur
+          <div className="w-full bg-red-50 border border-red-200 rounded-xl p-4">
+            <p className="text-sm font-bold text-red-800 mb-1">🔕 Notifications bloquées</p>
+            <p className="text-xs text-red-700 leading-relaxed">
+              <strong>Android Chrome :</strong> Menu ⋮ → Paramètres → Paramètres du site → Notifications → <strong>lmdecaisse.com</strong> → Autoriser<br />
+              <strong>iPhone Safari :</strong> Réglages → Safari → lmdecaisse.com → Notifications → Autoriser
+            </p>
+          </div>
+        )}
+        {pushPermission === 'granted' && (
+          <div className="w-full bg-green-50 border border-green-200 rounded-xl px-4 py-3 flex items-center gap-3">
+            <span className="text-xl">✅</span>
+            <p className="text-sm font-semibold text-green-800">Notifications activées</p>
           </div>
         )}
 
