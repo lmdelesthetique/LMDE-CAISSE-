@@ -2,13 +2,18 @@ import { NextResponse } from 'next/server';
 import webpush from 'web-push';
 import { createAdminClient } from '@/lib/supabase/admin';
 
-webpush.setVapidDetails(
-  'mailto:' + (process.env.VAPID_EMAIL || 'lm.delesthetique@gmail.com'),
-  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
-  process.env.VAPID_PRIVATE_KEY!
-);
-
 export async function POST(request: Request) {
+  // Configure VAPID inside the handler so env vars are available at runtime,
+  // not at module-init time (which would fail during next build).
+  if (!process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
+    return NextResponse.json({ error: 'Push not configured' }, { status: 503 });
+  }
+  webpush.setVapidDetails(
+    'mailto:' + (process.env.VAPID_EMAIL || 'lm.delesthetique@gmail.com'),
+    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY
+  );
+
   let body: any;
   try {
     body = await request.json();
