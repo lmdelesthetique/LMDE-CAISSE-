@@ -183,12 +183,10 @@ export default function LivraisonsPage() {
         </div>
         <div className="flex items-center gap-2">
           <a
-            href="/livreur/login"
-            target="_blank"
-            rel="noopener noreferrer"
+            href="/livreurs"
             className="flex items-center gap-2 px-4 py-2.5 border-2 border-orange-500 text-orange-500 font-bold rounded-xl hover:bg-orange-50 transition-colors text-sm"
           >
-            🚚 Portail Livreur
+            🚗 Gérer les livreurs
           </a>
           <button
             onClick={() => { setShowForm(true); setFormError(''); }}
