@@ -291,23 +291,23 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
       setDropdownPos(null);
       return;
     }
-    // Calculate fixed position from input rect before async gap
-    const inputEl = inputRefs.current[lineId];
-    if (inputEl) {
-      const rect = inputEl.getBoundingClientRect();
-      const spaceBelow = window.innerHeight - rect.bottom;
-      const dropH = 288; // max-h-72
-      setDropdownPos({
-        top: spaceBelow >= 120 ? rect.bottom + 4 : Math.max(8, rect.top - dropH - 4),
-        left: rect.left,
-        width: Math.max(rect.width, 384),
-      });
-    }
     try {
       const res = await fetch(`/api/products/search?q=${encodeURIComponent(query.trim())}&limit=8`);
       const json = await res.json();
-      setProductResults((prev) => ({ ...prev, [lineId]: json.products ?? [] }));
-      setActiveDropdownLine(lineId);
+      const results: any[] = json.products ?? [];
+      // Recalculate position after fetch so it reflects current scroll state
+      const inputEl = inputRefs.current[lineId];
+      if (inputEl) {
+        const rect = inputEl.getBoundingClientRect();
+        const spaceBelow = window.innerHeight - rect.bottom;
+        setDropdownPos({
+          top: spaceBelow >= 120 ? rect.bottom + 4 : Math.max(8, rect.top - 292 - 4),
+          left: rect.left,
+          width: Math.max(rect.width, 384),
+        });
+      }
+      setProductResults((prev) => ({ ...prev, [lineId]: results }));
+      setActiveDropdownLine(results.length > 0 ? lineId : null);
     } catch {
       setActiveDropdownLine(null);
       setDropdownPos(null);
@@ -601,7 +601,7 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
                               const q = productSearches[line.id] ?? line.description;
                               if (q.trim().length >= 2) searchProducts(line.id, q);
                             }}
-                            onBlur={() => setTimeout(() => setActiveDropdownLine(null), 200)}
+                            onBlur={() => setTimeout(() => setActiveDropdownLine(null), 300)}
                             className="w-full bg-transparent border-0 focus:outline-none text-sm text-foreground placeholder:text-muted-foreground"
                             placeholder="Rechercher par nom, référence ou code-barre…"
                           />
