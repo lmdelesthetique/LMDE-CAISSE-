@@ -2,11 +2,12 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
-const SESSION_COOKIE = 'app_session';
+const ADMIN_COOKIE = 'app_session';
+const LIVREUR_COOKIE = 'livreur_session';
 
-const PUBLIC_PREFIXES = ['/pin-login', '/api/auth/pin'];
+const ADMIN_PUBLIC = ['/pin-login', '/api/auth/pin'];
 
-function isSessionValid(cookieValue: string | undefined): boolean {
+function isAdminSessionValid(cookieValue: string | undefined): boolean {
   if (!cookieValue) return false;
   try {
     const { exp } = JSON.parse(atob(cookieValue)) as { exp: number };
@@ -19,18 +20,29 @@ function isSessionValid(cookieValue: string | undefined): boolean {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Always allow public paths
-  if (PUBLIC_PREFIXES.some(prefix => pathname.startsWith(prefix))) {
+  // ── Livreur portal: completely isolated from admin ─────────────────────────
+  if (pathname.startsWith('/livreur')) {
+    // Login page is always public
+    if (pathname === '/livreur/login') return NextResponse.next();
+    // All other /livreur/* pages require the livreur cookie
+    const livreurCookie = request.cookies.get(LIVREUR_COOKIE)?.value;
+    if (!livreurCookie) {
+      return NextResponse.redirect(new URL('/livreur/login', request.url));
+    }
     return NextResponse.next();
   }
 
-  const sessionCookie = request.cookies.get(SESSION_COOKIE)?.value;
+  // ── Admin app: PIN session ─────────────────────────────────────────────────
+  if (ADMIN_PUBLIC.some(prefix => pathname.startsWith(prefix))) {
+    return NextResponse.next();
+  }
 
-  if (isSessionValid(sessionCookie)) {
-    // Slide the session window (refresh expiry on each request)
+  const adminCookie = request.cookies.get(ADMIN_COOKIE)?.value;
+
+  if (isAdminSessionValid(adminCookie)) {
     const response = NextResponse.next();
     const newValue = btoa(JSON.stringify({ exp: Date.now() + SESSION_TTL_MS }));
-    response.cookies.set(SESSION_COOKIE, newValue, {
+    response.cookies.set(ADMIN_COOKIE, newValue, {
       httpOnly: true,
       sameSite: 'strict',
       path: '/',
@@ -39,7 +51,6 @@ export async function middleware(request: NextRequest) {
     return response;
   }
 
-  // No valid session → redirect to PIN login
   const loginUrl = new URL('/pin-login', request.url);
   loginUrl.searchParams.set('redirect', pathname);
   return NextResponse.redirect(loginUrl);

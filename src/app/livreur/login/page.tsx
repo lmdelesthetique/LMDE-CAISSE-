@@ -2,19 +2,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClient } from '@/lib/supabase/client';
 
 const DRIVER_SESSION_KEY = 'beautypos_driver_session';
-
-function normalizePhone(raw: string): string {
-  // Strip all whitespace
-  const stripped = raw.replace(/\s/g, '').trim();
-  // French Antilles: 0696... → +596696... / 0596... → +596596...
-  if (/^0[0-9]{9}$/.test(stripped)) {
-    return '+596' + stripped.slice(1);
-  }
-  return stripped;
-}
 
 export default function LivreurLoginPage() {
   const router = useRouter();
@@ -54,44 +43,27 @@ export default function LivreurLoginPage() {
     if (val.length === 4) {
       setSubmitting(true);
       try {
-        const supabase = createClient();
-        const phoneRaw = phone.replace(/\s/g, '').trim();
-        const phoneNorm = normalizePhone(phone);
-        const pinTrimmed = val.trim();
+        const res = await fetch('/api/livreur/auth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone: phone.trim(), pin: val.trim() }),
+        });
+        const json = await res.json();
 
-        console.log('[login] searching drivers:', { phoneRaw, phoneNorm, pin: pinTrimmed });
-
-        // Try raw phone first, then normalized form
-        let driver: { id: string; first_name: string; last_name: string } | null = null;
-
-        for (const phoneCandidate of Array.from(new Set([phoneRaw, phoneNorm]))) {
-          const { data, error: dbErr } = await supabase
-            .from('drivers')
-            .select('id, first_name, last_name')
-            .eq('phone', phoneCandidate)
-            .eq('pin_code', pinTrimmed)
-            .eq('status', 'active')
-            .maybeSingle();
-
-          console.log('[login] candidate', phoneCandidate, '→ data:', data, 'error:', dbErr);
-
-          if (data) { driver = data; break; }
-        }
-
-        if (!driver) {
-          setError('Téléphone ou PIN incorrect.');
+        if (!res.ok || !json.driver) {
+          setError(json.error || 'Téléphone ou PIN incorrect.');
           setPin('');
           setTimeout(() => pinRef.current?.focus(), 50);
         } else {
+          const d = json.driver;
           localStorage.setItem(DRIVER_SESSION_KEY, JSON.stringify({
-            driverId: driver.id,
-            name: `${driver.first_name ?? ''} ${driver.last_name ?? ''}`.trim(),
+            driverId: d.id,
+            name: `${d.first_name ?? ''} ${d.last_name ?? ''}`.trim(),
             role: 'driver',
           }));
           router.replace('/livreur/dashboard');
         }
-      } catch (err) {
-        console.error('[login] unexpected error:', err);
+      } catch {
         setError('Erreur de connexion. Réessayez.');
         setPin('');
       } finally {
@@ -102,17 +74,7 @@ export default function LivreurLoginPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-orange-50 via-amber-50/40 to-stone-50">
-      {/* Back to main app */}
-      <div className="bg-gray-100 px-4 py-2 flex items-center gap-2">
-        <a
-          href="/livraisons"
-          className="text-sm text-gray-600 hover:text-pink-600 flex items-center gap-1 transition-colors"
-        >
-          ← Retour à l'admin
-        </a>
-      </div>
-
-      <div className="flex items-center justify-center px-4 pb-12">
+      <div className="flex items-center justify-center px-4 pt-12 pb-12">
       <div className="w-full max-w-sm">
         {/* Logo / brand */}
         <div className="text-center mb-8">
@@ -156,9 +118,9 @@ export default function LivreurLoginPage() {
               <div className="flex items-center gap-3 mb-4">
                 <button
                   onClick={() => { setStep('phone'); setPin(''); setError(''); }}
-                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                  className="text-gray-400 hover:text-gray-600 transition-colors text-sm"
                 >
-                  ← Retour
+                  Retour
                 </button>
                 <div>
                   <p className="text-sm font-semibold text-gray-700">Code PIN à 4 chiffres</p>
@@ -228,6 +190,14 @@ export default function LivreurLoginPage() {
             <button onClick={() => setShowForgot(false)} className="mt-2 text-xs text-amber-600 underline">Fermer</button>
           </div>
         )}
+
+        <div className="mt-6 bg-orange-50 border border-orange-200 rounded-xl p-4">
+          <p className="font-bold text-orange-800 mb-2 text-sm">📱 Installer l'app sur votre téléphone</p>
+          <div className="text-xs text-orange-700 space-y-1">
+            <p><strong>iPhone Safari :</strong> Appuyer sur ↑ → "Sur l'écran d'accueil"</p>
+            <p><strong>Android Chrome :</strong> Menu ⋮ → "Installer l'application"</p>
+          </div>
+        </div>
 
         <p className="text-center text-xs text-gray-400 mt-5">
           Accès réservé aux livreurs autorisés BeautyPOS

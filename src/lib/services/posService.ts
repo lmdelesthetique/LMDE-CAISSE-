@@ -52,6 +52,8 @@ export interface ReceiptRecord {
   status: string;
   notes: string | null;
   loyaltyPointsEarned: number;
+  hasDelivery: boolean;
+  deliveryId: string | null;
 }
 
 export interface TicketModification {
@@ -172,6 +174,8 @@ function mapReceipt(r: Record<string, unknown>): ReceiptRecord {
     status: (r.status as string) || 'completed',
     notes: (r.notes as string) || null,
     loyaltyPointsEarned: Number(r.loyalty_points_earned) || 0,
+    hasDelivery: Boolean(r.has_delivery),
+    deliveryId: (r.delivery_id as string) || null,
   };
 }
 

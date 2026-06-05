@@ -214,6 +214,218 @@ function PinCancelModal({ onConfirm, onClose }: { onConfirm: () => void; onClose
   );
 }
 
+// ─── Delivery From Ticket Modal ───────────────────────────────────────────────
+interface DeliveryFromTicketModalProps {
+  receipt: import('@/lib/services/posService').ReceiptRecord;
+  onClose: () => void;
+  onCreated: () => void;
+}
+
+function DeliveryFromTicketModal({ receipt, onClose, onCreated }: DeliveryFromTicketModalProps) {
+  const [address, setAddress] = useState('');
+  const [phone, setPhone] = useState('');
+  const [driverId, setDriverId] = useState('');
+  const [notes, setNotes] = useState('');
+  const [drivers, setDrivers] = useState<{ id: string; name: string; driverStatus: string }[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [loadingClient, setLoadingClient] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/livreurs')
+      .then((r) => r.json())
+      .then((d) =>
+        setDrivers(
+          (d.drivers ?? []).map((dr: any) => ({
+            id: dr.id,
+            name: `${dr.first_name ?? ''} ${dr.last_name ?? ''}`.trim(),
+            driverStatus: dr.driver_status ?? 'off',
+          }))
+        )
+      )
+      .catch(() => {});
+
+    if (receipt.clientId) {
+      setLoadingClient(true);
+      fetch(`/api/clients/${receipt.clientId}`)
+        .then((r) => r.json())
+        .then((c) => {
+          if (c?.telephone) setPhone(c.telephone);
+          if (c?.adresse) {
+            const parts = [c.adresse, c.ville, c.code_postal].filter(Boolean).join(', ');
+            setAddress(parts);
+          }
+        })
+        .catch(() => {})
+        .finally(() => setLoadingClient(false));
+    }
+  }, [receipt.clientId]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!address.trim()) { setError('Adresse de livraison requise'); return; }
+    setSubmitting(true);
+    setError('');
+    try {
+      const products = receipt.items.map((item) => ({
+        name: item.name,
+        qty: item.qty,
+        price: item.price,
+      }));
+
+      const res = await fetch('/api/livraisons', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_name: receipt.clientName || 'Client',
+          client_phone: phone.trim() || null,
+          delivery_address: address.trim(),
+          delivery_notes: notes.trim() || null,
+          products,
+          total_amount: receipt.totalAmount,
+          receipt_id: receipt.id,
+          assigned_to_driver: driverId || null,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Erreur création');
+      onCreated();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
+          <div>
+            <h2 className="font-700 text-foreground text-base">🚚 Créer une livraison</h2>
+            <p className="text-xs text-muted-foreground">Ticket {receipt.ticketNumber}</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
+            <Icon name="XMarkIcon" size={18} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+          {/* Client (read-only) */}
+          <div className="bg-muted/20 rounded-xl px-4 py-3">
+            <p className="text-xs font-600 text-muted-foreground uppercase tracking-wide mb-1">Client</p>
+            <p className="text-sm font-700 text-foreground">{receipt.clientName || 'Anonyme'}</p>
+          </div>
+
+          {/* Phone */}
+          <div>
+            <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1.5">Téléphone</label>
+            <input
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="+596 696 00 00 00"
+              className="w-full border border-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+            />
+          </div>
+
+          {/* Address */}
+          <div>
+            <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1.5">
+              Adresse de livraison <span className="text-red-500">*</span>
+              {loadingClient && <span className="ml-1.5 text-xs font-400 text-primary">Chargement fiche client…</span>}
+            </label>
+            <textarea
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder="Rue, ville, code postal…"
+              rows={2}
+              required
+              className="w-full border border-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none"
+            />
+          </div>
+
+          {/* Products summary */}
+          {receipt.items.length > 0 && (
+            <div className="bg-muted/20 rounded-xl px-4 py-3">
+              <p className="text-xs font-600 text-muted-foreground uppercase tracking-wide mb-2">
+                Articles ({receipt.items.length})
+              </p>
+              <div className="space-y-0.5">
+                {receipt.items.slice(0, 5).map((item, i) => (
+                  <p key={i} className="text-xs text-foreground">
+                    • {item.name} ×{item.qty} — {(item.price * item.qty).toFixed(2)} €
+                  </p>
+                ))}
+                {receipt.items.length > 5 && (
+                  <p className="text-xs text-muted-foreground">+{receipt.items.length - 5} autres articles</p>
+                )}
+              </div>
+              <p className="text-sm font-700 text-foreground mt-2 pt-2 border-t border-border">
+                Montant : {receipt.totalAmount.toFixed(2)} €
+              </p>
+            </div>
+          )}
+
+          {/* Driver */}
+          <div>
+            <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1.5">Assigner un livreur</label>
+            <select
+              value={driverId}
+              onChange={(e) => setDriverId(e.target.value)}
+              className="w-full border border-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white"
+            >
+              <option value="">— Aucun (en attente) —</option>
+              {drivers.map((dr) => (
+                <option key={dr.id} value={dr.id}>
+                  {dr.name} {dr.driverStatus === 'on' ? '🟢' : '⚫'}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Notes */}
+          <div>
+            <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1.5">Notes (optionnel)</label>
+            <input
+              type="text"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Interphone, étage, instructions…"
+              className="w-full border border-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+            />
+          </div>
+
+          {error && (
+            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{error}</p>
+          )}
+
+          <div className="flex gap-2 pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-2.5 border border-border rounded-xl text-sm font-600 text-muted-foreground hover:bg-muted transition-colors"
+            >
+              Annuler
+            </button>
+            <button
+              type="submit"
+              disabled={submitting || !address.trim()}
+              className="flex-1 py-2.5 bg-orange-500 text-white rounded-xl text-sm font-700 hover:bg-orange-600 disabled:opacity-40 transition-colors flex items-center justify-center gap-2"
+            >
+              {submitting
+                ? <><Icon name="ArrowPathIcon" size={13} className="animate-spin" />Création…</>
+                : '🚚 Créer la livraison'
+              }
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ─── Ticket Detail Modal ──────────────────────────────────────────────────────
 interface TicketDetailModalProps {
   ticketId: string;
@@ -235,6 +447,8 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
   const [saving, setSaving] = useState(false);
   const [showPinCancel, setShowPinCancel] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [showDeliveryModal, setShowDeliveryModal] = useState(false);
+  const [hasDelivery, setHasDelivery] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -253,6 +467,7 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
           notes: rec.notes || '',
           reason: '',
         });
+        setHasDelivery(rec.hasDelivery);
       } else {
         setFetchError('Impossible de charger les détails depuis le serveur');
       }
@@ -555,6 +770,14 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
                 </div>
               )}
 
+              {/* Delivery status badge */}
+              {hasDelivery && (
+                <div className="flex items-center gap-2 bg-orange-50 border border-orange-200 rounded-xl px-4 py-2.5">
+                  <span className="text-base">🚚</span>
+                  <p className="text-sm font-600 text-orange-700">Ticket en livraison</p>
+                </div>
+              )}
+
               {/* Actions */}
               <div className="grid grid-cols-2 gap-2 pt-2">
                 <button
@@ -572,6 +795,17 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
                   Créer facture
                 </button>
               </div>
+
+              {/* Delivery button */}
+              {receipt.status !== 'cancelled' && !hasDelivery && (
+                <button
+                  onClick={() => setShowDeliveryModal(true)}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 border border-orange-200 bg-orange-50 rounded-xl text-sm font-600 text-orange-700 hover:bg-orange-100 transition-colors"
+                >
+                  🚚 Mettre en livraison
+                </button>
+              )}
+
               {receipt.status !== 'cancelled' && (
                 <button
                   onClick={() => setShowPinCancel(true)}
@@ -723,6 +957,17 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
       </div>
       {showPinCancel && (
         <PinCancelModal onConfirm={handleCancelTicket} onClose={() => setShowPinCancel(false)} />
+      )}
+      {showDeliveryModal && receipt && (
+        <DeliveryFromTicketModal
+          receipt={receipt}
+          onClose={() => setShowDeliveryModal(false)}
+          onCreated={() => {
+            setShowDeliveryModal(false);
+            setHasDelivery(true);
+            toast.success('Livraison créée avec succès !');
+          }}
+        />
       )}
     </div>
   );

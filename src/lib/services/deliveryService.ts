@@ -35,6 +35,7 @@ export interface Delivery {
   photoUrl: string | null;
   driverNotes: string | null;
   createdAt: string;
+  receiptId: string | null;
   // Joined from drivers table
   driverName?: string | null;
   driverPhone?: string | null;
@@ -77,6 +78,7 @@ function mapDelivery(row: any): Delivery {
     photoUrl: row.photo_url ?? null,
     driverNotes: row.driver_notes ?? null,
     createdAt: row.created_at,
+    receiptId: row.receipt_id ?? null,
     driverName: row.drivers
       ? `${row.drivers.first_name ?? ''} ${row.drivers.last_name ?? ''}`.trim()
       : null,

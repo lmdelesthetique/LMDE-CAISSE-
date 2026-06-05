@@ -321,9 +321,19 @@ export default function LivraisonsPage() {
                           <span className="font-mono text-xs text-gray-500">
                             {d.shopifyOrderNumber ? d.shopifyOrderNumber : '—'}
                           </span>
-                          {d.shopifyOrderId && (
+                          {d.receiptId && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 bg-pink-100 text-pink-700 border border-pink-200 rounded-md leading-none">
+                              🧾 Caisse
+                            </span>
+                          )}
+                          {d.shopifyOrderId && !d.receiptId && (
                             <span className="text-[10px] font-bold px-1.5 py-0.5 bg-green-100 text-green-700 border border-green-200 rounded-md leading-none">
-                              Shopify
+                              🛒 Shopify
+                            </span>
+                          )}
+                          {!d.shopifyOrderId && !d.receiptId && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 bg-gray-100 text-gray-600 border border-gray-200 rounded-md leading-none">
+                              📝 Manuel
                             </span>
                           )}
                           {isNewShopify && (

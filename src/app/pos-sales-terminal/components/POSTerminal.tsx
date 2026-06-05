@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import ProductGrid from './ProductGrid';
-import CartPanel, { type GlobalDiscount } from './CartPanel';
+import CartPanel, { type CartPanelHandle, type GlobalDiscount } from './CartPanel';
 import HeldTicketsDrawer from './HeldTicketsDrawer';
 import PaymentModal from './PaymentModal';
 import OuvertureCaisseModal from './OuvertureCaisseModal';
@@ -474,6 +474,13 @@ export default function POSTerminal() {
   const [showPayment, setShowPayment] = useState(false);
   const [showFreePrice, setShowFreePrice] = useState(false);
   const [paymentMode, setPaymentMode] = useState<'immediate' | 'acompte' | 'installment'>('immediate');
+  const cartPanelRef = useRef<CartPanelHandle>(null);
+
+  const openPayment = useCallback((mode: 'immediate' | 'acompte' | 'installment') => {
+    cartPanelRef.current?.applyPendingDiscount();
+    setPaymentMode(mode);
+    setShowPayment(true);
+  }, []);
 
   // ── Fond de caisse ────────────────────────────────────────────────────────
   const [sessionChecked, setSessionChecked] = useState(false);
@@ -1582,6 +1589,7 @@ export default function POSTerminal() {
           )}
 
           <CartPanel
+            ref={cartPanelRef}
             items={cart}
             onUpdateQty={updateQty}
             onUpdateDiscount={updateDiscount}
@@ -1608,7 +1616,7 @@ export default function POSTerminal() {
               ].map((btn) => (
                 <button
                   key={btn.id}
-                  onClick={() => { setPaymentMode(btn.mode); setShowPayment(true); }}
+                  onClick={() => openPayment(btn.mode)}
                   disabled={cart.length === 0}
                   className="flex flex-col items-center justify-center py-2.5 px-3 border border-border rounded-lg hover:border-primary/40 hover:bg-primary/5 transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed active:scale-95"
                 >
@@ -1618,14 +1626,14 @@ export default function POSTerminal() {
               ))}
             </div>
             <button
-              onClick={() => { setPaymentMode('acompte'); setShowPayment(true); }}
+              onClick={() => openPayment('acompte')}
               disabled={cart.length === 0}
               className="w-full py-2.5 border border-amber-300 bg-amber-50 rounded-lg text-sm font-600 text-amber-800 hover:bg-amber-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed active:scale-95"
             >
               Acompte / Réservation
             </button>
             <button
-              onClick={() => { setPaymentMode('immediate'); setShowPayment(true); }}
+              onClick={() => openPayment('immediate')}
               disabled={cart.length === 0 || paying}
               className="w-full py-3 bg-primary text-primary-foreground rounded-lg text-[15px] font-700 hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 shadow-sm"
             >

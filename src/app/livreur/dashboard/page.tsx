@@ -8,85 +8,25 @@ import { deliveryService, type Delivery, DELIVERY_STATUS_CONFIG } from '@/lib/se
 // ─── Portal header ─────────────────────────────────────────────────────────────
 
 function PortalHeader({ name, onLogout }: { name: string; onLogout: () => void }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-
   return (
-    <div className="bg-pink-600 text-white sticky top-0 z-50 shadow-md">
-      {/* Desktop + mobile bar */}
-      <div className="px-4 py-3 flex items-center justify-between">
-        {/* Left: back link + brand */}
-        <div className="flex items-center gap-3 min-w-0">
-          <a
-            href="/livraisons"
-            className="flex items-center gap-1 text-white/80 hover:text-white text-sm font-medium transition-colors shrink-0"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-            </svg>
-            <span className="hidden sm:inline">← Admin</span>
-          </a>
-          <span className="text-white/40 hidden sm:inline">|</span>
-          <div className="min-w-0">
-            <p className="font-bold text-sm leading-tight">🚚 Portail Livreur</p>
-          </div>
-        </div>
-
-        {/* Desktop right: name + logout */}
-        <div className="hidden sm:flex items-center gap-3">
-          <span className="text-sm font-medium opacity-90 truncate max-w-[140px]">{name}</span>
-          <button
-            onClick={onLogout}
-            className="bg-white text-pink-600 hover:bg-pink-50 px-3 py-1.5 rounded-lg text-sm font-bold transition-colors"
-          >
-            Déconnexion
-          </button>
-        </div>
-
-        {/* Mobile right: name + hamburger */}
-        <div className="flex sm:hidden items-center gap-2">
-          <span className="text-sm font-medium opacity-90 truncate max-w-[90px]">{name}</span>
-          <button
-            onClick={() => setMenuOpen((v) => !v)}
-            className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
-            aria-label="Menu"
-          >
-            {menuOpen ? (
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            ) : (
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
-              </svg>
-            )}
-          </button>
+    <header className="bg-pink-600 text-white px-4 py-3 sticky top-0 z-50 shadow-md flex justify-between items-center">
+      <div className="flex items-center gap-2">
+        <span className="text-2xl">🚚</span>
+        <div>
+          <p className="font-bold text-sm leading-tight">BeautyPOS Livreur</p>
+          <p className="text-xs opacity-75 leading-tight">Le Monde de l'Esthétique</p>
         </div>
       </div>
-
-      {/* Mobile dropdown menu */}
-      {menuOpen && (
-        <div className="sm:hidden bg-pink-700 border-t border-white/20 py-2">
-          <a
-            href="/livraisons"
-            className="flex items-center gap-2 px-4 py-3 text-sm font-medium text-white hover:bg-white/10 transition-colors"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-            </svg>
-            Retour à l'admin
-          </a>
-          <button
-            onClick={onLogout}
-            className="w-full flex items-center gap-2 px-4 py-3 text-sm font-medium text-white hover:bg-white/10 transition-colors text-left"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
-            </svg>
-            Déconnexion
-          </button>
-        </div>
-      )}
-    </div>
+      <div className="flex items-center gap-3">
+        <span className="text-sm font-medium opacity-90 truncate max-w-[120px]">{name}</span>
+        <button
+          onClick={onLogout}
+          className="bg-white text-pink-600 px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-pink-50 transition-colors"
+        >
+          Déconnexion
+        </button>
+      </div>
+    </header>
   );
 }
 
@@ -217,14 +157,15 @@ export default function DriverDashboard() {
     }
   };
 
-  const handleLogout = () => {
-    // Clear all possible session keys
+  const handleLogout = async () => {
     try {
       localStorage.removeItem(SESSION_KEY);
       localStorage.removeItem('livreur_session');
       localStorage.removeItem('livreur_pin');
       sessionStorage.clear();
     } catch { /* ignore */ }
+    // Clear the httpOnly session cookie server-side
+    await fetch('/api/livreur/auth', { method: 'DELETE' }).catch(() => null);
     window.location.href = '/livreur/login';
   };
 

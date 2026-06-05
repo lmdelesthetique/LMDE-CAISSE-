@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { forwardRef, useImperativeHandle, useState } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import type { CartItem } from './POSTerminal';
 import PriceEditModal from './PriceEditModal';
@@ -9,6 +9,10 @@ export interface GlobalDiscount {
   value: number;
   type: 'percent' | 'amount';
   isAvoir?: boolean;
+}
+
+export interface CartPanelHandle {
+  applyPendingDiscount: () => void;
 }
 
 interface CartPanelProps {
@@ -204,7 +208,7 @@ function CartRow({
   );
 }
 
-export default function CartPanel({
+const CartPanel = forwardRef<CartPanelHandle, CartPanelProps>(function CartPanel({
   items,
   onUpdateQty,
   onUpdateDiscount,
@@ -219,7 +223,7 @@ export default function CartPanel({
   rewardDiscountAmount = 0,
   tvaRate = 0.085,
   cashierName = 'Caisse',
-}: CartPanelProps) {
+}, ref) {
   const hasDemoItems = items.some(i => i.isDemo);
   const [showGDForm, setShowGDForm] = useState(false);
   const [gdType, setGdType] = useState<'percent' | 'amount'>(globalDiscount?.type ?? 'amount');
@@ -249,6 +253,14 @@ export default function CartPanel({
     setGdInput(globalDiscount?.value.toString() ?? '');
     setShowGDForm(true);
   };
+
+  useImperativeHandle(ref, () => ({
+    applyPendingDiscount() {
+      if (showGDForm && (parseFloat(gdInput) || 0) > 0) {
+        applyGD();
+      }
+    },
+  }));
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -415,4 +427,6 @@ export default function CartPanel({
       )}
     </div>
   );
-}
+});
+
+export default CartPanel;
