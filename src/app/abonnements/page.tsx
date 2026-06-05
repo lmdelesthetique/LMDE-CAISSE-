@@ -248,16 +248,16 @@ function DeliveryModal({
     setError('');
 
     try {
-      // 1. Create delivery
+      // 1. Create delivery — API expects snake_case
       const deliveryPayload: any = {
-        clientName,
-        clientPhone,
-        deliveryAddress: clientAddress,
-        totalAmount: sub.plan?.price ?? 0,
-        deliveryNotes: notes,
+        client_name: clientName,
+        client_phone: clientPhone,
+        delivery_address: clientAddress,
+        total_amount: sub.plan?.price ?? 0,
+        delivery_notes: notes,
         products: [],
       };
-      if (selectedDriver) deliveryPayload.assignedTo = selectedDriver;
+      if (selectedDriver) deliveryPayload.assigned_to_driver = selectedDriver;
 
       const res = await fetch('/api/livraisons', {
         method: 'POST',

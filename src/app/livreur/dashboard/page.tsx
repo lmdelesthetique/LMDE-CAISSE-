@@ -97,8 +97,10 @@ export default function DriverDashboard() {
 
   const subscribeToPush = useCallback(async (driverId: string) => {
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    // iOS Safari: Notification may not exist — guard before calling requestPermission
+    if (!('Notification' in window)) return;
     try {
-      const permission = await Notification.requestPermission();
+      const permission = await (window as any).Notification.requestPermission();
       setPushPermission(permission);
       if (permission !== 'granted') return;
       await silentSubscribe(driverId);
@@ -110,13 +112,14 @@ export default function DriverDashboard() {
   // Read real permission from browser on mount — sets the correct banner immediately
   useEffect(() => {
     if (!('Notification' in window)) { setPushPermission('unsupported'); return; }
-    setPushPermission(Notification.permission);
+    setPushPermission((window as any).Notification.permission);
   }, []);
 
   // Auto-subscribe silently once session is loaded and permission already granted
   useEffect(() => {
     if (!session?.driverId) return;
-    if (Notification.permission === 'granted') {
+    if (!('Notification' in window)) return;
+    if ((window as any).Notification.permission === 'granted') {
       silentSubscribe(session.driverId);
     }
   }, [session?.driverId, silentSubscribe]);
