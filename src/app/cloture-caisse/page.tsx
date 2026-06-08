@@ -98,6 +98,20 @@ export default function ClotureCaissePage() {
   const [fondDemainFixed, setFondDemainFixed] = useState('');
   const [closingSession, setClosingSession] = useState(false);
 
+  // Feature 1 — sessions history
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [selectedSession, setSelectedSession] = useState<any | null>(null);
+
+  // Feature 2 — bank deposits
+  const [showDepositModal, setShowDepositModal] = useState(false);
+  const [deposits, setDeposits] = useState<any[]>([]);
+  const [depositMonthTotal, setDepositMonthTotal] = useState(0);
+  const [depositLoading, setDepositLoading] = useState(true);
+  const [depositNeedsMigration, setDepositNeedsMigration] = useState(false);
+  const [depositForm, setDepositForm] = useState({ amount: '', date: todayISO(), reference: '', notes: '' });
+  const [savingDeposit, setSavingDeposit] = useState(false);
+
   useEffect(() => {
     try {
       const cached = localStorage.getItem('beautypos_settings');
@@ -129,6 +143,64 @@ export default function ClotureCaissePage() {
       .then(d => setCaisseSession(d || null))
       .catch(() => {});
   }, [selectedDate]);
+
+  useEffect(() => {
+    fetch('/api/caisse/history?limit=30')
+      .then(r => r.ok ? r.json() : [])
+      .then(d => setSessions(Array.isArray(d) ? d : []))
+      .catch(() => setSessions([]))
+      .finally(() => setSessionsLoading(false));
+  }, []);
+
+  useEffect(() => {
+    fetch('/api/bank-deposits?limit=20')
+      .then(r => r.ok ? r.json() : { deposits: [], monthTotal: 0 })
+      .then(d => {
+        setDeposits(d.deposits ?? []);
+        setDepositMonthTotal(d.monthTotal ?? 0);
+        if (d.needsMigration) setDepositNeedsMigration(true);
+      })
+      .catch(() => {})
+      .finally(() => setDepositLoading(false));
+  }, []);
+
+  const handleDepositSave = async () => {
+    const amount = parseFloat(depositForm.amount);
+    if (!amount || amount <= 0) { toast.error('Montant invalide'); return; }
+    setSavingDeposit(true);
+    try {
+      const res = await fetch('/api/bank-deposits', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount,
+          date: depositForm.date,
+          reference: depositForm.reference || null,
+          notes: depositForm.notes || null,
+          cash_before: fondCompte > 0 ? fondCompte : null,
+          cash_after: fondCompte > 0 ? Math.max(0, fondCompte - amount) : null,
+          created_by: cashierName || null,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Erreur serveur' }));
+        throw new Error(err.error || 'Erreur lors du dépôt');
+      }
+      const newDeposit = await res.json();
+      setDeposits(prev => [newDeposit, ...prev]);
+      const currentMonth = new Date().toISOString().slice(0, 7);
+      if (depositForm.date.startsWith(currentMonth)) {
+        setDepositMonthTotal(prev => prev + amount);
+      }
+      setShowDepositModal(false);
+      setDepositForm({ amount: '', date: todayISO(), reference: '', notes: '' });
+      toast.success('Dépôt en banque enregistré');
+    } catch (e: any) {
+      toast.error(e.message ?? 'Erreur lors du dépôt');
+    } finally {
+      setSavingDeposit(false);
+    }
+  };
 
   const fondTheorique = caisseSession
     ? caisseSession.fond_ouverture + (caisseSession.cash_in_today ?? 0)
@@ -412,6 +484,12 @@ ${notes ? `<h2>Notes de clôture</h2><p style="padding:8px;background:#f9f9f9;bo
               PDF / Imprimer
             </button>
             <button
+              onClick={() => setShowDepositModal(true)}
+              className="flex items-center gap-2 px-4 py-2 border border-border rounded-xl text-sm font-600 text-muted-foreground hover:bg-muted transition-colors"
+            >
+              🏦 Dépôt en banque
+            </button>
+            <button
               onClick={handleSave}
               disabled={saving || !summary}
               className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-xl text-sm font-600 hover:opacity-90 disabled:opacity-40 transition-opacity"
@@ -561,6 +639,175 @@ ${notes ? `<h2>Notes de clôture</h2><p style="padding:8px;background:#f9f9f9;bo
             </button>
           </div>
         )}
+
+        {/* ── Feature 2 — Dépôts en banque ───────────────────────── */}
+        <div className="bg-white border border-border rounded-2xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base font-700 text-foreground flex items-center gap-2">
+              🏦 Dépôts en banque
+            </h2>
+            <div className="flex items-center gap-3">
+              {!depositNeedsMigration && (
+                <span className="text-sm text-muted-foreground">
+                  Total ce mois :&nbsp;
+                  <span className="font-700 text-foreground tabular-nums">{fmt(depositMonthTotal)} €</span>
+                </span>
+              )}
+              <button
+                onClick={() => setShowDepositModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-sm font-600 hover:opacity-90 transition-opacity"
+              >
+                🏦 Nouveau dépôt
+              </button>
+            </div>
+          </div>
+
+          {depositNeedsMigration ? (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+              <p className="text-sm font-600 text-amber-800 mb-1">⚠️ Table bank_deposits manquante</p>
+              <p className="text-xs text-amber-700">Exécutez ce SQL dans Supabase → SQL Editor :</p>
+              <pre className="text-xs bg-amber-100 rounded p-2 mt-2 overflow-x-auto whitespace-pre-wrap">
+{`CREATE TABLE IF NOT EXISTS bank_deposits (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  amount DECIMAL(10,2) NOT NULL,
+  date DATE NOT NULL DEFAULT CURRENT_DATE,
+  reference TEXT,
+  notes TEXT,
+  cash_before DECIMAL(10,2),
+  cash_after DECIMAL(10,2),
+  created_by TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);`}
+              </pre>
+            </div>
+          ) : depositLoading ? (
+            <div className="flex justify-center py-4">
+              <Icon name="ArrowPathIcon" size={20} className="animate-spin text-muted-foreground" />
+            </div>
+          ) : deposits.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Aucun dépôt enregistré. Cliquez sur "Nouveau dépôt" pour en créer un.</p>
+          ) : (
+            <div className="divide-y divide-border">
+              {deposits.map((d) => (
+                <div key={d.id} className="flex items-center justify-between py-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-lg">✅</span>
+                    <div>
+                      <p className="text-sm font-600 text-foreground">
+                        {new Date(d.date + 'T12:00:00').toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                      </p>
+                      {d.reference && <p className="text-xs text-muted-foreground">{d.reference}</p>}
+                      {d.notes && <p className="text-xs text-muted-foreground italic">{d.notes}</p>}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-700 tabular-nums text-foreground">{fmt(d.amount)} €</p>
+                    {d.created_by && <p className="text-xs text-muted-foreground">{d.created_by}</p>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ── Feature 1 — Historique des journées ─────────────────── */}
+        <div className="bg-white border border-border rounded-2xl p-6">
+          <h2 className="text-base font-700 text-foreground mb-4 flex items-center gap-2">
+            📅 Historique des journées
+          </h2>
+
+          {sessionsLoading ? (
+            <div className="flex justify-center py-4">
+              <Icon name="ArrowPathIcon" size={20} className="animate-spin text-muted-foreground" />
+            </div>
+          ) : sessions.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Aucune session enregistrée.</p>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-muted/50 border-b border-border">
+                      <th className="text-left px-3 py-2.5 text-xs font-600 text-muted-foreground">Date</th>
+                      <th className="text-right px-3 py-2.5 text-xs font-600 text-muted-foreground">Ouverture</th>
+                      <th className="text-right px-3 py-2.5 text-xs font-600 text-muted-foreground">Clôture</th>
+                      <th className="text-right px-3 py-2.5 text-xs font-600 text-muted-foreground">CA</th>
+                      <th className="text-right px-3 py-2.5 text-xs font-600 text-muted-foreground">Tickets</th>
+                      <th className="text-right px-3 py-2.5 text-xs font-600 text-muted-foreground">Écart</th>
+                      <th className="text-center px-3 py-2.5 text-xs font-600 text-muted-foreground">Statut</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sessions.map((s) => (
+                      <React.Fragment key={s.id}>
+                        <tr
+                          className="border-b border-border last:border-0 hover:bg-muted/20 cursor-pointer transition-colors"
+                          onClick={() => setSelectedSession(selectedSession?.id === s.id ? null : s)}
+                        >
+                          <td className="px-3 py-2.5 font-600 text-foreground">
+                            {new Date(s.date + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: 'short' })}
+                          </td>
+                          <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">
+                            {s.fond_ouverture != null ? `${fmt(s.fond_ouverture)} €` : '—'}
+                          </td>
+                          <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">
+                            {s.fond_compte != null ? `${fmt(s.fond_compte)} €` : '—'}
+                          </td>
+                          <td className="px-3 py-2.5 text-right tabular-nums font-600 text-emerald-700">
+                            {s.ca_total > 0 ? `${fmt(s.ca_total)} €` : '—'}
+                          </td>
+                          <td className="px-3 py-2.5 text-right tabular-nums">
+                            {s.nombre_tickets > 0 ? s.nombre_tickets : '—'}
+                          </td>
+                          <td className={`px-3 py-2.5 text-right tabular-nums font-600 ${
+                            s.ecart == null ? 'text-muted-foreground' :
+                            s.ecart === 0 ? 'text-emerald-600' :
+                            Math.abs(s.ecart) <= 2 ? 'text-amber-600' : 'text-red-600'
+                          }`}>
+                            {s.ecart != null ? `${s.ecart >= 0 ? '+' : ''}${fmt(s.ecart)} €` : '—'}
+                          </td>
+                          <td className="px-3 py-2.5 text-center">
+                            <span className={`text-[11px] font-600 px-2 py-0.5 rounded-full border ${
+                              s.statut === 'cloturee'
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                : 'bg-amber-50 text-amber-700 border-amber-200'
+                            }`}>
+                              {s.statut === 'cloturee' ? 'Clôturée' : 'Ouverte'}
+                            </span>
+                          </td>
+                        </tr>
+
+                        {selectedSession?.id === s.id && (
+                          <tr>
+                            <td colSpan={7} className="px-3 py-3 bg-muted/20">
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                {[
+                                  { label: 'Fond ouverture', value: s.fond_ouverture != null ? `${fmt(s.fond_ouverture)} €` : '—' },
+                                  { label: 'Fond théorique', value: s.fond_theorique != null ? `${fmt(s.fond_theorique)} €` : '—' },
+                                  { label: 'Fond clôture', value: s.fond_compte != null ? `${fmt(s.fond_compte)} €` : '—' },
+                                  { label: 'À déposer', value: s.montant_a_deposer != null ? `${fmt(s.montant_a_deposer)} €` : '—' },
+                                  { label: 'CA du jour', value: s.ca_total > 0 ? `${fmt(s.ca_total)} €` : '—' },
+                                  { label: 'Tickets', value: s.nombre_tickets > 0 ? String(s.nombre_tickets) : '—' },
+                                  { label: 'Caissier', value: s.caissier_name || '—' },
+                                  { label: 'Heure clôture', value: s.heure_cloture ? new Date(s.heure_cloture).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '—' },
+                                ].map((item) => (
+                                  <div key={item.label} className="bg-white rounded-lg px-3 py-2 border border-border">
+                                    <p className="text-[10px] text-muted-foreground mb-0.5">{item.label}</p>
+                                    <p className="text-sm font-700 text-foreground">{item.value}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
 
         {!summary || summary.ticketCount === 0 ? (
           <div className="bg-white border border-border rounded-2xl p-12 text-center">
@@ -1020,6 +1267,99 @@ ${notes ? `<h2>Notes de clôture</h2><p style="padding:8px;background:#f9f9f9;bo
           </>
         )}
       </div>
+      {/* Deposit modal */}
+      {showDepositModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-700 text-foreground">🏦 Enregistrer un dépôt en banque</h3>
+              <button onClick={() => setShowDepositModal(false)} className="p-2 rounded-lg hover:bg-muted text-muted-foreground">
+                <Icon name="XMarkIcon" size={18} />
+              </button>
+            </div>
+
+            <div>
+              <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1">Montant déposé *</label>
+              <input
+                type="number" min="0" step="0.01" autoFocus
+                value={depositForm.amount}
+                onChange={(e) => setDepositForm(f => ({ ...f, amount: e.target.value }))}
+                placeholder="0.00"
+                className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1">Date</label>
+              <input
+                type="date"
+                value={depositForm.date}
+                onChange={(e) => setDepositForm(f => ({ ...f, date: e.target.value }))}
+                className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1">Référence bancaire</label>
+              <input
+                type="text"
+                value={depositForm.reference}
+                onChange={(e) => setDepositForm(f => ({ ...f, reference: e.target.value }))}
+                placeholder="ex: virement, bordereau..."
+                className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1">Notes</label>
+              <input
+                type="text"
+                value={depositForm.notes}
+                onChange={(e) => setDepositForm(f => ({ ...f, notes: e.target.value }))}
+                placeholder="Notes optionnelles..."
+                className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+            </div>
+
+            {fondCompte > 0 && (
+              <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 space-y-1.5">
+                <div className="flex justify-between text-sm">
+                  <span className="text-blue-700">Espèces en caisse</span>
+                  <span className="font-700 text-blue-800 tabular-nums">{fmt(fondCompte)} €</span>
+                </div>
+                {depositForm.amount && parseFloat(depositForm.amount) > 0 && (
+                  <div className="flex justify-between text-sm border-t border-blue-200 pt-1.5">
+                    <span className="text-blue-700">Après dépôt</span>
+                    <span className="font-700 text-blue-800 tabular-nums">
+                      {fmt(Math.max(0, fondCompte - parseFloat(depositForm.amount)))} €
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => setShowDepositModal(false)}
+                className="flex-1 py-2 border border-border rounded-lg text-sm text-muted-foreground hover:bg-muted transition-colors"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleDepositSave}
+                disabled={savingDeposit || !depositForm.amount || parseFloat(depositForm.amount) <= 0}
+                className="flex-1 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-600 hover:opacity-90 disabled:opacity-40 transition-opacity flex items-center justify-center gap-2"
+              >
+                {savingDeposit ? (
+                  <><Icon name="ArrowPathIcon" size={14} className="animate-spin" /> Enregistrement…</>
+                ) : (
+                  '🏦 Enregistrer'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AppLayout>
   );
 }
