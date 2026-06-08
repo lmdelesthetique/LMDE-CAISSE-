@@ -401,7 +401,7 @@ export const employeeService = {
       .from('employees')
       .select('*')
       .eq('pos_pin', pin)
-      .eq('status', 'active')
+      .in('status', ['active', 'Actif'])
       .single();
     if (error) return null;
     return mapEmployee(data);

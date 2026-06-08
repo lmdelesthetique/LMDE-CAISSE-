@@ -1,7 +1,7 @@
 'use client';
 
-import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
-import { employeeService, type Employee } from '@/lib/services/employeeService';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import type { Employee } from '@/lib/services/employeeService';
 
 export type POSActionType = 'sale' | 'discount' | 'cancel' | 'price_change' | 'hold' | 'free_price' | 'acompte';
 
@@ -11,71 +11,138 @@ interface POSSession {
   startedAt: string;
 }
 
+interface StoredEmployee {
+  id: string;
+  firstName: string;
+  lastName: string;
+  fullName: string;
+  avatarInitials: string;
+  role: string;
+  loginAt: string;
+}
+
 interface POSAuthContextValue {
   employee: Employee | null;
   session: POSSession | null;
   isLocked: boolean;
   pinConfigured: boolean;
-  login: (pin: string) => Promise<{ success: boolean; error?: string }>;
+  login: (employeeId: string, pin: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
+  changeEmployee: () => void;
   logAction: (type: POSActionType, description: string, amount?: number, meta?: Record<string, unknown>) => Promise<void>;
 }
 
-const DEFAULT_EMPLOYEE: Employee = {
-  id: 'default',
-  firstName: 'Caissier',
-  lastName: '',
-  fullName: 'Caissier',
-  avatarInitials: 'CA',
-  role: 'cashier',
-  status: 'active',
-  posPin: null,
-  email: null,
-  phone: null,
-  hireDate: null,
-  notes: null,
-  monthlyObjective: 0,
-  permissions: {
-    cashierAccess: true,
-    stockAccess: true,
-    suppliersAccess: false,
-    productsAccess: true,
-    statsAccess: true,
-    discountAuth: true,
-    cancelAuth: true,
-    priceModify: true,
-    adminAccess: false,
-  },
-  createdAt: '',
-  updatedAt: '',
-  isDeliveryDriver: false,
-  portalPhone: null,
-  portalPin: null,
-  driverStatus: 'off',
-};
+const SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 hours
+const STORAGE_KEY = 'caisse_employee';
 
-export async function sha256hex(text: string): Promise<string> {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+function loadStoredEmployee(): StoredEmployee | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed: StoredEmployee = JSON.parse(raw);
+    if (!parsed.loginAt) return null;
+    if (Date.now() - new Date(parsed.loginAt).getTime() > SESSION_TTL_MS) {
+      localStorage.removeItem(STORAGE_KEY);
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function storedToEmployee(s: StoredEmployee): Employee {
+  return {
+    id: s.id,
+    firstName: s.firstName,
+    lastName: s.lastName,
+    fullName: s.fullName,
+    avatarInitials: s.avatarInitials,
+    role: s.role as any,
+    status: 'active',
+    posPin: null,
+    email: null,
+    phone: null,
+    hireDate: null,
+    notes: null,
+    monthlyObjective: 0,
+    permissions: {
+      cashierAccess: true,
+      stockAccess: true,
+      suppliersAccess: false,
+      productsAccess: true,
+      statsAccess: true,
+      discountAuth: true,
+      cancelAuth: true,
+      priceModify: true,
+      adminAccess: s.role === 'admin',
+    },
+    createdAt: s.loginAt,
+    updatedAt: s.loginAt,
+    isDeliveryDriver: false,
+    portalPhone: null,
+    portalPin: null,
+    driverStatus: 'off',
+  };
 }
 
 const POSAuthContext = createContext<POSAuthContextValue | null>(null);
 
 export function POSAuthProvider({ children }: { children: React.ReactNode }) {
-  const [employee] = useState<Employee>(DEFAULT_EMPLOYEE);
+  const [employee, setEmployee] = useState<Employee | null>(null);
   const [session] = useState<POSSession | null>(null);
   const sessionRef = useRef<POSSession | null>(null);
+  const [ready, setReady] = useState(false);
 
-  // Global PIN auth is handled by middleware; POS is always accessible once middleware passes.
-  const isLocked = false;
-  const pinConfigured = false;
-
-  const login = useCallback(async (_pin: string): Promise<{ success: boolean; error?: string }> => {
-    return { success: true };
+  // Hydrate from localStorage on mount
+  useEffect(() => {
+    const stored = loadStoredEmployee();
+    if (stored) setEmployee(storedToEmployee(stored));
+    setReady(true);
   }, []);
 
-  // Lock redirects to the global PIN login, clearing the session cookie.
+  const isLocked = ready && employee === null;
+  const pinConfigured = false;
+
+  const login = useCallback(async (employeeId: string, pin: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const res = await fetch('/api/auth/verify-employee-pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ employeeId, pin }),
+      });
+      const data = await res.json();
+
+      if (!data.valid) {
+        return { success: false, error: 'PIN incorrect' };
+      }
+
+      const stored: StoredEmployee = {
+        id: data.employee.id,
+        firstName: data.employee.firstName,
+        lastName: data.employee.lastName,
+        fullName: data.employee.fullName,
+        avatarInitials: data.employee.avatarInitials,
+        role: data.employee.role,
+        loginAt: new Date().toISOString(),
+      };
+
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+      setEmployee(storedToEmployee(stored));
+      return { success: true };
+    } catch {
+      return { success: false, error: 'Erreur de connexion' };
+    }
+  }, []);
+
+  const changeEmployee = useCallback(() => {
+    localStorage.removeItem(STORAGE_KEY);
+    setEmployee(null);
+  }, []);
+
   const logout = useCallback(async () => {
+    localStorage.removeItem(STORAGE_KEY);
     sessionRef.current = null;
     window.location.href = '/api/auth/logout';
   }, []);
@@ -104,8 +171,11 @@ export function POSAuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [employee]);
 
+  // Don't render children until hydration is done (avoids flicker)
+  if (!ready) return null;
+
   return (
-    <POSAuthContext.Provider value={{ employee, session, isLocked, pinConfigured, login, logout, logAction }}>
+    <POSAuthContext.Provider value={{ employee, session, isLocked, pinConfigured, login, logout, changeEmployee, logAction }}>
       {children}
     </POSAuthContext.Provider>
   );
@@ -117,14 +187,12 @@ export function usePOSAuth(): POSAuthContextValue {
   return ctx;
 }
 
-// Kept for EmployeePINModal compatibility
-export async function verifyEmployeePin(pin: string): Promise<{ success: boolean; error?: string }> {
-  try {
-    const emp = await employeeService.verifyPin(pin);
-    if (!emp) return { success: false, error: 'PIN incorrect ou employé inactif' };
-    if (!emp.permissions.cashierAccess) return { success: false, error: "Cet employé n'a pas accès à la caisse" };
-    return { success: true };
-  } catch {
-    return { success: false, error: 'Erreur de connexion.' };
-  }
+// Legacy export kept for compatibility
+export async function verifyEmployeePin(_pin: string): Promise<{ success: boolean; error?: string }> {
+  return { success: false, error: 'Use login(employeeId, pin) instead' };
+}
+
+export async function sha256hex(text: string): Promise<string> {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
 }

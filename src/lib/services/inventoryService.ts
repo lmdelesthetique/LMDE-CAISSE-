@@ -49,7 +49,7 @@ export interface StockMovement {
   productName: string;
   locationId: string;
   locationName: string;
-  movementType: 'entry' | 'exit' | 'adjustment' | 'transfer' | 'return';
+  movementType: 'entry' | 'exit' | 'adjustment' | 'transfer' | 'return' | 'sale' | 'b2b_sale' | 'shopify_sale';
   quantity: number;
   unitCost?: number;
   totalCost?: number;
@@ -203,64 +203,68 @@ export async function fetchStockLevels(locationId?: string): Promise<StockLevel[
 
 export async function fetchMovements(locationId?: string, movementType?: string): Promise<StockMovement[]> {
   let query = supabase
-    .from('inventory_movements')
-    .select(`
-      id,
-      movement_type,
-      quantity,
-      unit_cost,
-      total_cost,
-      reference,
-      notes,
-      performed_by,
-      created_at,
-      product_id,
-      location_id,
-      inventory_products(product_name),
-      inventory_locations(name)
-    `)
+    .from('stock_movements_log')
+    .select('id, product_id, product_name, movement_type, quantity_change, reason, reference, performed_by, source, created_at')
     .order('created_at', { ascending: false })
-    .limit(50);
+    .limit(100) as any;
 
-  if (locationId && locationId !== 'all') {
-    query = query.eq('location_id', locationId);
-  }
+  // Map UI filter values to DB movement_type values
   if (movementType) {
-    query = query.eq('movement_type', movementType);
+    if (movementType === 'entry') {
+      query = query.eq('movement_type', 'entry');
+    } else if (movementType === 'exit') {
+      query = query.in('movement_type', ['exit', 'sale']);
+    } else if (movementType === 'sale') {
+      query = query.eq('movement_type', 'sale').eq('source', 'pos_sale');
+    } else if (movementType === 'b2b_sale') {
+      query = query.eq('movement_type', 'sale').eq('source', 'b2b_sale');
+    } else if (movementType === 'shopify') {
+      query = query.eq('source', 'shopify_sale');
+    } else {
+      query = query.eq('movement_type', movementType);
+    }
   }
 
   const { data, error } = await query;
-  if (error) { console.error('fetchMovements', error); return []; }
+  if (error) { console.error('fetchMovements (stock_movements_log)', error); return []; }
 
   return ((data || []) as any[]).map((r: {
     id: string;
-    movement_type: string;
-    quantity: number;
-    unit_cost?: number;
-    total_cost?: number;
-    reference?: string;
-    notes?: string;
-    performed_by: string;
-    created_at: string;
     product_id: string;
-    location_id: string;
-    inventory_products?: { product_name: string } | null;
-    inventory_locations?: { name: string } | null;
-  }) => ({
-    id: r.id,
-    productId: r.product_id,
-    productName: r.inventory_products?.product_name || '',
-    locationId: r.location_id,
-    locationName: r.inventory_locations?.name || '',
-    movementType: r.movement_type as StockMovement['movementType'],
-    quantity: r.quantity,
-    unitCost: r.unit_cost,
-    totalCost: r.total_cost,
-    reference: r.reference,
-    notes: r.notes,
-    performedBy: r.performed_by,
-    createdAt: formatDate(r.created_at),
-  }));
+    product_name: string;
+    movement_type: string;
+    quantity_change: number;
+    reason?: string;
+    reference?: string;
+    performed_by?: string;
+    source?: string;
+    created_at: string;
+  }) => {
+    const source = r.source ?? '';
+    let displayType: StockMovement['movementType'] = r.movement_type as StockMovement['movementType'];
+    if (r.movement_type === 'sale' && source === 'b2b_sale') displayType = 'b2b_sale' as any;
+    else if (r.movement_type === 'sale' && source === 'shopify_sale') displayType = 'shopify_sale' as any;
+    else if (r.movement_type === 'sale') displayType = 'sale' as any;
+    else if (r.movement_type === 'suspended') displayType = 'adjustment';
+
+    const qty = Math.abs(Number(r.quantity_change) || 0);
+    const sourceLabel = source === 'pos_sale' ? 'Caisse' : source === 'b2b_sale' ? 'B2B' : source === 'shopify_sale' ? 'Shopify' : '';
+    const notes = [r.reason, sourceLabel ? `[${sourceLabel}]` : ''].filter(Boolean).join(' — ');
+
+    return {
+      id: r.id,
+      productId: r.product_id,
+      productName: r.product_name || '',
+      locationId: 'main',
+      locationName: 'Stock principal',
+      movementType: displayType,
+      quantity: qty,
+      reference: r.reference,
+      notes,
+      performedBy: r.performed_by || '',
+      createdAt: formatDate(r.created_at),
+    };
+  });
 }
 
 export async function fetchInventoryStats(locationId?: string): Promise<InventoryStats> {

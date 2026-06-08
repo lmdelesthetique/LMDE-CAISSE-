@@ -208,6 +208,9 @@ export default function DriverDashboard() {
     router.push(`/livreur/livraison/${d.id}`);
   };
 
+  const [tab, setTab] = useState<'dashboard' | 'livraisons'>('dashboard');
+  const [deliveryFilter, setDeliveryFilter] = useState<'all' | 'active' | 'delivered' | 'problem'>('all');
+
   if (!session) return null;
 
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -215,107 +218,193 @@ export default function DriverDashboard() {
   const enRoute   = deliveries.filter((d) => d.status === 'en_route');
   const arrived   = deliveries.filter((d) => d.status === 'arrived');
   const delivered = deliveries.filter((d) => d.status === 'delivered' && d.deliveredAt?.startsWith(todayStr));
+  const problems  = deliveries.filter((d) => d.status === 'problem');
   const total = deliveries.filter((d) => d.status !== 'cancelled');
+
+  // Filtered list for Livraisons tab
+  const activeDeliveries = [...arrived, ...enRoute, ...pending];
+  const filteredForTab =
+    deliveryFilter === 'active'    ? activeDeliveries :
+    deliveryFilter === 'delivered' ? deliveries.filter((d) => d.status === 'delivered') :
+    deliveryFilter === 'problem'   ? problems :
+    [...arrived, ...enRoute, ...pending, ...delivered, ...problems]; // 'all'
 
   return (
     <div className="min-h-screen bg-gray-50 pb-24">
       <PortalHeader name={session.name} onLogout={handleLogout} />
 
-      {/* Sub-header: greeting + online toggle */}
-      <div className="bg-white border-b border-gray-200 px-4">
-        <div className="flex items-center justify-between py-3">
-          <div>
-            <p className="text-xs text-gray-500 capitalize">{TODAY}</p>
-            <h1 className="text-lg font-bold text-gray-900">Bonjour, {session.name.split(' ')[0]} 👋</h1>
-          </div>
-          <button
-            onClick={toggleStatus}
-            disabled={togglingStatus}
-            className={[
-              'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-bold transition-all border-2',
-              online ? 'bg-green-50 border-green-400 text-green-700' : 'bg-gray-100 border-gray-300 text-gray-500',
-            ].join(' ')}
-          >
-            <span className={`w-2.5 h-2.5 rounded-full ${online ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
-            {online ? 'En service' : 'Hors service'}
-          </button>
-        </div>
-      </div>
-
-      <div className="px-4 py-4 space-y-4">
-
-        {/* Push notification banner */}
-        {pushPermission === 'default' && (
-          <button
-            onClick={() => session && subscribeToPush(session.driverId)}
-            className="w-full bg-orange-500 hover:bg-orange-600 active:scale-95 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-md text-base"
-          >
-            🔔 Activer mes notifications de livraison
-          </button>
-        )}
-        {pushPermission === 'denied' && (
-          <div className="w-full bg-red-50 border border-red-200 rounded-xl p-4">
-            <p className="text-sm font-bold text-red-800 mb-1">🔕 Notifications bloquées</p>
-            <p className="text-xs text-red-700 leading-relaxed">
-              <strong>Android Chrome :</strong> Menu ⋮ → Paramètres → Paramètres du site → Notifications → <strong>lmdecaisse.com</strong> → Autoriser<br />
-              <strong>iPhone Safari :</strong> Réglages → Safari → lmdecaisse.com → Notifications → Autoriser
-            </p>
-          </div>
-        )}
-        {pushPermission === 'granted' && (
-          <div className="w-full bg-green-50 border border-green-200 rounded-xl px-4 py-3 flex items-center gap-3">
-            <span className="text-xl">✅</span>
-            <p className="text-sm font-semibold text-green-800">Notifications activées</p>
-          </div>
-        )}
-
-        {/* KPI cards */}
-        <div className="grid grid-cols-2 gap-3">
-          {[
-            { label: 'En attente',       value: pending.length,   emoji: '🟡', bg: 'bg-yellow-50 border-yellow-200' },
-            { label: 'En route',         value: enRoute.length,   emoji: '🔵', bg: 'bg-blue-50 border-blue-200'   },
-            { label: 'Livrées auj.',     value: delivered.length, emoji: '✅', bg: 'bg-green-50 border-green-200' },
-            { label: 'Total tournée',    value: total.length,     emoji: '📦', bg: 'bg-gray-50 border-gray-200'   },
-          ].map((kpi) => (
-            <div key={kpi.label} className={`rounded-2xl border p-4 ${kpi.bg}`}>
-              <p className="text-3xl font-black text-gray-900">{kpi.value}</p>
-              <p className="text-xs font-semibold text-gray-600 mt-1">{kpi.emoji} {kpi.label}</p>
+      {tab === 'dashboard' && (
+        <>
+          {/* Sub-header: greeting + online toggle */}
+          <div className="bg-white border-b border-gray-200 px-4">
+            <div className="flex items-center justify-between py-3">
+              <div>
+                <p className="text-xs text-gray-500 capitalize">{TODAY}</p>
+                <h1 className="text-lg font-bold text-gray-900">Bonjour, {session.name.split(' ')[0]} 👋</h1>
+              </div>
+              <button
+                onClick={toggleStatus}
+                disabled={togglingStatus}
+                className={[
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-bold transition-all border-2',
+                  online ? 'bg-green-50 border-green-400 text-green-700' : 'bg-gray-100 border-gray-300 text-gray-500',
+                ].join(' ')}
+              >
+                <span className={`w-2.5 h-2.5 rounded-full ${online ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
+                {online ? 'En service' : 'Hors service'}
+              </button>
             </div>
-          ))}
-        </div>
-
-        {/* Delivery list */}
-        <h2 className="text-base font-bold text-gray-800 mt-2">Mes livraisons</h2>
-
-        {loading ? (
-          <div className="flex justify-center py-12">
-            <div className="w-8 h-8 border-3 border-orange-400 border-t-transparent rounded-full animate-spin" />
           </div>
-        ) : total.length === 0 ? (
-          <div className="bg-white rounded-2xl p-8 text-center border border-gray-200">
-            <p className="text-4xl mb-3">📭</p>
-            <p className="text-gray-600 font-semibold">Aucune livraison assignée</p>
-            <p className="text-sm text-gray-400 mt-1">Vérifiez plus tard</p>
+
+          <div className="px-4 py-4 space-y-4">
+            {/* Push notification banner */}
+            {pushPermission === 'default' && (
+              <button
+                onClick={() => session && subscribeToPush(session.driverId)}
+                className="w-full bg-orange-500 hover:bg-orange-600 active:scale-95 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-md text-base"
+              >
+                🔔 Activer mes notifications de livraison
+              </button>
+            )}
+            {pushPermission === 'denied' && (
+              <div className="w-full bg-red-50 border border-red-200 rounded-xl p-4">
+                <p className="text-sm font-bold text-red-800 mb-1">🔕 Notifications bloquées</p>
+                <p className="text-xs text-red-700 leading-relaxed">
+                  <strong>Android Chrome :</strong> Menu ⋮ → Paramètres → Paramètres du site → Notifications → <strong>lmdecaisse.com</strong> → Autoriser<br />
+                  <strong>iPhone Safari :</strong> Réglages → Safari → lmdecaisse.com → Notifications → Autoriser
+                </p>
+              </div>
+            )}
+            {pushPermission === 'granted' && (
+              <div className="w-full bg-green-50 border border-green-200 rounded-xl px-4 py-3 flex items-center gap-3">
+                <span className="text-xl">✅</span>
+                <p className="text-sm font-semibold text-green-800">Notifications activées</p>
+              </div>
+            )}
+
+            {/* KPI cards */}
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { label: 'En attente',    value: pending.length,   emoji: '🟡', bg: 'bg-yellow-50 border-yellow-200' },
+                { label: 'En route',      value: enRoute.length,   emoji: '🔵', bg: 'bg-blue-50 border-blue-200'    },
+                { label: 'Livrées auj.', value: delivered.length, emoji: '✅', bg: 'bg-green-50 border-green-200'  },
+                { label: 'Total tournée', value: total.length,     emoji: '📦', bg: 'bg-gray-50 border-gray-200'    },
+              ].map((kpi) => (
+                <div key={kpi.label} className={`rounded-2xl border p-4 ${kpi.bg}`}>
+                  <p className="text-3xl font-black text-gray-900">{kpi.value}</p>
+                  <p className="text-xs font-semibold text-gray-600 mt-1">{kpi.emoji} {kpi.label}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Delivery summary — tap to go to Livraisons tab */}
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-bold text-gray-800">Mes livraisons</h2>
+              {total.length > 0 && (
+                <button
+                  onClick={() => setTab('livraisons')}
+                  className="text-xs font-semibold text-orange-500 hover:text-orange-600"
+                >
+                  Voir tout →
+                </button>
+              )}
+            </div>
+
+            {loading ? (
+              <div className="flex justify-center py-12">
+                <div className="w-8 h-8 border-3 border-orange-400 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : total.length === 0 ? (
+              <div className="bg-white rounded-2xl p-8 text-center border border-gray-200">
+                <p className="text-4xl mb-3">📭</p>
+                <p className="text-gray-600 font-semibold">Aucune livraison assignée</p>
+                <p className="text-sm text-gray-400 mt-1">Vérifiez plus tard</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {[...arrived, ...enRoute, ...pending, ...delivered].map((d) => (
+                  <DeliveryCard key={d.id} delivery={d} onStart={handleStart} onArrived={handleArrived} onOpen={handleOpenDetail} onProblem={handleProblem} />
+                ))}
+              </div>
+            )}
           </div>
-        ) : (
-          <div className="space-y-3">
-            {/* En route first, then pending, then delivered */}
-            {[...arrived, ...enRoute, ...pending, ...delivered].map((d) => (
-              <DeliveryCard key={d.id} delivery={d} onStart={handleStart} onArrived={handleArrived} onOpen={handleOpenDetail} onProblem={handleProblem} />
+        </>
+      )}
+
+      {tab === 'livraisons' && (
+        <>
+          {/* Livraisons tab header */}
+          <div className="bg-white border-b border-gray-200 px-4 py-3">
+            <h1 className="text-lg font-bold text-gray-900">Mes livraisons</h1>
+            <p className="text-xs text-gray-500 mt-0.5">{total.length} livraison{total.length !== 1 ? 's' : ''} au total</p>
+          </div>
+
+          {/* Status filter chips */}
+          <div className="bg-white border-b border-gray-200 px-4 py-2.5 flex gap-2 overflow-x-auto">
+            {([
+              { key: 'all',       label: 'Toutes',    count: total.length                         },
+              { key: 'active',    label: '🔴 Actives', count: activeDeliveries.length              },
+              { key: 'delivered', label: '✅ Livrées', count: deliveries.filter(d => d.status === 'delivered').length },
+              { key: 'problem',   label: '⚠️ Problèmes', count: problems.length                   },
+            ] as const).map((f) => (
+              <button
+                key={f.key}
+                onClick={() => setDeliveryFilter(f.key)}
+                className={[
+                  'shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition-all',
+                  deliveryFilter === f.key
+                    ? 'bg-orange-500 text-white border-orange-500'
+                    : 'bg-white text-gray-600 border-gray-200',
+                ].join(' ')}
+              >
+                {f.label}
+                <span className={`text-[10px] font-black px-1 py-0.5 rounded-full ${deliveryFilter === f.key ? 'bg-white/20' : 'bg-gray-100'}`}>
+                  {f.count}
+                </span>
+              </button>
             ))}
           </div>
-        )}
-      </div>
+
+          {/* Delivery list */}
+          <div className="px-4 py-4 space-y-3">
+            {loading ? (
+              <div className="flex justify-center py-12">
+                <div className="w-8 h-8 border-3 border-orange-400 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : filteredForTab.length === 0 ? (
+              <div className="bg-white rounded-2xl p-8 text-center border border-gray-200">
+                <p className="text-4xl mb-3">📭</p>
+                <p className="text-gray-600 font-semibold">Aucune livraison</p>
+              </div>
+            ) : (
+              filteredForTab.map((d) => (
+                <DeliveryCard key={d.id} delivery={d} onStart={handleStart} onArrived={handleArrived} onOpen={handleOpenDetail} onProblem={handleProblem} />
+              ))
+            )}
+          </div>
+        </>
+      )}
 
       {/* Bottom nav */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-6 py-3 flex justify-around z-30">
-        <button className="flex flex-col items-center gap-1 text-orange-500">
+        <button
+          onClick={() => setTab('dashboard')}
+          className={`flex flex-col items-center gap-1 transition-colors ${tab === 'dashboard' ? 'text-orange-500' : 'text-gray-400'}`}
+        >
           <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z" /></svg>
           <span className="text-xs font-semibold">Dashboard</span>
         </button>
-        <button className="flex flex-col items-center gap-1 text-gray-400">
+        <button
+          onClick={() => setTab('livraisons')}
+          className={`flex flex-col items-center gap-1 transition-colors relative ${tab === 'livraisons' ? 'text-orange-500' : 'text-gray-400'}`}
+        >
           <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" /></svg>
           <span className="text-xs font-semibold">Livraisons</span>
+          {activeDeliveries.length > 0 && (
+            <span className="absolute -top-1 -right-1 w-4 h-4 bg-orange-500 text-white text-[9px] font-black rounded-full flex items-center justify-center">
+              {activeDeliveries.length}
+            </span>
+          )}
         </button>
         <button onClick={handleLogout} className="flex flex-col items-center gap-1 text-gray-400 hover:text-red-500 transition-colors">
           <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" /></svg>

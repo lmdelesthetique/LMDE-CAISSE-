@@ -28,6 +28,7 @@ export interface SaveReceiptParams {
   clientId?: string;
   clientName?: string;
   cashierName?: string;
+  employeeId?: string;
   loyaltyPointsEarned?: number;
   loyaltyRewardUsed?: string;
   notes?: string;
@@ -100,6 +101,7 @@ export async function saveReceipt(params: SaveReceiptParams): Promise<{ id: stri
     client_id: params.clientId || null,
     client_name: params.clientName || null,
     cashier_name: params.cashierName || null,
+    ...(params.employeeId ? { employee_id: params.employeeId } : {}),
     loyalty_points_earned: params.loyaltyPointsEarned || 0,
     loyalty_reward_used: params.loyaltyRewardUsed || null,
     notes: params.notes || null,

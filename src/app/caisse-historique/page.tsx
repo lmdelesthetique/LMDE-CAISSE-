@@ -6,7 +6,7 @@ import Icon from '@/components/ui/AppIcon';
 import { fetchReceiptById, modifyTicket, fetchTicketModifications, type ReceiptRecord, type TicketModification } from '@/lib/services/posService';
 import { sendReceiptEmail, type ReceiptEmailData } from '@/lib/services/emailService';
 import { toast } from 'sonner';
-import { generateTicketHTML, loadSettingsFromCache, openAndPrint } from '@/lib/utils/ticketPrinter';
+import { generateTicketHTML, generateFactureHTML, loadSettingsFromCache, openAndPrint } from '@/lib/utils/ticketPrinter';
 
 interface TicketRow {
   id: string;
@@ -500,6 +500,36 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
     }));
   };
 
+  const handleCreateFacture = () => {
+    if (!receipt) return;
+    const now = new Date(receipt.createdAt);
+    const dateStr = now.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const timeStr = now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    const s = loadSettingsFromCache();
+    const subtotalHT = receipt.subtotalHT || receipt.totalAmount / (1 + s.tvaRate / 100);
+    const totalTVA = receipt.totalTVA || receipt.totalAmount - subtotalHT;
+    openAndPrint(generateFactureHTML({
+      numero: `FAC-${receipt.ticketNumber}`,
+      docType: 'facture',
+      dateStr,
+      timeStr,
+      clientName: receipt.clientName ?? undefined,
+      items: receipt.items.map((i) => ({ name: i.name, qty: i.qty, price: i.price, discount: i.discount, discountType: i.discountType })),
+      subtotalHT,
+      totalTVA,
+      totalTTC: receipt.totalAmount,
+      tvaRate: s.tvaRate,
+      paymentMethod: parseMethod(receipt.paymentMethod ?? '').label,
+      companyName: s.companyName,
+      companyLine1: s.companyLine1,
+      companyLine2: s.companyLine2,
+      companyCity: s.companyCity,
+      companyPhone: s.companyPhone,
+      companySiret: s.companySiret,
+      companyTva: s.companyTva,
+    }));
+  };
+
   const handleSendEmail = async () => {
     if (!receipt || !emailAddr.includes('@')) return;
     setSendingEmail(true);
@@ -788,7 +818,7 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
                   Réimprimer
                 </button>
                 <button
-                  onClick={() => { window.open('/b2b-invoicing', '_blank'); }}
+                  onClick={handleCreateFacture}
                   className="flex items-center justify-center gap-2 py-2.5 border border-emerald-200 bg-emerald-50 rounded-xl text-sm font-500 text-emerald-700 hover:bg-emerald-100 transition-colors"
                 >
                   <Icon name="DocumentCheckIcon" size={15} />
@@ -994,6 +1024,11 @@ export default function CaisseHistoriquePage() {
   const [diagnosing, setDiagnosing] = useState(false);
   const [setupSql, setSetupSql] = useState<string | null>(null);
 
+  const [pageTab, setPageTab] = useState<'caisse' | 'shopify'>('caisse');
+  const [shopifyOrders, setShopifyOrders] = useState<any[]>([]);
+  const [shopifyLoading, setShopifyLoading] = useState(false);
+  const [shopifyConnected, setShopifyConnected] = useState<boolean | null>(null);
+
   const runDiagnose = useCallback(async () => {
     setDiagnosing(true);
     try {
@@ -1010,6 +1045,24 @@ export default function CaisseHistoriquePage() {
       setDiagnosing(false);
     }
   }, []);
+
+  const loadShopifyOrders = useCallback(async () => {
+    setShopifyLoading(true);
+    try {
+      const res = await fetch('/api/shopify/orders');
+      const data = await res.json();
+      setShopifyConnected(data.connected ?? false);
+      setShopifyOrders(data.orders ?? []);
+    } catch {
+      setShopifyConnected(false);
+    } finally {
+      setShopifyLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (pageTab === 'shopify') loadShopifyOrders();
+  }, [pageTab, loadShopifyOrders]);
 
   const loadTickets = useCallback(async () => {
     setLoading(true);
@@ -1172,6 +1225,111 @@ export default function CaisseHistoriquePage() {
             </button>
           </div>
         </div>
+
+        {/* Channel tab switcher */}
+        <div className="flex items-center gap-1 bg-muted p-1 rounded-xl w-fit mb-5">
+          <button
+            onClick={() => setPageTab('caisse')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-600 transition-all ${pageTab === 'caisse' ? 'bg-white text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+          >
+            <Icon name="ComputerDesktopIcon" size={15} />
+            Caisse
+          </button>
+          <button
+            onClick={() => setPageTab('shopify')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-600 transition-all ${pageTab === 'shopify' ? 'bg-white text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+          >
+            <Icon name="GlobeAltIcon" size={15} />
+            Shopify
+          </button>
+        </div>
+
+        {/* Shopify orders view */}
+        {pageTab === 'shopify' && (
+          <div className="space-y-4">
+            {shopifyLoading ? (
+              <div className="flex items-center justify-center py-20">
+                <Icon name="ArrowPathIcon" size={28} className="animate-spin text-primary" />
+              </div>
+            ) : shopifyConnected === false ? (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-8 text-center">
+                <Icon name="LinkSlashIcon" size={32} className="text-amber-500 mx-auto mb-3" />
+                <p className="font-600 text-amber-800">Shopify non connecté</p>
+                <p className="text-sm text-amber-700 mt-1">Configurez l'intégration Shopify dans les paramètres pour afficher les commandes.</p>
+              </div>
+            ) : (
+              <div className="bg-white border border-border rounded-xl overflow-hidden">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+                  <div className="flex items-center gap-2">
+                    <Icon name="GlobeAltIcon" size={16} className="text-teal-600" />
+                    <h3 className="text-sm font-600 text-foreground">Commandes Shopify récentes</h3>
+                    <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">{shopifyOrders.length} commandes</span>
+                  </div>
+                  <button onClick={loadShopifyOrders} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground transition-colors">
+                    <Icon name="ArrowPathIcon" size={15} />
+                  </button>
+                </div>
+                {shopifyOrders.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                    <Icon name="ShoppingBagIcon" size={32} className="mb-2 opacity-30" />
+                    <p className="text-sm">Aucune commande Shopify récente</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border bg-muted/30">
+                          <th className="text-left px-5 py-3 text-xs font-600 text-muted-foreground uppercase tracking-wide">Commande</th>
+                          <th className="text-left px-4 py-3 text-xs font-600 text-muted-foreground uppercase tracking-wide">Client</th>
+                          <th className="text-left px-4 py-3 text-xs font-600 text-muted-foreground uppercase tracking-wide">Statut</th>
+                          <th className="text-right px-4 py-3 text-xs font-600 text-muted-foreground uppercase tracking-wide">Total</th>
+                          <th className="text-left px-4 py-3 text-xs font-600 text-muted-foreground uppercase tracking-wide">Articles</th>
+                          <th className="text-left px-4 py-3 text-xs font-600 text-muted-foreground uppercase tracking-wide">Date</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {shopifyOrders.map((order: any) => {
+                          const customer = order.customer;
+                          const clientName = customer
+                            ? `${customer.first_name ?? ''} ${customer.last_name ?? ''}`.trim() || customer.email
+                            : order.shipping_address?.name || '—';
+                          const finStatus = order.financial_status ?? '';
+                          const fulStatus = order.fulfillment_status ?? 'unfulfilled';
+                          const statusColor = finStatus === 'paid' ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : finStatus === 'refunded' ? 'text-red-700 bg-red-50 border-red-200' : 'text-amber-700 bg-amber-50 border-amber-200';
+                          const statusLabel = finStatus === 'paid' ? 'Payé' : finStatus === 'refunded' ? 'Remboursé' : finStatus === 'pending' ? 'En attente' : finStatus;
+                          return (
+                            <tr key={order.id} className="hover:bg-muted/20 transition-colors">
+                              <td className="px-5 py-3">
+                                <span className="font-600 text-foreground">{order.name}</span>
+                              </td>
+                              <td className="px-4 py-3 text-muted-foreground">{clientName}</td>
+                              <td className="px-4 py-3">
+                                <span className={`inline-flex items-center text-xs font-500 px-2 py-0.5 rounded-full border ${statusColor}`}>
+                                  {statusLabel}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-right font-600 tabular-nums">
+                                {parseFloat(order.total_price ?? '0').toLocaleString('fr-FR', { minimumFractionDigits: 2 })} €
+                              </td>
+                              <td className="px-4 py-3 text-xs text-muted-foreground">
+                                {(order.line_items ?? []).slice(0, 2).map((li: any) => li.title).join(', ')}{(order.line_items ?? []).length > 2 ? ` +${order.line_items.length - 2}` : ''}
+                              </td>
+                              <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
+                                {new Date(order.created_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {pageTab === 'caisse' && <>
 
         {/* Period filter */}
         <div className="bg-white border border-border rounded-xl p-4 mb-4">
@@ -1506,6 +1664,7 @@ export default function CaisseHistoriquePage() {
             </div>
           )}
         </div>
+        </> /* end pageTab === 'caisse' */}
       </div>
 
       {/* Ticket Detail Modal */}

@@ -8,7 +8,6 @@ import PaymentModal from './PaymentModal';
 import OuvertureCaisseModal from './OuvertureCaisseModal';
 import ClientLookupBar from './ClientLookupBar';
 import FreePriceModal from './FreePriceModal';
-import EmployeePINModal from './EmployeePINModal';
 import LoyaltyRewardNotification from './LoyaltyRewardNotification';
 import { AvailableRewardsModal, NewlyUnlockedRewardsModal, RewardAppliedBanner } from './LoyaltyRewardModals';
 import { usePOSAuth } from '@/contexts/POSAuthContext';
@@ -459,7 +458,8 @@ function calcItemTotal(item: CartItem): number {
 }
 
 export default function POSTerminal() {
-  const { employee, isLocked, logout, logAction } = usePOSAuth();
+  const { employee, isLocked, logout, changeEmployee, logAction } = usePOSAuth();
+  const [showEmployeeMenu, setShowEmployeeMenu] = useState(false);
   const { tvaRate: settingsTvaRate } = useSettings();
   // Use live TVA rate from settings (e.g. 8.5% → 0.085)
   const LIVE_TAX_RATE = settingsTvaRate;
@@ -657,11 +657,6 @@ export default function POSTerminal() {
     setShowCameraScanner(false);
     setCameraManualBarcode('');
   }, [cameraScanner]);
-
-  // Show PIN modal if locked
-  if (isLocked) {
-    return <EmployeePINModal />;
-  }
 
   const addFreePriceItem = useCallback((name: string, price: number) => {
     const id = `free-${Date.now()}`;
@@ -1069,6 +1064,7 @@ export default function POSTerminal() {
         clientId: client.id,
         clientName: client.name,
         cashierName: employee?.fullName || 'Caisse',
+        employeeId: employee?.id !== 'default' ? employee?.id : undefined,
         loyaltyPointsEarned,
         loyaltyRewardUsed,
         isDemo: isDemoCart,
@@ -1191,6 +1187,7 @@ export default function POSTerminal() {
         clientId: client?.id,
         clientName: client?.name,
         cashierName: employee?.fullName || 'Caisse',
+        employeeId: employee?.id !== 'default' ? employee?.id : undefined,
         isDemo: isDemoCart,
       });
       if (!saved2) toast.error('Ticket non enregistré — vérifiez la connexion', { duration: 8000 });
@@ -1323,11 +1320,32 @@ export default function POSTerminal() {
             </>
           )}
           <span className="text-muted-foreground text-xs">·</span>
-          <div className="flex items-center gap-1.5">
-            <div className="w-6 h-6 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-[10px] font-700 text-primary">
-              {employee?.avatarInitials}
-            </div>
-            <span className="text-xs font-500 text-foreground">{employee?.fullName}</span>
+          <div className="relative">
+            <button
+              onClick={() => setShowEmployeeMenu((v) => !v)}
+              className="flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-muted transition-colors"
+            >
+              <div className="w-6 h-6 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-[10px] font-700 text-primary">
+                {employee?.avatarInitials}
+              </div>
+              <span className="text-xs font-500 text-foreground">{employee?.fullName || 'Caissier'}</span>
+              <Icon name="ChevronDownIcon" size={11} className="text-muted-foreground" />
+            </button>
+            {showEmployeeMenu && (
+              <div className="absolute top-full left-0 mt-1 z-50 bg-white border border-border rounded-xl shadow-lg py-1 min-w-[180px]">
+                <div className="px-3 py-2 border-b border-border">
+                  <p className="text-xs font-600 text-foreground">{employee?.fullName}</p>
+                  <p className="text-[10px] text-muted-foreground capitalize">{employee?.role}</p>
+                </div>
+                <button
+                  onClick={() => { setShowEmployeeMenu(false); changeEmployee(); }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
+                >
+                  <Icon name="ArrowsRightLeftIcon" size={14} className="text-primary" />
+                  Changer de caissier
+                </button>
+              </div>
+            )}
           </div>
           <span className="text-muted-foreground text-xs">·</span>
           <span className="text-xs text-muted-foreground font-mono">{dateStr} {timeStr}</span>

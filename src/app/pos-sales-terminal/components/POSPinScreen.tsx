@@ -14,7 +14,7 @@ export default function POSPinScreen() {
 
   const submit = useCallback(async (pin: string) => {
     setLoading(true);
-    const result = await login(pin);
+    const result = await login('', pin);
     setLoading(false);
     if (!result.success) {
       setError(result.error ?? 'Code incorrect');

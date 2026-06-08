@@ -229,6 +229,8 @@ export default function LivreursPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState('');
+  const [testingPushId, setTestingPushId] = useState<string | null>(null);
+  const [pushResults, setPushResults] = useState<Record<string, { ok: boolean; msg: string }>>({});
 
   const load = useCallback(async () => {
     try {
@@ -267,6 +269,33 @@ export default function LivreursPage() {
       await load();
     } catch { /* ignore */ } finally {
       setDeletingId(null);
+    }
+  };
+
+  const handleTestPush = async (driver: Driver) => {
+    setTestingPushId(driver.id);
+    try {
+      const res = await fetch('/api/push/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          driverId: driver.id,
+          title: '🔔 Test BeautyPOS',
+          pushBody: `Test envoyé à ${driver.firstName}`,
+          url: '/livreur/dashboard',
+        }),
+      });
+      const data = await res.json();
+      setPushResults((prev) => ({
+        ...prev,
+        [driver.id]: data.ok
+          ? { ok: true, msg: '✅ Envoyée !' }
+          : { ok: false, msg: `❌ ${data.error || 'Erreur'}` },
+      }));
+    } catch {
+      setPushResults((prev) => ({ ...prev, [driver.id]: { ok: false, msg: '❌ Erreur réseau' } }));
+    } finally {
+      setTestingPushId(null);
     }
   };
 
@@ -411,7 +440,7 @@ export default function LivreursPage() {
 
                         {/* Actions */}
                         <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <button
                               onClick={() => { setEditingDriver(driver); setShowModal(true); }}
                               className="text-xs text-gray-500 hover:text-gray-800 font-semibold transition-colors px-2 py-1 rounded hover:bg-gray-100"
@@ -425,6 +454,18 @@ export default function LivreursPage() {
                             >
                               {deletingId === driver.id ? '…' : 'Supprimer'}
                             </button>
+                            <button
+                              onClick={() => handleTestPush(driver)}
+                              disabled={testingPushId === driver.id}
+                              className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded border border-orange-300 hover:bg-orange-200 disabled:opacity-50 transition-colors"
+                            >
+                              {testingPushId === driver.id ? '…' : '🔔 Tester'}
+                            </button>
+                            {pushResults[driver.id] && (
+                              <span className={`text-xs font-semibold ${pushResults[driver.id].ok ? 'text-green-600' : 'text-red-600'}`}>
+                                {pushResults[driver.id].msg}
+                              </span>
+                            )}
                           </div>
                         </td>
                       </tr>

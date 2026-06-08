@@ -18,6 +18,7 @@ interface LineItem {
   unitPrice: number;
   tvaRate: number;
   discount: number;
+  productId?: string;
 }
 
 interface B2BDocument {
@@ -323,6 +324,7 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
         : 0;
     setLines((prev) => prev.map((l) => l.id === lineId ? {
       ...l,
+      productId: product.id,
       description: product.name + (product.ref ? ` (Réf: ${product.ref})` : ''),
       unitPrice: priceHt,
       tvaRate,
@@ -1167,6 +1169,8 @@ export default function B2BInvoicingPage() {
 
   async function handleSave(doc: B2BDocument) {
     const isNew = !doc.id || doc.id.startsWith('doc-');
+    const prevStatus = docs.find((d) => d.id === doc.id)?.status;
+    const becomingPaid = doc.type === 'invoice' && doc.status === 'paid' && prevStatus !== 'paid';
 
     const payload = {
       doc_type: doc.type,
@@ -1220,6 +1224,13 @@ export default function B2BInvoicingPage() {
           throw new Error(err.error || 'Erreur de mise à jour');
         }
         setDocs((prev) => prev.map((d) => d.id === doc.id ? doc : d));
+        if (becomingPaid) {
+          fetch('/api/b2b/deduct-stock', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ factureId: doc.id, lines: doc.lines, clientName: doc.clientName, numero: doc.number }),
+          }).catch(() => {});
+        }
       }
       setShowForm(false);
       setEditingDoc(null);
