@@ -1091,8 +1091,37 @@ function EmailModal({ doc, onClose }: { doc: B2BDocument; onClose: () => void })
 
 type TabFilter = 'all' | DocType;
 
+function apiRowToDoc(row: any): B2BDocument {
+  const meta = (row.items && row.items._b2b ? row.items : {}) as Record<string, any>;
+  return {
+    id: row.id,
+    type: row.doc_type as DocType,
+    number: row.numero,
+    status: (row.status ?? 'draft') as DocStatus,
+    clientName: row.client_name ?? '',
+    clientEmail: row.client_email ?? '',
+    clientId: meta.clientId ?? '',
+    clientAddress: meta.clientAddress ?? '',
+    clientSiret: meta.clientSiret ?? '',
+    clientTva: meta.clientTva ?? '',
+    sellerName: meta.sellerName ?? '',
+    sellerAddress: meta.sellerAddress ?? '',
+    sellerSiret: meta.sellerSiret ?? '',
+    sellerTva: meta.sellerTva ?? '',
+    issueDate: meta.issueDate ?? (row.created_at?.slice(0, 10) ?? ''),
+    dueDate: meta.dueDate ?? '',
+    lines: Array.isArray(meta.lines) ? meta.lines : [],
+    notes: meta.notes ?? '',
+    paymentTerms: meta.paymentTerms ?? 'Paiement à 30 jours',
+    totalHt: Number(row.total_ht ?? 0),
+    totalTva: Number(row.total_tva ?? 0),
+    totalTtc: Number(row.total_ttc ?? 0),
+    createdAt: row.created_at ?? '',
+  };
+}
+
 export default function B2BInvoicingPage() {
-  const [docs, setDocs] = useState<B2BDocument[]>(SEED_DOCS);
+  const [docs, setDocs] = useState<B2BDocument[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [tab, setTab] = useState<TabFilter>('all');
   const [search, setSearch] = useState('');
@@ -1108,6 +1137,14 @@ export default function B2BInvoicingPage() {
 
   useEffect(() => {
     clientService.getAll().then(setClients).catch(() => {});
+  }, []);
+
+  // Load B2B documents from DB
+  useEffect(() => {
+    fetch('/api/factures?type=b2b')
+      .then((r) => r.ok ? r.json() : [])
+      .then((rows) => { if (Array.isArray(rows)) setDocs(rows.map(apiRowToDoc)); })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -1128,18 +1165,77 @@ export default function B2BInvoicingPage() {
     return true;
   });
 
-  function handleSave(doc: B2BDocument) {
-    setDocs((prev) => {
-      const idx = prev.findIndex((d) => d.id === doc.id);
-      if (idx >= 0) { const next = [...prev]; next[idx] = doc; return next; }
-      return [doc, ...prev];
-    });
-    setShowForm(false);
-    setEditingDoc(null);
+  async function handleSave(doc: B2BDocument) {
+    const isNew = !doc.id || doc.id.startsWith('doc-');
+
+    const payload = {
+      doc_type: doc.type,
+      client_name: doc.clientName,
+      client_email: doc.clientEmail,
+      total_ht: doc.totalHt,
+      total_tva: doc.totalTva,
+      total_ttc: doc.totalTtc,
+      status: doc.status,
+      is_counted_in_ca: doc.type === 'invoice',
+      items: {
+        _b2b: true,
+        lines: doc.lines,
+        clientId: doc.clientId,
+        clientAddress: doc.clientAddress,
+        clientSiret: doc.clientSiret,
+        clientTva: doc.clientTva,
+        sellerName: doc.sellerName,
+        sellerAddress: doc.sellerAddress,
+        sellerSiret: doc.sellerSiret,
+        sellerTva: doc.sellerTva,
+        issueDate: doc.issueDate,
+        dueDate: doc.dueDate,
+        notes: doc.notes,
+        paymentTerms: doc.paymentTerms,
+      },
+    };
+
+    try {
+      if (isNew) {
+        const res = await fetch('/api/factures', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: 'Erreur de sauvegarde' }));
+          throw new Error(err.error || 'Erreur de sauvegarde');
+        }
+        const { id, numero } = await res.json();
+        const saved: B2BDocument = { ...doc, id, number: numero };
+        setDocs((prev) => [saved, ...prev]);
+      } else {
+        const res = await fetch(`/api/factures/${doc.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: 'Erreur de mise à jour' }));
+          throw new Error(err.error || 'Erreur de mise à jour');
+        }
+        setDocs((prev) => prev.map((d) => d.id === doc.id ? doc : d));
+      }
+      setShowForm(false);
+      setEditingDoc(null);
+    } catch (e: any) {
+      alert(`Erreur: ${e.message}`);
+    }
   }
 
-  function handleDelete(id: string) {
-    if (confirm('Supprimer ce document ?')) setDocs((prev) => prev.filter((d) => d.id !== id));
+  async function handleDelete(id: string) {
+    if (!confirm('Supprimer ce document ?')) return;
+    if (!id.startsWith('doc-')) {
+      try {
+        await fetch(`/api/factures/${id}`, { method: 'DELETE' });
+      } catch { /* ignore, still remove from state */ }
+    }
+    setDocs((prev) => prev.filter((d) => d.id !== id));
   }
 
   function handleConvertToInvoice(doc: B2BDocument) {
@@ -1152,11 +1248,8 @@ export default function B2BInvoicingPage() {
       issueDate: new Date().toISOString().slice(0, 10),
       createdAt: new Date().toISOString(),
     };
-    setDocs((prev) => {
-      // Mark original quote as converted
-      const updated = prev.map((d) => d.id === doc.id ? { ...d, status: 'cancelled' as DocStatus } : d);
-      return [newInvoice, ...updated];
-    });
+    // Mark original as cancelled — will be persisted when handleSave runs next
+    setDocs((prev) => prev.map((d) => d.id === doc.id ? { ...d, status: 'cancelled' as DocStatus } : d));
     setEditingDoc(newInvoice);
     setShowForm(true);
   }
@@ -1412,6 +1505,7 @@ export default function B2BInvoicingPage() {
       {/* Modals */}
       {showForm && (
         <DocFormModal
+          key={editingDoc?.id ?? 'new'}
           doc={editingDoc}
           allDocs={docs}
           clients={clients}

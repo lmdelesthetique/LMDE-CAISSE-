@@ -92,6 +92,8 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ id: data.id, numero: data.numero }, { status: 201 });
 }
 
+const B2B_DOC_TYPES = ['invoice', 'estimate', 'proforma', 'credit_note'];
+
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const docType = searchParams.get('type') ?? 'all';
@@ -103,18 +105,27 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
   }
 
+  const isB2B = docType === 'b2b';
+
+  const fields = isB2B
+    ? 'id, numero, doc_type, client_name, client_email, total_ht, total_tva, total_ttc, status, created_at, items'
+    : 'id, numero, doc_type, client_name, total_ttc, status, created_at';
+
   let query = supabase
     .from('factures')
-    .select('id, numero, doc_type, client_name, total_ttc, status, created_at')
+    .select(fields)
     .order('created_at', { ascending: false })
-    .limit(200);
+    .limit(200) as any;
 
-  if (docType !== 'all') query = query.eq('doc_type', docType);
+  if (isB2B) {
+    query = query.in('doc_type', B2B_DOC_TYPES);
+  } else if (docType !== 'all') {
+    query = query.eq('doc_type', docType);
+  }
 
   const { data, error } = await query;
   if (error) {
     console.error('[api/factures GET]', error.code, error.message);
-    // Return empty array instead of 500 so the page still renders
     return NextResponse.json([]);
   }
   return NextResponse.json(data ?? []);
