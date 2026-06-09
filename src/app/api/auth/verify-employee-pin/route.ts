@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     .from('employees')
     .select('id, first_name, last_name, role, pos_pin, status, avatar_initials, perm_cashier_access')
     .eq('id', employeeId)
-    .in('status', ['active', 'Actif'])
+    .in('status', ['active', 'Actif', 'actif', 'Active'])
     .maybeSingle();
 
   if (error || !emp) return NextResponse.json({ valid: false });
