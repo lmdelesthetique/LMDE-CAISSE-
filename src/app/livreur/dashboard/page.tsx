@@ -76,22 +76,57 @@ export default function DriverDashboard() {
 
   const silentSubscribe = useCallback(async (driverId: string) => {
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+
+    const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    if (!vapidKey) {
+      console.error('[push] NEXT_PUBLIC_VAPID_PUBLIC_KEY missing — cannot subscribe');
+      return;
+    }
+
     try {
       const reg = await navigator.serviceWorker.ready;
       let sub = await reg.pushManager.getSubscription();
+
+      // If existing subscription uses a different VAPID key → unsubscribe and renew
+      if (sub) {
+        try {
+          const existingKey = sub.options?.applicationServerKey;
+          const newKey = urlBase64ToUint8Array(vapidKey);
+          const existingBytes = existingKey ? new Uint8Array(existingKey as ArrayBuffer) : null;
+          const newBytes = new Uint8Array(newKey as ArrayBuffer);
+          const keyMismatch = existingBytes &&
+            (existingBytes.length !== newBytes.length ||
+             existingBytes.some((b, i) => b !== newBytes[i]));
+          if (keyMismatch) {
+            console.log('[push] VAPID key mismatch — unsubscribing and renewing');
+            await sub.unsubscribe();
+            sub = null;
+          }
+        } catch { /* ignore key comparison errors */ }
+      }
+
       if (!sub) {
+        console.log('[push] Creating new push subscription…');
         sub = await reg.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!),
+          applicationServerKey: urlBase64ToUint8Array(vapidKey),
         });
+        console.log('[push] Subscription created:', sub.endpoint.substring(0, 50) + '…');
       }
-      await fetch('/api/push/subscribe', {
+
+      // Always save to DB on every load to ensure it's current
+      const res = await fetch('/api/push/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ driverId, subscription: sub.toJSON() }),
       });
+      if (res.ok) {
+        console.log('[push] ✅ Subscription saved to DB for driver', driverId);
+      } else {
+        console.error('[push] ❌ Failed to save subscription:', await res.text());
+      }
     } catch (err) {
-      console.error('[push] silent subscribe failed:', err);
+      console.error('[push] silentSubscribe failed:', err);
     }
   }, []);
 
