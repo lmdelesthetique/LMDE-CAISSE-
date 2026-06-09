@@ -111,27 +111,83 @@ export async function adjustInventoryLevel(inventoryItemId: string, delta: numbe
 
 /**
  * Set inventory to an absolute quantity.
+ * Uses GraphQL inventorySetQuantities (2024+ recommended) with REST fallback.
  */
 export async function setInventoryLevel(inventoryItemId: string, qty: number): Promise<boolean> {
   if (!inventoryItemId) return false;
   const locationId = await getLocationId();
   if (!locationId) { console.error('[shopify] setInventory: no location_id'); return false; }
+
+  // ── Primary: GraphQL inventorySetQuantities ──────────────────────────────
+  // More reliable than REST set.json — works even when item not yet connected
   try {
+    const token = await getAccessToken();
+    if (!token) throw new Error('no token');
+    const gqlRes = await fetch(`https://${STORE_DOMAIN}/admin/api/${API_VERSION}/graphql.json`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Shopify-Access-Token': token,
+      },
+      body: JSON.stringify({
+        query: `mutation inventorySetQty($input: InventorySetQuantitiesInput!) {
+          inventorySetQuantities(input: $input) {
+            inventoryAdjustmentGroup { id }
+            userErrors { field message }
+          }
+        }`,
+        variables: {
+          input: {
+            name: 'available',
+            reason: 'correction',
+            quantities: [{
+              inventoryItemId: `gid://shopify/InventoryItem/${inventoryItemId}`,
+              locationId: `gid://shopify/Location/${locationId}`,
+              quantity: Math.max(0, Math.round(qty)),
+            }],
+          },
+        },
+      }),
+    });
+    if (gqlRes.ok) {
+      const json = await gqlRes.json();
+      const errors = json?.data?.inventorySetQuantities?.userErrors ?? [];
+      if (errors.length === 0) return true;
+      console.warn('[shopify] GraphQL inventorySetQuantities userErrors:', errors);
+      // Fall through to REST if GraphQL returns user errors
+    }
+  } catch (e) {
+    console.warn('[shopify] GraphQL setInventory failed, trying REST:', e);
+  }
+
+  // ── Fallback: REST inventory_levels/set.json ─────────────────────────────
+  try {
+    // First ensure item is connected to location
+    await shopifyFetch('/inventory_levels/connect.json', {
+      method: 'POST',
+      body: JSON.stringify({
+        location_id: Number(locationId),
+        inventory_item_id: Number(inventoryItemId),
+        relocate_if_necessary: false,
+      }),
+    }).catch(() => {});
+
     const res = await shopifyFetch('/inventory_levels/set.json', {
       method: 'POST',
       body: JSON.stringify({
         inventory_item_id: Number(inventoryItemId),
         location_id: Number(locationId),
-        available: qty,
+        available: Math.max(0, Math.round(qty)),
       }),
     });
     if (!res.ok) {
-      console.error('Shopify setInventory failed:', await res.text());
+      const errText = await res.text();
+      console.error('[shopify] REST setInventory failed:', errText);
       return false;
     }
     return true;
   } catch (e) {
-    console.error('Shopify setInventory error:', e);
+    console.error('[shopify] REST setInventory error:', e);
     return false;
   }
 }
