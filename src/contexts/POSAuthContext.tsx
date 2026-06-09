@@ -41,13 +41,25 @@ function loadStoredEmployee(): StoredEmployee | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    const parsed: StoredEmployee = JSON.parse(raw);
-    if (!parsed.loginAt) return null;
-    if (Date.now() - new Date(parsed.loginAt).getTime() > SESSION_TTL_MS) {
+    const p: any = JSON.parse(raw);
+    if (!p.loginAt) return null;
+    if (Date.now() - new Date(p.loginAt).getTime() > SESSION_TTL_MS) {
       localStorage.removeItem(STORAGE_KEY);
       return null;
     }
-    return parsed;
+    // Normalise both snake_case and camelCase field names
+    const firstName = p.firstName ?? p.first_name ?? '';
+    const lastName  = p.lastName  ?? p.last_name  ?? '';
+    return {
+      id: p.id,
+      firstName,
+      lastName,
+      fullName: p.fullName ?? p.full_name ?? `${firstName} ${lastName}`.trim(),
+      avatarInitials: (p.avatarInitials ?? p.avatar_initials ??
+        `${firstName[0] ?? ''}${lastName[0] ?? ''}`.toUpperCase()) || 'CA',
+      role: p.role ?? 'cashier',
+      loginAt: p.loginAt,
+    };
   } catch {
     return null;
   }
