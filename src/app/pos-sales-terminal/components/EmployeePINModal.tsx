@@ -103,10 +103,17 @@ export default function EmployeePINModal() {
     setStep('pin');
   };
 
+  const PIN_LENGTH = 4;
+
   const handleDigit = (d: string) => {
-    if (locked || pin.length >= 6) return;
-    setPin((p) => p + d);
+    if (locked || pin.length >= PIN_LENGTH) return;
+    const next = pin + d;
+    setPin(next);
     setError('');
+    // Auto-submit when PIN is complete
+    if (next.length === PIN_LENGTH && selectedEmployee && !loading) {
+      setTimeout(() => handleSubmitWithPin(next), 50);
+    }
   };
 
   const handleDelete = () => {
@@ -114,10 +121,10 @@ export default function EmployeePINModal() {
     setError('');
   };
 
-  const handleSubmit = async () => {
-    if (locked || pin.length < 4 || !selectedEmployee) return;
+  const handleSubmitWithPin = async (pinValue: string) => {
+    if (locked || pinValue.length < 4 || !selectedEmployee) return;
     setLoading(true);
-    const result = await login(selectedEmployee.id, pin);
+    const result = await login(selectedEmployee.id, pinValue);
     setLoading(false);
 
     if (!result.success) {
@@ -132,6 +139,8 @@ export default function EmployeePINModal() {
       }
     }
   };
+
+  const handleSubmit = () => handleSubmitWithPin(pin);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') handleSubmit();
@@ -207,7 +216,7 @@ export default function EmployeePINModal() {
 
             {/* PIN dots */}
             <div className="flex items-center justify-center gap-3 mb-5">
-              {Array.from({ length: 6 }).map((_, i) => (
+              {Array.from({ length: PIN_LENGTH }).map((_, i) => (
                 <div
                   key={i}
                   className={`w-3 h-3 rounded-full transition-all duration-150 ${
@@ -241,9 +250,12 @@ export default function EmployeePINModal() {
               value={pin}
               onChange={(e) => {
                 if (locked) return;
-                const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+                const val = e.target.value.replace(/\D/g, '').slice(0, PIN_LENGTH);
                 setPin(val);
                 setError('');
+                if (val.length === PIN_LENGTH && selectedEmployee && !loading) {
+                  setTimeout(() => handleSubmitWithPin(val), 50);
+                }
               }}
               onKeyDown={handleKeyDown}
               className="sr-only"
@@ -282,7 +294,7 @@ export default function EmployeePINModal() {
             {/* Confirm button */}
             <button
               onClick={handleSubmit}
-              disabled={pin.length < 4 || loading || locked}
+              disabled={pin.length < PIN_LENGTH || loading || locked}
               className="w-full h-14 rounded-xl bg-pink-500 text-white text-base font-700 hover:bg-pink-600 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 mb-3"
             >
               {loading ? (
