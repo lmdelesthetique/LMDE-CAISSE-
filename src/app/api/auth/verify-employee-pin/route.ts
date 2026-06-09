@@ -29,11 +29,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ valid: false }, { status: 500 });
   }
 
-  // Use select * to avoid failing on missing columns
   const { data: emp, error } = await supabase
     .from('employees')
-    .select('*')
+    .select('id, first_name, last_name, role, pos_pin, status, avatar_initials, perm_cashier_access')
     .eq('id', employeeId)
+    .eq('status', 'active')
     .maybeSingle();
 
   if (error) {
@@ -42,27 +42,40 @@ export async function POST(req: NextRequest) {
   }
   if (!emp) return NextResponse.json({ valid: false });
 
-  // Support both English and French column names for PIN
-  const stored = String(emp.pos_pin ?? emp.pin ?? emp.code ?? '').trim();
-  const provided = String(pin ?? '').trim();
+  // Only check pos_pin column
+  const stored   = (emp.pos_pin ?? '').toString().trim();
+  const provided = (pin ?? '').toString().trim();
 
-  // Blank PIN = open access (no PIN configured)
-  const valid = stored === '' || stored === provided;
+  // No PIN configured = open access
+  if (!stored) {
+    const initials = emp.avatar_initials ||
+      `${(emp.first_name ?? '')[0] ?? ''}${(emp.last_name ?? '')[0] ?? ''}`.toUpperCase();
+    return NextResponse.json({
+      valid: true,
+      employee: {
+        id: emp.id,
+        firstName: emp.first_name ?? '',
+        lastName: emp.last_name ?? '',
+        fullName: `${emp.first_name ?? ''} ${emp.last_name ?? ''}`.trim(),
+        avatarInitials: initials || '?',
+        role: emp.role ?? 'cashier',
+        permCashierAccess: emp.perm_cashier_access !== false,
+      },
+    });
+  }
 
-  if (!valid) return NextResponse.json({ valid: false });
+  if (stored !== provided) return NextResponse.json({ valid: false });
 
-  const firstName = emp.first_name ?? emp.prenom ?? emp.firstName ?? '';
-  const lastName  = emp.last_name  ?? emp.nom    ?? emp.lastName  ?? '';
-  const initials  = emp.avatar_initials ??
-    `${String(firstName)[0] ?? ''}${String(lastName)[0] ?? ''}`.toUpperCase();
+  const initials = emp.avatar_initials ||
+    `${(emp.first_name ?? '')[0] ?? ''}${(emp.last_name ?? '')[0] ?? ''}`.toUpperCase();
 
   return NextResponse.json({
     valid: true,
     employee: {
       id: emp.id,
-      firstName: String(firstName),
-      lastName:  String(lastName),
-      fullName:  `${firstName} ${lastName}`.trim(),
+      firstName: emp.first_name ?? '',
+      lastName: emp.last_name ?? '',
+      fullName: `${emp.first_name ?? ''} ${emp.last_name ?? ''}`.trim(),
       avatarInitials: initials || '?',
       role: emp.role ?? 'cashier',
       permCashierAccess: emp.perm_cashier_access !== false,

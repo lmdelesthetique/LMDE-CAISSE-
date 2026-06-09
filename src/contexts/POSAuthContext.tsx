@@ -27,6 +27,7 @@ interface POSAuthContextValue {
   isLocked: boolean;
   pinConfigured: boolean;
   login: (employeeId: string, pin: string) => Promise<{ success: boolean; error?: string }>;
+  loginWithoutPin: () => void;
   logout: () => Promise<void>;
   changeEmployee: () => void;
   logAction: (type: POSActionType, description: string, amount?: number, meta?: Record<string, unknown>) => Promise<void>;
@@ -136,6 +137,20 @@ export function POSAuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const loginWithoutPin = useCallback(() => {
+    const stored: StoredEmployee = {
+      id: 'default',
+      firstName: 'Caisse',
+      lastName: '',
+      fullName: 'Caisse',
+      avatarInitials: 'CA',
+      role: 'cashier',
+      loginAt: new Date().toISOString(),
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+    setEmployee(storedToEmployee(stored));
+  }, []);
+
   const changeEmployee = useCallback(() => {
     localStorage.removeItem(STORAGE_KEY);
     setEmployee(null);
@@ -175,7 +190,7 @@ export function POSAuthProvider({ children }: { children: React.ReactNode }) {
   if (!ready) return null;
 
   return (
-    <POSAuthContext.Provider value={{ employee, session, isLocked, pinConfigured, login, logout, changeEmployee, logAction }}>
+    <POSAuthContext.Provider value={{ employee, session, isLocked, pinConfigured, login, loginWithoutPin, logout, changeEmployee, logAction }}>
       {children}
     </POSAuthContext.Provider>
   );

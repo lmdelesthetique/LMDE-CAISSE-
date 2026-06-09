@@ -43,7 +43,7 @@ const MAX_ATTEMPTS = 3;
 const LOCKOUT_SECONDS = 60;
 
 export default function EmployeePINModal() {
-  const { login } = usePOSAuth();
+  const { login, loginWithoutPin } = usePOSAuth();
 
   const [step, setStep] = useState<'select' | 'pin'>('select');
   const [employees, setEmployees] = useState<EmployeeCard[]>([]);
@@ -165,6 +165,12 @@ export default function EmployeePINModal() {
                 <Icon name="ExclamationTriangleIcon" size={24} className="text-amber-400 mx-auto mb-3" />
                 <p className="text-amber-300 font-600">Aucun employé actif trouvé</p>
                 <p className="text-amber-400/70 text-sm mt-1">Ajoutez des employés dans la gestion du personnel</p>
+                <button
+                  onClick={loginWithoutPin}
+                  className="mt-4 px-4 py-2 bg-white/10 border border-white/20 text-white/70 hover:text-white hover:bg-white/20 text-sm rounded-xl transition-colors"
+                >
+                  Accéder sans sélection d'employé
+                </button>
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-3">
