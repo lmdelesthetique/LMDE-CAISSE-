@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
   }
 
   const { employeeId, pin } = body;
-  if (!employeeId || !pin) return NextResponse.json({ valid: false });
+  if (!employeeId) return NextResponse.json({ valid: false });
 
   let supabase: ReturnType<typeof makeClient>;
   try {
@@ -29,33 +29,41 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ valid: false }, { status: 500 });
   }
 
+  // Use select * to avoid failing on missing columns
   const { data: emp, error } = await supabase
     .from('employees')
-    .select('id, first_name, last_name, role, pos_pin, status, avatar_initials, perm_cashier_access')
+    .select('*')
     .eq('id', employeeId)
-    .in('status', ['active', 'Actif', 'actif', 'Active'])
     .maybeSingle();
 
-  if (error || !emp) return NextResponse.json({ valid: false });
+  if (error) {
+    console.error('[verify-employee-pin] query error:', error.message);
+    return NextResponse.json({ valid: false }, { status: 500 });
+  }
+  if (!emp) return NextResponse.json({ valid: false });
 
-  const stored = (emp.pos_pin ?? '').toString().trim();
+  // Support both English and French column names for PIN
+  const stored = String(emp.pos_pin ?? emp.pin ?? emp.code ?? '').trim();
+  const provided = String(pin ?? '').trim();
 
-  // Allow access if no PIN is set (blank PIN = open access)
-  const valid = stored === '' || stored === pin.toString().trim();
+  // Blank PIN = open access (no PIN configured)
+  const valid = stored === '' || stored === provided;
 
   if (!valid) return NextResponse.json({ valid: false });
 
-  const initials = emp.avatar_initials ||
-    `${(emp.first_name ?? '')[0] ?? ''}${(emp.last_name ?? '')[0] ?? ''}`.toUpperCase();
+  const firstName = emp.first_name ?? emp.prenom ?? emp.firstName ?? '';
+  const lastName  = emp.last_name  ?? emp.nom    ?? emp.lastName  ?? '';
+  const initials  = emp.avatar_initials ??
+    `${String(firstName)[0] ?? ''}${String(lastName)[0] ?? ''}`.toUpperCase();
 
   return NextResponse.json({
     valid: true,
     employee: {
       id: emp.id,
-      firstName: emp.first_name ?? '',
-      lastName: emp.last_name ?? '',
-      fullName: `${emp.first_name ?? ''} ${emp.last_name ?? ''}`.trim(),
-      avatarInitials: initials,
+      firstName: String(firstName),
+      lastName:  String(lastName),
+      fullName:  `${firstName} ${lastName}`.trim(),
+      avatarInitials: initials || '?',
       role: emp.role ?? 'cashier',
       permCashierAccess: emp.perm_cashier_access !== false,
     },
