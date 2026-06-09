@@ -8,7 +8,7 @@ const nextConfig = {
   async redirects() {
     return [{ source: '/', destination: '/dashboard', permanent: false }];
   },
-  serverExternalPackages: ['@ericblade/quagga2', 'sharp', 'ndarray-pixels'],
+  serverExternalPackages: ['@ericblade/quagga2', 'sharp', 'ndarray-pixels', 'web-push'],
 };
 
 export default nextConfig;

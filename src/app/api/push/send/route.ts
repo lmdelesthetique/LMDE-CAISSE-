@@ -1,3 +1,5 @@
+export const runtime = 'nodejs';
+
 import { NextResponse } from 'next/server';
 import webpush from 'web-push';
 import { createAdminClient } from '@/lib/supabase/admin';
