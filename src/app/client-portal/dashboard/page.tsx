@@ -158,36 +158,33 @@ export default function ClientDashboardPage() {
   const loadCurrentOrder = useCallback(async () => {
     if (!clientUser) return;
     setLoadingOrder(true);
-    const supabase = createClient();
 
-    const { data: existing } = await supabase
-      .from('subscription_orders')
-      .select('*')
-      .eq('subscription_id', clientUser.subscriptionId)
-      .eq('order_month', currentMonth)
-      .limit(1);
+    let order: SubscriptionOrder | null = null;
 
-    let order: SubscriptionOrder | null = existing?.[0] ?? null;
-
-    if (!order && !isPastDeadline) {
+    if (!isPastDeadline) {
       const sc = planData?.shipping_free ? 0 : (planData?.shipping_cost ?? clientUser.shippingCost ?? 0);
-      const { data: newOrder } = await supabase
-        .from('subscription_orders')
-        .insert({
-          subscription_id: clientUser.subscriptionId,
-          order_month: currentMonth,
-          status: 'open',
-          shipping_cost: sc,
-          deadline_date: deadlineDate.toISOString().slice(0, 10),
-        })
-        .select()
-        .single();
-      order = newOrder;
+      const res = await fetch('/api/client-portal/subscription-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subscriptionId: clientUser.subscriptionId,
+          month: currentMonth,
+          shippingCost: sc,
+          deadlineDate: deadlineDate.toISOString().slice(0, 10),
+        }),
+      });
+      const json = await res.json();
+      order = json.order ?? null;
+    } else {
+      const res = await fetch(`/api/client-portal/subscription-order?subscriptionId=${encodeURIComponent(clientUser.subscriptionId)}&month=${encodeURIComponent(currentMonth)}`);
+      const json = await res.json();
+      order = json.order ?? null;
     }
 
     setCurrentOrder(order);
 
     if (order) {
+      const supabase = createClient();
       const { data: items } = await supabase
         .from('subscription_order_items')
         .select('*, product:products(id, name, image_url, sell_price_ttc, description)')
@@ -300,24 +297,24 @@ export default function ClientDashboardPage() {
     if (!orderId) {
       console.log('[addProduct] creating order for subscription', clientUser.subscriptionId);
       const sc = shippingFree ? 0 : shippingCost;
-      const { data: newOrder, error: orderErr } = await supabase
-        .from('subscription_orders')
-        .insert({
-          subscription_id: clientUser.subscriptionId,
-          order_month: currentMonth,
-          status: 'open',
-          shipping_cost: sc,
-          deadline_date: new Date(new Date().getFullYear(), new Date().getMonth(), 25).toISOString().slice(0, 10),
-        })
-        .select()
-        .single();
-      console.log('[addProduct] order creation result', { newOrder, error: orderErr });
-      if (orderErr || !newOrder) {
-        showToast(`Erreur création commande: ${orderErr?.message ?? 'inconnue'}.`, 'error');
+      const res = await fetch('/api/client-portal/subscription-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subscriptionId: clientUser.subscriptionId,
+          month: currentMonth,
+          shippingCost: sc,
+          deadlineDate: new Date(new Date().getFullYear(), new Date().getMonth(), 25).toISOString().slice(0, 10),
+        }),
+      });
+      const json = await res.json();
+      console.log('[addProduct] order creation result', json);
+      if (!res.ok || !json.order) {
+        showToast(`Erreur création commande: ${json.error ?? 'inconnue'}.`, 'error');
         return;
       }
-      setCurrentOrder(newOrder);
-      orderId = newOrder.id;
+      setCurrentOrder(json.order);
+      orderId = json.order.id;
     }
 
     const existing = orderItems.find((i) => i.product_id === product.id && !i.color_variant);
