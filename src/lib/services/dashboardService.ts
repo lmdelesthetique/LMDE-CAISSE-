@@ -207,7 +207,7 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
   ]);
 
   const stockAlertCount = (stockAlertResult.data ?? []).filter((p: any) =>
-    p.product_status === 'rupture' || Number(p.stock ?? 0) <= Number(p.min_stock || 5)
+    Number(p.stock ?? 0) <= 0 || Number(p.stock ?? 0) <= Number(p.min_stock || 5)
   ).length;
   const activeProductsCount = activeProductsResult.count;
   // caShopify is already resolved from the parallel Promise.all above
@@ -437,7 +437,7 @@ export async function fetchStockAlerts(): Promise<StockAlert[]> {
     .limit(100);
 
   const data = (rawData ?? [])
-    .filter((p) => p.product_status === 'rupture' || Number(p.stock ?? 0) <= Number(p.min_stock || 5))
+    .filter((p) => Number(p.stock ?? 0) <= 0 || Number(p.stock ?? 0) <= Number(p.min_stock || 5))
     .slice(0, 10);
 
   return data.map((p) => ({
@@ -445,7 +445,7 @@ export async function fetchStockAlerts(): Promise<StockAlert[]> {
     name: p.name,
     stock: Number(p.stock ?? 0),
     min: Number(p.min_stock ?? 5),
-    level: (p.product_status === 'rupture' || Number(p.stock ?? 0) === 0) ? 'rupture' : 'warning',
+    level: Number(p.stock ?? 0) <= 0 ? 'rupture' : 'warning',
   }));
 }
 

@@ -313,9 +313,15 @@ export async function fetchTransitOrders(): Promise<TransitOrder[]> {
 
 export async function addStock(productId: string, productName: string, currentStock: number, qty: number, reason: string, performedBy = 'Admin'): Promise<boolean> {
   const newQty = currentStock + qty;
+  const updatePayload: Record<string, unknown> = { stock: newQty, updated_at: new Date().toISOString() };
+  // Restore active status when stock goes positive from zero
+  if (newQty > 0 && currentStock <= 0) {
+    updatePayload.status = 'active';
+    updatePayload.product_status = 'active';
+  }
   const { error: updateError } = await supabase
     .from('products')
-    .update({ stock: newQty, updated_at: new Date().toISOString() })
+    .update(updatePayload)
     .eq('id', productId);
 
   if (updateError) { console.error('addStock', updateError); return false; }
@@ -336,9 +342,14 @@ export async function addStock(productId: string, productName: string, currentSt
 
 export async function removeStock(productId: string, productName: string, currentStock: number, qty: number, reason: string, performedBy = 'Admin'): Promise<boolean> {
   const newQty = Math.max(0, currentStock - qty);
+  const updatePayload: Record<string, unknown> = { stock: newQty, updated_at: new Date().toISOString() };
+  if (newQty === 0) {
+    updatePayload.status = 'rupture';
+    updatePayload.product_status = 'rupture';
+  }
   const { error: updateError } = await supabase
     .from('products')
-    .update({ stock: newQty, updated_at: new Date().toISOString() })
+    .update(updatePayload)
     .eq('id', productId);
 
   if (updateError) { console.error('removeStock', updateError); return false; }
@@ -568,7 +579,7 @@ export async function deductStockForSale(
 
           // Update status if stock reaches 0
           if (compNewStock === 0) {
-            await supabase.from('products').update({ status: 'rupture' }).eq('id', comp.component_id);
+            await supabase.from('products').update({ status: 'rupture', product_status: 'rupture' }).eq('id', comp.component_id);
           }
         }
       }
@@ -590,7 +601,7 @@ export async function deductStockForSale(
           source: 'pos_sale',
         });
         if (newKitStock === 0) {
-          await supabase.from('products').update({ status: 'rupture' }).eq('id', item.productId);
+          await supabase.from('products').update({ status: 'rupture', product_status: 'rupture' }).eq('id', item.productId);
         }
       }
     } else {
@@ -625,13 +636,7 @@ export async function deductStockForSale(
 
       // Update product status if stock reaches 0
       if (newStock === 0) {
-        await supabase.from('products').update({ status: 'rupture' }).eq('id', item.productId);
-      } else if (newStock > 0) {
-        // If it was rupture and now has stock, restore to active
-        const { data: statusData } = await supabase.from('products').select('status').eq('id', item.productId).maybeSingle();
-        if (statusData && (statusData as any).status === 'rupture') {
-          // Keep rupture status — stock was just deducted, don't auto-restore
-        }
+        await supabase.from('products').update({ status: 'rupture', product_status: 'rupture' }).eq('id', item.productId);
       }
     }
   }
