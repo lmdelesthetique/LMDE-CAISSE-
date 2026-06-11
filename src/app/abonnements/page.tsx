@@ -278,26 +278,27 @@ function DeliveryModal({
         })
         .eq('id', sub.currentOrder!.id);
 
-      // 3. Send push to driver (non-blocking)
-      if (selectedDriver) {
-        fetch('/api/push/send', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            driverId: selectedDriver,
-            title: '🚚 Box abonnement',
-            pushBody: `${clientName} — ${clientAddress}`,
-            url: '/livreur/dashboard',
-          }),
-        }).catch(() => {});
-      }
+      // 3. WhatsApp to driver (non-blocking — livraison route handles it when assigned_to_driver is set)
+      // Driver notification is sent server-side by /api/livraisons/[id] PATCH
 
-      // 4. Open WhatsApp for client
+      // 4. WhatsApp to client via Brevo (non-blocking) + wa.me fallback
       const firstName = sub.client?.first_name ?? clientName;
       const waMsg = `Bonjour ${firstName} ! 🎁\n\nVotre box beauté du mois est en route !\n\nLe Monde de l'Esthétique 💅`;
-      const phone = clientPhone.replace(/[\s+]/g, '');
-      if (phone) {
-        window.open(`https://wa.me/${phone}?text=${encodeURIComponent(waMsg)}`, '_blank');
+      if (clientPhone) {
+        fetch('/api/whatsapp/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ to: clientPhone, message: waMsg }),
+        }).then((r) => r.json()).then((d) => {
+          if (!d.ok) {
+            // Brevo not configured — open wa.me manually
+            const phone = clientPhone.replace(/[\s+]/g, '');
+            window.open(`https://wa.me/${phone}?text=${encodeURIComponent(waMsg)}`, '_blank');
+          }
+        }).catch(() => {
+          const phone = clientPhone.replace(/[\s+]/g, '');
+          window.open(`https://wa.me/${phone}?text=${encodeURIComponent(waMsg)}`, '_blank');
+        });
       }
 
       onConfirmed();
@@ -503,10 +504,10 @@ export default function AbonnementsPage() {
 
   // WhatsApp notification for a single subscriber
   const handleNotify = async (sub: SubscriptionRow) => {
-    const phone = (sub.portal_phone ?? '').replace(/[\s+\-()]/g, '');
-    if (!phone) { alert('Numéro de téléphone manquant pour ce client.'); return; }
+    const rawPhone = (sub.portal_phone ?? '').replace(/[\s+\-()]/g, '');
+    if (!rawPhone) { alert('Numéro de téléphone manquant pour ce client.'); return; }
 
-    const firstName = sub.client?.first_name ?? sub.client?.first_name ?? 'Client';
+    const firstName = sub.client?.first_name ?? 'Client';
     const order = sub.currentOrder;
     const remainingQuota = order
       ? Math.max(0, (sub.plan?.quota_amount ?? 0) - (order.total_sell_price ?? 0))
@@ -521,7 +522,20 @@ export default function AbonnementsPage() {
       `📅 Date limite : le 25 du mois\n\n` +
       `Le Monde de l'Esthétique 💅`;
 
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
+    // Try Brevo API first; fall back to wa.me if not configured
+    try {
+      const res = await fetch('/api/whatsapp/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: rawPhone, message }),
+      });
+      const d = await res.json();
+      if (!d.ok) {
+        window.open(`https://wa.me/${rawPhone}?text=${encodeURIComponent(message)}`, '_blank');
+      }
+    } catch {
+      window.open(`https://wa.me/${rawPhone}?text=${encodeURIComponent(message)}`, '_blank');
+    }
 
     // Record notification time
     setNotifyingId(sub.id);

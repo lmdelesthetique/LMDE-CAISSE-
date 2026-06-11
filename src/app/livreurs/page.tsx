@@ -229,8 +229,8 @@ export default function LivreursPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState('');
-  const [testingPushId, setTestingPushId] = useState<string | null>(null);
-  const [pushResults, setPushResults] = useState<Record<string, { ok: boolean; msg: string }>>({});
+  const [testingWaId, setTestingWaId] = useState<string | null>(null);
+  const [waResults, setWaResults] = useState<Record<string, { ok: boolean; msg: string }>>({});
 
   const load = useCallback(async () => {
     try {
@@ -272,30 +272,32 @@ export default function LivreursPage() {
     }
   };
 
-  const handleTestPush = async (driver: Driver) => {
-    setTestingPushId(driver.id);
+  const handleTestWhatsApp = async (driver: Driver) => {
+    if (!driver.phone) {
+      setWaResults((prev) => ({ ...prev, [driver.id]: { ok: false, msg: '❌ Pas de numéro' } }));
+      return;
+    }
+    setTestingWaId(driver.id);
     try {
-      const res = await fetch('/api/push/send', {
+      const res = await fetch('/api/whatsapp/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          driverId: driver.id,
-          title: '🔔 Test BeautyPOS',
-          pushBody: `Test envoyé à ${driver.firstName}`,
-          url: '/livreur/dashboard',
+          to: driver.phone,
+          message: `🔔 Test BeautyPOS\n\nBonjour ${driver.firstName} ! Ceci est un test de notification WhatsApp.\n\nLe Monde de l'Esthétique 💅`,
         }),
       });
       const data = await res.json();
-      setPushResults((prev) => ({
+      setWaResults((prev) => ({
         ...prev,
         [driver.id]: data.ok
-          ? { ok: true, msg: '✅ Envoyée !' }
+          ? { ok: true, msg: '✅ WhatsApp envoyé !' }
           : { ok: false, msg: `❌ ${data.error || 'Erreur'}` },
       }));
     } catch {
-      setPushResults((prev) => ({ ...prev, [driver.id]: { ok: false, msg: '❌ Erreur réseau' } }));
+      setWaResults((prev) => ({ ...prev, [driver.id]: { ok: false, msg: '❌ Erreur réseau' } }));
     } finally {
-      setTestingPushId(null);
+      setTestingWaId(null);
     }
   };
 
@@ -455,15 +457,15 @@ export default function LivreursPage() {
                               {deletingId === driver.id ? '…' : 'Supprimer'}
                             </button>
                             <button
-                              onClick={() => handleTestPush(driver)}
-                              disabled={testingPushId === driver.id}
-                              className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded border border-orange-300 hover:bg-orange-200 disabled:opacity-50 transition-colors"
+                              onClick={() => handleTestWhatsApp(driver)}
+                              disabled={testingWaId === driver.id}
+                              className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded border border-green-300 hover:bg-green-200 disabled:opacity-50 transition-colors"
                             >
-                              {testingPushId === driver.id ? '…' : '🔔 Tester'}
+                              {testingWaId === driver.id ? '…' : '📱 Tester WA'}
                             </button>
-                            {pushResults[driver.id] && (
-                              <span className={`text-xs font-semibold ${pushResults[driver.id].ok ? 'text-green-600' : 'text-red-600'}`}>
-                                {pushResults[driver.id].msg}
+                            {waResults[driver.id] && (
+                              <span className={`text-xs font-semibold ${waResults[driver.id].ok ? 'text-green-600' : 'text-red-600'}`}>
+                                {waResults[driver.id].msg}
                               </span>
                             )}
                           </div>

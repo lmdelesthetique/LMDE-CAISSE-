@@ -48,15 +48,6 @@ function getSession(): DriverSession | null {
 
 const TODAY = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 
-function urlBase64ToUint8Array(base64String: string): ArrayBuffer {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = window.atob(base64);
-  const output = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; i++) output[i] = rawData.charCodeAt(i);
-  return output.buffer;
-}
-
 export default function DriverDashboard() {
   const router = useRouter();
   const [session, setSession] = useState<DriverSession | null>(null);
@@ -64,7 +55,6 @@ export default function DriverDashboard() {
   const [loading, setLoading] = useState(true);
   const [online, setOnline] = useState(false);
   const [togglingStatus, setTogglingStatus] = useState(false);
-  const [pushPermission, setPushPermission] = useState<NotificationPermission | 'unsupported'>('default');
   const channelRef = useRef<ReturnType<typeof createClient>['channel'] extends (...a: any[]) => infer R ? R : never>(null as any);
 
   // Auth check
@@ -73,91 +63,6 @@ export default function DriverDashboard() {
     if (!s || s.role !== 'driver') { router.replace('/livreur/login'); return; }
     setSession(s);
   }, [router]);
-
-  const silentSubscribe = useCallback(async (driverId: string) => {
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
-
-    const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-    if (!vapidKey) {
-      console.error('[push] NEXT_PUBLIC_VAPID_PUBLIC_KEY missing — cannot subscribe');
-      return;
-    }
-
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      let sub = await reg.pushManager.getSubscription();
-
-      // If existing subscription uses a different VAPID key → unsubscribe and renew
-      if (sub) {
-        try {
-          const existingKey = sub.options?.applicationServerKey;
-          const newKey = urlBase64ToUint8Array(vapidKey);
-          const existingBytes = existingKey ? new Uint8Array(existingKey as ArrayBuffer) : null;
-          const newBytes = new Uint8Array(newKey as ArrayBuffer);
-          const keyMismatch = existingBytes &&
-            (existingBytes.length !== newBytes.length ||
-             existingBytes.some((b, i) => b !== newBytes[i]));
-          if (keyMismatch) {
-            console.log('[push] VAPID key mismatch — unsubscribing and renewing');
-            await sub.unsubscribe();
-            sub = null;
-          }
-        } catch { /* ignore key comparison errors */ }
-      }
-
-      if (!sub) {
-        console.log('[push] Creating new push subscription…');
-        sub = await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(vapidKey),
-        });
-        console.log('[push] Subscription created:', sub.endpoint.substring(0, 50) + '…');
-      }
-
-      // Always save to DB on every load to ensure it's current
-      const res = await fetch('/api/push/subscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ driverId, subscription: sub.toJSON() }),
-      });
-      if (res.ok) {
-        console.log('[push] ✅ Subscription saved to DB for driver', driverId);
-      } else {
-        console.error('[push] ❌ Failed to save subscription:', await res.text());
-      }
-    } catch (err) {
-      console.error('[push] silentSubscribe failed:', err);
-    }
-  }, []);
-
-  const subscribeToPush = useCallback(async (driverId: string) => {
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
-    // iOS Safari: Notification may not exist — guard before calling requestPermission
-    if (!('Notification' in window)) return;
-    try {
-      const permission = await (window as any).Notification.requestPermission();
-      setPushPermission(permission);
-      if (permission !== 'granted') return;
-      await silentSubscribe(driverId);
-    } catch (err) {
-      console.error('[push] subscription failed:', err);
-    }
-  }, [silentSubscribe]);
-
-  // Read real permission from browser on mount — sets the correct banner immediately
-  useEffect(() => {
-    if (!('Notification' in window)) { setPushPermission('unsupported'); return; }
-    setPushPermission((window as any).Notification.permission);
-  }, []);
-
-  // Auto-subscribe silently once session is loaded and permission already granted
-  useEffect(() => {
-    if (!session?.driverId) return;
-    if (!('Notification' in window)) return;
-    if ((window as any).Notification.permission === 'granted') {
-      silentSubscribe(session.driverId);
-    }
-  }, [session?.driverId, silentSubscribe]);
 
   const loadDeliveries = useCallback(async (empId: string) => {
     try {
@@ -292,31 +197,6 @@ export default function DriverDashboard() {
           </div>
 
           <div className="px-4 py-4 space-y-4">
-            {/* Push notification banner */}
-            {pushPermission === 'default' && (
-              <button
-                onClick={() => session && subscribeToPush(session.driverId)}
-                className="w-full bg-orange-500 hover:bg-orange-600 active:scale-95 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-md text-base"
-              >
-                🔔 Activer mes notifications de livraison
-              </button>
-            )}
-            {pushPermission === 'denied' && (
-              <div className="w-full bg-red-50 border border-red-200 rounded-xl p-4">
-                <p className="text-sm font-bold text-red-800 mb-1">🔕 Notifications bloquées</p>
-                <p className="text-xs text-red-700 leading-relaxed">
-                  <strong>Android Chrome :</strong> Menu ⋮ → Paramètres → Paramètres du site → Notifications → <strong>lmdecaisse.com</strong> → Autoriser<br />
-                  <strong>iPhone Safari :</strong> Réglages → Safari → lmdecaisse.com → Notifications → Autoriser
-                </p>
-              </div>
-            )}
-            {pushPermission === 'granted' && (
-              <div className="w-full bg-green-50 border border-green-200 rounded-xl px-4 py-3 flex items-center gap-3">
-                <span className="text-xl">✅</span>
-                <p className="text-sm font-semibold text-green-800">Notifications activées</p>
-              </div>
-            )}
-
             {/* KPI cards */}
             <div className="grid grid-cols-2 gap-3">
               {[

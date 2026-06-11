@@ -1,19 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-
-async function sendPushSilently(driverId: string, title: string, pushBody: string) {
-  try {
-    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
-    await fetch(`${baseUrl}/api/push/send`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ driverId, title, pushBody, url: '/livreur/dashboard' }),
-    });
-  } catch (err) {
-    // Push failure must never block delivery assignment
-    console.error('[livraisons] push failed (non-blocking):', err);
-  }
-}
+import { sendWhatsApp, msgLivreurNouvelleLivraison, msgLivreurAnnulation } from '@/lib/whatsappService';
 
 // PATCH /api/livraisons/[id] — assign driver or update status
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -23,7 +10,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (!body) return NextResponse.json({ error: 'Corps JSON invalide' }, { status: 400 });
 
     const updates: Record<string, unknown> = {};
-    let triggerPush: (() => void) | null = null;
 
     if (body.assigned_to_driver !== undefined) {
       updates.assigned_to_driver = body.assigned_to_driver || null;
@@ -51,32 +37,31 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    // Build push notification after successful DB write
-    if (body.assigned_to_driver) {
-      const delivery = data as any;
-      const clientInfo = [delivery.client_name, delivery.delivery_address]
-        .filter(Boolean).join(' — ');
-      triggerPush = () =>
-        sendPushSilently(
-          body.assigned_to_driver,
-          '🚚 Nouvelle livraison assignée',
-          clientInfo || 'Vérifiez le portail livreur'
-        );
-    } else if (body.status === 'cancelled' && data) {
-      const delivery = data as any;
-      const driverId = delivery.assigned_to_driver;
-      if (driverId) {
-        triggerPush = () =>
-          sendPushSilently(
-            driverId,
-            '❌ Livraison annulée',
-            `La livraison pour ${delivery.client_name || 'un client'} a été annulée`
-          );
-      }
+    const delivery = data as any;
+    const driver = delivery.drivers;
+
+    // WhatsApp to driver on assignment (non-blocking)
+    if (body.assigned_to_driver && driver?.phone) {
+      sendWhatsApp({
+        to: driver.phone,
+        message: msgLivreurNouvelleLivraison(
+          driver.first_name ?? 'Livreur',
+          delivery.client_name ?? '',
+          delivery.delivery_address ?? ''
+        ),
+      }).catch((err) => console.error('[livraisons] WhatsApp failed (non-blocking):', err));
     }
 
-    // Fire push without awaiting — response goes back immediately
-    if (triggerPush) triggerPush();
+    // WhatsApp to driver on cancellation (non-blocking)
+    if (body.status === 'cancelled' && driver?.phone) {
+      sendWhatsApp({
+        to: driver.phone,
+        message: msgLivreurAnnulation(
+          driver.first_name ?? 'Livreur',
+          delivery.client_name ?? 'un client'
+        ),
+      }).catch((err) => console.error('[livraisons] WhatsApp cancel failed (non-blocking):', err));
+    }
 
     return NextResponse.json({ delivery: data });
   } catch (e: any) {
