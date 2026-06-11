@@ -1028,6 +1028,8 @@ export default function CaisseHistoriquePage() {
   const [shopifyOrders, setShopifyOrders] = useState<any[]>([]);
   const [shopifyLoading, setShopifyLoading] = useState(false);
   const [shopifyConnected, setShopifyConnected] = useState<boolean | null>(null);
+  const [shopifyCA, setShopifyCA] = useState(0);
+  const [shopifyOrdersCount, setShopifyOrdersCount] = useState(0);
 
   const runDiagnose = useCallback(async () => {
     setDiagnosing(true);
@@ -1048,17 +1050,26 @@ export default function CaisseHistoriquePage() {
 
   const loadShopifyOrders = useCallback(async () => {
     setShopifyLoading(true);
+    const { from, to } = getPeriodDates(period, customFrom, customTo);
     try {
-      const res = await fetch('/api/shopify/orders');
-      const data = await res.json();
-      setShopifyConnected(data.connected ?? false);
-      setShopifyOrders(data.orders ?? []);
+      const [ordersRes, statsRes] = await Promise.all([
+        fetch('/api/shopify/orders'),
+        fetch(`/api/shopify/stats?start=${encodeURIComponent(from)}&end=${encodeURIComponent(to)}`),
+      ]);
+      const ordersData = await ordersRes.json();
+      setShopifyConnected(ordersData.connected ?? false);
+      setShopifyOrders(ordersData.orders ?? []);
+      if (statsRes.ok) {
+        const statsData = await statsRes.json();
+        setShopifyCA(statsData.ca ?? 0);
+        setShopifyOrdersCount(statsData.orders ?? 0);
+      }
     } catch {
       setShopifyConnected(false);
     } finally {
       setShopifyLoading(false);
     }
-  }, []);
+  }, [period, customFrom, customTo]);
 
   useEffect(() => {
     if (pageTab === 'shopify') loadShopifyOrders();
@@ -1123,6 +1134,12 @@ export default function CaisseHistoriquePage() {
           setReturnsCount(completed.length);
         }
       } catch { /* returns fetch is best-effort */ }
+
+      // Shopify stats for same period (non-blocking — used in combined CA strip)
+      fetch(`/api/shopify/stats?start=${encodeURIComponent(from)}&end=${encodeURIComponent(to)}`)
+        .then(r => r.json())
+        .then(d => { setShopifyCA(d.ca ?? 0); setShopifyOrdersCount(d.orders ?? 0); })
+        .catch(() => {});
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Erreur réseau';
       console.error('[caisse-historique] fetch error:', e);
@@ -1247,6 +1264,32 @@ export default function CaisseHistoriquePage() {
         {/* Shopify orders view */}
         {pageTab === 'shopify' && (
           <div className="space-y-4">
+            {/* Stats summary for selected period */}
+            {!shopifyLoading && shopifyConnected !== false && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="bg-teal-50 border border-teal-200 rounded-xl p-4">
+                  <p className="text-xs text-teal-700 font-600 mb-1">🛍️ CA Shopify</p>
+                  <p className="text-xl font-700 tabular-nums text-teal-900">{fmt(shopifyCA)} €</p>
+                </div>
+                <div className="bg-teal-50 border border-teal-200 rounded-xl p-4">
+                  <p className="text-xs text-teal-700 font-600 mb-1">Commandes</p>
+                  <p className="text-xl font-700 tabular-nums text-teal-900">{shopifyOrdersCount}</p>
+                  <p className="text-[11px] text-teal-600 mt-0.5">payées sur la période</p>
+                </div>
+                <div className="bg-teal-50 border border-teal-200 rounded-xl p-4">
+                  <p className="text-xs text-teal-700 font-600 mb-1">Panier moyen</p>
+                  <p className="text-xl font-700 tabular-nums text-teal-900">
+                    {shopifyOrdersCount > 0 ? fmt(shopifyCA / shopifyOrdersCount) : '0.00'} €
+                  </p>
+                </div>
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+                  <p className="text-xs text-emerald-700 font-600 mb-1">TOTAL (Caisse + Shopify)</p>
+                  <p className="text-xl font-700 tabular-nums text-emerald-900">{fmt(totalCA + shopifyCA)} €</p>
+                  <p className="text-[11px] text-emerald-600 mt-0.5">🏪 {fmt(totalCA)} € + 🛍️ {fmt(shopifyCA)} €</p>
+                </div>
+              </div>
+            )}
+
             {shopifyLoading ? (
               <div className="flex items-center justify-center py-20">
                 <Icon name="ArrowPathIcon" size={28} className="animate-spin text-primary" />
@@ -1367,7 +1410,13 @@ export default function CaisseHistoriquePage() {
         {/* KPI strip */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
           {[
-            { label: returnsTotal > 0 ? 'CA brut encaissé' : 'CA encaissé', value: `${fmt(totalCA)} €`, icon: 'BanknotesIcon', color: 'text-emerald-600 bg-emerald-50' },
+            {
+              label: returnsTotal > 0 ? 'CA brut encaissé' : 'CA encaissé',
+              value: shopifyCA > 0 ? `${fmt(totalCA + shopifyCA)} €` : `${fmt(totalCA)} €`,
+              sub: shopifyCA > 0 ? `dont Shopify : ${fmt(shopifyCA)} €` : undefined,
+              icon: 'BanknotesIcon',
+              color: 'text-emerald-600 bg-emerald-50',
+            },
             { label: 'Tickets validés', value: String(totalTickets), icon: 'ReceiptRefundIcon', color: 'text-blue-600 bg-blue-50' },
             { label: 'Panier moyen', value: `${fmt(avgBasket)} €`, icon: 'CalculatorIcon', color: 'text-indigo-600 bg-indigo-50' },
             { label: 'Annulés', value: String(cancelledCount), icon: 'XCircleIcon', color: 'text-red-600 bg-red-50' },
@@ -1379,6 +1428,7 @@ export default function CaisseHistoriquePage() {
               <div>
                 <p className="text-lg font-700 text-foreground">{kpi.value}</p>
                 <p className="text-xs text-muted-foreground">{kpi.label}</p>
+                {'sub' in kpi && kpi.sub && <p className="text-[11px] text-teal-600 font-500 mt-0.5">{kpi.sub}</p>}
               </div>
             </div>
           ))}

@@ -147,6 +147,8 @@ export default function GeneralDashboardPage() {
   const [paymentBreakdown, setPaymentBreakdown] = useState<{ name: string; value: number; color: string }[]>([]);
   const [employees, setEmployees] = useState<{ id: string; name: string }[]>([]);
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
+  const [shopifyCA, setShopifyCA] = useState(0);
+  const [shopifyOrdersCount, setShopifyOrdersCount] = useState(0);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -283,6 +285,12 @@ export default function GeneralDashboardPage() {
       setRevenueChart(chartData);
       setPaymentBreakdown(paymentBreakdownData);
       setEmployeePerfs(empPerfs);
+
+      // Shopify CA for same period (non-blocking)
+      fetch(`/api/shopify/stats?start=${encodeURIComponent(from)}&end=${encodeURIComponent(to)}`)
+        .then(r => r.json())
+        .then(d => { setShopifyCA(d.ca ?? 0); setShopifyOrdersCount(d.orders ?? 0); })
+        .catch(() => {});
     } catch (e) {
       console.error('Dashboard load error:', e);
     } finally {
@@ -383,8 +391,10 @@ export default function GeneralDashboardPage() {
                 <div className="lg:col-span-2">
                   <KPICard
                     label="Chiffre d'affaires"
-                    value={`${fmt(kpis.totalRevenue)} €`}
-                    sub={`${kpis.totalTickets} tickets validés`}
+                    value={`${fmt(kpis.totalRevenue + shopifyCA)} €`}
+                    sub={shopifyCA > 0
+                      ? `🏪 Caisse : ${fmt(kpis.totalRevenue)} € · 🛍️ Shopify : ${fmt(shopifyCA)} € (${shopifyOrdersCount} cmd${shopifyOrdersCount > 1 ? 's' : ''}) · ${kpis.totalTickets} tickets`
+                      : `${kpis.totalTickets} tickets validés`}
                     icon="BanknotesIcon"
                     accent="success"
                   />
@@ -405,7 +415,7 @@ export default function GeneralDashboardPage() {
               </div>
 
               {/* KPI Grid — Row 2: Payment methods */}
-              <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
                 <KPICard
                   label="SumUp (CB)"
                   value={`${fmt(kpis.sumupRevenue)} €`}
@@ -439,6 +449,13 @@ export default function GeneralDashboardPage() {
                   value={`${fmt(kpis.transferRevenue)} €`}
                   sub="Virements bancaires"
                   icon="ArrowsRightLeftIcon"
+                />
+                <KPICard
+                  label="🛍️ Shopify"
+                  value={`${fmt(shopifyCA)} €`}
+                  sub={`${shopifyOrdersCount} commande${shopifyOrdersCount > 1 ? 's' : ''} en ligne`}
+                  icon="GlobeAltIcon"
+                  accent="info"
                 />
               </div>
 
