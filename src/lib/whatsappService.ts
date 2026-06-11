@@ -25,7 +25,11 @@ export async function sendWhatsApp({ to, message }: WhatsAppMessage): Promise<{ 
           'api-key': apiKey,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ contactNumbers: [phone], text: message }),
+        body: JSON.stringify({
+          senderNumber: process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? process.env.BREVO_SENDER_NUMBER ?? '262692000000',
+          contactNumbers: [phone],
+          text: message,
+        }),
       });
 
       const data = await res.json().catch(() => ({}));
