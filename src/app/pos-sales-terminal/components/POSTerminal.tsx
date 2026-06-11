@@ -36,6 +36,7 @@ import { saveReceipt } from '@/lib/services/posService';
 import { useSettings } from '@/contexts/SettingsContext';
 import { deliveryService, type CreateDeliveryInput } from '@/lib/services/deliveryService';
 import { useRouter } from 'next/navigation';
+import { ShopifyOrderAlert, type ShopifyNewOrder } from '@/components/ShopifyOrderAlert';
 
 export interface CartItem {
   id: string;
@@ -459,10 +460,51 @@ function calcItemTotal(item: CartItem): number {
 
 export default function POSTerminal() {
   const { employee, isLocked, logout, changeEmployee, logAction } = usePOSAuth();
+  const router = useRouter();
   const [showEmployeeMenu, setShowEmployeeMenu] = useState(false);
   const { tvaRate: settingsTvaRate } = useSettings();
   // Use live TVA rate from settings (e.g. 8.5% → 0.085)
   const LIVE_TAX_RATE = settingsTvaRate;
+
+  // ── Shopify new order alerts ───────────────────────────────────────────────
+  const [newShopifyOrders, setNewShopifyOrders] = useState<ShopifyNewOrder[]>([]);
+  const lastCheckedRef = useRef<string>(new Date().toISOString());
+
+  const playNotificationSound = useCallback(() => {
+    try {
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.setValueAtTime(800, ctx.currentTime);
+      osc.frequency.setValueAtTime(600, ctx.currentTime + 0.1);
+      osc.frequency.setValueAtTime(800, ctx.currentTime + 0.2);
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.3);
+    } catch { /* sound not critical */ }
+  }, []);
+
+  const checkNewShopifyOrders = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/shopify/orders/new?since=${encodeURIComponent(lastCheckedRef.current)}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.orders?.length > 0) {
+        setNewShopifyOrders(data.orders);
+        lastCheckedRef.current = new Date().toISOString();
+        playNotificationSound();
+      }
+    } catch { /* non-blocking */ }
+  }, [playNotificationSound]);
+
+  useEffect(() => {
+    checkNewShopifyOrders();
+    const interval = setInterval(checkNewShopifyOrders, 2 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [checkNewShopifyOrders]);
 
   const [cart, setCart] = useState<CartItem[]>([]);
   const isDemoCart = cart.some(i => i.isDemo);
@@ -1304,6 +1346,15 @@ export default function POSTerminal() {
 
   return (
     <div className="h-screen flex flex-col bg-background overflow-hidden">
+      {/* Shopify new order alert */}
+      <ShopifyOrderAlert
+        orders={newShopifyOrders}
+        onView={() => {
+          setNewShopifyOrders([]);
+          router.push('/shopify-sync');
+        }}
+        onDismiss={() => setNewShopifyOrders([])}
+      />
       {/* Top bar */}
       <div className="h-14 bg-white border-b border-border flex items-center justify-between px-4 shrink-0 z-10">
         <div className="flex items-center gap-3">

@@ -120,9 +120,9 @@ export default function KPIBentoGrid({ filters }: KPIBentoGridProps) {
       />
       <KPICard
         label="CA du jour"
-        value={kpis ? fmt(kpis.caDay) : '—'}
-        sub={kpis ? `Hier : ${fmt(kpis.caDayPrev)}` : undefined}
-        trend={kpis ? pct(kpis.caDay, kpis.caDayPrev) : undefined}
+        value={kpis ? fmt(kpis.caDay + kpis.caShopifyDay) : '—'}
+        sub={kpis ? `Caisse ${fmt(kpis.caDay)} · Shopify ${fmt(kpis.caShopifyDay)}` : undefined}
+        trend={kpis ? pct(kpis.caDay + kpis.caShopifyDay, kpis.caDayPrev) : undefined}
         icon="SunIcon"
         loading={loading}
       />

@@ -19,6 +19,7 @@ export interface DashboardKPIs {
   productsBelow20Pct: number;
   productsAbove50Pct: number;
   caShopify: number;
+  caShopifyDay: number;
 }
 
 export interface RevenuePoint {
@@ -182,6 +183,10 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
     `/api/shopify/revenue?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`
   ).then((r) => r.json()).then((j) => Number(j.revenue) || 0).catch(() => 0);
 
+  const shopifyRevenueDayPromise = fetch(
+    `/api/shopify/revenue?start=${encodeURIComponent(dayRange.start)}&end=${encodeURIComponent(dayRange.end)}`
+  ).then((r) => r.json()).then((j) => Number(j.revenue) || 0).catch(() => 0);
+
   const [
     currentReceipts,
     prevReceipts,
@@ -191,6 +196,7 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
     activeProductsResult,
     marginProductsResult,
     caShopify,
+    caShopifyDay,
   ] = await Promise.all([
     buildReceiptsQuery(start, end),
     buildReceiptsQuery(prevStart, prevEnd),
@@ -204,6 +210,7 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
       .select('sell_price_ht, sell_price_ttc, buy_price, transport, customs, other_fees, structure_pct')
       .eq('product_status', 'active'),
     shopifyRevenuePromise,
+    shopifyRevenueDayPromise,
   ]);
 
   const stockAlertCount = (stockAlertResult.data ?? []).filter((p: any) =>
@@ -254,6 +261,7 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
     productsBelow20Pct,
     productsAbove50Pct,
     caShopify,
+    caShopifyDay,
   };
 }
 

@@ -105,42 +105,71 @@ export async function POST(req: NextRequest) {
 
   const supabase = getSupabase();
   const shopifyOrderId = String(order.id);
+  const orderRef = String(order.order_number);
 
-  // ── Stock deduction ────────────────────────────────────────────────────────
-  for (const item of lineItems) {
-    if (!item.variant_id || !item.quantity) continue;
+  // ── Stock deduction (idempotent) ───────────────────────────────────────────
+  const { data: alreadyProcessed } = await supabase
+    .from('stock_movements_log')
+    .select('id')
+    .eq('source', 'shopify_sale')
+    .eq('reference', orderRef)
+    .limit(1)
+    .maybeSingle();
 
-    const { data: product } = await supabase
-      .from('products')
-      .select('id, name, stock')
-      .eq('shopify_variant_id', String(item.variant_id))
-      .maybeSingle();
+  if (!alreadyProcessed) {
+    for (const item of lineItems) {
+      if (!item.quantity) continue;
 
-    if (!product) continue;
+      // Try by shopify_variant_id first, then fall back to ref (SKU)
+      let product: { id: string; name: string; stock: number } | null = null;
 
-    const stockBefore = Number(product.stock) || 0;
-    const newStock = Math.max(0, stockBefore - item.quantity);
+      if (item.variant_id) {
+        const { data } = await supabase
+          .from('products')
+          .select('id, name, stock')
+          .eq('shopify_variant_id', String(item.variant_id))
+          .maybeSingle();
+        product = data;
+      }
 
-    await supabase
-      .from('products')
-      .update({ stock: newStock, updated_at: new Date().toISOString() })
-      .eq('id', product.id);
+      if (!product && item.sku) {
+        const { data } = await supabase
+          .from('products')
+          .select('id, name, stock')
+          .eq('ref', item.sku)
+          .maybeSingle();
+        product = data;
+      }
 
-    await supabase.from('stock_movements_log').insert({
-      product_id: product.id,
-      product_name: product.name,
-      movement_type: 'sale',
-      quantity_before: stockBefore,
-      quantity_after: newStock,
-      quantity_change: -item.quantity,
-      reason: `Vente Shopify — commande #${order.order_number}`,
-      reference: String(order.order_number),
-      performed_by: 'Shopify',
-      source: 'shopify_sale',
-    });
+      if (!product) continue;
 
-    if (newStock === 0) {
-      await supabase.from('products').update({ status: 'rupture' }).eq('id', product.id);
+      const stockBefore = Number(product.stock) || 0;
+      const newStock = Math.max(0, stockBefore - item.quantity);
+
+      await supabase
+        .from('products')
+        .update({ stock: newStock, updated_at: new Date().toISOString() })
+        .eq('id', product.id);
+
+      await supabase.from('stock_movements_log').insert({
+        product_id: product.id,
+        product_name: product.name,
+        movement_type: 'sale',
+        quantity_before: stockBefore,
+        quantity_after: newStock,
+        quantity_change: -item.quantity,
+        reason: `Vente Shopify — commande #${order.order_number}`,
+        reference: orderRef,
+        performed_by: 'Shopify',
+        source: 'shopify_sale',
+      });
+
+      if (newStock === 0) {
+        await supabase
+          .from('products')
+          .update({ status: 'rupture', product_status: 'rupture' })
+          .eq('id', product.id);
+      }
     }
   }
 

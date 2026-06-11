@@ -27,7 +27,7 @@ const typeConfig: Record<MovementType, { label: string; color: string; icon: str
   return:       { label: 'Retour',       color: 'text-purple-700',  bg: 'bg-purple-50 border-purple-200',   icon: 'ArrowUturnLeftIcon' },
   sale:         { label: 'Vente caisse', color: 'text-rose-700',    bg: 'bg-rose-50 border-rose-200',       icon: 'ShoppingBagIcon' },
   b2b_sale:     { label: 'Vente B2B',   color: 'text-indigo-700',  bg: 'bg-indigo-50 border-indigo-200',   icon: 'DocumentCheckIcon' },
-  shopify_sale: { label: 'Vente Shopify',color: 'text-teal-700',    bg: 'bg-teal-50 border-teal-200',       icon: 'GlobeAltIcon' },
+  shopify_sale: { label: 'Vente Shopify',color: 'text-orange-700',  bg: 'bg-orange-50 border-orange-200',   icon: 'GlobeAltIcon' },
 };
 
 const EXIT_TYPES: MovementType[] = ['exit', 'sale', 'b2b_sale', 'shopify_sale', 'transfer'];

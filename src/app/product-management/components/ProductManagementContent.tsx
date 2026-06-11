@@ -94,6 +94,31 @@ export default function ProductManagementContent() {
   const router = useRouter();
   const [filterShopify, setFilterShopify] = useState<'Tous' | 'Synchronisé' | 'Non synchronisé' | 'Erreur'>('Tous');
   const [syncingShopify, setSyncingShopify] = useState(false);
+  const [fixingStatus, setFixingStatus] = useState(false);
+  const [showTriggerSQL, setShowTriggerSQL] = useState(false);
+  const [sqlCopied, setSqlCopied] = useState(false);
+
+  const TRIGGER_SQL = `CREATE OR REPLACE FUNCTION sync_product_status()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.stock > 0 THEN
+    NEW.status = 'active';
+    NEW.product_status = 'active';
+  ELSE
+    NEW.status = 'rupture';
+    NEW.product_status = 'rupture';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trigger_sync_product_status ON products;
+
+CREATE TRIGGER trigger_sync_product_status
+BEFORE UPDATE ON products
+FOR EACH ROW
+WHEN (OLD.stock IS DISTINCT FROM NEW.stock)
+EXECUTE FUNCTION sync_product_status();`;
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });
@@ -401,6 +426,31 @@ export default function ProductManagementContent() {
     URL.revokeObjectURL(url);
   };
 
+  const handleCopySQL = () => {
+    navigator.clipboard.writeText(TRIGGER_SQL).then(() => {
+      setSqlCopied(true);
+      setTimeout(() => setSqlCopied(false), 2000);
+    });
+  };
+
+  const handleFixStockStatus = async () => {
+    setFixingStatus(true);
+    try {
+      const res = await fetch('/api/admin/fix-stock-status', { method: 'POST' });
+      const data = await res.json();
+      if (data.ok) {
+        showToast(data.message);
+        loadProducts();
+      } else {
+        showToast('Erreur correction statuts', 'error');
+      }
+    } catch {
+      showToast('Erreur correction statuts', 'error');
+    } finally {
+      setFixingStatus(false);
+    }
+  };
+
   const handleSyncShopify = async () => {
     setSyncingShopify(true);
     try {
@@ -447,6 +497,21 @@ export default function ProductManagementContent() {
               Exporter
             </button>
             <button
+              onClick={handleFixStockStatus}
+              disabled={fixingStatus}
+              className="flex items-center gap-1.5 px-3 py-2 border border-amber-300 bg-amber-50 rounded-lg text-sm font-medium text-amber-700 hover:bg-amber-100 transition-colors disabled:opacity-60"
+            >
+              <Icon name="ArrowPathIcon" size={15} className={fixingStatus ? 'animate-spin' : ''} />
+              {fixingStatus ? 'Correction…' : 'Corriger statuts'}
+            </button>
+            <button
+              onClick={() => setShowTriggerSQL((v) => !v)}
+              className="flex items-center gap-1.5 px-3 py-2 border border-violet-300 bg-violet-50 rounded-lg text-sm font-medium text-violet-700 hover:bg-violet-100 transition-colors"
+            >
+              <Icon name="BoltIcon" size={15} />
+              Trigger SQL
+            </button>
+            <button
               onClick={() => { setBarcodePrintProducts(filtered); setShowBarcodeModal(true); }}
               className="flex items-center gap-1.5 px-3 py-2 border border-border rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
             >
@@ -470,6 +535,35 @@ export default function ProductManagementContent() {
           </div>
         </div>
       </div>
+
+      {/* Trigger SQL panel */}
+      {showTriggerSQL && (
+        <div className="border-b border-violet-200 bg-violet-50 px-6 lg:px-8 xl:px-10 py-4">
+          <div className="max-w-screen-2xl mx-auto flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-600 text-violet-800">Trigger PostgreSQL — sync automatique statut ↔ stock</p>
+                <p className="text-xs text-violet-600 mt-0.5">Copiez ce SQL et exécutez-le dans <strong>Supabase → SQL Editor</strong>. Permanent : plus jamais de statut désynchronisé.</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleCopySQL}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white rounded-lg text-xs font-600 hover:opacity-90 transition-opacity"
+                >
+                  <Icon name={sqlCopied ? 'CheckIcon' : 'ClipboardDocumentIcon'} size={13} />
+                  {sqlCopied ? 'Copié !' : 'Copier le SQL'}
+                </button>
+                <button onClick={() => setShowTriggerSQL(false)} className="text-violet-400 hover:text-violet-700 transition-colors">
+                  <Icon name="XMarkIcon" size={18} />
+                </button>
+              </div>
+            </div>
+            <pre className="bg-white border border-violet-200 rounded-lg p-3 text-[11px] leading-relaxed text-slate-700 overflow-x-auto font-mono whitespace-pre">
+              {TRIGGER_SQL}
+            </pre>
+          </div>
+        </div>
+      )}
 
       <div className="max-w-screen-2xl mx-auto px-6 lg:px-8 xl:px-10 2xl:px-16 py-5 w-full flex flex-col gap-4 flex-1">
         {/* Kit / Product filter */}
