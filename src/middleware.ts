@@ -7,6 +7,9 @@ const LIVREUR_COOKIE = 'livreur_session';
 
 const ADMIN_PUBLIC = ['/pin-login', '/api/auth/pin'];
 
+// These portals have their own auth — never redirect to admin PIN
+const CLIENT_PORTALS = ['/client-portal', '/supplier-portal', '/abonnement', '/client', '/ambassadrice'];
+
 function isAdminSessionValid(cookieValue: string | undefined): boolean {
   if (!cookieValue) return false;
   try {
@@ -19,6 +22,11 @@ function isAdminSessionValid(cookieValue: string | undefined): boolean {
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // ── Client/supplier portals: isolated from admin PIN ──────────────────────
+  if (CLIENT_PORTALS.some(prefix => pathname.startsWith(prefix))) {
+    return NextResponse.next();
+  }
 
   // ── Livreur portal: completely isolated from admin ─────────────────────────
   if (pathname.startsWith('/livreur')) {
@@ -58,6 +66,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|sw.js|manifest.json|assets|icons|api).*)',
+    '/((?!_next/static|_next/image|favicon.ico|sw.js|manifest.json|client-manifest.json|assets|icons|api).*)',
   ],
 };

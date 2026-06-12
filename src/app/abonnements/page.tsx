@@ -25,7 +25,7 @@ interface SubscriptionRow {
   portal_phone: string | null;
   pin_code: string | null;
   next_billing_date: string | null;
-  client: { id: string; first_name: string; last_name: string } | null;
+  client: { id: string; first_name: string; last_name: string; email: string | null } | null;
   plan: { id: string; name: string; price: number; quota_amount: number; shipping_free: boolean; shipping_cost: number } | null;
   currentOrder?: {
     id: string;
@@ -409,6 +409,9 @@ export default function AbonnementsPage() {
   const [deliveryModalSub, setDeliveryModalSub] = useState<SubscriptionRow | null>(null);
   // Notify state
   const [notifyingId, setNotifyingId] = useState<string | null>(null);
+  // Email state
+  const [emailSendingId, setEmailSendingId] = useState<string | null>(null);
+  const [emailToast, setEmailToast] = useState<{ ok: boolean; msg: string } | null>(null);
 
   const currentMonth = new Date().toISOString().slice(0, 7);
   const today = new Date();
@@ -422,7 +425,7 @@ export default function AbonnementsPage() {
       .from('client_subscriptions')
       .select(`
         id, status, portal_phone, pin_code, next_billing_date,
-        client:clients(id, first_name, last_name),
+        client:clients(id, first_name, last_name, email),
         plan:subscription_plans(id, name, price, quota_amount, shipping_free, shipping_cost)
       `)
       .order('created_at', { ascending: false });
@@ -566,10 +569,59 @@ export default function AbonnementsPage() {
     }
   };
 
+  const showEmailToast = (ok: boolean, msg: string) => {
+    setEmailToast({ ok, msg });
+    setTimeout(() => setEmailToast(null), 3500);
+  };
+
+  const handleSendAccess = async (sub: SubscriptionRow) => {
+    if (!sub.client?.email) { showEmailToast(false, 'Email du client introuvable dans la fiche client.'); return; }
+    setEmailSendingId(sub.id + '_access');
+    try {
+      const res = await fetch('/api/subscriptions/send-access', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscriptionId: sub.id }),
+      });
+      const d = await res.json();
+      showEmailToast(res.ok, res.ok ? `Accès envoyé à ${sub.client.email}` : (d.error ?? 'Erreur envoi'));
+    } catch {
+      showEmailToast(false, 'Erreur réseau');
+    } finally {
+      setEmailSendingId(null);
+    }
+  };
+
+  const handleSendPaymentLink = async (sub: SubscriptionRow) => {
+    if (!sub.client?.email) { showEmailToast(false, 'Email du client introuvable dans la fiche client.'); return; }
+    setEmailSendingId(sub.id + '_payment');
+    try {
+      const res = await fetch('/api/subscriptions/send-payment-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscriptionId: sub.id }),
+      });
+      const d = await res.json();
+      showEmailToast(res.ok, res.ok ? `Lien de paiement envoyé à ${sub.client.email}` : (d.error ?? 'Erreur envoi'));
+    } catch {
+      showEmailToast(false, 'Erreur réseau');
+    } finally {
+      setEmailSendingId(null);
+    }
+  };
+
   const filtered = filterStatus === 'all' ? subscriptions : subscriptions.filter((s) => s.status === filterStatus);
 
   return (
     <AppLayout>
+      {/* Email toast */}
+      {emailToast && (
+        <div className={`fixed top-4 right-4 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-lg text-sm font-medium transition-all ${emailToast.ok ? 'bg-emerald-600 text-white' : 'bg-red-500 text-white'}`}>
+          <span>{emailToast.ok ? '✅' : '❌'}</span>
+          {emailToast.msg}
+        </div>
+      )}
+
       {/* Real-time confirmation toast */}
       {newConfirmToast && (
         <div className="fixed top-4 right-4 z-50 flex items-center gap-2.5 px-4 py-3 bg-emerald-600 text-white rounded-xl shadow-lg text-sm font-medium">
@@ -854,6 +906,29 @@ export default function AbonnementsPage() {
                         >
                           🔔 Notifier le client
                         </button>
+                        {sub.client?.email && (
+                          <>
+                            <button
+                              onClick={() => handleSendAccess(sub)}
+                              disabled={emailSendingId === sub.id + '_access'}
+                              className="flex-1 min-w-[120px] py-2 text-center bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs font-semibold hover:bg-rose-100 transition-colors disabled:opacity-50"
+                            >
+                              {emailSendingId === sub.id + '_access' ? '…' : '📧 Envoyer accès'}
+                            </button>
+                            <button
+                              onClick={() => handleSendPaymentLink(sub)}
+                              disabled={emailSendingId === sub.id + '_payment'}
+                              className="flex-1 min-w-[120px] py-2 text-center bg-violet-50 border border-violet-200 text-violet-700 rounded-xl text-xs font-semibold hover:bg-violet-100 transition-colors disabled:opacity-50"
+                            >
+                              {emailSendingId === sub.id + '_payment' ? '…' : '💳 Lien paiement'}
+                            </button>
+                          </>
+                        )}
+                        {!sub.client?.email && (
+                          <span className="flex-1 min-w-[120px] py-2 text-center text-xs text-muted-foreground italic">
+                            (pas d&apos;email — envoi désactivé)
+                          </span>
+                        )}
                       </div>
                     </div>
                   )}

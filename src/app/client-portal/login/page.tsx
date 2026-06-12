@@ -248,9 +248,29 @@ export default function ClientLoginPage() {
           </div>
         )}
 
-        <p className="text-center text-xs text-gray-400 mt-5">
-          Votre espace beauté personnalisé — BeautyPOS
-        </p>
+        {/* PWA install instructions */}
+        <details className="mt-5">
+          <summary className="text-center text-xs text-gray-400 cursor-pointer select-none hover:text-rose-400 transition-colors">
+            📲 Installer l&apos;application
+          </summary>
+          <div className="mt-3 bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-3 text-xs text-gray-600">
+            <div>
+              <p className="font-semibold text-gray-800 mb-1">iPhone (Safari)</p>
+              <ol className="space-y-0.5 list-decimal list-inside text-gray-500">
+                <li>Ouvrir ce lien dans <strong>Safari</strong></li>
+                <li>Appuyer sur <strong>Partager</strong> <span className="font-mono text-gray-400">⎙</span></li>
+                <li>Choisir <strong>&ldquo;Sur l&apos;écran d&apos;accueil&rdquo;</strong></li>
+              </ol>
+            </div>
+            <div className="border-t border-gray-100 pt-3">
+              <p className="font-semibold text-gray-800 mb-1">Android (Chrome)</p>
+              <ol className="space-y-0.5 list-decimal list-inside text-gray-500">
+                <li>Appuyer sur le menu <strong>⋮</strong></li>
+                <li>Choisir <strong>&ldquo;Ajouter à l&apos;écran d&apos;accueil&rdquo;</strong></li>
+              </ol>
+            </div>
+          </div>
+        </details>
       </div>
     </div>
   );
