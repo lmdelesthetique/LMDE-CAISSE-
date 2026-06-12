@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import AppLayout from '@/components/AppLayout';
+import { ColissimoInfoModal, openColiship, type ColissimoData } from '@/components/ColissimoInfoModal';
 import { createClient } from '@/lib/supabase/client';
 import {
   expeditionService,
@@ -85,12 +86,6 @@ function printColissimoLabel(exp: Expedition) {
 
 // ── Colissimo helpers ─────────────────────────────────────────────────────────
 
-const COLISSIMO_COUNTRY_CODES: Record<string, string> = {
-  'Martinique': 'MQ', 'Guadeloupe': 'GP', 'Guyane': 'GF', 'Guyane française': 'GF',
-  'France': 'FR', 'Saint-Martin': 'MF', 'Saint Martin': 'MF',
-  'MQ': 'MQ', 'GP': 'GP', 'GF': 'GF', 'FR': 'FR', 'MF': 'MF',
-};
-
 function parseShippingAddressString(addr: string): { address1: string; city: string; zip: string; country: string } {
   // Format stored by buildAddress: "address1[, address2], city, zip, country"
   const segs = addr.split(', ').map((s) => s.trim());
@@ -102,28 +97,12 @@ function parseShippingAddressString(addr: string): { address1: string; city: str
   return { address1: address1 || addr, city, zip, country };
 }
 
-function createColissimoLinkFromExpedition(exp: Expedition): string {
+function expeditionToColissimoData(exp: Expedition): ColissimoData {
   const nameParts = exp.clientName.trim().split(/\s+/);
-  const lastName = (nameParts.length > 1 ? nameParts[nameParts.length - 1] : exp.clientName).toUpperCase();
-  const firstName = nameParts.length > 1 ? nameParts.slice(0, -1).join(' ') : '';
+  const nom = (nameParts.length > 1 ? nameParts[nameParts.length - 1] : exp.clientName).toUpperCase();
+  const prenom = nameParts.length > 1 ? nameParts.slice(0, -1).join(' ') : '';
   const { address1, city, zip, country } = parseShippingAddressString(exp.shippingAddress);
-  const countryCode = COLISSIMO_COUNTRY_CODES[country] || 'MQ';
-  const params = new URLSearchParams({
-    dest_nom: lastName,
-    dest_prenom: firstName,
-    dest_adresse1: address1,
-    dest_cp: zip,
-    dest_ville: city.toUpperCase(),
-    dest_pays: countryCode,
-    dest_tel: exp.clientPhone ?? '',
-    exp_nom: 'LE MONDE DE L ESTHETIQUE',
-    exp_adresse1: 'Zone de Gros la Jambette',
-    exp_cp: '97232',
-    exp_ville: 'LE LAMENTIN',
-    exp_pays: 'MQ',
-    exp_tel: '0696016998',
-  });
-  return 'https://www.colissimo.entreprise.laposte.fr/?' + params.toString();
+  return { nom, prenom, adresse: address1, complement: '', cp: zip, ville: city.toUpperCase(), pays: country || 'Martinique', tel: exp.clientPhone ?? '', email: '' };
 }
 
 function exportExpeditionsToColishipCSV(expeditions: Expedition[]) {
@@ -148,6 +127,7 @@ function exportExpeditionsToColishipCSV(expeditions: Expedition[]) {
 
 function ExpeditionRow({ exp, onRefresh }: { exp: Expedition; onRefresh: () => void }) {
   const cfg = EXPEDITION_STATUS_CONFIG[exp.status] ?? { label: exp.status, color: 'text-gray-700', bg: 'bg-gray-50 border-gray-200', dot: 'bg-gray-400' };
+  const [showColissimoModal, setShowColissimoModal] = useState(false);
   const [trackingInput, setTrackingInput] = useState('');
   const [showTrackingForm, setShowTrackingForm] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -241,12 +221,18 @@ function ExpeditionRow({ exp, onRefresh }: { exp: Expedition; onRefresh: () => v
           </button>
 
           <button
-            onClick={() => window.open(createColissimoLinkFromExpedition(exp), '_blank')}
-            title="Créer étiquette Colissimo"
+            onClick={() => { openColiship(); setShowColissimoModal(true); }}
             className="flex items-center gap-2 bg-yellow-400 hover:bg-yellow-500 text-yellow-900 px-3 py-2 rounded-lg font-bold text-sm transition-colors whitespace-nowrap"
           >
             📦 Créer étiquette
           </button>
+
+          {showColissimoModal && (
+            <ColissimoInfoModal
+              data={expeditionToColissimoData(exp)}
+              onClose={() => setShowColissimoModal(false)}
+            />
+          )}
 
           {exp.status !== 'shipped' && exp.status !== 'delivered' && exp.status !== 'returned' && (
             <button

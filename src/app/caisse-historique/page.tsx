@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { ColissimoInfoModal, openColiship, type ColissimoData } from '@/components/ColissimoInfoModal';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import { fetchReceiptById, modifyTicket, fetchTicketModifications, type ReceiptRecord, type TicketModification } from '@/lib/services/posService';
@@ -10,33 +11,20 @@ import { generateTicketHTML, generateFactureHTML, loadSettingsFromCache, openAnd
 
 // ── Colissimo helpers ─────────────────────────────────────────────────────────
 
-const COUNTRY_CODES: Record<string, string> = {
-  'Martinique': 'MQ', 'Guadeloupe': 'GP', 'Guyane': 'GF', 'Guyane française': 'GF',
-  'France': 'FR', 'Saint-Martin': 'MF', 'Saint Martin': 'MF',
-  'MQ': 'MQ', 'GP': 'GP', 'GF': 'GF', 'FR': 'FR', 'MF': 'MF',
-};
-
-function createColissimoLink(order: any): string {
+function shopifyOrderToColissimoData(order: any): ColissimoData {
   const addr = order.shipping_address || {};
   const customer = order.customer || {};
-  const countryCode = COUNTRY_CODES[addr.country || addr.country_code || ''] || 'MQ';
-  const params = new URLSearchParams({
-    dest_nom: (addr.last_name || customer.last_name || '').toUpperCase(),
-    dest_prenom: addr.first_name || customer.first_name || '',
-    dest_adresse1: addr.address1 || '',
-    dest_adresse2: addr.address2 || '',
-    dest_cp: addr.zip || '',
-    dest_ville: (addr.city || '').toUpperCase(),
-    dest_pays: countryCode,
-    dest_tel: addr.phone || customer.phone || '',
-    exp_nom: 'LE MONDE DE L ESTHETIQUE',
-    exp_adresse1: 'Zone de Gros la Jambette',
-    exp_cp: '97232',
-    exp_ville: 'LE LAMENTIN',
-    exp_pays: 'MQ',
-    exp_tel: '0696016998',
-  });
-  return 'https://www.colissimo.entreprise.laposte.fr/?' + params.toString();
+  return {
+    nom: (addr.last_name || customer.last_name || '').toUpperCase(),
+    prenom: addr.first_name || customer.first_name || '',
+    adresse: addr.address1 || '',
+    complement: addr.address2 || '',
+    cp: addr.zip || '',
+    ville: (addr.city || '').toUpperCase(),
+    pays: addr.country || 'Martinique',
+    tel: addr.phone || customer.phone || '',
+    email: customer.email || '',
+  };
 }
 
 function exportShopifyToColishipCSV(orders: any[]) {
@@ -1090,6 +1078,7 @@ export default function CaisseHistoriquePage() {
   const [shopifyConnected, setShopifyConnected] = useState<boolean | null>(null);
   const [shopifyCA, setShopifyCA] = useState(0);
   const [shopifyOrdersCount, setShopifyOrdersCount] = useState(0);
+  const [colissimoModalData, setColissimoModalData] = useState<ColissimoData | null>(null);
 
   const runDiagnose = useCallback(async () => {
     setDiagnosing(true);
@@ -1431,8 +1420,7 @@ export default function CaisseHistoriquePage() {
                               <td className="px-4 py-3">
                                 {order.shipping_address && (
                                   <button
-                                    onClick={() => window.open(createColissimoLink(order), '_blank')}
-                                    title="Créer étiquette Colissimo"
+                                    onClick={() => { openColiship(); setColissimoModalData(shopifyOrderToColissimoData(order)); }}
                                     className="flex items-center gap-2 bg-yellow-400 hover:bg-yellow-500 text-yellow-900 px-3 py-2 rounded-lg font-bold text-sm transition-colors whitespace-nowrap"
                                   >
                                     📦 Créer étiquette
@@ -1803,6 +1791,13 @@ export default function CaisseHistoriquePage() {
           fallbackTicket={selectedTicket}
           onClose={() => setSelectedTicket(null)}
           onModified={loadTickets}
+        />
+      )}
+
+      {colissimoModalData && (
+        <ColissimoInfoModal
+          data={colissimoModalData}
+          onClose={() => setColissimoModalData(null)}
         />
       )}
     </AppLayout>

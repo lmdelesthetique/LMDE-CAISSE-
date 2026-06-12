@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { ColissimoInfoModal, openColiship, type ColissimoData } from '@/components/ColissimoInfoModal';
 import { createClient } from '@/lib/supabase/client';
 import {
   deliveryService,
@@ -12,11 +13,6 @@ import {
 
 type DriverOption = { id: string; name: string; phone: string | null; driverStatus: string };
 
-const LIVRAISON_COUNTRY_CODES: Record<string, string> = {
-  'Martinique': 'MQ', 'Guadeloupe': 'GP', 'Guyane': 'GF', 'Guyane française': 'GF',
-  'France': 'FR', 'Saint-Martin': 'MF', 'MQ': 'MQ', 'GP': 'GP', 'GF': 'GF', 'FR': 'FR',
-};
-
 function parseLivraisonAddress(addr: string): { address1: string; city: string; zip: string; country: string } {
   const segs = addr.split(', ').map((s) => s.trim());
   const country = segs.length >= 1 ? segs[segs.length - 1] : '';
@@ -27,28 +23,12 @@ function parseLivraisonAddress(addr: string): { address1: string; city: string; 
   return { address1: address1 || addr, city, zip, country };
 }
 
-function createColissimoLinkFromDelivery(clientName: string, address: string, phone?: string | null): string {
+function deliveryToColissimoData(clientName: string, address: string, phone?: string | null): ColissimoData {
   const parts = clientName.trim().split(/\s+/);
-  const lastName = (parts.length > 1 ? parts[parts.length - 1] : clientName).toUpperCase();
-  const firstName = parts.length > 1 ? parts.slice(0, -1).join(' ') : '';
+  const nom = (parts.length > 1 ? parts[parts.length - 1] : clientName).toUpperCase();
+  const prenom = parts.length > 1 ? parts.slice(0, -1).join(' ') : '';
   const { address1, city, zip, country } = parseLivraisonAddress(address);
-  const countryCode = LIVRAISON_COUNTRY_CODES[country] || 'MQ';
-  const params = new URLSearchParams({
-    dest_nom: lastName,
-    dest_prenom: firstName,
-    dest_adresse1: address1,
-    dest_cp: zip,
-    dest_ville: city.toUpperCase(),
-    dest_pays: countryCode,
-    dest_tel: phone ?? '',
-    exp_nom: 'LE MONDE DE L ESTHETIQUE',
-    exp_adresse1: 'Zone de Gros la Jambette',
-    exp_cp: '97232',
-    exp_ville: 'LE LAMENTIN',
-    exp_pays: 'MQ',
-    exp_tel: '0696016998',
-  });
-  return 'https://www.colissimo.entreprise.laposte.fr/?' + params.toString();
+  return { nom, prenom, adresse: address1, complement: '', cp: zip, ville: city.toUpperCase(), pays: country || 'Martinique', tel: phone ?? '', email: '' };
 }
 
 const TABS: { key: DeliveryStatus | 'all'; label: string }[] = [
@@ -83,6 +63,7 @@ export default function LivraisonsPage() {
   const [formError, setFormError] = useState('');
   const [assigningId, setAssigningId] = useState<string | null>(null);
   const [newShopifyIds, setNewShopifyIds] = useState<Set<string>>(new Set());
+  const [colissimoModalData, setColissimoModalData] = useState<ColissimoData | null>(null);
   const seenIdsRef = useRef<Set<string>>(new Set());
   const initialLoadDone = useRef(false);
   const channelRef = useRef<any>(null);
@@ -443,9 +424,8 @@ export default function LivraisonsPage() {
                         <div className="flex flex-col gap-1.5 items-start">
                           {d.deliveryAddress && (
                             <button
-                              onClick={() => window.open(createColissimoLinkFromDelivery(d.clientName, d.deliveryAddress, d.clientPhone), '_blank')}
-                              title="Créer étiquette Colissimo"
-                              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-yellow-400 hover:bg-yellow-500 text-yellow-900 text-xs font-bold rounded-lg transition-colors whitespace-nowrap"
+                              onClick={() => { openColiship(); setColissimoModalData(deliveryToColissimoData(d.clientName, d.deliveryAddress, d.clientPhone)); }}
+                              className="flex items-center gap-2 bg-yellow-400 hover:bg-yellow-500 text-yellow-900 px-3 py-2 rounded-lg font-bold text-sm transition-colors whitespace-nowrap"
                             >
                               📦 Créer étiquette
                             </button>
@@ -601,6 +581,13 @@ export default function LivraisonsPage() {
         }
         .input:focus { border-color: #f97316; }
       `}</style>
+
+      {colissimoModalData && (
+        <ColissimoInfoModal
+          data={colissimoModalData}
+          onClose={() => setColissimoModalData(null)}
+        />
+      )}
     </div>
   );
 }
