@@ -105,21 +105,60 @@ function expeditionToColissimoData(exp: Expedition): ColissimoData {
   return { nom, prenom, adresse: address1, complement: '', cp: zip, ville: city.toUpperCase(), pays: country || 'Martinique', tel: exp.clientPhone ?? '', email: '' };
 }
 
+const COLISHIP_COUNTRY_CODES: Record<string, string> = {
+  'Martinique': 'MQ', 'Guadeloupe': 'GP', 'Guyane': 'GF', 'Guyane française': 'GF',
+  'France': 'FR', 'Saint-Martin': 'MF', 'MQ': 'MQ', 'GP': 'GP', 'GF': 'GF', 'FR': 'FR', 'MF': 'MF',
+};
+
+const COLISHIP_HEADERS = [
+  'Raison sociale du destinataire',
+  'Prénom expéditeur',
+  "Adresse 1 du destinataire : Numéro et libellé de voie",
+  "Adresse 2 de l'expéditeur : Etage, couloir, escalier, appartement",
+  "Code postal de l'expéditeur",
+  "Commune de l'expéditeur",
+  "Code pays de l'expéditeur",
+  'Téléphone destinataire',
+  'Portable du destinataire',
+  'Adresse E-mail du destinataire',
+  'Raison sociale expéditeur',
+  "Adresse 1 de l'expéditeur : Numéro et libellé de voie",
+  'Code postal de retour',
+  "Commune de l'expéditeur",
+  "Code pays de l'expéditeur",
+  'Poids',
+  'Référence expéditeur',
+  'Numéro de commande',
+];
+
 function exportExpeditionsToColishipCSV(expeditions: Expedition[]) {
-  const headers = ['Nom', 'Prenom', 'Adresse1', 'Adresse2', 'CP', 'Ville', 'Pays', 'Telephone', 'Poids', 'Reference', 'Valeur'];
   const rows = expeditions.map((exp) => {
     const parts = exp.clientName.trim().split(/\s+/);
     const lastName = (parts.length > 1 ? parts[parts.length - 1] : exp.clientName).toUpperCase();
     const firstName = parts.length > 1 ? parts.slice(0, -1).join(' ') : '';
-    return [lastName, firstName, exp.shippingAddress, '', '', '', 'MQ', exp.clientPhone ?? '', '0.5', exp.shopifyOrderNumber ?? exp.id.slice(0, 8), (exp.totalAmount ?? 0).toFixed(2)];
+    const { address1, city, zip, country } = parseShippingAddressString(exp.shippingAddress);
+    const countryCode = COLISHIP_COUNTRY_CODES[country] || 'MQ';
+    const ref = exp.shopifyOrderNumber ?? exp.id.slice(0, 8);
+    return [
+      lastName, firstName,
+      address1, '',
+      zip, city.toUpperCase(), countryCode,
+      exp.clientPhone ?? '', exp.clientPhone ?? '', '',
+      'LE MONDE DE L ESTHETIQUE', 'Zone de Gros la Jambette', '97232', 'LE LAMENTIN', 'MQ',
+      '0.500', 'CMD-' + ref, ref,
+    ];
   });
-  const csv = [headers, ...rows].map((row) => row.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(';')).join('\n');
+  const csv = '﻿' + [COLISHIP_HEADERS, ...rows]
+    .map((row) => row.map((v) => '"' + String(v ?? '').replace(/"/g, '""') + '"').join(';'))
+    .join('\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = 'coliship_' + new Date().toISOString().split('T')[0] + '.csv';
+  document.body.appendChild(a);
   a.click();
+  document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
 
@@ -396,9 +435,9 @@ export default function ExpeditionsPage() {
             <button
               onClick={() => exportExpeditionsToColishipCSV(expeditions)}
               disabled={expeditions.length === 0}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold bg-yellow-400 hover:bg-yellow-500 text-yellow-900 rounded-lg disabled:opacity-40 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 text-sm font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-40 transition-colors"
             >
-              📥 Coliship CSV
+              📥 Exporter vers Coliship
             </button>
             <button
               onClick={load}

@@ -27,32 +27,69 @@ function shopifyOrderToColissimoData(order: any): ColissimoData {
   };
 }
 
+const COLISHIP_COUNTRY_CODES_HIST: Record<string, string> = {
+  'Martinique': 'MQ', 'Guadeloupe': 'GP', 'Guyane': 'GF', 'Guyane française': 'GF',
+  'France': 'FR', 'Saint-Martin': 'MF', 'MQ': 'MQ', 'GP': 'GP', 'GF': 'GF', 'FR': 'FR', 'MF': 'MF',
+};
+
+const COLISHIP_HEADERS_HIST = [
+  'Raison sociale du destinataire',
+  'Prénom expéditeur',
+  "Adresse 1 du destinataire : Numéro et libellé de voie",
+  "Adresse 2 de l'expéditeur : Etage, couloir, escalier, appartement",
+  "Code postal de l'expéditeur",
+  "Commune de l'expéditeur",
+  "Code pays de l'expéditeur",
+  'Téléphone destinataire',
+  'Portable du destinataire',
+  'Adresse E-mail du destinataire',
+  'Raison sociale expéditeur',
+  "Adresse 1 de l'expéditeur : Numéro et libellé de voie",
+  'Code postal de retour',
+  "Commune de l'expéditeur",
+  "Code pays de l'expéditeur",
+  'Poids',
+  'Référence expéditeur',
+  'Numéro de commande',
+];
+
 function exportShopifyToColishipCSV(orders: any[]) {
-  const headers = ['Nom', 'Prenom', 'Adresse1', 'Adresse2', 'CP', 'Ville', 'Pays', 'Telephone', 'Poids', 'Reference', 'Valeur'];
   const rows = orders.map((order) => {
     const addr = order.shipping_address || {};
     const customer = order.customer || {};
+    const country = COLISHIP_COUNTRY_CODES_HIST[addr.country || addr.country_code || ''] || 'MQ';
     return [
       (addr.last_name || customer.last_name || '').toUpperCase(),
       addr.first_name || customer.first_name || '',
       addr.address1 || '',
       addr.address2 || '',
       addr.zip || '',
-      addr.city || '',
-      addr.country_code || 'FR',
+      (addr.city || '').toUpperCase(),
+      country,
       addr.phone || customer.phone || '',
-      '0.5',
-      '#' + order.order_number,
-      order.total_price || '0',
+      addr.phone || customer.phone || '',
+      customer.email || '',
+      'LE MONDE DE L ESTHETIQUE',
+      'Zone de Gros la Jambette',
+      '97232',
+      'LE LAMENTIN',
+      'MQ',
+      '0.500',
+      'CMD-' + order.order_number,
+      String(order.order_number || ''),
     ];
   });
-  const csv = [headers, ...rows].map((row) => row.map((v: any) => `"${String(v).replace(/"/g, '""')}"`).join(';')).join('\n');
+  const csv = '﻿' + [COLISHIP_HEADERS_HIST, ...rows]
+    .map((row: any[]) => row.map((v) => '"' + String(v ?? '').replace(/"/g, '""') + '"').join(';'))
+    .join('\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = 'coliship_' + new Date().toISOString().split('T')[0] + '.csv';
+  document.body.appendChild(a);
   a.click();
+  document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
 
@@ -1360,9 +1397,9 @@ export default function CaisseHistoriquePage() {
                   <button
                     onClick={() => exportShopifyToColishipCSV(shopifyOrders)}
                     disabled={shopifyOrders.length === 0}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-yellow-400 hover:bg-yellow-500 text-yellow-900 rounded-lg disabled:opacity-40 transition-colors"
+                    className="flex items-center gap-2 px-4 py-2 text-sm font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-40 transition-colors"
                   >
-                    📥 Coliship CSV
+                    📥 Exporter vers Coliship
                   </button>
                   <button onClick={loadShopifyOrders} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground transition-colors">
                     <Icon name="ArrowPathIcon" size={15} />
