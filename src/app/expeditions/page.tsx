@@ -111,25 +111,19 @@ const COLISHIP_COUNTRY_CODES: Record<string, string> = {
 };
 
 const COLISHIP_HEADERS = [
-  'Raison sociale du destinataire',
-  'Prénom expéditeur',
-  "Adresse 1 du destinataire : Numéro et libellé de voie",
-  "Adresse 2 de l'expéditeur : Etage, couloir, escalier, appartement",
-  "Code postal de l'expéditeur",
-  "Commune de l'expéditeur",
-  "Code pays de l'expéditeur",
-  'Téléphone destinataire',
-  'Portable du destinataire',
-  'Adresse E-mail du destinataire',
-  'Raison sociale expéditeur',
-  "Adresse 1 de l'expéditeur : Numéro et libellé de voie",
-  'Code postal de retour',
-  "Commune de l'expéditeur",
-  "Code pays de l'expéditeur",
-  'Poids',
-  'Référence expéditeur',
-  'Numéro de commande',
+  'NomDestinataire', 'PrenomDestinataire',
+  'Adresse1Destinataire', 'Adresse2Destinataire',
+  'CPDestinataire', 'CommuneDestinataire', 'PaysDest',
+  'TelDestinataire', 'EmailDestinataire',
+  'NomExpediteur', 'Adresse1Expediteur', 'CPExpediteur', 'CommuneExpediteur', 'PaysExpediteur',
+  'Poids', 'RefExpediteur', 'NumeroCommande',
+  'HorsGabarit', 'AvisReception', 'Recommandation',
 ];
+
+function csvCell(v: string): string {
+  const s = String(v ?? '');
+  return s.includes(';') || s.includes('"') ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
 
 function exportExpeditionsToColishipCSV(expeditions: Expedition[]) {
   const rows = expeditions.map((exp) => {
@@ -143,14 +137,15 @@ function exportExpeditionsToColishipCSV(expeditions: Expedition[]) {
       lastName, firstName,
       address1, '',
       zip, city.toUpperCase(), countryCode,
-      exp.clientPhone ?? '', exp.clientPhone ?? '', '',
+      (exp.clientPhone ?? '').replace(/\s+/g, ''), '',
       'LE MONDE DE L ESTHETIQUE', 'Zone de Gros la Jambette', '97232', 'LE LAMENTIN', 'MQ',
       '0.500', 'CMD-' + ref, ref,
+      'N', 'N', '0',
     ];
   });
   const csv = '﻿' + [COLISHIP_HEADERS, ...rows]
-    .map((row) => row.map((v) => '"' + String(v ?? '').replace(/"/g, '""') + '"').join(';'))
-    .join('\n');
+    .map((row) => row.map(csvCell).join(';'))
+    .join('\r\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

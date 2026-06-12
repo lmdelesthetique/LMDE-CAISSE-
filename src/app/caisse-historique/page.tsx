@@ -27,37 +27,31 @@ function shopifyOrderToColissimoData(order: any): ColissimoData {
   };
 }
 
-const COLISHIP_COUNTRY_CODES_HIST: Record<string, string> = {
+const COLISHIP_CC: Record<string, string> = {
   'Martinique': 'MQ', 'Guadeloupe': 'GP', 'Guyane': 'GF', 'Guyane française': 'GF',
   'France': 'FR', 'Saint-Martin': 'MF', 'MQ': 'MQ', 'GP': 'GP', 'GF': 'GF', 'FR': 'FR', 'MF': 'MF',
 };
 
-const COLISHIP_HEADERS_HIST = [
-  'Raison sociale du destinataire',
-  'Prénom expéditeur',
-  "Adresse 1 du destinataire : Numéro et libellé de voie",
-  "Adresse 2 de l'expéditeur : Etage, couloir, escalier, appartement",
-  "Code postal de l'expéditeur",
-  "Commune de l'expéditeur",
-  "Code pays de l'expéditeur",
-  'Téléphone destinataire',
-  'Portable du destinataire',
-  'Adresse E-mail du destinataire',
-  'Raison sociale expéditeur',
-  "Adresse 1 de l'expéditeur : Numéro et libellé de voie",
-  'Code postal de retour',
-  "Commune de l'expéditeur",
-  "Code pays de l'expéditeur",
-  'Poids',
-  'Référence expéditeur',
-  'Numéro de commande',
+const COLISHIP_HDR = [
+  'NomDestinataire', 'PrenomDestinataire',
+  'Adresse1Destinataire', 'Adresse2Destinataire',
+  'CPDestinataire', 'CommuneDestinataire', 'PaysDest',
+  'TelDestinataire', 'EmailDestinataire',
+  'NomExpediteur', 'Adresse1Expediteur', 'CPExpediteur', 'CommuneExpediteur', 'PaysExpediteur',
+  'Poids', 'RefExpediteur', 'NumeroCommande',
+  'HorsGabarit', 'AvisReception', 'Recommandation',
 ];
+
+function csvCellHist(v: any): string {
+  const s = String(v ?? '');
+  return s.includes(';') || s.includes('"') ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
 
 function exportShopifyToColishipCSV(orders: any[]) {
   const rows = orders.map((order) => {
     const addr = order.shipping_address || {};
     const customer = order.customer || {};
-    const country = COLISHIP_COUNTRY_CODES_HIST[addr.country || addr.country_code || ''] || 'MQ';
+    const country = COLISHIP_CC[addr.country || addr.country_code || ''] || 'MQ';
     return [
       (addr.last_name || customer.last_name || '').toUpperCase(),
       addr.first_name || customer.first_name || '',
@@ -66,22 +60,16 @@ function exportShopifyToColishipCSV(orders: any[]) {
       addr.zip || '',
       (addr.city || '').toUpperCase(),
       country,
-      addr.phone || customer.phone || '',
-      addr.phone || customer.phone || '',
+      (addr.phone || customer.phone || '').replace(/\s+/g, ''),
       customer.email || '',
-      'LE MONDE DE L ESTHETIQUE',
-      'Zone de Gros la Jambette',
-      '97232',
-      'LE LAMENTIN',
-      'MQ',
-      '0.500',
-      'CMD-' + order.order_number,
-      String(order.order_number || ''),
+      'LE MONDE DE L ESTHETIQUE', 'Zone de Gros la Jambette', '97232', 'LE LAMENTIN', 'MQ',
+      '0.500', 'CMD-' + order.order_number, String(order.order_number || ''),
+      'N', 'N', '0',
     ];
   });
-  const csv = '﻿' + [COLISHIP_HEADERS_HIST, ...rows]
-    .map((row: any[]) => row.map((v) => '"' + String(v ?? '').replace(/"/g, '""') + '"').join(';'))
-    .join('\n');
+  const csv = '﻿' + [COLISHIP_HDR, ...rows]
+    .map((row: any[]) => row.map(csvCellHist).join(';'))
+    .join('\r\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
