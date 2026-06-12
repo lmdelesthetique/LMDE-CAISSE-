@@ -32,19 +32,32 @@ const COLISHIP_CC: Record<string, string> = {
   'France': 'FR', 'Saint-Martin': 'MF', 'MQ': 'MQ', 'GP': 'GP', 'GF': 'GF', 'FR': 'FR', 'MF': 'MF',
 };
 
+const COLISHIP_DOM = new Set(['MQ', 'GP', 'GF', 'MF']);
+
 const COLISHIP_HDR = [
-  'NomDestinataire', 'PrenomDestinataire',
-  'Adresse1Destinataire', 'Adresse2Destinataire',
-  'CPDestinataire', 'CommuneDestinataire', 'PaysDest',
-  'TelDestinataire', 'EmailDestinataire',
-  'NomExpediteur', 'Adresse1Expediteur', 'CPExpediteur', 'CommuneExpediteur', 'PaysExpediteur',
-  'Poids', 'RefExpediteur', 'NumeroCommande',
-  'HorsGabarit', 'AvisReception', 'Recommandation',
+  'Numéro du colis',
+  'Code Produit',
+  'Référence de commande',
+  'Nom du partenaire international',
+  'Numéro du suivi chez le partenaire international',
+  'Partenaire de livraison',
+  'Code point retrait',
+  'Nom du destinataire',
+  'Prénom du destinataire',
+  'Nom expéditeur',
+  'Adresse 2 du destinataire : Etage, couloir, escalier, appartement',
+  'Adresse 3 du destinataire : Entrée, bâtiment, immeuble, résidence',
+  'Adresse 4 du destinataire : Lieu dit ou autre mention',
+  'Code postal du destinataire',
+  'Commune du destinataire',
+  'Code pays du destinataire',
+  'Prix Total',
+  'Prix taxes',
 ];
 
 function csvCellHist(v: any): string {
   const s = String(v ?? '');
-  return s.includes(';') || s.includes('"') ? '"' + s.replace(/"/g, '""') + '"' : s;
+  return s.includes(';') || s.includes(',') || s.includes('"') ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 
 function exportShopifyToColishipCSV(orders: any[]) {
@@ -52,19 +65,16 @@ function exportShopifyToColishipCSV(orders: any[]) {
     const addr = order.shipping_address || {};
     const customer = order.customer || {};
     const country = COLISHIP_CC[addr.country || addr.country_code || ''] || 'MQ';
+    const codeProduct = COLISHIP_DOM.has(country) ? 'DOM' : 'COL';
     return [
+      '', codeProduct, 'CMD-' + order.order_number,
+      '', '', '', '',
       (addr.last_name || customer.last_name || '').toUpperCase(),
       addr.first_name || customer.first_name || '',
-      addr.address1 || '',
-      addr.address2 || '',
-      addr.zip || '',
-      (addr.city || '').toUpperCase(),
-      country,
-      (addr.phone || customer.phone || '').replace(/\s+/g, ''),
-      customer.email || '',
-      'LE MONDE DE L ESTHETIQUE', 'Zone de Gros la Jambette', '97232', 'LE LAMENTIN', 'MQ',
-      '0.500', 'CMD-' + order.order_number, String(order.order_number || ''),
-      'N', 'N', '0',
+      'LE MONDE DE L ESTHETIQUE',
+      addr.address1 || '', addr.address2 || '', '',
+      addr.zip || '', (addr.city || '').toUpperCase(), country,
+      order.total_price || '0', '0',
     ];
   });
   const csv = '﻿' + [COLISHIP_HDR, ...rows]
