@@ -8,6 +8,67 @@ import { sendReceiptEmail, type ReceiptEmailData } from '@/lib/services/emailSer
 import { toast } from 'sonner';
 import { generateTicketHTML, generateFactureHTML, loadSettingsFromCache, openAndPrint } from '@/lib/utils/ticketPrinter';
 
+// ── Colissimo helpers ─────────────────────────────────────────────────────────
+
+const COUNTRY_CODES: Record<string, string> = {
+  'Martinique': 'MQ', 'Guadeloupe': 'GP', 'Guyane': 'GF', 'Guyane française': 'GF',
+  'France': 'FR', 'Saint-Martin': 'MF', 'Saint Martin': 'MF',
+  'MQ': 'MQ', 'GP': 'GP', 'GF': 'GF', 'FR': 'FR', 'MF': 'MF',
+};
+
+function createColissimoLink(order: any): string {
+  const addr = order.shipping_address || {};
+  const customer = order.customer || {};
+  const countryCode = COUNTRY_CODES[addr.country || addr.country_code || 'FR'] || 'FR';
+  const firstName = addr.first_name || customer.first_name || '';
+  const lastName = (addr.last_name || customer.last_name || '').toUpperCase();
+  const params = new URLSearchParams({
+    dest_nom: lastName,
+    dest_prenom: firstName,
+    dest_adresse1: addr.address1 || '',
+    dest_adresse2: addr.address2 || '',
+    dest_cp: addr.zip || '',
+    dest_ville: addr.city || '',
+    dest_pays: countryCode,
+    dest_tel: addr.phone || customer.phone || '',
+    exp_nom: 'LE MONDE DE L ESTHETIQUE',
+    exp_adresse1: 'Zone de Gros la Jambette',
+    exp_cp: '97232',
+    exp_ville: 'LE LAMENTIN',
+    exp_pays: 'MQ',
+  });
+  return 'https://www.colissimo.entreprise.laposte.fr/portail_colissimo/?' + params.toString();
+}
+
+function exportShopifyToColishipCSV(orders: any[]) {
+  const headers = ['Nom', 'Prenom', 'Adresse1', 'Adresse2', 'CP', 'Ville', 'Pays', 'Telephone', 'Poids', 'Reference', 'Valeur'];
+  const rows = orders.map((order) => {
+    const addr = order.shipping_address || {};
+    const customer = order.customer || {};
+    return [
+      (addr.last_name || customer.last_name || '').toUpperCase(),
+      addr.first_name || customer.first_name || '',
+      addr.address1 || '',
+      addr.address2 || '',
+      addr.zip || '',
+      addr.city || '',
+      addr.country_code || 'FR',
+      addr.phone || customer.phone || '',
+      '0.5',
+      '#' + order.order_number,
+      order.total_price || '0',
+    ];
+  });
+  const csv = [headers, ...rows].map((row) => row.map((v: any) => `"${String(v).replace(/"/g, '""')}"`).join(';')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'coliship_' + new Date().toISOString().split('T')[0] + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 interface TicketRow {
   id: string;
   ticket_number: string;
@@ -1308,6 +1369,13 @@ export default function CaisseHistoriquePage() {
                     <h3 className="text-sm font-600 text-foreground">Commandes Shopify récentes</h3>
                     <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">{shopifyOrders.length} commandes</span>
                   </div>
+                  <button
+                    onClick={() => exportShopifyToColishipCSV(shopifyOrders)}
+                    disabled={shopifyOrders.length === 0}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-yellow-400 hover:bg-yellow-500 text-yellow-900 rounded-lg disabled:opacity-40 transition-colors"
+                  >
+                    📥 Coliship CSV
+                  </button>
                   <button onClick={loadShopifyOrders} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground transition-colors">
                     <Icon name="ArrowPathIcon" size={15} />
                   </button>
@@ -1328,6 +1396,7 @@ export default function CaisseHistoriquePage() {
                           <th className="text-right px-4 py-3 text-xs font-600 text-muted-foreground uppercase tracking-wide">Total</th>
                           <th className="text-left px-4 py-3 text-xs font-600 text-muted-foreground uppercase tracking-wide">Articles</th>
                           <th className="text-left px-4 py-3 text-xs font-600 text-muted-foreground uppercase tracking-wide">Date</th>
+                          <th className="px-4 py-3" />
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border">
@@ -1359,6 +1428,16 @@ export default function CaisseHistoriquePage() {
                               </td>
                               <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
                                 {new Date(order.created_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              </td>
+                              <td className="px-4 py-3">
+                                {order.shipping_address && (
+                                  <button
+                                    onClick={() => window.open(createColissimoLink(order), '_blank')}
+                                    className="flex items-center gap-1 px-2 py-1 bg-yellow-400 hover:bg-yellow-500 text-yellow-900 text-[11px] font-bold rounded-lg transition-colors whitespace-nowrap"
+                                  >
+                                    📦 Colissimo
+                                  </button>
+                                )}
                               </td>
                             </tr>
                           );

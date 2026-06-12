@@ -12,6 +12,24 @@ import {
 
 type DriverOption = { id: string; name: string; phone: string | null; driverStatus: string };
 
+function createColissimoLinkFromDelivery(clientName: string, address: string, phone?: string | null): string {
+  const parts = clientName.trim().split(/\s+/);
+  const lastName = (parts.length > 1 ? parts[parts.length - 1] : clientName).toUpperCase();
+  const firstName = parts.length > 1 ? parts.slice(0, -1).join(' ') : '';
+  const params = new URLSearchParams({
+    dest_nom: lastName,
+    dest_prenom: firstName,
+    dest_adresse1: address,
+    dest_tel: phone ?? '',
+    exp_nom: 'LE MONDE DE L ESTHETIQUE',
+    exp_adresse1: 'Zone de Gros la Jambette',
+    exp_cp: '97232',
+    exp_ville: 'LE LAMENTIN',
+    exp_pays: 'MQ',
+  });
+  return 'https://www.colissimo.entreprise.laposte.fr/portail_colissimo/?' + params.toString();
+}
+
 const TABS: { key: DeliveryStatus | 'all'; label: string }[] = [
   { key: 'all',       label: 'Toutes' },
   { key: 'pending',   label: 'En attente' },
@@ -401,14 +419,24 @@ export default function LivraisonsPage() {
 
                       {/* Actions */}
                       <td className="px-4 py-3">
-                        {d.status !== 'delivered' && d.status !== 'cancelled' && (
-                          <button
-                            onClick={() => handleCancel(d.id)}
-                            className="text-xs text-red-400 hover:text-red-600 font-semibold transition-colors"
-                          >
-                            Annuler
-                          </button>
-                        )}
+                        <div className="flex flex-col gap-1.5 items-start">
+                          {d.deliveryAddress && (
+                            <button
+                              onClick={() => window.open(createColissimoLinkFromDelivery(d.clientName, d.deliveryAddress, d.clientPhone), '_blank')}
+                              className="flex items-center gap-1 px-2 py-1 bg-yellow-400 hover:bg-yellow-500 text-yellow-900 text-[11px] font-bold rounded-lg transition-colors"
+                            >
+                              📦 Colissimo
+                            </button>
+                          )}
+                          {d.status !== 'delivered' && d.status !== 'cancelled' && (
+                            <button
+                              onClick={() => handleCancel(d.id)}
+                              className="text-xs text-red-400 hover:text-red-600 font-semibold transition-colors"
+                            >
+                              Annuler
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );

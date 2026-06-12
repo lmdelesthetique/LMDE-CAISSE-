@@ -83,6 +83,44 @@ function printColissimoLabel(exp: Expedition) {
   win.document.close();
 }
 
+// ── Colissimo helpers ─────────────────────────────────────────────────────────
+
+function createColissimoLinkFromExpedition(exp: Expedition): string {
+  const parts = exp.clientName.trim().split(/\s+/);
+  const lastName = (parts.length > 1 ? parts[parts.length - 1] : exp.clientName).toUpperCase();
+  const firstName = parts.length > 1 ? parts.slice(0, -1).join(' ') : '';
+  const params = new URLSearchParams({
+    dest_nom: lastName,
+    dest_prenom: firstName,
+    dest_adresse1: exp.shippingAddress,
+    dest_tel: exp.clientPhone ?? '',
+    exp_nom: 'LE MONDE DE L ESTHETIQUE',
+    exp_adresse1: 'Zone de Gros la Jambette',
+    exp_cp: '97232',
+    exp_ville: 'LE LAMENTIN',
+    exp_pays: 'MQ',
+  });
+  return 'https://www.colissimo.entreprise.laposte.fr/portail_colissimo/?' + params.toString();
+}
+
+function exportExpeditionsToColishipCSV(expeditions: Expedition[]) {
+  const headers = ['Nom', 'Prenom', 'Adresse1', 'Adresse2', 'CP', 'Ville', 'Pays', 'Telephone', 'Poids', 'Reference', 'Valeur'];
+  const rows = expeditions.map((exp) => {
+    const parts = exp.clientName.trim().split(/\s+/);
+    const lastName = (parts.length > 1 ? parts[parts.length - 1] : exp.clientName).toUpperCase();
+    const firstName = parts.length > 1 ? parts.slice(0, -1).join(' ') : '';
+    return [lastName, firstName, exp.shippingAddress, '', '', '', 'MQ', exp.clientPhone ?? '', '0.5', exp.shopifyOrderNumber ?? exp.id.slice(0, 8), (exp.totalAmount ?? 0).toFixed(2)];
+  });
+  const csv = [headers, ...rows].map((row) => row.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(';')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'coliship_' + new Date().toISOString().split('T')[0] + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 // ── Expedition row ─────────────────────────────────────────────────────────────
 
 function ExpeditionRow({ exp, onRefresh }: { exp: Expedition; onRefresh: () => void }) {
@@ -177,6 +215,13 @@ function ExpeditionRow({ exp, onRefresh }: { exp: Expedition; onRefresh: () => v
               <path strokeLinecap="round" strokeLinejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0 1 10.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0 .229 2.523a1.125 1.125 0 0 1-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0 0 21 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 0 0-1.913-.247M6.34 18H5.25A2.25 2.25 0 0 1 3 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.056 48.056 0 0 1 1.913-.247m10.5 0a48.536 48.536 0 0 0-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18 10.5h.008v.008H18V10.5Zm-3 0h.008v.008H15V10.5Z" />
             </svg>
             Bon Colissimo
+          </button>
+
+          <button
+            onClick={() => window.open(createColissimoLinkFromExpedition(exp), '_blank')}
+            className="flex items-center gap-1.5 px-3 py-2 bg-yellow-400 hover:bg-yellow-500 text-yellow-900 text-xs font-bold rounded-lg transition-colors"
+          >
+            📦 Colissimo
           </button>
 
           {exp.status !== 'shipped' && exp.status !== 'delivered' && exp.status !== 'returned' && (
@@ -338,6 +383,13 @@ export default function ExpeditionsPage() {
               <h1 className="text-2xl font-semibold text-foreground">Expéditions</h1>
               <p className="text-sm text-muted-foreground mt-0.5">Gestion des envois Colissimo et retraits en magasin</p>
             </div>
+            <button
+              onClick={() => exportExpeditionsToColishipCSV(expeditions)}
+              disabled={expeditions.length === 0}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold bg-yellow-400 hover:bg-yellow-500 text-yellow-900 rounded-lg disabled:opacity-40 transition-colors"
+            >
+              📥 Coliship CSV
+            </button>
             <button
               onClick={load}
               className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-border rounded-lg hover:bg-muted transition-colors"
