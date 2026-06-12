@@ -48,7 +48,7 @@ function createColissimoLinkFromDelivery(clientName: string, address: string, ph
     exp_pays: 'MQ',
     exp_tel: '0696016998',
   });
-  return 'https://www.colissimo.entreprise.laposte.fr/portail_colissimo/?' + params.toString();
+  return 'https://www.colissimo.entreprise.laposte.fr/?' + params.toString();
 }
 
 const TABS: { key: DeliveryStatus | 'all'; label: string }[] = [
