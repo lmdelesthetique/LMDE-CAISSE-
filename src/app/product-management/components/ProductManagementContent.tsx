@@ -60,6 +60,7 @@ function mapDbProduct(r: any): ProductRecord {
     colorVariants: undefined,
     isKit: Boolean(r.is_kit),
     isFavorite: Boolean(r.is_favorite),
+    description: r.description || '',
   };
 }
 
@@ -319,6 +320,7 @@ EXECUTE FUNCTION sync_product_status();`;
       shopify: Boolean(data.shopify),
       // Ensure we never store a data: URL — only real storage URLs or null
       image_url: (imageUrl && !imageUrl.startsWith('data:')) ? imageUrl : null,
+      description: data.description || null,
       updated_at: new Date().toISOString(),
     };
 

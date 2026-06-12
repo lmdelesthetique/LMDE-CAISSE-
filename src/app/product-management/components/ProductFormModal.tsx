@@ -179,7 +179,7 @@ export default function ProductFormModal({ product, onClose, onSave }: ProductFo
           shopify: product.shopify,
           reservable: true,
           sellable: true,
-          description: '',
+          description: (product as any).description || '',
         }
       : {
           tva: 8.5,
