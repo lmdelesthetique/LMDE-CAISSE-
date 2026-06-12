@@ -12,20 +12,41 @@ import {
 
 type DriverOption = { id: string; name: string; phone: string | null; driverStatus: string };
 
+const LIVRAISON_COUNTRY_CODES: Record<string, string> = {
+  'Martinique': 'MQ', 'Guadeloupe': 'GP', 'Guyane': 'GF', 'Guyane française': 'GF',
+  'France': 'FR', 'Saint-Martin': 'MF', 'MQ': 'MQ', 'GP': 'GP', 'GF': 'GF', 'FR': 'FR',
+};
+
+function parseLivraisonAddress(addr: string): { address1: string; city: string; zip: string; country: string } {
+  const segs = addr.split(', ').map((s) => s.trim());
+  const country = segs.length >= 1 ? segs[segs.length - 1] : '';
+  const zip = segs.length >= 2 && /^\d{4,6}$/.test(segs[segs.length - 2]) ? segs[segs.length - 2] : '';
+  const cityIdx = zip ? segs.length - 3 : segs.length - 2;
+  const city = cityIdx >= 0 ? segs[cityIdx] : '';
+  const address1 = segs.slice(0, Math.max(0, cityIdx)).join(', ');
+  return { address1: address1 || addr, city, zip, country };
+}
+
 function createColissimoLinkFromDelivery(clientName: string, address: string, phone?: string | null): string {
   const parts = clientName.trim().split(/\s+/);
   const lastName = (parts.length > 1 ? parts[parts.length - 1] : clientName).toUpperCase();
   const firstName = parts.length > 1 ? parts.slice(0, -1).join(' ') : '';
+  const { address1, city, zip, country } = parseLivraisonAddress(address);
+  const countryCode = LIVRAISON_COUNTRY_CODES[country] || 'MQ';
   const params = new URLSearchParams({
     dest_nom: lastName,
     dest_prenom: firstName,
-    dest_adresse1: address,
+    dest_adresse1: address1,
+    dest_cp: zip,
+    dest_ville: city.toUpperCase(),
+    dest_pays: countryCode,
     dest_tel: phone ?? '',
     exp_nom: 'LE MONDE DE L ESTHETIQUE',
     exp_adresse1: 'Zone de Gros la Jambette',
     exp_cp: '97232',
     exp_ville: 'LE LAMENTIN',
     exp_pays: 'MQ',
+    exp_tel: '0696016998',
   });
   return 'https://www.colissimo.entreprise.laposte.fr/portail_colissimo/?' + params.toString();
 }
@@ -423,9 +444,10 @@ export default function LivraisonsPage() {
                           {d.deliveryAddress && (
                             <button
                               onClick={() => window.open(createColissimoLinkFromDelivery(d.clientName, d.deliveryAddress, d.clientPhone), '_blank')}
-                              className="flex items-center gap-1 px-2 py-1 bg-yellow-400 hover:bg-yellow-500 text-yellow-900 text-[11px] font-bold rounded-lg transition-colors"
+                              title="Créer étiquette Colissimo"
+                              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-yellow-400 hover:bg-yellow-500 text-yellow-900 text-xs font-bold rounded-lg transition-colors whitespace-nowrap"
                             >
-                              📦 Colissimo
+                              📦 Créer étiquette
                             </button>
                           )}
                           {d.status !== 'delivered' && d.status !== 'cancelled' && (

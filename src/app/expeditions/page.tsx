@@ -85,20 +85,43 @@ function printColissimoLabel(exp: Expedition) {
 
 // ── Colissimo helpers ─────────────────────────────────────────────────────────
 
+const COLISSIMO_COUNTRY_CODES: Record<string, string> = {
+  'Martinique': 'MQ', 'Guadeloupe': 'GP', 'Guyane': 'GF', 'Guyane française': 'GF',
+  'France': 'FR', 'Saint-Martin': 'MF', 'Saint Martin': 'MF',
+  'MQ': 'MQ', 'GP': 'GP', 'GF': 'GF', 'FR': 'FR', 'MF': 'MF',
+};
+
+function parseShippingAddressString(addr: string): { address1: string; city: string; zip: string; country: string } {
+  // Format stored by buildAddress: "address1[, address2], city, zip, country"
+  const segs = addr.split(', ').map((s) => s.trim());
+  const country = segs.length >= 1 ? segs[segs.length - 1] : '';
+  const zip = segs.length >= 2 && /^\d{4,6}$/.test(segs[segs.length - 2]) ? segs[segs.length - 2] : '';
+  const cityIdx = zip ? segs.length - 3 : segs.length - 2;
+  const city = cityIdx >= 0 ? segs[cityIdx] : '';
+  const address1 = segs.slice(0, Math.max(0, cityIdx)).join(', ');
+  return { address1: address1 || addr, city, zip, country };
+}
+
 function createColissimoLinkFromExpedition(exp: Expedition): string {
-  const parts = exp.clientName.trim().split(/\s+/);
-  const lastName = (parts.length > 1 ? parts[parts.length - 1] : exp.clientName).toUpperCase();
-  const firstName = parts.length > 1 ? parts.slice(0, -1).join(' ') : '';
+  const nameParts = exp.clientName.trim().split(/\s+/);
+  const lastName = (nameParts.length > 1 ? nameParts[nameParts.length - 1] : exp.clientName).toUpperCase();
+  const firstName = nameParts.length > 1 ? nameParts.slice(0, -1).join(' ') : '';
+  const { address1, city, zip, country } = parseShippingAddressString(exp.shippingAddress);
+  const countryCode = COLISSIMO_COUNTRY_CODES[country] || 'MQ';
   const params = new URLSearchParams({
     dest_nom: lastName,
     dest_prenom: firstName,
-    dest_adresse1: exp.shippingAddress,
+    dest_adresse1: address1,
+    dest_cp: zip,
+    dest_ville: city.toUpperCase(),
+    dest_pays: countryCode,
     dest_tel: exp.clientPhone ?? '',
     exp_nom: 'LE MONDE DE L ESTHETIQUE',
     exp_adresse1: 'Zone de Gros la Jambette',
     exp_cp: '97232',
     exp_ville: 'LE LAMENTIN',
     exp_pays: 'MQ',
+    exp_tel: '0696016998',
   });
   return 'https://www.colissimo.entreprise.laposte.fr/portail_colissimo/?' + params.toString();
 }
@@ -219,9 +242,10 @@ function ExpeditionRow({ exp, onRefresh }: { exp: Expedition; onRefresh: () => v
 
           <button
             onClick={() => window.open(createColissimoLinkFromExpedition(exp), '_blank')}
-            className="flex items-center gap-1.5 px-3 py-2 bg-yellow-400 hover:bg-yellow-500 text-yellow-900 text-xs font-bold rounded-lg transition-colors"
+            title="Créer étiquette Colissimo"
+            className="flex items-center gap-2 bg-yellow-400 hover:bg-yellow-500 text-yellow-900 px-3 py-2 rounded-lg font-bold text-sm transition-colors whitespace-nowrap"
           >
-            📦 Colissimo
+            📦 Créer étiquette
           </button>
 
           {exp.status !== 'shipped' && exp.status !== 'delivered' && exp.status !== 'returned' && (

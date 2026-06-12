@@ -19,16 +19,14 @@ const COUNTRY_CODES: Record<string, string> = {
 function createColissimoLink(order: any): string {
   const addr = order.shipping_address || {};
   const customer = order.customer || {};
-  const countryCode = COUNTRY_CODES[addr.country || addr.country_code || 'FR'] || 'FR';
-  const firstName = addr.first_name || customer.first_name || '';
-  const lastName = (addr.last_name || customer.last_name || '').toUpperCase();
+  const countryCode = COUNTRY_CODES[addr.country || addr.country_code || ''] || 'MQ';
   const params = new URLSearchParams({
-    dest_nom: lastName,
-    dest_prenom: firstName,
+    dest_nom: (addr.last_name || customer.last_name || '').toUpperCase(),
+    dest_prenom: addr.first_name || customer.first_name || '',
     dest_adresse1: addr.address1 || '',
     dest_adresse2: addr.address2 || '',
     dest_cp: addr.zip || '',
-    dest_ville: addr.city || '',
+    dest_ville: (addr.city || '').toUpperCase(),
     dest_pays: countryCode,
     dest_tel: addr.phone || customer.phone || '',
     exp_nom: 'LE MONDE DE L ESTHETIQUE',
@@ -36,6 +34,7 @@ function createColissimoLink(order: any): string {
     exp_cp: '97232',
     exp_ville: 'LE LAMENTIN',
     exp_pays: 'MQ',
+    exp_tel: '0696016998',
   });
   return 'https://www.colissimo.entreprise.laposte.fr/portail_colissimo/?' + params.toString();
 }
@@ -1433,9 +1432,10 @@ export default function CaisseHistoriquePage() {
                                 {order.shipping_address && (
                                   <button
                                     onClick={() => window.open(createColissimoLink(order), '_blank')}
-                                    className="flex items-center gap-1 px-2 py-1 bg-yellow-400 hover:bg-yellow-500 text-yellow-900 text-[11px] font-bold rounded-lg transition-colors whitespace-nowrap"
+                                    title="Créer étiquette Colissimo"
+                                    className="flex items-center gap-2 bg-yellow-400 hover:bg-yellow-500 text-yellow-900 px-3 py-2 rounded-lg font-bold text-sm transition-colors whitespace-nowrap"
                                   >
-                                    📦 Colissimo
+                                    📦 Créer étiquette
                                   </button>
                                 )}
                               </td>
