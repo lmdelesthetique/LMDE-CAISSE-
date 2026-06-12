@@ -159,7 +159,10 @@ function exportExpeditionsToColishipCSV(expeditions: Expedition[]) {
 
 // ── Expedition row ─────────────────────────────────────────────────────────────
 
-function ExpeditionRow({ exp, onRefresh }: { exp: Expedition; onRefresh: () => void }) {
+function ExpeditionRow({ exp, onRefresh, isSelected, onToggle }: {
+  exp: Expedition; onRefresh: () => void;
+  isSelected?: boolean; onToggle?: () => void;
+}) {
   const cfg = EXPEDITION_STATUS_CONFIG[exp.status] ?? { label: exp.status, color: 'text-gray-700', bg: 'bg-gray-50 border-gray-200', dot: 'bg-gray-400' };
   const [showColissimoModal, setShowColissimoModal] = useState(false);
   const [trackingInput, setTrackingInput] = useState('');
@@ -183,8 +186,17 @@ function ExpeditionRow({ exp, onRefresh }: { exp: Expedition; onRefresh: () => v
   };
 
   return (
-    <div className={`rounded-xl border p-4 ${exp.status === 'pending' ? 'bg-yellow-50/40 border-yellow-200' : 'bg-white border-border'}`}>
+    <div className={`rounded-xl border p-4 ${isSelected ? 'bg-blue-50/60 border-blue-300' : exp.status === 'pending' ? 'bg-yellow-50/40 border-yellow-200' : 'bg-white border-border'}`}>
       <div className="flex items-start gap-4">
+        {/* Checkbox */}
+        {onToggle && (
+          <input
+            type="checkbox"
+            checked={isSelected ?? false}
+            onChange={onToggle}
+            className="mt-1 w-4 h-4 cursor-pointer shrink-0 accent-blue-600"
+          />
+        )}
         {/* Status dot */}
         <span className={`mt-1 w-2.5 h-2.5 rounded-full shrink-0 ${cfg.dot}`} />
 
@@ -377,7 +389,24 @@ export default function ExpeditionsPage() {
   const [expeditions, setExpeditions] = useState<Expedition[]>([]);
   const [pickups, setPickups] = useState<PickupNotification[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const channelRef = useRef<any>(null);
+
+  function toggleOrder(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    setSelectedIds(
+      selectedIds.size === expeditions.length && expeditions.length > 0
+        ? new Set()
+        : new Set(expeditions.map((e) => e.id))
+    );
+  }
 
   const load = useCallback(async () => {
     try {
@@ -501,16 +530,37 @@ export default function ExpeditionsPage() {
                 </div>
               ) : (
                 <>
+                  {/* Selection bar */}
+                  <div className="flex items-center gap-3 py-2 px-1">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.size === expeditions.length && expeditions.length > 0}
+                      onChange={toggleAll}
+                      className="w-4 h-4 cursor-pointer accent-blue-600"
+                    />
+                    <span className="text-sm text-muted-foreground">
+                      {selectedIds.size > 0 ? `${selectedIds.size} sélectionnée${selectedIds.size > 1 ? 's' : ''}` : 'Tout sélectionner'}
+                    </span>
+                    {selectedIds.size > 0 && (
+                      <button
+                        onClick={() => exportExpeditionsToColishipCSV(expeditions.filter((e) => selectedIds.has(e.id)))}
+                        className="flex items-center gap-2 ml-auto bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors"
+                      >
+                        📥 Exporter {selectedIds.size} vers Coliship
+                      </button>
+                    )}
+                  </div>
+
                   {pendingExp.length > 0 && (
                     <div className="space-y-3">
                       <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide">À expédier ({pendingExp.length})</p>
-                      {pendingExp.map((e) => <ExpeditionRow key={e.id} exp={e} onRefresh={load} />)}
+                      {pendingExp.map((e) => <ExpeditionRow key={e.id} exp={e} onRefresh={load} isSelected={selectedIds.has(e.id)} onToggle={() => toggleOrder(e.id)} />)}
                     </div>
                   )}
                   {shippedExp.length > 0 && (
                     <div className="space-y-3 mt-4">
                       <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Expédiés ({shippedExp.length})</p>
-                      {shippedExp.map((e) => <ExpeditionRow key={e.id} exp={e} onRefresh={load} />)}
+                      {shippedExp.map((e) => <ExpeditionRow key={e.id} exp={e} onRefresh={load} isSelected={selectedIds.has(e.id)} onToggle={() => toggleOrder(e.id)} />)}
                     </div>
                   )}
                 </>
