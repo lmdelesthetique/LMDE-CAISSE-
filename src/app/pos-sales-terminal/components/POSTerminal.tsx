@@ -509,6 +509,11 @@ export default function POSTerminal() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const isDemoCart = cart.some(i => i.isDemo);
   const [globalDiscount, setGlobalDiscount] = useState<GlobalDiscount | null>(null);
+  // Avoir manual entry
+  const [showAvoirInput, setShowAvoirInput] = useState(false);
+  const [avoirInputValue, setAvoirInputValue] = useState('');
+  const [avoirLookupLoading, setAvoirLookupLoading] = useState(false);
+  const [avoirLookupError, setAvoirLookupError] = useState<string | null>(null);
   const [demoProductRef, setDemoProductRef] = useState<{ id: string; name: string; ref: string } | null>(null);
   const [client, setClient] = useState<POSClient | null>(null);
   const [heldTickets, setHeldTickets] = useState<HeldTicket[]>([]);
@@ -723,6 +728,13 @@ export default function POSTerminal() {
   const handleClientSelect = useCallback(async (posClient: import('./POSTerminal').POSClient) => {
     setClient(posClient);
     setAppliedReward(null);
+    // Notify cashier immediately if client has store credit (avoir)
+    if (posClient.balance > 0) {
+      toast(`💳 ${posClient.name} a un avoir de ${posClient.balance.toFixed(2)} € disponible`, {
+        duration: 5000,
+        style: { background: '#ecfdf5', color: '#065f46', border: '1px solid #6ee7b7' },
+      });
+    }
     // Use server API to backfill any tier rewards the client earned outside
     // the POS flow (manual point adjustments, imports, etc.), then return
     // the up-to-date list of available rewards.
@@ -790,6 +802,27 @@ export default function POSTerminal() {
     setAllClientRewards([]);
     setShowAllRewards(false);
   }, []);
+
+  const handleAvoirLookup = useCallback(async () => {
+    const num = avoirInputValue.trim();
+    if (!num) return;
+    setAvoirLookupLoading(true);
+    setAvoirLookupError(null);
+    try {
+      const res = await fetch(`/api/returns/lookup?numero=${encodeURIComponent(num)}`);
+      const data = await res.json();
+      if (!res.ok) { setAvoirLookupError(data.error ?? 'Avoir introuvable'); return; }
+      setGlobalDiscount({ type: 'amount', value: data.amount, isAvoir: true, avoirRecordId: data.id });
+      setShowAvoirInput(false);
+      setAvoirInputValue('');
+      setAvoirLookupError(null);
+      toast.success(`Avoir ${data.avoirNumber} — ${data.amount.toFixed(2)} € appliqué${data.clientName ? ` (${data.clientName})` : ''}`, { duration: 3000 });
+    } catch {
+      setAvoirLookupError('Erreur réseau');
+    } finally {
+      setAvoirLookupLoading(false);
+    }
+  }, [avoirInputValue]);
 
   // ── Handle reward use now ─────────────────────────────────────────────────
    const handleUseRewardNow = useCallback(async (reward: ClientLoyaltyReward) => {
@@ -1121,6 +1154,14 @@ export default function POSTerminal() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ store_credit: remaining }),
         }).catch(() => {});
+        // Mark specific return record as used if applied by avoir number
+        if (globalDiscount.avoirRecordId) {
+          fetch(`/api/returns/${globalDiscount.avoirRecordId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ avoir_status: 'used', avoir_used_amount_delta: globalDiscountAmount, total_amount_ref: globalDiscount.value }),
+          }).catch(() => {});
+        }
       }
 
       if (unlocked.length > 0) {
@@ -1242,6 +1283,14 @@ export default function POSTerminal() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ store_credit: remaining }),
         }).catch(() => {});
+        // Mark specific return record as used if applied by avoir number
+        if (globalDiscount.avoirRecordId) {
+          fetch(`/api/returns/${globalDiscount.avoirRecordId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ avoir_status: 'used', avoir_used_amount_delta: globalDiscountAmount, total_amount_ref: globalDiscount.value }),
+          }).catch(() => {});
+        }
       }
 
       setShowPayment(false);
@@ -1511,8 +1560,8 @@ export default function POSTerminal() {
             </button>
           )}
 
-          {/* Avoir disponible button */}
-          {client && client.balance > 0 && cart.length > 0 && !globalDiscount?.isAvoir && (
+          {/* Avoir disponible — client balance */}
+          {client && client.balance > 0 && !globalDiscount?.isAvoir && (
             <button
               onClick={() => {
                 setGlobalDiscount({ type: 'amount', value: client.balance, isAvoir: true });
@@ -1523,16 +1572,23 @@ export default function POSTerminal() {
             >
               <Icon name="GiftIcon" size={13} className="text-emerald-600" />
               <span className="text-xs font-600 text-emerald-700">
-                Utiliser avoir — {client.balance.toFixed(2)} €
+                💳 Utiliser avoir — {client.balance.toFixed(2)} €
               </span>
               <Icon name="ChevronRightIcon" size={13} className="text-emerald-400 ml-auto" />
             </button>
           )}
-          {client && globalDiscount?.isAvoir && (
+
+          {/* Avoir applied — show badge */}
+          {globalDiscount?.isAvoir && (
             <div className="mx-3 mt-1 flex items-center justify-between px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg w-[calc(100%-24px)]">
               <div className="flex items-center gap-2">
                 <Icon name="GiftIcon" size={13} className="text-emerald-600" />
-                <span className="text-xs font-600 text-emerald-700">Avoir appliqué — -{globalDiscountAmount.toFixed(2)} €</span>
+                <div>
+                  <span className="text-xs font-600 text-emerald-700">Avoir appliqué — -{globalDiscountAmount.toFixed(2)} €</span>
+                  {globalDiscount.avoirRecordId && (
+                    <p className="text-[10px] text-emerald-600">Bon de retour</p>
+                  )}
+                </div>
               </div>
               <button
                 onClick={() => {
@@ -1543,6 +1599,51 @@ export default function POSTerminal() {
               >
                 Retirer
               </button>
+            </div>
+          )}
+
+          {/* Saisir N° Avoir manually */}
+          {!globalDiscount?.isAvoir && (
+            <div className="mx-3 mt-1 w-[calc(100%-24px)]">
+              {!showAvoirInput ? (
+                <button
+                  onClick={() => { setShowAvoirInput(true); setAvoirLookupError(null); }}
+                  className="flex items-center gap-2 px-3 py-1.5 border border-dashed border-gray-300 rounded-lg text-xs text-gray-500 hover:border-emerald-400 hover:text-emerald-700 transition-colors w-full"
+                >
+                  <Icon name="QrCodeIcon" size={12} />
+                  Saisir N° Avoir (ex: AV-26-1001)
+                </button>
+              ) : (
+                <div className="border border-emerald-300 rounded-lg p-2 bg-emerald-50 space-y-1.5">
+                  <div className="flex gap-1.5">
+                    <input
+                      autoFocus
+                      type="text"
+                      value={avoirInputValue}
+                      onChange={e => { setAvoirInputValue(e.target.value.toUpperCase()); setAvoirLookupError(null); }}
+                      onKeyDown={e => e.key === 'Enter' && handleAvoirLookup()}
+                      placeholder="AV-26-1001"
+                      className="flex-1 px-2 py-1 text-xs border border-emerald-200 rounded-md font-mono focus:outline-none focus:ring-1 focus:ring-emerald-400 bg-white"
+                    />
+                    <button
+                      onClick={handleAvoirLookup}
+                      disabled={avoirLookupLoading || !avoirInputValue.trim()}
+                      className="px-2.5 py-1 bg-emerald-600 text-white text-xs font-600 rounded-md hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                    >
+                      {avoirLookupLoading ? '…' : 'OK'}
+                    </button>
+                    <button
+                      onClick={() => { setShowAvoirInput(false); setAvoirInputValue(''); setAvoirLookupError(null); }}
+                      className="px-2 py-1 text-gray-400 hover:text-gray-600 text-xs"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  {avoirLookupError && (
+                    <p className="text-[10px] text-red-600">{avoirLookupError}</p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

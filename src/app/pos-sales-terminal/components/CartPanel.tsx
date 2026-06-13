@@ -9,6 +9,7 @@ export interface GlobalDiscount {
   value: number;
   type: 'percent' | 'amount';
   isAvoir?: boolean;
+  avoirRecordId?: string; // set when applied by avoir number (to mark as used on checkout)
 }
 
 export interface CartPanelHandle {
