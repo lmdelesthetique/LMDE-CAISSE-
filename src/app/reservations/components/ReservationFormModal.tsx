@@ -14,6 +14,7 @@ import {
   RESERVATION_TYPE_CONFIG,
   RECOVERY_MODE_CONFIG,
 } from '@/lib/services/reservationService';
+import { clientService } from '@/lib/services/clientService';
 
 interface ReservationFormModalProps {
   onClose: () => void;
@@ -157,6 +158,23 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
   const [outOfStockWarning, setOutOfStockWarning] = useState<{ idx: number; productName: string; stock: number } | null>(null);
   const [pendingProductSelect, setPendingProductSelect] = useState<{ product: ProductSearchResult; idx: number } | null>(null);
   const [expandedVariantIdx, setExpandedVariantIdx] = useState<number | null>(null);
+
+  // Client search
+  const [clientSearch, setClientSearch] = useState('');
+  const [clientResults, setClientResults] = useState<Awaited<ReturnType<typeof clientService.search>>>([]);
+  const [clientSearchOpen, setClientSearchOpen] = useState(false);
+  const clientSearchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleClientSearch = useCallback((val: string) => {
+    setClientSearch(val);
+    if (clientSearchRef.current) clearTimeout(clientSearchRef.current);
+    if (val.length < 2) { setClientResults([]); setClientSearchOpen(false); return; }
+    setClientSearchOpen(true);
+    clientSearchRef.current = setTimeout(async () => {
+      const results = await clientService.search(val);
+      setClientResults(results);
+    }, 250);
+  }, []);
 
   // Client info
   const [clientName, setClientName] = useState(reservation?.clientName ?? '');
@@ -406,6 +424,61 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
             {/* ── 1. Client info ── */}
             <section>
               <p className="text-xs font-600 uppercase tracking-widest text-muted-foreground mb-3">Informations client</p>
+
+              {/* Client search bar */}
+              <div className="relative mb-3">
+                <div className="flex items-center gap-2 px-3 py-2 border border-border rounded-lg bg-white focus-within:ring-2 focus-within:ring-primary/30">
+                  <Icon name="MagnifyingGlassIcon" size={14} className="text-muted-foreground shrink-0" />
+                  <input
+                    type="text"
+                    value={clientSearch}
+                    onChange={(e) => handleClientSearch(e.target.value)}
+                    placeholder="Rechercher un client existant (nom, téléphone…)"
+                    className="flex-1 text-sm bg-transparent focus:outline-none"
+                  />
+                  {clientSearch && (
+                    <button type="button" onClick={() => { setClientSearch(''); setClientResults([]); setClientSearchOpen(false); }}
+                      className="text-muted-foreground hover:text-foreground">
+                      <Icon name="XMarkIcon" size={13} />
+                    </button>
+                  )}
+                </div>
+
+                {clientSearchOpen && clientResults.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-white border border-border rounded-xl shadow-xl overflow-hidden max-h-52 overflow-y-auto">
+                    {clientResults.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => {
+                          setClientName(c.fullName);
+                          setClientPhone(c.phone ?? '');
+                          setClientEmail((c as any).email ?? '');
+                          setClientSearch('');
+                          setClientResults([]);
+                          setClientSearchOpen(false);
+                        }}
+                        className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-muted/50 text-left transition-colors border-b border-border last:border-0"
+                      >
+                        <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                          <span className="text-xs font-700 text-primary">{c.fullName.charAt(0).toUpperCase()}</span>
+                        </div>
+                        <div>
+                          <p className="text-sm font-600 text-foreground">{c.fullName}</p>
+                          <p className="text-xs text-muted-foreground">{c.phone ?? ''}{(c as any).email ? ` · ${(c as any).email}` : ''}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {clientSearchOpen && clientSearch.length >= 2 && clientResults.length === 0 && (
+                  <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-white border border-border rounded-xl shadow-xl px-4 py-3 text-sm text-muted-foreground">
+                    Aucun client trouvé — remplissez manuellement
+                  </div>
+                )}
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-500 text-foreground mb-1">Nom complet <span className="text-destructive">*</span></label>

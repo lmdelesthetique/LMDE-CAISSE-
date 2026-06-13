@@ -10,15 +10,15 @@ interface DepositModalProps {
   onSaved: (updated: Reservation) => void;
 }
 
-const PAYMENT_LABELS: Record<ReservationPaymentMethod, string> = {
-  cash: 'Espèces',
-  card: 'Carte bancaire',
-  transfer: 'Virement',
-  cheque: 'Chèque',
-};
+const PAYMENT_METHODS: { id: ReservationPaymentMethod; label: string; sub?: string; color?: string }[] = [
+  { id: 'cash',     label: 'Espèces' },
+  { id: 'card',     label: 'Carte bancaire' },
+  { id: 'transfer', label: 'Virement' },
+  { id: 'cheque',   label: 'Chèque' },
+  { id: 'alma',     label: 'Alma — Paiement 4x', sub: 'Sans frais', color: 'border-orange-400 bg-orange-50 text-orange-700' },
+];
 
 export default function DepositModal({ reservation, onClose, onSaved }: DepositModalProps) {
-  // Determine if this is a balance payment (deposit already paid)
   const isBalancePayment = reservation.reservationStatus === 'deposit_paid' || reservation.reservationStatus === 'ready';
   const defaultAmount = isBalancePayment
     ? reservation.balanceDue.toFixed(2)
@@ -26,25 +26,26 @@ export default function DepositModal({ reservation, onClose, onSaved }: DepositM
 
   const [amount, setAmount] = useState(defaultAmount);
   const [method, setMethod] = useState<ReservationPaymentMethod>('card');
+  const [almaInstallments, setAlmaInstallments] = useState<3 | 4>(4);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const paid = parseFloat(amount) || 0;
+  const almaFirst = paid > 0 ? (paid / almaInstallments).toFixed(2) : '—';
+  const almaFee = paid > 0 ? (paid * 0.0146 * almaInstallments).toFixed(2) : '—';
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const paid = parseFloat(amount);
     if (isNaN(paid) || paid <= 0) { setError('Montant invalide.'); return; }
     if (paid > reservation.totalAmount) { setError('Le montant dépasse le total de la réservation.'); return; }
     setSaving(true);
     setError(null);
 
     let updated: Reservation | null = null;
-
     if (isBalancePayment) {
-      // Record balance payment — only this amount is added to today's revenue
       const input: RecordBalanceInput = { balancePaid: paid, balancePaymentMethod: method };
       updated = await reservationService.recordBalance(reservation.id, input);
     } else {
-      // Record deposit payment — only this amount is added to today's revenue
       updated = await reservationService.recordDeposit(reservation.id, { depositPaid: paid, depositPaymentMethod: method });
     }
 
@@ -69,6 +70,7 @@ export default function DepositModal({ reservation, onClose, onSaved }: DepositM
         </div>
 
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
+          {/* Reservation summary */}
           <div className="bg-secondary rounded-lg px-4 py-3 text-sm space-y-1">
             <p className="text-muted-foreground">Réservation <span className="font-600 text-foreground">{reservation.reservationNumber}</span></p>
             <p className="text-muted-foreground">Client: <span className="font-500 text-foreground">{reservation.clientName}</span></p>
@@ -97,31 +99,92 @@ export default function DepositModal({ reservation, onClose, onSaved }: DepositM
             </div>
           )}
 
+          {/* Amount */}
           <div>
             <label className="block text-xs font-500 text-foreground mb-1">
               {isBalancePayment ? 'Montant du solde à encaisser (€)' : 'Montant de l\'acompte (€)'}
               <span className="text-destructive"> *</span>
             </label>
             <input
-              type="number" min="0.01" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)}
+              type="number" min="0.01" step="0.01" value={amount}
+              onChange={(e) => setAmount(e.target.value)}
               className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
           </div>
 
+          {/* Payment methods */}
           <div>
-            <label className="block text-xs font-500 text-foreground mb-1">Mode de paiement</label>
+            <label className="block text-xs font-500 text-foreground mb-2">Mode de paiement</label>
             <div className="grid grid-cols-2 gap-2">
-              {(Object.keys(PAYMENT_LABELS) as ReservationPaymentMethod[]).map((m) => (
+              {PAYMENT_METHODS.filter(m => m.id !== 'alma').map((m) => (
                 <button
-                  key={m} type="button"
-                  onClick={() => setMethod(m)}
-                  className={`px-3 py-2 rounded-lg text-sm font-500 border transition-colors ${method === m ? 'bg-primary/10 border-primary text-primary' : 'border-border text-muted-foreground hover:bg-muted'}`}
+                  key={m.id} type="button"
+                  onClick={() => setMethod(m.id)}
+                  className={`px-3 py-2 rounded-lg text-sm font-500 border transition-colors ${method === m.id ? 'bg-primary/10 border-primary text-primary' : 'border-border text-muted-foreground hover:bg-muted'}`}
                 >
-                  {PAYMENT_LABELS[m]}
+                  {m.label}
                 </button>
               ))}
             </div>
+
+            {/* Alma button — full width, distinct style */}
+            <button
+              type="button"
+              onClick={() => setMethod('alma')}
+              className={`mt-2 w-full flex items-center justify-between px-4 py-3 rounded-xl border-2 transition-all font-600 text-sm ${
+                method === 'alma'
+                  ? 'border-orange-400 bg-orange-50 text-orange-700'
+                  : 'border-dashed border-orange-300 text-orange-600 hover:bg-orange-50'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-lg">💳</span>
+                <div className="text-left">
+                  <p className="font-700">Alma — Paiement en plusieurs fois</p>
+                  <p className="text-xs font-400 opacity-70">3x ou 4x sans frais client</p>
+                </div>
+              </div>
+              {method === 'alma' && <Icon name="CheckCircleIcon" size={18} className="text-orange-500 shrink-0" />}
+            </button>
           </div>
+
+          {/* Alma breakdown */}
+          {method === 'alma' && paid > 0 && (
+            <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 space-y-3">
+              <p className="text-xs font-700 text-orange-800 uppercase tracking-wider">Détail Alma</p>
+
+              <div className="flex gap-2">
+                {([3, 4] as const).map((n) => (
+                  <button
+                    key={n} type="button"
+                    onClick={() => setAlmaInstallments(n)}
+                    className={`flex-1 py-2 rounded-lg text-sm font-700 border-2 transition-all ${almaInstallments === n ? 'border-orange-500 bg-orange-500 text-white' : 'border-orange-300 text-orange-700 hover:bg-orange-100'}`}
+                  >
+                    {n}x
+                  </button>
+                ))}
+              </div>
+
+              <div className="space-y-1.5 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-orange-700">1ère échéance aujourd'hui</span>
+                  <span className="font-700 text-orange-900">{almaFirst} €</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-orange-700">Total {almaInstallments} fois</span>
+                  <span className="font-600 text-orange-900">{paid.toFixed(2)} €</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-orange-600">Frais Alma (boutique ~{(1.46 * almaInstallments).toFixed(1)}%)</span>
+                  <span className="text-orange-700">≈ {almaFee} €</span>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-orange-600">
+                Votre client sera débité de <strong>{almaFirst} €</strong> maintenant, puis {almaInstallments - 1}x {almaFirst} € les prochains mois.
+              </p>
+            </div>
+          )}
 
           {error && (
             <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 rounded-lg px-3 py-2">

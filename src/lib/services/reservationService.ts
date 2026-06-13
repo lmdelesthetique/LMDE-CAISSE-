@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/client';
 import { deductStockForSale } from './stockService';
 
 export type ReservationStatus = 'pending' | 'deposit_paid' | 'ready' | 'completed' | 'cancelled';
-export type ReservationPaymentMethod = 'cash' | 'card' | 'transfer' | 'cheque';
+export type ReservationPaymentMethod = 'cash' | 'card' | 'transfer' | 'cheque' | 'alma';
 
 export type ReservationType =
   | 'commande_container' |'commande_avion' |'reservation_sur_place' |'precommande' |'livraison_fournisseur' |'arrivage_en_attente' |'produit_disponible' |'produit_en_transit';
