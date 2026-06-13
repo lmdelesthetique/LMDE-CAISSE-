@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
+import { openAndPrint, loadSettingsFromCache } from '@/lib/utils/ticketPrinter';
 import {
   returnsService,
   ReturnRecord,
@@ -26,6 +27,91 @@ function formatCurrency(v: number): string {
 function formatDate(iso: string): string {
   const d = new Date(iso);
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+}
+
+function printAvoirTicket(r: ReturnRecord): void {
+  const s = loadSettingsFromCache();
+  const now = new Date(r.createdAt);
+  const dateStr = formatDate(r.createdAt);
+  const timeStr = now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+
+  const conditionLabel: Record<string, string> = { good: 'Bon état', damaged: 'Abîmé', unknown: 'Inconnu' };
+  const refundLabel: Record<string, string> = {
+    refund_cash: 'Remboursement espèces',
+    refund_card: 'Remboursement carte',
+    store_credit: 'Avoir client',
+    exchange: 'Échange produit',
+  };
+
+  const w = s.paperWidth ?? '80mm';
+  const html = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <title>Avoir ${r.avoirNumber}</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family: 'Courier New', monospace; font-size: 12px; width: ${w}; background:#fff; color:#000; padding: 8px; }
+    .center { text-align: center; }
+    .bold { font-weight: bold; }
+    .line { border-top: 1px dashed #000; margin: 6px 0; }
+    .row { display: flex; justify-content: space-between; margin: 2px 0; }
+    .title { font-size: 15px; font-weight: bold; text-align: center; margin: 6px 0; }
+    .avoir-num { font-size: 14px; font-weight: bold; text-align: center; color: #000; border: 2px solid #000; padding: 4px 8px; margin: 6px auto; display: inline-block; }
+    .amount { font-size: 16px; font-weight: bold; text-align: center; margin: 6px 0; }
+    .footer { font-size: 10px; text-align: center; margin-top: 6px; }
+    @media print {
+      body { width: 100%; }
+      @page { margin: 0; size: ${w} auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="center bold">${s.companyName}</div>
+  ${s.companyLine2 ? `<div class="center">${s.companyLine2}</div>` : ''}
+  ${s.companyCity ? `<div class="center">${s.companyCity}</div>` : ''}
+  ${s.companyPhone ? `<div class="center">Tél: ${s.companyPhone}</div>` : ''}
+  ${s.companySiret ? `<div class="center">SIRET: ${s.companySiret}</div>` : ''}
+
+  <div class="line"></div>
+  <div class="title">★ AVOIR / BON DE RETOUR ★</div>
+  <div class="center"><span class="avoir-num">${r.avoirNumber}</span></div>
+  <div class="line"></div>
+
+  <div class="row"><span>Date :</span><span>${dateStr} ${timeStr}</span></div>
+  ${r.clientName ? `<div class="row"><span>Client :</span><span class="bold">${r.clientName}</span></div>` : ''}
+
+  <div class="line"></div>
+  <div class="bold">Produit retourné :</div>
+  <div style="margin:3px 0 3px 4px;">
+    <div>${r.productName}</div>
+    ${r.productRef ? `<div style="font-size:10px;">Réf: ${r.productRef}</div>` : ''}
+    <div class="row"><span>Quantité :</span><span>${r.quantity}</span></div>
+    <div class="row"><span>État :</span><span>${conditionLabel[r.productCondition] ?? r.productCondition}</span></div>
+  </div>
+
+  <div class="line"></div>
+  <div class="row"><span>Type de retour :</span><span class="bold">${refundLabel[r.refundType] ?? r.refundType}</span></div>
+  ${r.decision ? `<div class="row"><span>Décision :</span><span>${r.decision}</span></div>` : ''}
+  ${r.exchangeProductName ? `<div class="row"><span>Échange avec :</span><span>${r.exchangeProductName}</span></div>` : ''}
+  ${r.reasonNotes ? `<div style="margin-top:3px;font-size:10px;">Note : ${r.reasonNotes}</div>` : ''}
+
+  <div class="line"></div>
+  <div class="amount">Montant : ${formatCurrency(r.totalAmount)}</div>
+
+  <div class="line"></div>
+  <div class="footer">
+    ${s.returnConditions ? `<div style="margin-bottom:4px;">${s.returnConditions}</div>` : ''}
+    <div>Document émis le ${dateStr}</div>
+    <div>Conservez ce document pour tout litige.</div>
+    <div style="margin-top:4px;">${s.receiptFooter ?? 'Merci de votre confiance !'}</div>
+  </div>
+
+  <script>window.onload = function(){ window.print(); }<\/script>
+</body>
+</html>`;
+
+  openAndPrint(html);
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -874,19 +960,29 @@ export default function ReturnsPage() {
                             <span className="text-xs text-muted-foreground">{formatDate(r.createdAt)}</span>
                           </td>
                           <td className="px-4 py-3">
-                            {r.returnStatus === 'pending' && (
-                              <button onClick={() => setProcessTarget(r)}
-                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-600 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
-                                <Icon name="CheckIcon" size={12} />
-                                Traiter
+                            <div className="flex items-center gap-2">
+                              {r.returnStatus === 'pending' && (
+                                <button onClick={() => setProcessTarget(r)}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-600 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
+                                  <Icon name="CheckIcon" size={12} />
+                                  Traiter
+                                </button>
+                              )}
+                              {r.returnStatus === 'completed' && (
+                                <div className="flex items-center gap-1 text-xs text-green-600">
+                                  <Icon name="CheckCircleIcon" size={13} />
+                                  <span>Traité</span>
+                                </div>
+                              )}
+                              <button
+                                onClick={() => printAvoirTicket(r)}
+                                title="Imprimer le ticket avoir"
+                                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-600 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors shrink-0"
+                              >
+                                <Icon name="PrinterIcon" size={13} />
+                                Ticket
                               </button>
-                            )}
-                            {r.returnStatus === 'completed' && (
-                              <div className="flex items-center gap-1 text-xs text-green-600">
-                                <Icon name="CheckCircleIcon" size={13} />
-                                <span>Traité</span>
-                              </div>
-                            )}
+                            </div>
                           </td>
                         </tr>
                       ))}
