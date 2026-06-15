@@ -240,15 +240,24 @@ export default function GeneralDashboardPage() {
       }
       const chartData = Object.entries(chartMap).map(([label, v]) => ({ label, ...v }));
 
-      // Reservation KPIs
-      const { data: reservations } = await supabase
-        .from('reservations')
-        .select('deposit_paid, balance_paid, balance_due')
-        .gte('created_at', from)
-        .lte('created_at', to);
+      // Reservation KPIs — use accounting dates (not created_at) to match when cash was actually collected
+      const [{ data: resDeposits }, { data: resBalances }] = await Promise.all([
+        supabase
+          .from('reservations')
+          .select('deposit_paid')
+          .gte('deposit_accounting_date', from.split('T')[0])
+          .lte('deposit_accounting_date', to.split('T')[0])
+          .neq('reservation_status', 'cancelled'),
+        supabase
+          .from('reservations')
+          .select('balance_paid')
+          .gte('balance_accounting_date', from.split('T')[0])
+          .lte('balance_accounting_date', to.split('T')[0])
+          .neq('reservation_status', 'cancelled'),
+      ]);
 
-      const reservationDeposits = (reservations ?? []).reduce((sum, r) => sum + (r.deposit_paid ?? 0), 0);
-      const reservationBalances = (reservations ?? []).reduce((sum, r) => sum + (r.balance_paid ?? 0), 0);
+      const reservationDeposits = (resDeposits ?? []).reduce((sum, r) => sum + (r.deposit_paid ?? 0), 0);
+      const reservationBalances = (resBalances ?? []).reduce((sum, r) => sum + (r.balance_paid ?? 0), 0);
 
       // Employee performance
       const { data: empSales } = await supabase

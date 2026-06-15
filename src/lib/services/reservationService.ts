@@ -199,7 +199,11 @@ function mapReservation(row: any): Reservation {
     totalAmount: parseFloat(row.total_amount ?? 0),
     depositAmount: parseFloat(row.deposit_amount ?? 0),
     depositPaid: parseFloat(row.deposit_paid ?? 0),
-    balanceDue: parseFloat(row.balance_due ?? 0),
+    // Compute in code: DB generated column formula is total_amount - deposit_paid (misses balance_paid)
+    balanceDue: Math.max(
+      parseFloat(row.total_amount ?? 0) - parseFloat(row.deposit_paid ?? 0) - parseFloat(row.balance_paid ?? 0),
+      0
+    ),
     balancePaid: parseFloat(row.balance_paid ?? 0),
     balancePaidAt: row.balance_paid_at ?? null,
     balancePaymentMethod: row.balance_payment_method ?? null,
