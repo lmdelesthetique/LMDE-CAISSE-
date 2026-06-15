@@ -23,6 +23,8 @@ const PIECES = [
   { valeur: 0.2, label: '0,20€' },
   { valeur: 0.1, label: '0,10€' },
   { valeur: 0.05, label: '0,05€' },
+  { valeur: 0.02, label: '0,02€' },
+  { valeur: 0.01, label: '0,01€' },
 ];
 
 const METHOD_LABELS: Record<string, string> = {
