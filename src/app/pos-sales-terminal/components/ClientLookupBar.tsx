@@ -19,6 +19,7 @@ async function clientToPOSClient(c: Client): Promise<POSClient> {
     id: c.id,
     name: c.fullName,
     phone: c.phone ?? '',
+    email: c.email ?? null,
     points: c.loyaltyPoints,
     balance: c.storeCredit,
     discount,

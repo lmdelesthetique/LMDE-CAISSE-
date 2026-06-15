@@ -71,6 +71,7 @@ export interface POSClient {
   id: string;
   name: string;
   phone: string;
+  email?: string | null;
   points: number;
   balance: number;
   discount?: number;
@@ -2091,16 +2092,19 @@ function ActionRow({ checked, onToggle, emoji, label, desc, status, errorMsg, ch
 }
 
 function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, loyaltyInfo, rewardDiscountAmount = 0, onClose }: PostPaymentDocModalProps) {
+  const clientEmail = client?.email ?? '';
+  const hasClientEmail = clientEmail.includes('@');
+
   const [actions, setActions] = useState<Record<ActionKey, boolean>>(() => ({
-    print: !client,
+    print: !hasClientEmail,
     facture: total > 100,
     devis: false,
-    email: false,
+    email: hasClientEmail,
     whatsapp: false,
     livraison: false,
   }));
 
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(clientEmail);
   const [whatsappPhone, setWhatsappPhone] = useState(client?.phone ?? '');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [deliveryPhone, setDeliveryPhone] = useState(client?.phone ?? '');
@@ -2239,7 +2243,17 @@ function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, l
             subtotalHT, totalTVA, totalTTC: total,
             paymentMethod: paymentMethod || 'Carte / Espèces',
           });
-          if (result.success) { setSt('email', 'done'); }
+          if (result.success) {
+            setSt('email', 'done');
+            // Save email to client profile if new or updated
+            if (client?.id && email !== (client.email ?? '')) {
+              fetch(`/api/clients/${client.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email }),
+              }).catch(() => {});
+            }
+          }
           else { setSt('email', 'error'); setErr('email', result.error ?? 'Erreur inconnue'); }
         } catch (e: any) { setSt('email', 'error'); setErr('email', e.message ?? 'Erreur'); }
       }
@@ -2335,14 +2349,26 @@ function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, l
                 status={statuses.devis} errorMsg={errorMsgs.devis} />
 
               <ActionRow checked={actions.email} onToggle={() => toggle('email')}
-                emoji="📧" label="Envoyer par email" desc="Ticket de caisse HTML via Resend"
+                emoji="📧" label="Envoyer par email" desc={hasClientEmail ? `Email enregistré : ${clientEmail}` : "Ticket de caisse HTML par email"}
                 status={statuses.email} errorMsg={errorMsgs.email}>
                 {actions.email && (
-                  <input
-                    type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-                    placeholder="email@client.fr" autoFocus
-                    className="mt-2 w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  />
+                  <div className="mt-2 space-y-1">
+                    <input
+                      type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+                      placeholder="email@client.fr" autoFocus
+                      className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    />
+                    {client?.id && !hasClientEmail && email.includes('@') && (
+                      <p className="text-[11px] text-blue-600">
+                        📁 Cet email sera enregistré dans la fiche client après envoi
+                      </p>
+                    )}
+                    {client?.id && hasClientEmail && email !== clientEmail && (
+                      <p className="text-[11px] text-amber-600">
+                        ✏️ L'email de la fiche sera mis à jour avec cette adresse
+                      </p>
+                    )}
+                  </div>
                 )}
               </ActionRow>
 
