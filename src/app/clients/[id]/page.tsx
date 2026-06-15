@@ -62,6 +62,7 @@ export default function ClientDetailPage() {
   const [loyaltyTiers, setLoyaltyTiers] = useState<LoyaltyTier[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [referralData, setReferralData] = useState<{ referralCode: string | null; referralCount: number; referralPointsEarned: number; filleuls: any[] } | null>(null);
 
   useEffect(() => {
     if (!clientId) return;
@@ -81,6 +82,20 @@ export default function ClientDetailPage() {
       setLoyaltyTiers(tiers);
       setRewards(rews);
       setLoading(false);
+
+      // Load referral data (non-blocking)
+      try {
+        const [clientRow, refRes] = await Promise.all([
+          fetch(`/api/clients/${clientId}`).then(r => r.ok ? r.json() : null),
+          fetch(`/api/referrals?clientId=${clientId}&role=parrain`).then(r => r.ok ? r.json() : []),
+        ]);
+        setReferralData({
+          referralCode: clientRow?.referral_code ?? null,
+          referralCount: clientRow?.referral_count ?? 0,
+          referralPointsEarned: clientRow?.referral_points_earned ?? 0,
+          filleuls: Array.isArray(refRes) ? refRes : [],
+        });
+      } catch { /* non-blocking */ }
     })();
   }, [clientId]);
 
@@ -243,6 +258,81 @@ export default function ClientDetailPage() {
                 </div>
               )}
             </div>
+
+            {/* Parrainage */}
+            {referralData && (
+              <div className="bg-white rounded-xl border border-border p-5">
+                <h2 className="text-sm font-700 text-foreground mb-4 flex items-center gap-2">
+                  <Icon name="UserGroupIcon" size={15} className="text-pink-500" />
+                  Parrainage
+                </h2>
+                {referralData.referralCode ? (
+                  <>
+                    <div className="flex items-center gap-3 mb-4 p-3 bg-pink-50 border border-pink-200 rounded-xl">
+                      <div>
+                        <p className="text-[11px] text-pink-600 font-600 uppercase tracking-wide">Mon code parrainage</p>
+                        <p className="text-2xl font-800 font-mono text-pink-700 tracking-widest mt-0.5">{referralData.referralCode}</p>
+                      </div>
+                      <div className="ml-auto flex flex-col gap-1.5">
+                        <button
+                          onClick={() => {
+                            navigator.clipboard?.writeText(referralData.referralCode ?? '');
+                            import('sonner').then(({ toast }) => toast.success('Code copié !', { duration: 2000 }));
+                          }}
+                          className="flex items-center gap-1 px-2.5 py-1.5 bg-pink-600 text-white rounded-lg text-xs font-600 hover:bg-pink-700 transition-colors"
+                        >
+                          <Icon name="ClipboardDocumentIcon" size={12} />
+                          Copier
+                        </button>
+                        <button
+                          onClick={() => {
+                            const msg = `Bonjour ! 👋\n\nJe te recommande Le Monde de l'Esthétique pour tes produits beauté ! 💅\n\nUtilise mon code parrainage : ${referralData.referralCode}\n\n🎁 Tu bénéficies de -10% sur ta première commande !`;
+                            window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
+                          }}
+                          className="flex items-center gap-1 px-2.5 py-1.5 bg-green-500 text-white rounded-lg text-xs font-600 hover:bg-green-600 transition-colors"
+                        >
+                          <Icon name="ChatBubbleLeftRightIcon" size={12} />
+                          WhatsApp
+                        </button>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 mb-4">
+                      <div className="bg-muted/30 rounded-lg p-3 text-center">
+                        <p className="text-xl font-700 text-foreground">{referralData.referralCount}</p>
+                        <p className="text-xs text-muted-foreground">Filleule{referralData.referralCount !== 1 ? 's' : ''}</p>
+                      </div>
+                      <div className="bg-amber-50 rounded-lg p-3 text-center">
+                        <p className="text-xl font-700 text-amber-700">+{referralData.referralPointsEarned}</p>
+                        <p className="text-xs text-amber-600">Points gagnés</p>
+                      </div>
+                    </div>
+                    {referralData.filleuls.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Historique</p>
+                        {referralData.filleuls.map((r: any) => (
+                          <div key={r.id} className="flex items-center gap-2 py-1.5 px-2 bg-muted/20 rounded-lg">
+                            <Icon name="UserIcon" size={13} className="text-muted-foreground shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-500 text-foreground truncate">
+                                {r.filleul ? `${r.filleul.first_name} ${r.filleul.last_name}` : 'Anonyme'}
+                              </p>
+                              <p className="text-[10px] text-muted-foreground">{new Date(r.created_at).toLocaleDateString('fr-FR')}</p>
+                            </div>
+                            {r.parrain_rewarded_at ? (
+                              <span className="text-[10px] font-700 text-emerald-600 shrink-0">+{r.parrain_points} pts ✓</span>
+                            ) : (
+                              <span className="text-[10px] text-muted-foreground shrink-0">En attente</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-4">Code parrainage non encore généré</p>
+                )}
+              </div>
+            )}
 
             {/* Rewards */}
             {rewards.length > 0 && (

@@ -515,6 +515,13 @@ export default function POSTerminal() {
   const [avoirInputValue, setAvoirInputValue] = useState('');
   const [avoirLookupLoading, setAvoirLookupLoading] = useState(false);
   const [avoirLookupError, setAvoirLookupError] = useState<string | null>(null);
+  // Referral (parrainage) state
+  const [showReferralInput, setShowReferralInput] = useState(false);
+  const [referralCodeInput, setReferralCodeInput] = useState('');
+  const [referralCodeLoading, setReferralCodeLoading] = useState(false);
+  const [referralCodeError, setReferralCodeError] = useState<string | null>(null);
+  const [referralValidated, setReferralValidated] = useState<{ parrainId: string; firstName: string; code: string } | null>(null);
+  const [pendingReferral, setPendingReferral] = useState<{ referralId: string; parrainId: string; discountPct: number } | null>(null);
   const [demoProductRef, setDemoProductRef] = useState<{ id: string; name: string; ref: string } | null>(null);
   const [client, setClient] = useState<POSClient | null>(null);
   const [heldTickets, setHeldTickets] = useState<HeldTicket[]>([]);
@@ -793,6 +800,22 @@ export default function POSTerminal() {
     if (rewards.length > 0) setShowAvailableRewards(true);
     const allRewards = await loyaltyService.getClientRewards(posClient.id);
     setAllClientRewards(allRewards);
+
+    // Check for pending referral discount (filleul who hasn't used their -10% yet)
+    try {
+      const refRes = await fetch(`/api/referrals?clientId=${posClient.id}&role=filleul`);
+      if (refRes.ok) {
+        const refs = await refRes.json();
+        const pending = (refs as any[]).find((r: any) => r.statut === 'valide' && !r.filleul_discount_used);
+        if (pending) {
+          setPendingReferral({ referralId: pending.id, parrainId: pending.parrain_id ?? pending.parrain?.id, discountPct: pending.filleul_discount_percent ?? 10 });
+          toast(`🤝 ${posClient.name} a une réduction parrainage -${pending.filleul_discount_percent ?? 10}% disponible !`, {
+            duration: 5000,
+            style: { background: '#fdf2f8', color: '#86198f', border: '1px solid #f0abfc' },
+          });
+        }
+      }
+    } catch { /* non-blocking */ }
   }, []);
 
   const handleClientClear = useCallback(() => {
@@ -802,7 +825,9 @@ export default function POSTerminal() {
     setShowAvailableRewards(false);
     setAllClientRewards([]);
     setShowAllRewards(false);
-  }, []);
+    setPendingReferral(null);
+    if (globalDiscount?.isReferral) setGlobalDiscount(null);
+  }, [globalDiscount]);
 
   const handleAvoirLookup = useCallback(async () => {
     const num = avoirInputValue.trim();
@@ -824,6 +849,34 @@ export default function POSTerminal() {
       setAvoirLookupLoading(false);
     }
   }, [avoirInputValue]);
+
+  // ── Referral code validation ──────────────────────────────────────────────
+  const handleReferralValidate = useCallback(async () => {
+    const code = referralCodeInput.trim().toUpperCase();
+    if (!code) return;
+    setReferralCodeLoading(true);
+    setReferralCodeError(null);
+    try {
+      const res = await fetch('/api/referrals/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, filleulId: client?.id ?? null }),
+      });
+      const data = await res.json();
+      if (!data.valid) {
+        setReferralCodeError(data.error ?? 'Code invalide');
+        return;
+      }
+      setReferralValidated({ parrainId: data.parrain.id, firstName: data.parrain.firstName, code });
+      setGlobalDiscount({ type: 'percent', value: 10, isReferral: true, parrainId: data.parrain.id, referralCode: code });
+      setShowReferralInput(false);
+      toast.success(`Code parrainage de ${data.parrain.firstName} validé — -10% appliqué !`, { duration: 4000 });
+    } catch {
+      setReferralCodeError('Erreur réseau');
+    } finally {
+      setReferralCodeLoading(false);
+    }
+  }, [referralCodeInput, client]);
 
   // ── Handle reward use now ─────────────────────────────────────────────────
    const handleUseRewardNow = useCallback(async (reward: ClientLoyaltyReward) => {
@@ -1147,6 +1200,24 @@ export default function POSTerminal() {
       });
       if (!saved) toast.error('Ticket non enregistré — vérifiez la connexion', { duration: 8000 });
 
+      // Complete referral if one was applied
+      if (globalDiscount?.isReferral && globalDiscount.parrainId && !isDemoCart) {
+        fetch('/api/referrals/complete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            parrainId: globalDiscount.parrainId,
+            filleulId: client.id,
+            receiptId: saved?.id ?? null,
+            codeUtilise: globalDiscount.referralCode ?? '',
+            referralId: globalDiscount.referralId ?? pendingReferral?.referralId ?? null,
+          }),
+        }).catch(() => {});
+        setPendingReferral(null);
+        setReferralValidated(null);
+        setReferralCodeInput('');
+      }
+
       // Deduct avoir from client store_credit if used
       if (globalDiscount?.isAvoir && !isDemoCart) {
         const remaining = Math.max(0, client.balance - globalDiscountAmount);
@@ -1275,6 +1346,23 @@ export default function POSTerminal() {
         isDemo: isDemoCart,
       });
       if (!saved2) toast.error('Ticket non enregistré — vérifiez la connexion', { duration: 8000 });
+
+      // Complete referral if one was applied (anonymous checkout with referral code)
+      if (globalDiscount?.isReferral && globalDiscount.parrainId && !isDemoCart) {
+        fetch('/api/referrals/complete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            parrainId: globalDiscount.parrainId,
+            filleulId: null,
+            receiptId: saved2?.id ?? null,
+            codeUtilise: globalDiscount.referralCode ?? '',
+            referralId: null,
+          }),
+        }).catch(() => {});
+        setReferralValidated(null);
+        setReferralCodeInput('');
+      }
 
       // Deduct avoir from client store_credit if used
       if (globalDiscount?.isAvoir && client && !isDemoCart) {
@@ -1579,6 +1667,30 @@ export default function POSTerminal() {
             </button>
           )}
 
+          {/* Parrainage — pending referral for existing client */}
+          {client && pendingReferral && !globalDiscount?.isReferral && !globalDiscount?.isAvoir && (
+            <div className="mx-3 mt-1 bg-pink-50 border border-pink-200 rounded-lg p-2.5 w-[calc(100%-24px)]">
+              <p className="text-xs font-700 text-pink-700">🤝 Réduction parrainage -{pendingReferral.discountPct}% disponible !</p>
+              <button
+                onClick={() => setGlobalDiscount({ type: 'percent', value: pendingReferral.discountPct, isReferral: true, parrainId: pendingReferral.parrainId, referralId: pendingReferral.referralId })}
+                className="mt-1.5 bg-pink-600 text-white px-3 py-1 rounded text-xs font-600 hover:bg-pink-700 transition-colors"
+              >
+                Appliquer la réduction
+              </button>
+            </div>
+          )}
+
+          {/* Parrainage applied — show badge */}
+          {globalDiscount?.isReferral && (
+            <div className="mx-3 mt-1 flex items-center justify-between px-3 py-1.5 bg-pink-50 border border-pink-200 rounded-lg w-[calc(100%-24px)]">
+              <div className="flex items-center gap-2">
+                <Icon name="UserGroupIcon" size={13} className="text-pink-600" />
+                <span className="text-xs font-600 text-pink-700">Parrainage -{globalDiscount.value}% appliqué (-{globalDiscountAmount.toFixed(2)} €)</span>
+              </div>
+              <button onClick={() => { setGlobalDiscount(null); setReferralValidated(null); }} className="text-[10px] text-pink-600 hover:text-red-500">Retirer</button>
+            </div>
+          )}
+
           {/* Avoir applied — show badge */}
           {globalDiscount?.isAvoir && (
             <div className="mx-3 mt-1 flex items-center justify-between px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg w-[calc(100%-24px)]">
@@ -1645,6 +1757,61 @@ export default function POSTerminal() {
                   )}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Referral code input — for anonymous / no-client checkout */}
+          {!client && !globalDiscount?.isReferral && (
+            <div className="mx-3 mt-1 w-[calc(100%-24px)]">
+              {!showReferralInput ? (
+                <button
+                  onClick={() => { setShowReferralInput(true); setReferralCodeError(null); }}
+                  className="flex items-center gap-2 px-3 py-1.5 border border-dashed border-pink-200 rounded-lg text-xs text-pink-500 hover:border-pink-400 hover:text-pink-700 transition-colors w-full"
+                >
+                  <Icon name="UserGroupIcon" size={12} />
+                  Saisir un code parrainage (optionnel)
+                </button>
+              ) : (
+                <div className="border border-pink-300 rounded-lg p-2 bg-pink-50 space-y-1.5">
+                  <div className="flex gap-1.5">
+                    <input
+                      autoFocus
+                      type="text"
+                      value={referralCodeInput}
+                      onChange={e => { setReferralCodeInput(e.target.value.toUpperCase()); setReferralCodeError(null); }}
+                      onKeyDown={e => e.key === 'Enter' && handleReferralValidate()}
+                      placeholder="Ex: MARIE15"
+                      maxLength={10}
+                      className="flex-1 px-2 py-1 text-xs border border-pink-200 rounded-md font-mono uppercase focus:outline-none focus:ring-1 focus:ring-pink-400 bg-white"
+                    />
+                    <button
+                      onClick={handleReferralValidate}
+                      disabled={referralCodeLoading || !referralCodeInput.trim()}
+                      className="px-2.5 py-1 bg-pink-600 text-white text-xs font-600 rounded-md hover:bg-pink-700 disabled:opacity-50 transition-colors"
+                    >
+                      {referralCodeLoading ? '…' : 'OK'}
+                    </button>
+                    <button
+                      onClick={() => { setShowReferralInput(false); setReferralCodeInput(''); setReferralCodeError(null); }}
+                      className="px-2 py-1 text-gray-400 hover:text-gray-600 text-xs"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  {referralCodeError && <p className="text-[10px] text-red-600">{referralCodeError}</p>}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Referral validated confirmation (anonymous) */}
+          {!client && globalDiscount?.isReferral && referralValidated && (
+            <div className="mx-3 mt-1 flex items-center justify-between px-3 py-1.5 bg-pink-50 border border-pink-200 rounded-lg w-[calc(100%-24px)]">
+              <div className="flex items-center gap-2">
+                <Icon name="UserGroupIcon" size={13} className="text-pink-600" />
+                <span className="text-xs font-600 text-pink-700">🤝 Parrainage {referralValidated.firstName} -{globalDiscount.value}% (-{globalDiscountAmount.toFixed(2)} €)</span>
+              </div>
+              <button onClick={() => { setGlobalDiscount(null); setReferralValidated(null); setShowReferralInput(false); setReferralCodeInput(''); }} className="text-[10px] text-pink-600 hover:text-red-500">Retirer</button>
             </div>
           )}
 

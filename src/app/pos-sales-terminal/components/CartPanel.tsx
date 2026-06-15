@@ -10,6 +10,10 @@ export interface GlobalDiscount {
   type: 'percent' | 'amount';
   isAvoir?: boolean;
   avoirRecordId?: string; // set when applied by avoir number (to mark as used on checkout)
+  isReferral?: boolean;
+  parrainId?: string;
+  referralCode?: string;
+  referralId?: string; // set when filleul already has a pending referral record
 }
 
 export interface CartPanelHandle {
