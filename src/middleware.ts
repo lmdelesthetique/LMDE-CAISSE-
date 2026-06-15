@@ -24,7 +24,12 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // ── Client/supplier portals: isolated from admin PIN ──────────────────────
+  // Check FIRST, before any admin logic — no admin cookie required for these routes
   if (CLIENT_PORTALS.some(prefix => pathname.startsWith(prefix))) {
+    // Redirect bare /supplier-portal root → login (no page.tsx exists at root)
+    if (pathname === '/supplier-portal' || pathname === '/supplier-portal/') {
+      return NextResponse.redirect(new URL('/supplier-portal/login', request.url));
+    }
     return NextResponse.next();
   }
 

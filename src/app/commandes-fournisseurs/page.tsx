@@ -104,13 +104,26 @@ export default function CommandesFournisseursPage() {
             <h1 className="text-2xl font-700 text-foreground">Commandes Fournisseurs</h1>
             <p className="text-sm text-muted-foreground mt-0.5">{orders.length} commande{orders.length !== 1 ? 's' : ''} au total</p>
           </div>
-          <Link
-            href="/commandes-fournisseurs/nouvelle"
-            className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-500 hover:bg-primary/90 transition-colors"
-          >
-            <Icon name="PlusIcon" size={16} />
-            Nouvelle commande
-          </Link>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                const url = `${window.location.origin}/supplier-portal/login`;
+                navigator.clipboard?.writeText(url).then(() => alert(`Lien copié :\n${url}`)).catch(() => alert(`Lien portail fournisseur :\n${url}`));
+              }}
+              className="flex items-center gap-2 border border-border bg-white text-muted-foreground px-3 py-2 rounded-lg text-sm font-500 hover:bg-muted transition-colors"
+              title="Copier le lien du portail fournisseur à envoyer à vos fournisseurs"
+            >
+              <Icon name="LinkIcon" size={14} />
+              Lien portail
+            </button>
+            <Link
+              href="/commandes-fournisseurs/nouvelle"
+              className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-500 hover:bg-primary/90 transition-colors"
+            >
+              <Icon name="PlusIcon" size={16} />
+              Nouvelle commande
+            </Link>
+          </div>
         </div>
 
         {/* KPI strip */}
