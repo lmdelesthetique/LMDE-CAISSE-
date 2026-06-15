@@ -14,6 +14,7 @@ import AdminAlerts from '../backup-compliance/components/AdminAlerts';
 import ShopifyStatusCard from './components/ShopifyStatusCard';
 import ShopifyOrdersWidget from './components/ShopifyOrdersWidget';
 import DeliveryWidget from './components/DeliveryWidget';
+import AIMonthlyReport from './components/AIMonthlyReport';
 import { type DashboardFiltersState } from '@/lib/services/dashboardService';
 
 const DAYS_FR = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
@@ -92,6 +93,9 @@ export default function DashboardPage() {
               <RecentSalesFeed />
             </div>
           </div>
+
+          {/* AI Monthly Report */}
+          <AIMonthlyReport />
         </div>
       </div>
     </AppLayout>

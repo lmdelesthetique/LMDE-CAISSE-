@@ -487,6 +487,10 @@ export default function StockPage() {
   const [movementsLoading, setMovementsLoading] = useState(false);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [barcodeStatus, setBarcodeStatus] = useState<'idle' | 'scanning' | 'found' | 'notfound'>('idle');
+  const [aiAnalysis, setAiAnalysis] = useState<any>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiMock, setAiMock] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -531,6 +535,22 @@ export default function StockPage() {
   }, []);
 
   useBarcodeScanner({ onScan: handleBarcodeScan });
+
+  const handleAiAnalysis = async () => {
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const res = await fetch('/api/ai/stock-analysis');
+      if (!res.ok) throw new Error(`Erreur ${res.status}`);
+      const data = await res.json();
+      setAiAnalysis(data.analysis);
+      setAiMock(data.usedMock ?? false);
+    } catch (e: any) {
+      setAiError(e.message);
+    } finally {
+      setAiLoading(false);
+    }
+  };
 
   const filteredProducts = useMemo(() => {
     let list = products;
@@ -674,6 +694,117 @@ export default function StockPage() {
               {/* ===== DASHBOARD ===== */}
               {activeTab === 'dashboard' && (
                 <div className="p-6 space-y-8">
+
+                  {/* AI Stock Analysis */}
+                  <section>
+                    <div className="bg-gradient-to-r from-violet-50 to-pink-50 border border-violet-100 rounded-2xl p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg">🤖</span>
+                          <h2 className="font-700 text-foreground text-sm">Analyse stock IA</h2>
+                          {aiMock && aiAnalysis && (
+                            <span className="text-[10px] bg-amber-100 text-amber-700 border border-amber-200 font-500 px-1.5 py-0.5 rounded-full">démo</span>
+                          )}
+                        </div>
+                        <button
+                          onClick={handleAiAnalysis}
+                          disabled={aiLoading}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600 text-white text-xs font-600 hover:bg-violet-700 disabled:opacity-60 transition-colors"
+                        >
+                          {aiLoading ? (
+                            <>
+                              <div className="w-3 h-3 border-2 border-white/50 border-t-white rounded-full animate-spin" />
+                              Analyse…
+                            </>
+                          ) : (
+                            <>✨ {aiAnalysis ? 'Réanalyser' : 'Analyser le stock'}</>
+                          )}
+                        </button>
+                      </div>
+
+                      {aiError && (
+                        <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{aiError}</p>
+                      )}
+
+                      {!aiAnalysis && !aiLoading && !aiError && (
+                        <p className="text-xs text-muted-foreground text-center py-2">Obtenez une analyse IA personnalisée de votre stock en un clic</p>
+                      )}
+
+                      {aiLoading && (
+                        <div className="flex items-center justify-center gap-2 py-4">
+                          <div className="w-5 h-5 border-2 border-violet-200 border-t-violet-600 rounded-full animate-spin" />
+                          <span className="text-sm text-muted-foreground">Claude analyse votre stock…</span>
+                        </div>
+                      )}
+
+                      {aiAnalysis && !aiLoading && (
+                        <div className="space-y-3">
+                          {/* Score santé */}
+                          {aiAnalysis.score_sante_stock !== undefined && (
+                            <div className="flex items-center gap-3">
+                              <span className="text-xs text-muted-foreground font-500">Score santé stock</span>
+                              <div className="flex-1 h-2 bg-white/80 rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full transition-all ${aiAnalysis.score_sante_stock >= 70 ? 'bg-emerald-500' : aiAnalysis.score_sante_stock >= 40 ? 'bg-amber-500' : 'bg-red-500'}`}
+                                  style={{ width: `${aiAnalysis.score_sante_stock}%` }}
+                                />
+                              </div>
+                              <span className={`text-sm font-700 ${aiAnalysis.score_sante_stock >= 70 ? 'text-emerald-600' : aiAnalysis.score_sante_stock >= 40 ? 'text-amber-600' : 'text-red-600'}`}>
+                                {aiAnalysis.score_sante_stock}/100
+                              </span>
+                            </div>
+                          )}
+
+                          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                            {aiAnalysis.reapprovisionnement_urgent?.length > 0 && (
+                              <div className="bg-red-50 border border-red-100 rounded-xl p-3">
+                                <p className="text-xs font-700 text-red-700 mb-2">🚨 Réappro urgent</p>
+                                <ul className="space-y-1">
+                                  {aiAnalysis.reapprovisionnement_urgent.map((item: string, i: number) => (
+                                    <li key={i} className="text-xs text-red-800">• {item}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            {aiAnalysis.stock_critique?.length > 0 && (
+                              <div className="bg-amber-50 border border-amber-100 rounded-xl p-3">
+                                <p className="text-xs font-700 text-amber-700 mb-2">⚠️ Stock critique</p>
+                                <ul className="space-y-1">
+                                  {aiAnalysis.stock_critique.map((item: string, i: number) => (
+                                    <li key={i} className="text-xs text-amber-800">• {item}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            {aiAnalysis.stock_dormant?.length > 0 && (
+                              <div className="bg-blue-50 border border-blue-100 rounded-xl p-3">
+                                <p className="text-xs font-700 text-blue-700 mb-2">💤 Stock dormant</p>
+                                <ul className="space-y-1">
+                                  {aiAnalysis.stock_dormant.map((item: string, i: number) => (
+                                    <li key={i} className="text-xs text-blue-800">• {item}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          </div>
+
+                          {aiAnalysis.suggestions?.length > 0 && (
+                            <div className="bg-white/70 border border-violet-100 rounded-xl p-3">
+                              <p className="text-xs font-700 text-violet-700 mb-2">💡 Suggestions</p>
+                              <ul className="space-y-1">
+                                {aiAnalysis.suggestions.map((s: string, i: number) => (
+                                  <li key={i} className="text-xs text-foreground flex gap-1.5">
+                                    <span className="font-700 text-violet-500 shrink-0">{i + 1}.</span>
+                                    <span>{s}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </section>
 
                   {/* Restock urgents */}
                   <section>

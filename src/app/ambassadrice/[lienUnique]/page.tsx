@@ -37,6 +37,16 @@ const TYPE_LABEL: Record<ContenuType, string> = {
 
 // ─── Script Modal ─────────────────────────────────────────────────────────────
 
+type ScriptTab = 'hooks' | 'reel' | 'story' | 'temoignage' | 'guide';
+
+const SCRIPT_TABS: { key: ScriptTab; label: string }[] = [
+  { key: 'hooks', label: '🎣 Hooks' },
+  { key: 'reel', label: '🎬 Reel' },
+  { key: 'story', label: '📱 Story' },
+  { key: 'temoignage', label: '💬 Témoignage' },
+  { key: 'guide', label: '🎥 Guide' },
+];
+
 function ScriptModal({
   productName,
   script,
@@ -46,56 +56,134 @@ function ScriptModal({
   script: any;
   onClose: () => void;
 }) {
+  const [activeTab, setActiveTab] = useState<ScriptTab>('hooks');
+  const [copied, setCopied] = useState(false);
+
+  function copyText(text: string) {
+    navigator.clipboard?.writeText(text).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  // guide_tournage or fallback to guide
+  const guideContent = script.guide_tournage || script.guide || '';
+
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 px-0">
-      <div className="bg-white w-full rounded-t-3xl shadow-2xl max-h-[85vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-gray-100">
-          <h2 className="text-base font-bold text-gray-900">Script IA — {productName}</h2>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 text-lg">×</button>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 px-0">
+      <div className="bg-white w-full rounded-t-3xl shadow-2xl max-h-[90vh] flex flex-col">
+        {/* Header */}
+        <div className="bg-gradient-to-r from-pink-500 to-violet-600 px-5 pt-5 pb-3 rounded-t-3xl">
+          <div className="flex items-start justify-between mb-3">
+            <div>
+              <p className="text-xs text-white/70 font-medium">Script IA pour</p>
+              <h2 className="text-base font-black text-white">{productName}</h2>
+            </div>
+            <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full bg-white/20 text-white text-lg font-bold">×</button>
+          </div>
+          {/* Tabs */}
+          <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+            {SCRIPT_TABS.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={`px-3 py-1 rounded-full text-xs whitespace-nowrap font-semibold transition-colors shrink-0 ${
+                  activeTab === tab.key ? 'bg-white text-pink-600' : 'bg-white/20 text-white'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
-          {script.hooks?.length > 0 && (
-            <Section title="🎣 Hooks">
-              <ul className="space-y-1.5">
-                {script.hooks.map((h: string, i: number) => (
-                  <li key={i} className="text-sm text-gray-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
-                    {h}
-                  </li>
-                ))}
-              </ul>
-            </Section>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {activeTab === 'hooks' && (
+            <div className="space-y-3">
+              <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide">Choisis le hook le plus percutant :</p>
+              {(script.hooks ?? []).map((h: string, i: number) => (
+                <div key={i} className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                  <p className="font-semibold text-amber-900 text-sm">{i + 1}. {h}</p>
+                  <button onClick={() => copyText(h)} className="mt-1.5 text-xs text-amber-600 underline">
+                    📋 Copier ce hook
+                  </button>
+                </div>
+              ))}
+              {script.hashtags && (
+                <div className="bg-violet-50 border border-violet-200 rounded-xl p-3 mt-4">
+                  <p className="text-xs font-bold text-violet-700 mb-1"># Hashtags suggérés</p>
+                  <p className="text-sm text-violet-600">{script.hashtags}</p>
+                  <button onClick={() => copyText(script.hashtags)} className="mt-1.5 text-xs text-violet-500 underline">
+                    📋 Copier les hashtags
+                  </button>
+                </div>
+              )}
+            </div>
           )}
-          {script.reel && (
-            <Section title="🎬 Script Reel">
-              <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans">{script.reel}</pre>
-            </Section>
+
+          {activeTab === 'reel' && (
+            <div>
+              <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-3">Script Reel (60 secondes) :</p>
+              <div className="bg-gray-50 rounded-xl p-4 text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{script.reel}</div>
+              <button onClick={() => copyText(script.reel)} className="mt-3 w-full bg-pink-600 text-white py-2.5 rounded-xl text-sm font-bold hover:bg-pink-700 transition-colors">
+                {copied ? '✅ Copié !' : '📋 Copier le script Reel'}
+              </button>
+            </div>
           )}
-          {script.story && (
-            <Section title="📱 Stories">
-              <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans">{script.story}</pre>
-            </Section>
+
+          {activeTab === 'story' && (
+            <div>
+              <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-3">Script Stories :</p>
+              <div className="bg-gray-50 rounded-xl p-4 text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{script.story}</div>
+              <button onClick={() => copyText(script.story)} className="mt-3 w-full bg-pink-600 text-white py-2.5 rounded-xl text-sm font-bold hover:bg-pink-700 transition-colors">
+                {copied ? '✅ Copié !' : '📋 Copier les Stories'}
+              </button>
+            </div>
           )}
-          {script.temoignage && (
-            <Section title="💬 Témoignage">
-              <p className="text-sm text-gray-700 italic">{script.temoignage}</p>
-            </Section>
+
+          {activeTab === 'temoignage' && (
+            <div>
+              <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-3">Témoignage authentique :</p>
+              <div className="bg-gray-50 rounded-xl p-4 text-sm text-gray-700 italic leading-relaxed">{script.temoignage}</div>
+              {script.demonstration && (
+                <div className="mt-4">
+                  <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-2">Démonstration produit :</p>
+                  <div className="bg-blue-50 rounded-xl p-4 text-sm text-gray-700 whitespace-pre-wrap">{script.demonstration}</div>
+                </div>
+              )}
+              <button onClick={() => copyText(script.temoignage)} className="mt-3 w-full bg-pink-600 text-white py-2.5 rounded-xl text-sm font-bold hover:bg-pink-700 transition-colors">
+                {copied ? '✅ Copié !' : '📋 Copier le témoignage'}
+              </button>
+            </div>
           )}
-          {script.guide && (
-            <Section title="📋 Guide d'utilisation">
-              <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans">{script.guide}</pre>
-            </Section>
-          )}
-          {script.hashtags && (
-            <Section title="# Hashtags">
-              <p className="text-sm text-violet-700 font-medium">{script.hashtags}</p>
-            </Section>
+
+          {activeTab === 'guide' && (
+            <div className="space-y-3">
+              {guideContent && (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
+                  <p className="text-xs font-bold text-yellow-800 mb-2">🎥 Guide de tournage</p>
+                  <p className="text-sm text-yellow-800 whitespace-pre-wrap">{guideContent}</p>
+                  <button onClick={() => copyText(guideContent)} className="mt-2 text-xs text-yellow-700 underline">
+                    📋 Copier le guide
+                  </button>
+                </div>
+              )}
+              {script.hashtags && (
+                <div className="bg-violet-50 border border-violet-200 rounded-xl p-4">
+                  <p className="text-xs font-bold text-violet-700 mb-1"># Hashtags</p>
+                  <p className="text-sm text-violet-600">{script.hashtags}</p>
+                  <button onClick={() => copyText(script.hashtags)} className="mt-2 text-xs text-violet-500 underline">
+                    📋 Copier
+                  </button>
+                </div>
+              )}
+            </div>
           )}
         </div>
-        <div className="px-5 pb-6 pt-3">
-          <button
-            onClick={onClose}
-            className="w-full py-3.5 border-2 border-gray-200 text-gray-700 font-bold rounded-2xl text-sm hover:bg-gray-50 transition-colors"
-          >
+
+        {/* Footer */}
+        <div className="px-5 pb-6 pt-3 border-t border-gray-100">
+          <button onClick={onClose} className="w-full py-3 border-2 border-gray-200 text-gray-700 font-bold rounded-2xl text-sm hover:bg-gray-50 transition-colors">
             Fermer
           </button>
         </div>

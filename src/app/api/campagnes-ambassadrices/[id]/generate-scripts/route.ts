@@ -32,14 +32,9 @@ Story 3 : "Je l'utilise depuis X jours et voici ce que j'observe..."
 Story 4 : Sondage — "Vous connaissez ${product.name} ?" OUI / NON
 Story 5 : "Lien en bio pour le commander !"`,
     temoignage: `J'utilise ${product.name} depuis maintenant quelques semaines et les résultats sont bluffants ! Ma peau/cheveux/corps a vraiment changé. Je recommande à 100% à toutes celles qui cherchent un produit efficace et de qualité. Disponible chez Le Monde de l'Esthétique !`,
-    guide: `GUIDE D'UTILISATION — ${product.name}
-
-1. PRÉPARATION : Préparez votre peau/zone d'application
-2. APPLICATION : Appliquez le produit selon les instructions
-3. DURÉE : Laissez agir le temps recommandé
-4. RÉSULTAT : Profitez des bénéfices !
-
-CONSEIL PRO : Pour de meilleurs résultats, utilisez régulièrement.`,
+    guide: `GUIDE D'UTILISATION — ${product.name}\n\n1. PRÉPARATION : Préparez votre zone d'application\n2. APPLICATION : Appliquez en petite quantité\n3. DURÉE : Laissez agir le temps recommandé\n4. RÉSULTAT : Profitez des bénéfices !\n\nCONSEIL PRO : Pour de meilleurs résultats, utilisez régulièrement.`,
+    demonstration: `Étape 1 : Préparez votre zone d'application\nÉtape 2 : Appliquez ${product.name} en petite quantité\nÉtape 3 : Laissez agir selon les instructions\nÉtape 4 : Admirez le résultat !`,
+    guide_tournage: `📹 GUIDE TOURNAGE\n• Lumière : naturelle face à une fenêtre\n• Angle : 45° légèrement en hauteur\n• Durée reel : 30-60 sec\n• Fond : propre et épuré\n💡 CONSEIL : Filmer en portrait 9:16 pour Reels & TikTok`,
     hashtags: [
       '#beauté', '#soin', '#skincare', '#lmdelesthetique',
       '#beautyinfluencer', '#martinique', '#conseilbeauté',
@@ -58,12 +53,14 @@ ${product.description ? `Description : ${product.description}` : ''}
 
 Génère exactement ce JSON (sans markdown, juste le JSON pur) :
 {
-  "hooks": ["hook1", "hook2", "hook3"],
-  "reel": "script complet pour un reel de 30-60 secondes avec [INTRO], [DEMO], [RÉSULTAT], [CALL TO ACTION]",
-  "story": "séquence de 5 stories avec texte pour chaque story",
-  "temoignage": "témoignage authentique de 3-4 phrases",
+  "hooks": ["hook1 10 mots max", "hook2", "hook3"],
+  "reel": "script complet reel 60 secondes avec [INTRO] [DEMO] [RÉSULTAT] [CTA]",
+  "story": "séquence 5 stories numérotées avec texte",
+  "temoignage": "témoignage authentique 3-4 phrases",
   "guide": "guide d'utilisation étape par étape",
-  "hashtags": "#hashtag1 #hashtag2 #hashtag3..."
+  "demonstration": "démonstration produit étape par étape numérotée",
+  "guide_tournage": "guide tournage : lumière, angle, durée, tips pro",
+  "hashtags": "#hashtag1 #hashtag2 #lmdelesthetique"
 }
 
 Ton style : authentique, chaleureuse, créole si pertinent, orientée résultats. Parle aux femmes martiniquaises/antillaises.`;
