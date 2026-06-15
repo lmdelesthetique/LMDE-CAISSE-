@@ -6,7 +6,7 @@ import Link from 'next/link';
 import AppLayout from '@/components/AppLayout';
 
 type StatutReception = 'en_preparation' | 'expedie' | 'recu' | 'confirme';
-type CampagneStatut = 'en_preparation' | 'active' | 'terminee' | 'annulee';
+type CampagneStatut = 'brouillon' | 'active' | 'terminee' | 'annulee';
 
 const RECEPTION_LABEL: Record<StatutReception, string> = {
   en_preparation: 'En préparation',
@@ -23,7 +23,7 @@ const RECEPTION_COLOR: Record<StatutReception, string> = {
 };
 
 const CAMPAGNE_STATUT_LABEL: Record<CampagneStatut, string> = {
-  en_preparation: 'En préparation',
+  brouillon: 'En préparation',
   active: 'Active',
   terminee: 'Terminée',
   annulee: 'Annulée',
@@ -170,7 +170,7 @@ export default function CampagneDetailPage() {
                 disabled={updatingStatut}
                 className="px-3 py-1.5 border-2 border-gray-200 rounded-lg text-sm font-medium bg-white focus:outline-none focus:border-primary disabled:opacity-50"
               >
-                <option value="en_preparation">En préparation</option>
+                <option value="brouillon">En préparation</option>
                 <option value="active">Active</option>
                 <option value="terminee">Terminée</option>
                 <option value="annulee">Annulée</option>

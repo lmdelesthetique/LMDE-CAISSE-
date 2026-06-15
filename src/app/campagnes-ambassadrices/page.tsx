@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import AppLayout from '@/components/AppLayout';
 
-type CampagneStatut = 'en_preparation' | 'active' | 'terminee' | 'annulee';
+type CampagneStatut = 'brouillon' | 'active' | 'terminee' | 'annulee';
 
 interface Campagne {
   id: string;
@@ -20,14 +20,14 @@ interface Campagne {
 }
 
 const STATUT_LABEL: Record<CampagneStatut, string> = {
-  en_preparation: 'En préparation',
+  brouillon: 'En préparation',
   active: 'Active',
   terminee: 'Terminée',
   annulee: 'Annulée',
 };
 
 const STATUT_COLOR: Record<CampagneStatut, string> = {
-  en_preparation: 'bg-amber-50 text-amber-700',
+  brouillon: 'bg-amber-50 text-amber-700',
   active: 'bg-emerald-50 text-emerald-700',
   terminee: 'bg-gray-100 text-gray-500',
   annulee: 'bg-red-50 text-red-600',
@@ -76,7 +76,7 @@ export default function CampagnesPage() {
   };
 
   const actives = campagnes.filter((c) => c.statut === 'active').length;
-  const enPrep = campagnes.filter((c) => c.statut === 'en_preparation').length;
+  const enPrep = campagnes.filter((c) => c.statut === 'brouillon').length;
 
   return (
     <AppLayout>
@@ -149,7 +149,7 @@ export default function CampagnesPage() {
                     disabled={updatingId === c.id}
                     className="px-3 py-1.5 border-2 border-gray-200 rounded-lg text-xs font-medium bg-white focus:outline-none focus:border-primary disabled:opacity-50"
                   >
-                    <option value="en_preparation">En préparation</option>
+                    <option value="brouillon">En préparation</option>
                     <option value="active">Active</option>
                     <option value="terminee">Terminée</option>
                     <option value="annulee">Annulée</option>

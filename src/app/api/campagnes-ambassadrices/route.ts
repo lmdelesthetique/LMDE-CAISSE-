@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
         date_debut: body.date_debut ?? null,
         date_fin: body.date_fin ?? null,
         objectif: body.objectif ?? null,
-        statut: body.statut ?? 'en_preparation',
+        statut: body.statut ?? 'brouillon',
       })
       .select('*')
       .single();

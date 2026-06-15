@@ -34,10 +34,10 @@ export async function GET(
       .eq('ambassadrice_id', ambassadrice.id)
       .order('created_at', { ascending: false });
 
-    // Find the active campaign (status=active or en_preparation)
+    // Find the active campaign (status=active or brouillon)
     const activeAssignment = (assignments ?? []).find(
       (a: any) =>
-        a.campagne?.statut === 'active' || a.campagne?.statut === 'en_preparation'
+        a.campagne?.statut === 'active' || a.campagne?.statut === 'brouillon'
     ) ?? (assignments ?? [])[0] ?? null;
 
     if (!activeAssignment) {
