@@ -258,7 +258,7 @@ export default function ClientDetailPanel({
 
   const showEmailFeedback = (ok: boolean, text: string) => {
     setEmailMsg({ ok, text });
-    setTimeout(() => setEmailMsg(null), 4000);
+    setTimeout(() => setEmailMsg(null), 8000);
   };
 
   const handleSendPaymentLink = async () => {
@@ -272,9 +272,11 @@ export default function ClientDetailPanel({
         body: JSON.stringify({ subscriptionId: subscription.id }),
       });
       const d = await res.json();
-      showEmailFeedback(res.ok, res.ok ? `Lien de paiement envoyé à ${client.email}` : (d.error ?? 'Erreur envoi'));
+      showEmailFeedback(res.ok, res.ok
+        ? `✅ Lien de paiement envoyé à ${d.sentTo ?? client.email}`
+        : `❌ ${d.error ?? 'Erreur envoi'}`);
     } catch {
-      showEmailFeedback(false, 'Erreur réseau');
+      showEmailFeedback(false, '❌ Erreur réseau — vérifier la connexion');
     } finally {
       setSendingPayment(false);
     }
@@ -282,7 +284,7 @@ export default function ClientDetailPanel({
 
   const handleSendAccess = async () => {
     if (!subscription) return;
-    if (!client.email) { showEmailFeedback(false, 'Email client manquant — vérifier la fiche'); return; }
+    if (!client.email) { showEmailFeedback(false, '❌ Email client manquant — ajouter dans la fiche'); return; }
     setSendingAccess(true);
     try {
       const res = await fetch('/api/subscriptions/send-access', {
@@ -291,9 +293,11 @@ export default function ClientDetailPanel({
         body: JSON.stringify({ subscriptionId: subscription.id }),
       });
       const d = await res.json();
-      showEmailFeedback(res.ok, res.ok ? `Accès portail envoyé à ${client.email}` : (d.error ?? 'Erreur envoi'));
+      showEmailFeedback(res.ok, res.ok
+        ? `✅ Accès portail (PIN + lien) envoyés à ${d.sentTo ?? client.email}`
+        : `❌ ${d.error ?? 'Erreur envoi'}`);
     } catch {
-      showEmailFeedback(false, 'Erreur réseau');
+      showEmailFeedback(false, '❌ Erreur réseau — vérifier la connexion');
     } finally {
       setSendingAccess(false);
     }
