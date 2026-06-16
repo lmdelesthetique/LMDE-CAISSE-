@@ -290,34 +290,66 @@ export default function ClientDetailPage() {
                 </h2>
                 {referralData.referralCode ? (
                   <>
-                    <div className="flex items-center gap-3 mb-4 p-3 bg-pink-50 border border-pink-200 rounded-xl">
-                      <div>
-                        <p className="text-[11px] text-pink-600 font-600 uppercase tracking-wide">Mon code parrainage</p>
-                        <p className="text-2xl font-800 font-mono text-pink-700 tracking-widest mt-0.5">{referralData.referralCode}</p>
-                      </div>
-                      <div className="ml-auto flex flex-col gap-1.5">
-                        <button
-                          onClick={() => {
-                            navigator.clipboard?.writeText(referralData.referralCode ?? '');
-                            import('sonner').then(({ toast }) => toast.success('Code copié !', { duration: 2000 }));
-                          }}
-                          className="flex items-center gap-1 px-2.5 py-1.5 bg-pink-600 text-white rounded-lg text-xs font-600 hover:bg-pink-700 transition-colors"
-                        >
-                          <Icon name="ClipboardDocumentIcon" size={12} />
-                          Copier
-                        </button>
-                        <button
-                          onClick={() => {
-                            const msg = `Bonjour ! 👋\n\nJe te recommande Le Monde de l'Esthétique pour tes produits beauté ! 💅\n\nUtilise mon code parrainage : ${referralData.referralCode}\n\n🎁 Tu bénéficies de -10% sur ta première commande !`;
-                            window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
-                          }}
-                          className="flex items-center gap-1 px-2.5 py-1.5 bg-green-500 text-white rounded-lg text-xs font-600 hover:bg-green-600 transition-colors"
-                        >
-                          <Icon name="ChatBubbleLeftRightIcon" size={12} />
-                          WhatsApp
-                        </button>
-                      </div>
-                    </div>
+                    {(() => {
+                      const code = referralData.referralCode!;
+                      const link = `https://mondedelesthetique.fr/?ref=${code}`;
+                      const waMsg = `Bonjour ! 👋\n\nJe te recommande *Le Monde de l'Esthétique* pour tes produits beauté ! 💅\n\nUtilise mon code parrainage *${code}* ou commande directement ici 👉 ${link}\n\n🎁 -10% sur ta première commande !`;
+                      const emailSubject = `Je t'offre -10% chez Le Monde de l'Esthétique ! 💅`;
+                      const emailBody = `Bonjour !\n\nJe te recommande Le Monde de l'Esthétique pour tes produits beauté.\n\nUtilise mon code parrainage : ${code}\nOu commande directement : ${link}\n\nTu bénéficies de -10% sur ta première commande !\n\nÀ bientôt !`;
+                      return (
+                        <div className="mb-4 p-3 bg-pink-50 border border-pink-200 rounded-xl space-y-3">
+                          {/* Code */}
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-[11px] text-pink-600 font-600 uppercase tracking-wide">Code parrainage</p>
+                              <p className="text-3xl font-800 font-mono text-pink-700 tracking-widest mt-0.5">{code}</p>
+                            </div>
+                            <button
+                              onClick={() => {
+                                navigator.clipboard?.writeText(code);
+                                import('sonner').then(({ toast }) => toast.success('Code copié !', { duration: 2000 }));
+                              }}
+                              className="flex items-center gap-1 px-2.5 py-1.5 bg-pink-600 text-white rounded-lg text-xs font-600 hover:bg-pink-700 transition-colors"
+                            >
+                              <Icon name="ClipboardDocumentIcon" size={12} />
+                              Copier le code
+                            </button>
+                          </div>
+                          {/* Link */}
+                          <div className="flex items-center gap-2 bg-white border border-pink-100 rounded-lg px-2.5 py-1.5">
+                            <Icon name="LinkIcon" size={12} className="text-pink-400 shrink-0" />
+                            <span className="text-[11px] text-pink-600 font-mono truncate flex-1">{link}</span>
+                            <button
+                              onClick={() => {
+                                navigator.clipboard?.writeText(link);
+                                import('sonner').then(({ toast }) => toast.success('Lien copié !', { duration: 2000 }));
+                              }}
+                              className="shrink-0 text-[11px] font-600 text-pink-600 hover:text-pink-800 transition-colors"
+                            >
+                              Copier
+                            </button>
+                          </div>
+                          {/* Share buttons */}
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => window.open('https://wa.me/?text=' + encodeURIComponent(waMsg), '_blank')}
+                              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-green-500 text-white rounded-lg text-xs font-600 hover:bg-green-600 transition-colors"
+                            >
+                              <Icon name="ChatBubbleLeftRightIcon" size={13} />
+                              WhatsApp
+                            </button>
+                            <a
+                              href={`mailto:?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`}
+                              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-500 text-white rounded-lg text-xs font-600 hover:bg-blue-600 transition-colors"
+                            >
+                              <Icon name="EnvelopeIcon" size={13} />
+                              Email
+                            </a>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
                     <div className="grid grid-cols-2 gap-3 mb-4">
                       <div className="bg-muted/30 rounded-lg p-3 text-center">
                         <p className="text-xl font-700 text-foreground">{referralData.referralCount}</p>

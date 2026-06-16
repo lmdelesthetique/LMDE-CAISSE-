@@ -1760,6 +1760,50 @@ export default function POSTerminal() {
             </div>
           )}
 
+          {/* Referral code input — for client WITH no pending referral */}
+          {client && !pendingReferral && !globalDiscount?.isReferral && !globalDiscount?.isAvoir && (
+            <div className="mx-3 mt-1 w-[calc(100%-24px)]">
+              {!showReferralInput ? (
+                <button
+                  onClick={() => { setShowReferralInput(true); setReferralCodeError(null); }}
+                  className="flex items-center gap-2 px-3 py-1.5 border border-dashed border-pink-200 rounded-lg text-xs text-pink-500 hover:border-pink-400 hover:text-pink-700 transition-colors w-full"
+                >
+                  <Icon name="UserGroupIcon" size={12} />
+                  Saisir un code parrainage (optionnel)
+                </button>
+              ) : (
+                <div className="border border-pink-300 rounded-lg p-2 bg-pink-50 space-y-1.5">
+                  <div className="flex gap-1.5">
+                    <input
+                      autoFocus
+                      type="text"
+                      value={referralCodeInput}
+                      onChange={e => { setReferralCodeInput(e.target.value.toUpperCase()); setReferralCodeError(null); }}
+                      onKeyDown={e => e.key === 'Enter' && handleReferralValidate()}
+                      placeholder="Ex: MARIE15"
+                      maxLength={10}
+                      className="flex-1 px-2 py-1 text-xs border border-pink-200 rounded-md font-mono uppercase focus:outline-none focus:ring-1 focus:ring-pink-400 bg-white"
+                    />
+                    <button
+                      onClick={handleReferralValidate}
+                      disabled={referralCodeLoading || !referralCodeInput.trim()}
+                      className="px-2.5 py-1 bg-pink-600 text-white text-xs font-600 rounded-md hover:bg-pink-700 disabled:opacity-50 transition-colors"
+                    >
+                      {referralCodeLoading ? '…' : 'OK'}
+                    </button>
+                    <button
+                      onClick={() => { setShowReferralInput(false); setReferralCodeInput(''); setReferralCodeError(null); }}
+                      className="px-2 py-1 text-gray-400 hover:text-gray-600 text-xs"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  {referralCodeError && <p className="text-[10px] text-red-600">{referralCodeError}</p>}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Referral code input — for anonymous / no-client checkout */}
           {!client && !globalDiscount?.isReferral && (
             <div className="mx-3 mt-1 w-[calc(100%-24px)]">
