@@ -1,17 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
+import { createAdminClient } from '@/lib/supabase/admin';
 
 export async function POST(req: NextRequest) {
   const { subscriptionId } = await req.json();
   if (!subscriptionId) return NextResponse.json({ error: 'subscriptionId required' }, { status: 400 });
 
+  const supabase = createAdminClient();
+
   const { data: sub, error } = await supabase
-    .from('subscriptions')
+    .from('client_subscriptions')
     .select('id, portal_phone, pin_code, client:client_id(first_name, last_name, email), plan:plan_id(name, price)')
     .eq('id', subscriptionId)
     .single();

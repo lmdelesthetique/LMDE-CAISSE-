@@ -112,6 +112,9 @@ export default function ClientDetailPanel({
   const [portalPin, setPortalPin] = useState('');
   const [savingPortal, setSavingPortal] = useState(false);
   const [pinCopied, setPinCopied] = useState(false);
+  const [sendingPayment, setSendingPayment] = useState(false);
+  const [sendingAccess, setSendingAccess] = useState(false);
+  const [emailMsg, setEmailMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [discountType, setDiscountType] = useState(client.loyaltyDiscountType ?? '');
   const [discountValue, setDiscountValue] = useState(client.loyaltyDiscountValue ?? 0);
 
@@ -251,6 +254,49 @@ export default function ClientDetailPanel({
       })
       .eq('id', subscription.id);
     setSavingPortal(false);
+  };
+
+  const showEmailFeedback = (ok: boolean, text: string) => {
+    setEmailMsg({ ok, text });
+    setTimeout(() => setEmailMsg(null), 4000);
+  };
+
+  const handleSendPaymentLink = async () => {
+    if (!subscription) return;
+    if (!client.email) { showEmailFeedback(false, 'Email client manquant — vérifier la fiche'); return; }
+    setSendingPayment(true);
+    try {
+      const res = await fetch('/api/subscriptions/send-payment-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscriptionId: subscription.id }),
+      });
+      const d = await res.json();
+      showEmailFeedback(res.ok, res.ok ? `Lien de paiement envoyé à ${client.email}` : (d.error ?? 'Erreur envoi'));
+    } catch {
+      showEmailFeedback(false, 'Erreur réseau');
+    } finally {
+      setSendingPayment(false);
+    }
+  };
+
+  const handleSendAccess = async () => {
+    if (!subscription) return;
+    if (!client.email) { showEmailFeedback(false, 'Email client manquant — vérifier la fiche'); return; }
+    setSendingAccess(true);
+    try {
+      const res = await fetch('/api/subscriptions/send-access', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscriptionId: subscription.id }),
+      });
+      const d = await res.json();
+      showEmailFeedback(res.ok, res.ok ? `Accès portail envoyé à ${client.email}` : (d.error ?? 'Erreur envoi'));
+    } catch {
+      showEmailFeedback(false, 'Erreur réseau');
+    } finally {
+      setSendingAccess(false);
+    }
   };
 
   const selectedPlan = plans.find((p) => p.id === portalPlanId) ?? null;
@@ -792,6 +838,13 @@ export default function ClientDetailPanel({
           {/* ── SUBSCRIPTION ── */}
           {tab === 'subscription' && (
             <div className="p-6 space-y-5">
+              {/* Email feedback toast */}
+              {emailMsg && (
+                <div className={`flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-500 ${emailMsg.ok ? 'bg-emerald-50 border border-emerald-200 text-emerald-800' : 'bg-red-50 border border-red-200 text-red-700'}`}>
+                  <Icon name={emailMsg.ok ? 'CheckCircleIcon' : 'ExclamationCircleIcon'} size={16} />
+                  {emailMsg.text}
+                </div>
+              )}
               {/* Current subscription status */}
               {subscription ? (() => {
                 const subCfg2 = SUB_STATUS_CONFIG[subscription.status as keyof typeof SUB_STATUS_CONFIG] ?? { label: subscription.status, color: 'text-gray-600 bg-gray-50 border-gray-200' };
@@ -953,6 +1006,36 @@ export default function ClientDetailPanel({
                       : <><Icon name="CheckIcon" size={14} />Enregistrer le portail</>
                     }
                   </button>
+
+                  {/* Send payment link */}
+                  <div className="border-t border-rose-100 pt-3 space-y-2">
+                    <p className="text-[11px] font-600 text-rose-500 uppercase tracking-wide">Envoyer par email</p>
+                    <button
+                      onClick={handleSendPaymentLink}
+                      disabled={sendingPayment || !client.email}
+                      className="w-full py-2.5 bg-pink-600 text-white rounded-lg text-sm font-600 hover:bg-pink-700 transition-colors disabled:opacity-40 flex items-center justify-center gap-2"
+                      title={!client.email ? 'Email client manquant' : ''}
+                    >
+                      {sendingPayment
+                        ? <><Icon name="ArrowPathIcon" size={14} className="animate-spin" />Génération…</>
+                        : <><Icon name="CreditCardIcon" size={14} />Envoyer le lien de paiement{selectedPlan ? ` — ${selectedPlan.price} €` : ''}</>
+                      }
+                    </button>
+                    <button
+                      onClick={handleSendAccess}
+                      disabled={sendingAccess || !client.email || !portalPin}
+                      className="w-full py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-600 hover:bg-emerald-700 transition-colors disabled:opacity-40 flex items-center justify-center gap-2"
+                      title={!portalPin ? 'Générer un PIN en premier' : !client.email ? 'Email client manquant' : ''}
+                    >
+                      {sendingAccess
+                        ? <><Icon name="ArrowPathIcon" size={14} className="animate-spin" />Envoi…</>
+                        : <><Icon name="KeyIcon" size={14} />Envoyer les accès portail (PIN + lien)</>
+                      }
+                    </button>
+                    {!client.email && (
+                      <p className="text-[11px] text-amber-600 text-center">⚠️ Ajouter l'email du client dans la fiche</p>
+                    )}
+                  </div>
                 </div>
               )}
 
