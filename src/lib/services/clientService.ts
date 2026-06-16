@@ -32,6 +32,10 @@ export interface Client {
   loyaltyDiscountValue: number;
   lastPurchaseAt: string | null;
   balanceDue: number;
+  // Parrainage
+  referralCode: string | null;
+  referralCount: number;
+  referralPointsEarned: number;
 }
 
 export interface ClientSubscription {
@@ -167,6 +171,9 @@ function mapClient(row: any): Client {
     loyaltyDiscountValue: parseFloat(row.loyalty_discount_value ?? 0),
     lastPurchaseAt: row.last_purchase_at ?? null,
     balanceDue: parseFloat(row.balance_due ?? 0),
+    referralCode: row.referral_code ?? null,
+    referralCount: row.referral_count ?? 0,
+    referralPointsEarned: row.referral_points_earned ?? 0,
   };
 }
 

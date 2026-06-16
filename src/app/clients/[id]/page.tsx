@@ -63,6 +63,29 @@ export default function ClientDetailPage() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [referralData, setReferralData] = useState<{ referralCode: string | null; referralCount: number; referralPointsEarned: number; filleuls: any[] } | null>(null);
+  const [generatingCode, setGeneratingCode] = useState(false);
+
+  const refreshClient = async () => {
+    const c = await clientService.getById(clientId);
+    if (!c) return;
+    setClient(c);
+    setReferralData(prev => ({
+      referralCode: c.referralCode,
+      referralCount: c.referralCount,
+      referralPointsEarned: c.referralPointsEarned,
+      filleuls: prev?.filleuls ?? [],
+    }));
+  };
+
+  const handleGenerateCode = async () => {
+    setGeneratingCode(true);
+    try {
+      const res = await fetch(`/api/clients/${clientId}/generate-referral-code`, { method: 'POST' });
+      if (res.ok) await refreshClient();
+    } finally {
+      setGeneratingCode(false);
+    }
+  };
 
   useEffect(() => {
     if (!clientId) return;
@@ -81,20 +104,19 @@ export default function ClientDetailPage() {
       setSubscription(sub);
       setLoyaltyTiers(tiers);
       setRewards(rews);
+      // Initialize referral data from client immediately (no secondary fetch needed)
+      setReferralData({
+        referralCode: c.referralCode,
+        referralCount: c.referralCount,
+        referralPointsEarned: c.referralPointsEarned,
+        filleuls: [],
+      });
       setLoading(false);
 
-      // Load referral data (non-blocking)
+      // Load filleuls list (non-blocking)
       try {
-        const [clientRow, refRes] = await Promise.all([
-          fetch(`/api/clients/${clientId}`).then(r => r.ok ? r.json() : null),
-          fetch(`/api/referrals?clientId=${clientId}&role=parrain`).then(r => r.ok ? r.json() : []),
-        ]);
-        setReferralData({
-          referralCode: clientRow?.referral_code ?? null,
-          referralCount: clientRow?.referral_count ?? 0,
-          referralPointsEarned: clientRow?.referral_points_earned ?? 0,
-          filleuls: Array.isArray(refRes) ? refRes : [],
-        });
+        const refRes = await fetch(`/api/referrals?clientId=${clientId}&role=parrain`).then(r => r.ok ? r.json() : []);
+        setReferralData(prev => prev ? { ...prev, filleuls: Array.isArray(refRes) ? refRes : [] } : prev);
       } catch { /* non-blocking */ }
     })();
   }, [clientId]);
@@ -329,7 +351,21 @@ export default function ClientDetailPage() {
                     )}
                   </>
                 ) : (
-                  <p className="text-sm text-muted-foreground text-center py-4">Code parrainage non encore généré</p>
+                  <div className="text-center py-4 space-y-3">
+                    <p className="text-sm text-muted-foreground">Aucun code parrainage généré pour ce client.</p>
+                    <button
+                      onClick={handleGenerateCode}
+                      disabled={generatingCode}
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-pink-600 text-white rounded-lg text-sm font-600 hover:bg-pink-700 transition-colors disabled:opacity-60"
+                    >
+                      {generatingCode ? (
+                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <Icon name="SparklesIcon" size={14} />
+                      )}
+                      Générer un code
+                    </button>
+                  </div>
                 )}
               </div>
             )}
