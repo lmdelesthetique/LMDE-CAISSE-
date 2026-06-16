@@ -115,6 +115,9 @@ export default function ClientDetailPanel({
   const [sendingPayment, setSendingPayment] = useState(false);
   const [sendingAccess, setSendingAccess] = useState(false);
   const [emailMsg, setEmailMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [referralCode, setReferralCode] = useState<string | null>(client.referralCode);
+  const [generatingReferral, setGeneratingReferral] = useState(false);
+  const [sendingReferral, setSendingReferral] = useState(false);
   const [discountType, setDiscountType] = useState(client.loyaltyDiscountType ?? '');
   const [discountValue, setDiscountValue] = useState(client.loyaltyDiscountValue ?? 0);
 
@@ -303,6 +306,42 @@ export default function ClientDetailPanel({
     }
   };
 
+  const handleGenerateReferral = async () => {
+    setGeneratingReferral(true);
+    try {
+      const res = await fetch(`/api/clients/${client.id}/generate-referral-code`, { method: 'POST' });
+      const d = await res.json();
+      if (res.ok && d.referralCode) {
+        setReferralCode(d.referralCode);
+      } else {
+        showEmailFeedback(false, `❌ ${d.error ?? 'Erreur génération code'}`);
+      }
+    } catch {
+      showEmailFeedback(false, '❌ Erreur réseau');
+    } finally {
+      setGeneratingReferral(false);
+    }
+  };
+
+  const handleSendReferralEmail = async () => {
+    if (!client.email) { showEmailFeedback(false, '❌ Email client manquant — ajouter dans la fiche'); return; }
+    setSendingReferral(true);
+    try {
+      const res = await fetch('/api/subscriptions/send-referral-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId: client.id }),
+      });
+      const d = await res.json();
+      showEmailFeedback(res.ok,
+        res.ok ? `✅ Code parrainage envoyé à ${d.sentTo ?? client.email}` : `❌ ${d.error ?? 'Erreur envoi'}`);
+    } catch {
+      showEmailFeedback(false, '❌ Erreur réseau');
+    } finally {
+      setSendingReferral(false);
+    }
+  };
+
   const selectedPlan = plans.find((p) => p.id === portalPlanId) ?? null;
   const portalUrl = typeof window !== 'undefined' ? `${window.location.origin}/client-portal/login` : '/client-portal/login';
 
@@ -438,6 +477,74 @@ export default function ClientDetailPanel({
                 </div>
                 );
               })()}
+
+              {/* Parrainage */}
+              <div className="border border-pink-100 rounded-xl p-4 bg-pink-50/40">
+                <h3 className="text-xs font-700 uppercase tracking-wide text-pink-500 mb-3 flex items-center gap-1.5">
+                  <Icon name="UserGroupIcon" size={13} />
+                  Parrainage
+                </h3>
+                {referralCode ? (
+                  <div className="space-y-3">
+                    {/* Code display */}
+                    <div className="flex items-center justify-between bg-white border border-pink-200 rounded-xl px-3 py-2.5">
+                      <div>
+                        <p className="text-[10px] text-pink-500 font-600 uppercase tracking-wide">Code</p>
+                        <p className="text-2xl font-900 font-mono text-pink-700 tracking-widest">{referralCode}</p>
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <button
+                          onClick={() => { navigator.clipboard?.writeText(referralCode); showEmailFeedback(true, '✅ Code copié !'); }}
+                          className="px-2.5 py-1.5 bg-pink-600 text-white rounded-lg text-[11px] font-600 hover:bg-pink-700 transition-colors"
+                        >
+                          Copier
+                        </button>
+                        <button
+                          onClick={() => {
+                            const link = `https://mondedelesthetique.fr/?ref=${referralCode}`;
+                            const msg = `Bonjour ! 👋\n\nJe te recommande *Le Monde de l'Esthétique* pour tes produits beauté ! 💅\n\nCode parrainage *${referralCode}* ou 👉 ${link}\n\n🎁 -10% sur ta 1ère commande !`;
+                            window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
+                          }}
+                          className="px-2.5 py-1.5 bg-green-500 text-white rounded-lg text-[11px] font-600 hover:bg-green-600 transition-colors"
+                        >
+                          WhatsApp
+                        </button>
+                      </div>
+                    </div>
+                    {/* Send by email */}
+                    <button
+                      onClick={handleSendReferralEmail}
+                      disabled={sendingReferral || !client.email}
+                      className="w-full py-2 bg-pink-600 text-white rounded-lg text-xs font-600 hover:bg-pink-700 transition-colors disabled:opacity-40 flex items-center justify-center gap-2"
+                      title={!client.email ? 'Email client manquant' : ''}
+                    >
+                      {sendingReferral
+                        ? <><Icon name="ArrowPathIcon" size={12} className="animate-spin" />Envoi…</>
+                        : <><Icon name="EnvelopeIcon" size={12} />Envoyer le code par email</>
+                      }
+                    </button>
+                    {client.referralCount > 0 && (
+                      <p className="text-[11px] text-pink-600 text-center font-600">
+                        {client.referralCount} filleule{client.referralCount > 1 ? 's' : ''} · +{client.referralPointsEarned} pts gagnés
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center space-y-2">
+                    <p className="text-xs text-muted-foreground">Aucun code parrainage généré</p>
+                    <button
+                      onClick={handleGenerateReferral}
+                      disabled={generatingReferral}
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-pink-600 text-white rounded-lg text-sm font-600 hover:bg-pink-700 transition-colors disabled:opacity-60"
+                    >
+                      {generatingReferral
+                        ? <><span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />Génération…</>
+                        : <><Icon name="SparklesIcon" size={13} />Générer le code</>
+                      }
+                    </button>
+                  </div>
+                )}
+              </div>
 
               {/* Notes */}
               {client.notes && (
