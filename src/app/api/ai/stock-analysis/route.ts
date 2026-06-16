@@ -1,6 +1,26 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 
+async function fetchAllProducts(supabase: ReturnType<typeof createAdminClient>) {
+  const PAGE = 1000;
+  const all: any[] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from('products')
+      .select('id, name, stock, min_stock, sales_30d, sales_7d, category, sell_price_ttc')
+      .eq('status', 'active')
+      .neq('is_demo', true)
+      .order('stock', { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error || !data?.length) break;
+    all.push(...data);
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+  return all;
+}
+
 function mockAnalysis(ruptures: any[], lowStock: any[], dormant: any[]) {
   return {
     reapprovisionnement_urgent: ruptures.slice(0, 5).map(p => `${p.name} — rupture de stock`),
@@ -20,15 +40,7 @@ export async function GET() {
     const supabase = createAdminClient();
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-    const { data: products } = await supabase
-      .from('products')
-      .select('id, name, stock, min_stock, sales_30d, sales_7d, category, sell_price_ttc')
-      .eq('status', 'active')
-      .neq('is_demo', true)
-      .order('stock', { ascending: true })
-      .limit(200);
-
-    const allProducts = products ?? [];
+    const allProducts = await fetchAllProducts(supabase);
     const ruptures = allProducts.filter(p => (p.stock ?? 0) === 0);
     const lowStock = allProducts.filter(p => (p.stock ?? 0) > 0 && (p.stock ?? 0) <= (p.min_stock ?? 3));
     const dormant = allProducts.filter(p => (p.sales_30d ?? 0) === 0 && (p.stock ?? 0) > 5);

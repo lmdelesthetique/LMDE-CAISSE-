@@ -722,60 +722,117 @@ export default function InventaireScanPage() {
       )}
 
       {/* ── Confirm sync modal ── */}
-      {showConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-            <div className="px-6 pt-6 pb-4">
-              <div className="flex items-start gap-3 mb-5">
-                <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
-                  <Icon name="ExclamationTriangleIcon" size={22} className="text-amber-600" />
-                </div>
-                <div>
-                  <h2 className="text-base font-700 text-foreground">Valider l'inventaire ?</h2>
-                  <p className="text-sm text-muted-foreground mt-0.5">
-                    Le stock de {withDiff} produit(s) sera mis à jour dans la base de données.
-                  </p>
-                </div>
-              </div>
-
-              <div className="bg-muted/50 rounded-xl p-4 space-y-2">
-                {[
-                  { label: 'Produits scannés', value: String(totalScanned), color: 'text-foreground' },
-                  { label: 'Avec différences (seront mis à jour)', value: String(withDiff), color: withDiff > 0 ? 'text-amber-600' : 'text-emerald-600' },
-                  { label: 'Inchangés (ignorés)', value: String(totalScanned - withDiff), color: 'text-muted-foreground' },
-                  { label: 'Unités en écart total', value: String(totalUnitsEcart), color: 'text-foreground' },
-                ].map((row) => (
-                  <div key={row.label} className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">{row.label}</span>
-                    <span className={`font-600 ${row.color}`}>{row.value}</span>
+      {showConfirm && (() => {
+        const itemsWithDiff = scannedItems
+          .filter((i) => i.countedQty !== i.currentStock)
+          .sort((a, b) => Math.abs(b.countedQty - b.currentStock) - Math.abs(a.countedQty - a.currentStock));
+        const gains = itemsWithDiff.filter((i) => i.countedQty > i.currentStock);
+        const pertes = itemsWithDiff.filter((i) => i.countedQty < i.currentStock);
+        const totalGain = gains.reduce((s, i) => s + (i.countedQty - i.currentStock), 0);
+        const totalPerte = pertes.reduce((s, i) => s + (i.currentStock - i.countedQty), 0);
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col" style={{ maxHeight: '90vh' }}>
+              {/* Header */}
+              <div className="px-6 pt-6 pb-4 shrink-0">
+                <div className="flex items-start gap-3 mb-4">
+                  <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
+                    <Icon name="ExclamationTriangleIcon" size={22} className="text-amber-600" />
                   </div>
-                ))}
-              </div>
-            </div>
+                  <div>
+                    <h2 className="text-base font-700 text-foreground">Analyse de l'inventaire</h2>
+                    <p className="text-sm text-muted-foreground mt-0.5">
+                      {totalScanned} produit(s) scannés · {withDiff} écart(s) détecté(s)
+                    </p>
+                  </div>
+                </div>
 
-            <div className="px-6 pb-6 flex gap-3">
-              <button
-                onClick={() => setShowConfirm(false)}
-                className="flex-1 py-2.5 border border-border rounded-xl text-sm font-600 text-muted-foreground hover:bg-muted transition-colors"
-              >
-                Annuler
-              </button>
-              <button
-                onClick={handleValidate}
-                disabled={isSyncing}
-                className="flex-1 py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-700 hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center justify-center gap-2"
-              >
-                {isSyncing ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    En cours…
-                  </>
-                ) : 'Confirmer et synchroniser'}
-              </button>
+                {/* KPI strip */}
+                <div className="grid grid-cols-4 gap-2 mb-4">
+                  {[
+                    { label: 'Scannés', value: totalScanned, color: 'text-foreground', bg: 'bg-muted/50' },
+                    { label: 'Identiques', value: totalScanned - withDiff, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+                    { label: 'Surplus', value: gains.length, color: 'text-amber-600', bg: 'bg-amber-50' },
+                    { label: 'Manquants', value: pertes.length, color: 'text-red-600', bg: 'bg-red-50' },
+                  ].map((k) => (
+                    <div key={k.label} className={`${k.bg} rounded-xl p-2.5 text-center`}>
+                      <p className={`text-lg font-700 tabular-nums ${k.color}`}>{k.value}</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">{k.label}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {gains.length > 0 && (
+                  <div className="text-xs bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-2 flex justify-between">
+                    <span className="text-amber-700 font-600">📦 Surplus total (stock supérieur au comptage DB)</span>
+                    <span className="text-amber-700 font-700">+{totalGain} unités</span>
+                  </div>
+                )}
+                {pertes.length > 0 && (
+                  <div className="text-xs bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-4 flex justify-between">
+                    <span className="text-red-700 font-600">⚠️ Manquants total (stock inférieur au comptage DB)</span>
+                    <span className="text-red-700 font-700">-{totalPerte} unités</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Scrollable detail */}
+              {itemsWithDiff.length > 0 && (
+                <div className="flex-1 overflow-y-auto px-6 pb-2 min-h-0">
+                  <p className="text-[10px] font-700 uppercase tracking-wide text-muted-foreground mb-2">Détail des écarts</p>
+                  <div className="space-y-1.5">
+                    {itemsWithDiff.map((item) => {
+                      const diff = item.countedQty - item.currentStock;
+                      const isGain = diff > 0;
+                      return (
+                        <div key={item.uid} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border ${isGain ? 'bg-amber-50 border-amber-100' : 'bg-red-50 border-red-100'}`}>
+                          <div className="w-8 h-8 rounded-lg overflow-hidden bg-muted shrink-0">
+                            {item.imageUrl
+                              ? <img src={item.imageUrl} alt="" className="w-full h-full object-cover" />
+                              : <div className="w-full h-full flex items-center justify-center text-muted-foreground/40 text-xs">?</div>
+                            }
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-600 text-foreground truncate">{item.name}</p>
+                            <p className="text-[10px] text-muted-foreground">
+                              DB : <strong>{item.currentStock}</strong> → Compté : <strong>{item.countedQty}</strong>
+                            </p>
+                          </div>
+                          <span className={`text-xs font-700 px-2 py-0.5 rounded-full shrink-0 ${isGain ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
+                            {diff > 0 ? `+${diff}` : diff}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Footer */}
+              <div className="px-6 py-4 border-t border-border shrink-0 flex gap-3">
+                <button
+                  onClick={() => setShowConfirm(false)}
+                  className="flex-1 py-2.5 border border-border rounded-xl text-sm font-600 text-muted-foreground hover:bg-muted transition-colors"
+                >
+                  Corriger
+                </button>
+                <button
+                  onClick={handleValidate}
+                  disabled={isSyncing}
+                  className="flex-1 py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-700 hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center justify-center gap-2"
+                >
+                  {isSyncing ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Synchronisation…
+                    </>
+                  ) : `Confirmer (${withDiff} mise${withDiff > 1 ? 's' : ''} à jour)`}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </AppLayout>
   );
 }

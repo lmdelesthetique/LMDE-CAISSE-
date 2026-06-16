@@ -99,24 +99,27 @@ export async function fetchLocations(): Promise<InventoryLocation[]> {
 }
 
 export async function fetchStockLevels(locationId?: string): Promise<StockLevel[]> {
-  // Try inventory_stock_levels first
-  let query = supabase
-    .from('inventory_stock_levels')
-    .select(`
-      id,
-      quantity,
-      alert_level,
-      product_id,
-      location_id,
-      inventory_products!inner(product_name, sku, category, unit_cost, min_stock_level, reorder_point, supplier_id, suppliers(company_name)),
-      inventory_locations!inner(name)
-    `);
+  // Try inventory_stock_levels first — paginate to bypass Supabase 1000-row cap
+  const allRows = await fetchAll((from, to) => {
+    let q = supabase
+      .from('inventory_stock_levels')
+      .select(`
+        id,
+        quantity,
+        alert_level,
+        product_id,
+        location_id,
+        inventory_products!inner(product_name, sku, category, unit_cost, min_stock_level, reorder_point, supplier_id, suppliers(company_name)),
+        inventory_locations!inner(name)
+      `)
+      .order('alert_level', { ascending: false })
+      .range(from, to);
+    if (locationId && locationId !== 'all') q = q.eq('location_id', locationId);
+    return q;
+  });
 
-  if (locationId && locationId !== 'all') {
-    query = query.eq('location_id', locationId);
-  }
-
-  const { data, error } = await query.order('alert_level', { ascending: false });
+  const data = allRows.length > 0 ? allRows : null;
+  const error = null;
 
   // If inventory_stock_levels has data, use it
   if (!error && data && data.length > 0) {
@@ -206,7 +209,7 @@ export async function fetchMovements(locationId?: string, movementType?: string)
     .from('stock_movements_log')
     .select('id, product_id, product_name, movement_type, quantity_change, reason, reference, performed_by, source, created_at')
     .order('created_at', { ascending: false })
-    .limit(100) as any;
+    .limit(500) as any;
 
   // Map UI filter values to DB movement_type values
   if (movementType) {
