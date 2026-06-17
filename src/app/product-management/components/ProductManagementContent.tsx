@@ -294,10 +294,12 @@ EXECUTE FUNCTION sync_product_status();`;
     const sellPriceTTC = sellPriceHT * (1 + tvaRate / 100);
     const newQuantity = Number(data.quantityAvailable) || 0;
 
-    // Auto-compute status based on stock vs minStock
+    // Auto-compute status — never override an explicitly chosen inactive/coming-soon status
     let computedStatus = data.status || 'active';
-    if (newQuantity === 0 && computedStatus === 'active') computedStatus = 'rupture';
-    else if (newQuantity > 0 && computedStatus === 'rupture') computedStatus = 'active';
+    if (computedStatus !== 'inactive' && computedStatus !== 'coming_soon' && computedStatus !== 'archived') {
+      if (newQuantity === 0) computedStatus = 'rupture';
+      else computedStatus = 'active';
+    }
 
     const payload: any = {
       name: data.name,
@@ -318,7 +320,6 @@ EXECUTE FUNCTION sync_product_status();`;
       status: computedStatus,
       product_status: computedStatus,
       shopify: Boolean(data.shopify),
-      // Ensure we never store a data: URL — only real storage URLs or null
       image_url: (imageUrl && !imageUrl.startsWith('data:')) ? imageUrl : null,
       description: data.description || null,
       updated_at: new Date().toISOString(),
@@ -327,81 +328,57 @@ EXECUTE FUNCTION sync_product_status();`;
     if (editProduct) {
       savedProductId = editProduct.id;
       const previousStock = editProduct.stock || 0;
-      const { error } = await supabase.from('products').update(payload).eq('id', editProduct.id);
-      if (error) {
-        showToast(`Erreur mise à jour : ${error.message}`, 'error');
+
+      const stockMovement = newQuantity !== previousStock ? {
+        product_id: editProduct.id,
+        product_name: data.name,
+        movement_type: newQuantity > previousStock ? 'entry' : 'adjustment',
+        quantity_before: previousStock,
+        quantity_after: newQuantity,
+        quantity_change: newQuantity - previousStock,
+        reason: 'Modification fiche produit',
+        source: 'product_edit',
+        performed_by: 'Admin',
+      } : undefined;
+
+      const res = await fetch(`/api/products/${editProduct.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...payload, colorVariants, stockMovement }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(`Erreur mise à jour : ${json.error ?? res.status}`, 'error');
         return;
-      }
-      // If supplier changed, update supplier_id on product
-      if (data.supplierId && data.supplierId !== editProduct.supplierId) {
-        await supabase.from('products').update({ supplier_id: data.supplierId, purchase_price_supplier: Number(data.buyPrice) || 0 }).eq('id', editProduct.id);
-      }
-      // Log stock movement if quantity changed
-      if (newQuantity !== previousStock) {
-        await supabase.from('stock_movements_log').insert({
-          product_id: editProduct.id,
-          product_name: data.name,
-          movement_type: newQuantity > previousStock ? 'entry' : 'adjustment',
-          quantity_before: previousStock,
-          quantity_after: newQuantity,
-          quantity_change: newQuantity - previousStock,
-          reason: 'Modification fiche produit',
-          source: 'product_edit',
-          performed_by: 'Admin',
-          created_at: new Date().toISOString(),
-        });
       }
       showToast(`Produit "${data.name}" mis à jour`);
     } else {
-      const { data: inserted, error } = await supabase
-        .from('products')
-        .insert({ ...payload, created_at: new Date().toISOString() })
-        .select('id')
-        .single();
-      if (error) {
-        showToast(`Erreur création : ${error.message}`, 'error');
+      const stockMovement = newQuantity > 0 ? {
+        product_name: data.name,
+        movement_type: 'entry',
+        quantity_before: 0,
+        quantity_after: newQuantity,
+        quantity_change: newQuantity,
+        reason: 'Stock initial — création produit',
+        source: 'product_creation',
+        performed_by: 'Admin',
+      } : undefined;
+
+      const res = await fetch('/api/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...payload, colorVariants, stockMovement }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(`Erreur création : ${json.error ?? res.status}`, 'error');
         return;
       }
-      savedProductId = inserted?.id ?? null;
-      // Log initial stock entry if quantity > 0
-      if (newQuantity > 0 && inserted?.id) {
-        await supabase.from('stock_movements_log').insert({
-          product_id: inserted.id,
-          product_name: data.name,
-          movement_type: 'entry',
-          quantity_before: 0,
-          quantity_after: newQuantity,
-          quantity_change: newQuantity,
-          reason: 'Stock initial — création produit',
-          source: 'product_creation',
-          performed_by: 'Admin',
-          created_at: new Date().toISOString(),
-        });
-      }
+      savedProductId = json.id ?? null;
       const colorMsg = colorVariants && colorVariants.length > 0
         ? ` — ${colorVariants.length} couleur${colorVariants.length > 1 ? 's' : ''} ajoutée${colorVariants.length > 1 ? 's' : ''}`
         : '';
       showToast(`Produit "${data.name}" créé avec succès${colorMsg}`);
-    }
-
-    // Save color variants
-    if (savedProductId && colorVariants !== undefined) {
-      await supabase.from('product_color_stock').delete().eq('product_id', savedProductId);
-      if (colorVariants.length > 0) {
-        const { error: varErr } = await supabase.from('product_color_stock').insert(
-          colorVariants.map((v) => ({
-            product_id: savedProductId,
-            color_name: v.colorName,
-            color_hex: v.colorHex,
-            quantity: v.quantity,
-            min_stock: v.minStock,
-          }))
-        );
-        if (varErr) showToast(`Erreur déclinaisons : ${varErr.message}`, 'error');
-      }
-      await supabase.from('products')
-        .update({ has_color_variants: colorVariants.length > 0 })
-        .eq('id', savedProductId);
     }
 
     setShowModal(false);

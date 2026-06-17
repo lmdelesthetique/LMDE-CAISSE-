@@ -34,7 +34,8 @@ export async function middleware(request: NextRequest) {
   }
 
   // ── Livreur portal: completely isolated from admin ─────────────────────────
-  if (pathname.startsWith('/livreur')) {
+  // Use '/livreur/' (with slash) to avoid matching '/livreurs' (admin driver management)
+  if (pathname === '/livreur' || pathname.startsWith('/livreur/')) {
     // Login page is always public
     if (pathname === '/livreur/login') return NextResponse.next();
     // All other /livreur/* pages require the livreur cookie

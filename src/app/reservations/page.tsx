@@ -102,6 +102,17 @@ export default function ReservationsPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [invoiceLoading, setInvoiceLoading] = useState<string | null>(null);
   const [invoiceSuccess, setInvoiceSuccess] = useState<{ resId: string; factureNumero: string } | null>(null);
+  const [pickupLoading, setPickupLoading] = useState<string | null>(null);
+
+  // ── Delivery modal ──────────────────────────────────────────────────────────
+  type DriverOption = { id: string; name: string; driverStatus: string };
+  const [deliveryModalTarget, setDeliveryModalTarget] = useState<Reservation | null>(null);
+  const [deliveryDrivers, setDeliveryDrivers] = useState<DriverOption[]>([]);
+  const [deliveryDriverId, setDeliveryDriverId] = useState('');
+  const [deliveryModalAddress, setDeliveryModalAddress] = useState('');
+  const [loadingDrivers, setLoadingDrivers] = useState(false);
+  const [creatingDelivery, setCreatingDelivery] = useState(false);
+  const [deliveryResult, setDeliveryResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -176,7 +187,7 @@ export default function ReservationsPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          doc_type: 'facture',
+          doc_type: 'invoice',
           client_name: res.clientName,
           client_email: res.clientEmail || null,
           items: res.items.map((item) => ({
@@ -204,18 +215,11 @@ export default function ReservationsPage() {
       const { id: factureId, numero: factureNumero } = await factureRes.json();
 
       // Link the facture back to the reservation via pos_sale_id
-      const r = await fetch(`/api/reservations/${res.id}`, {
+      await fetch(`/api/reservations/${res.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pos_sale_id: factureId }),
       }).catch(() => null);
-
-      // If no dedicated PATCH route, update via supabase client directly
-      if (!r || !r.ok) {
-        const { createClient } = await import('@/lib/supabase/client');
-        const supabase = createClient();
-        await supabase.from('reservations').update({ pos_sale_id: factureId }).eq('id', res.id);
-      }
 
       setReservations((prev) =>
         prev.map((rv) => rv.id === res.id ? { ...rv, posSaleId: factureId } : rv)
@@ -227,6 +231,77 @@ export default function ReservationsPage() {
     } finally {
       setInvoiceLoading(null);
     }
+  };
+
+  const handleOpenDeliveryModal = async (res: Reservation) => {
+    setDeliveryModalTarget(res);
+    setDeliveryDriverId('');
+    setDeliveryModalAddress(res.deliveryAddress ?? '');
+    setDeliveryResult(null);
+    setLoadingDrivers(true);
+    try {
+      const r = await fetch('/api/livreurs');
+      const json = await r.json();
+      setDeliveryDrivers((json.drivers ?? []).map((dr: any) => ({
+        id: dr.id,
+        name: `${dr.first_name ?? ''} ${dr.last_name ?? ''}`.trim(),
+        driverStatus: dr.driver_status ?? 'off',
+      })));
+    } catch {
+      setDeliveryDrivers([]);
+    }
+    setLoadingDrivers(false);
+  };
+
+  const handleCreateDelivery = async () => {
+    if (!deliveryModalTarget || !deliveryModalAddress.trim()) return;
+    setCreatingDelivery(true);
+    setDeliveryResult(null);
+    try {
+      const res = await fetch('/api/livraisons', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_name: deliveryModalTarget.clientName,
+          client_phone: deliveryModalTarget.clientPhone ?? deliveryModalTarget.deliveryPhone ?? '',
+          delivery_address: deliveryModalAddress.trim(),
+          delivery_notes: deliveryModalTarget.deliveryNotes ?? '',
+          total_amount: deliveryModalTarget.totalAmount,
+          assigned_to_driver: deliveryDriverId || null,
+          products: deliveryModalTarget.items.map((item) => ({
+            name: item.name,
+            qty: item.qty,
+            price: item.price,
+            sku: item.sku ?? undefined,
+            imageUrl: (item as any).imageUrl ?? undefined,
+          })),
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json?.error) {
+        setDeliveryResult({ ok: false, msg: json?.error ?? `Erreur HTTP ${res.status}` });
+      } else {
+        setDeliveryResult({ ok: true, msg: deliveryDriverId ? 'Livraison créée et livreur assigné !' : 'Livraison créée avec succès !' });
+      }
+    } catch (e: any) {
+      setDeliveryResult({ ok: false, msg: e?.message ?? 'Erreur réseau' });
+    }
+    setCreatingDelivery(false);
+  };
+
+  const handlePickupConfirmed = async (res: Reservation) => {
+    setPickupLoading(res.id);
+    try {
+      await fetch(`/api/reservations/${res.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recovery_mode: 'recupere' }),
+      });
+      setReservations((prev) =>
+        prev.map((r) => r.id === res.id ? { ...r, recoveryMode: 'recupere' } : r)
+      );
+    } catch {}
+    setPickupLoading(null);
   };
 
   const filtered = reservations.filter((r) => {
@@ -635,6 +710,40 @@ export default function ReservationsPage() {
                               </button>
                             )}
 
+                            {/* Mettre en livraison — shows for all non-cancelled reservations */}
+                            {res.reservationStatus !== 'cancelled' && (
+                              <button
+                                onClick={() => handleOpenDeliveryModal(res)}
+                                title="Mettre en livraison"
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100 text-xs font-500 transition-colors"
+                              >
+                                <Icon name="TruckIcon" size={13} />
+                                <span className="hidden xl:inline">Livraison</span>
+                              </button>
+                            )}
+
+                            {/* Réceptionner — confirm client picked up */}
+                            {res.reservationStatus !== 'cancelled' && res.recoveryMode !== 'recupere' && (
+                              <button
+                                onClick={() => handlePickupConfirmed(res)}
+                                disabled={pickupLoading === res.id}
+                                title="Confirmer la récupération par la cliente"
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 text-xs font-500 transition-colors disabled:opacity-60"
+                              >
+                                {pickupLoading === res.id
+                                  ? <Icon name="ArrowPathIcon" size={13} className="animate-spin" />
+                                  : <Icon name="CheckCircleIcon" size={13} />
+                                }
+                                <span className="hidden xl:inline">Récept.</span>
+                              </button>
+                            )}
+                            {res.recoveryMode === 'recupere' && (
+                              <span className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-50 text-slate-500 border border-slate-200 text-xs font-500">
+                                <Icon name="CheckCircleIcon" size={13} />
+                                <span className="hidden xl:inline">Récupéré</span>
+                              </span>
+                            )}
+
                             {nextAction && (
                               <button
                                 onClick={() => handleAction(res, nextAction.action)}
@@ -700,6 +809,89 @@ export default function ReservationsPage() {
       )}
       {ticketTarget && (
         <ReservationTicket reservation={ticketTarget} onClose={() => setTicketTarget(null)} />
+      )}
+
+      {/* ── Delivery modal ─────────────────────────────────────────────────── */}
+      {deliveryModalTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center shrink-0">
+                <Icon name="TruckIcon" size={20} className="text-orange-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-700 text-foreground">Mettre en livraison</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">{deliveryModalTarget.clientName} · {deliveryModalTarget.reservationNumber}</p>
+              </div>
+              <button onClick={() => { setDeliveryModalTarget(null); setDeliveryResult(null); }} className="ml-auto p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
+                <Icon name="XMarkIcon" size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Driver select */}
+              <div>
+                <label className="text-xs font-600 text-muted-foreground uppercase tracking-wider mb-1.5 block">Livreur (optionnel)</label>
+                {loadingDrivers ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                    <Icon name="ArrowPathIcon" size={14} className="animate-spin" /> Chargement…
+                  </div>
+                ) : (
+                  <select
+                    value={deliveryDriverId}
+                    onChange={(e) => setDeliveryDriverId(e.target.value)}
+                    className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-300"
+                  >
+                    <option value="">— Sans livreur assigné —</option>
+                    {deliveryDrivers.map((dr) => (
+                      <option key={dr.id} value={dr.id}>
+                        {dr.name} {dr.driverStatus === 'available' ? '🟢' : dr.driverStatus === 'busy' ? '🟡' : '⚫'}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              {/* Address */}
+              <div>
+                <label className="text-xs font-600 text-muted-foreground uppercase tracking-wider mb-1.5 block">Adresse de livraison *</label>
+                <textarea
+                  value={deliveryModalAddress}
+                  onChange={(e) => setDeliveryModalAddress(e.target.value)}
+                  rows={3}
+                  placeholder="Ex: 12 Rue des Flamboyants, 97200 Fort-de-France, Martinique"
+                  className="w-full border border-border rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-orange-300"
+                />
+              </div>
+
+              {deliveryResult && (
+                <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm ${deliveryResult.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+                  <Icon name={deliveryResult.ok ? 'CheckCircleIcon' : 'ExclamationCircleIcon'} size={14} />
+                  {deliveryResult.msg}
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={() => { setDeliveryModalTarget(null); setDeliveryResult(null); }}
+                  className="flex-1 px-4 py-2 rounded-lg border border-border text-sm font-500 text-muted-foreground hover:bg-muted transition-colors"
+                >
+                  Fermer
+                </button>
+                {!deliveryResult?.ok && (
+                  <button
+                    onClick={handleCreateDelivery}
+                    disabled={creatingDelivery || !deliveryModalAddress.trim()}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-orange-500 text-white text-sm font-600 hover:bg-orange-600 transition-colors disabled:opacity-60"
+                  >
+                    {creatingDelivery ? <Icon name="ArrowPathIcon" size={14} className="animate-spin" /> : <Icon name="TruckIcon" size={14} />}
+                    Créer la livraison
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </AppLayout>
   );

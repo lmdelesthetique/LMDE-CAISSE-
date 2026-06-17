@@ -184,11 +184,17 @@ export async function fetchStockProducts(search?: string): Promise<StockProduct[
       return supabase
         .from('products')
         .select('*')
+        .neq('product_status', 'inactive')
         .or(`name.ilike.%${search.trim()}%,ref.ilike.%${search.trim()}%,supplier.ilike.%${search.trim()}%,category.ilike.%${search.trim()}%`)
         .order('name')
         .range(from, to);
     }
-    return supabase.from('products').select('*').order('name').range(from, to);
+    return supabase
+      .from('products')
+      .select('*')
+      .neq('product_status', 'inactive')
+      .order('name')
+      .range(from, to);
   });
   return data.map(mapProduct);
 }
@@ -313,16 +319,17 @@ export async function fetchTransitOrders(): Promise<TransitOrder[]> {
 
 export async function addStock(productId: string, productName: string, currentStock: number, qty: number, reason: string, performedBy = 'Admin'): Promise<boolean> {
   const newQty = currentStock + qty;
-  const updatePayload: Record<string, unknown> = { stock: newQty, updated_at: new Date().toISOString() };
-  // Restore active status when stock goes positive from zero
-  if (newQty > 0 && currentStock <= 0) {
-    updatePayload.status = 'active';
-    updatePayload.product_status = 'active';
-  }
   const { error: updateError } = await supabase
     .from('products')
-    .update(updatePayload)
+    .update({ stock: newQty, updated_at: new Date().toISOString() })
     .eq('id', productId);
+  // Restore active status only for non-inactive products
+  if (!updateError && newQty > 0 && currentStock <= 0) {
+    await supabase.from('products')
+      .update({ status: 'active', product_status: 'active' })
+      .eq('id', productId)
+      .neq('product_status', 'inactive');
+  }
 
   if (updateError) { console.error('addStock', updateError); return false; }
 
@@ -342,15 +349,17 @@ export async function addStock(productId: string, productName: string, currentSt
 
 export async function removeStock(productId: string, productName: string, currentStock: number, qty: number, reason: string, performedBy = 'Admin'): Promise<boolean> {
   const newQty = Math.max(0, currentStock - qty);
-  const updatePayload: Record<string, unknown> = { stock: newQty, updated_at: new Date().toISOString() };
-  if (newQty === 0) {
-    updatePayload.status = 'rupture';
-    updatePayload.product_status = 'rupture';
-  }
   const { error: updateError } = await supabase
     .from('products')
-    .update(updatePayload)
+    .update({ stock: newQty, updated_at: new Date().toISOString() })
     .eq('id', productId);
+  // Set rupture only for non-inactive products
+  if (!updateError && newQty === 0) {
+    await supabase.from('products')
+      .update({ status: 'rupture', product_status: 'rupture' })
+      .eq('id', productId)
+      .neq('product_status', 'inactive');
+  }
 
   if (updateError) { console.error('removeStock', updateError); return false; }
 
@@ -577,9 +586,8 @@ export async function deductStockForSale(
             source: 'pos_sale',
           });
 
-          // Update status if stock reaches 0
           if (compNewStock === 0) {
-            await supabase.from('products').update({ status: 'rupture', product_status: 'rupture' }).eq('id', comp.component_id);
+            await supabase.from('products').update({ status: 'rupture', product_status: 'rupture' }).eq('id', comp.component_id).neq('product_status', 'inactive');
           }
         }
       }
@@ -601,7 +609,7 @@ export async function deductStockForSale(
           source: 'pos_sale',
         });
         if (newKitStock === 0) {
-          await supabase.from('products').update({ status: 'rupture', product_status: 'rupture' }).eq('id', item.productId);
+          await supabase.from('products').update({ status: 'rupture', product_status: 'rupture' }).eq('id', item.productId).neq('product_status', 'inactive');
         }
       }
     } else {
@@ -634,9 +642,8 @@ export async function deductStockForSale(
         source: 'pos_sale',
       });
 
-      // Update product status if stock reaches 0
       if (newStock === 0) {
-        await supabase.from('products').update({ status: 'rupture', product_status: 'rupture' }).eq('id', item.productId);
+        await supabase.from('products').update({ status: 'rupture', product_status: 'rupture' }).eq('id', item.productId).neq('product_status', 'inactive');
       }
     }
   }

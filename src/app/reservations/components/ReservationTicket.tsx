@@ -42,12 +42,77 @@ function getVariantLabel(item: Reservation['items'][0]): string {
   return parts.join(' · ');
 }
 
+type DriverOption = { id: string; name: string; driverStatus: string };
+
 export default function ReservationTicket({ reservation, onClose }: ReservationTicketProps) {
   const ticketRef = useRef<HTMLDivElement>(null);
   const [emailInput, setEmailInput] = useState(reservation.clientEmail ?? '');
   const [sendingEmail, setSendingEmail] = useState(false);
   const [emailResult, setEmailResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [showEmailForm, setShowEmailForm] = useState(false);
+
+  // ── Delivery modal ────────────────────────────────────────────────────────
+  const [showDeliveryModal, setShowDeliveryModal] = useState(false);
+  const [deliveryDriverId, setDeliveryDriverId] = useState('');
+  const [deliveryAddress, setDeliveryAddress] = useState(reservation.deliveryAddress ?? '');
+  const [drivers, setDrivers] = useState<DriverOption[]>([]);
+  const [loadingDrivers, setLoadingDrivers] = useState(false);
+  const [creatingDelivery, setCreatingDelivery] = useState(false);
+  const [deliveryResult, setDeliveryResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  const handleOpenDeliveryModal = async () => {
+    setShowDeliveryModal(true);
+    setDeliveryResult(null);
+    setLoadingDrivers(true);
+    try {
+      const res = await fetch('/api/livreurs');
+      const json = await res.json();
+      setDrivers((json.drivers ?? []).map((dr: any) => ({
+        id: dr.id,
+        name: `${dr.first_name ?? ''} ${dr.last_name ?? ''}`.trim(),
+        driverStatus: dr.driver_status ?? 'off',
+      })));
+    } catch {
+      setDrivers([]);
+    }
+    setLoadingDrivers(false);
+  };
+
+  const handleCreateDelivery = async () => {
+    if (!deliveryAddress.trim()) return;
+    setCreatingDelivery(true);
+    setDeliveryResult(null);
+    try {
+      const res = await fetch('/api/livraisons', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_name: reservation.clientName,
+          client_phone: reservation.clientPhone ?? reservation.deliveryPhone ?? '',
+          delivery_address: deliveryAddress.trim(),
+          delivery_notes: reservation.deliveryNotes ?? '',
+          total_amount: reservation.totalAmount,
+          assigned_to_driver: deliveryDriverId || null,
+          products: reservation.items.map((item) => ({
+            name: item.name,
+            qty: item.qty,
+            price: item.price,
+            sku: item.sku ?? undefined,
+            imageUrl: (item as any).imageUrl ?? undefined,
+          })),
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json?.error) {
+        setDeliveryResult({ ok: false, msg: json?.error ?? `Erreur HTTP ${res.status}` });
+      } else {
+        setDeliveryResult({ ok: true, msg: deliveryDriverId ? 'Livraison créée et livreur assigné !' : 'Livraison créée avec succès !' });
+      }
+    } catch (e: any) {
+      setDeliveryResult({ ok: false, msg: e?.message ?? 'Erreur réseau' });
+    }
+    setCreatingDelivery(false);
+  };
 
   const company = DEFAULT_COMPANY;
   const recoveryLabel = RECOVERY_MODE_CONFIG[reservation.recoveryMode]?.label ?? reservation.recoveryMode;
@@ -471,11 +536,98 @@ export default function ReservationTicket({ reservation, onClose }: ReservationT
               Email
             </button>
           </div>
+          <button
+            onClick={handleOpenDeliveryModal}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-orange-500 text-white text-sm font-600 rounded-lg hover:bg-orange-600 transition-colors"
+          >
+            <Icon name="TruckIcon" size={15} />
+            Mettre en livraison
+          </button>
           <button onClick={onClose} className="w-full py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
             Fermer
           </button>
         </div>
       </div>
+
+      {/* Delivery modal */}
+      {showDeliveryModal && (
+        <div className="fixed inset-0 z-[60] flex items-end md:items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setShowDeliveryModal(false)} />
+          <div className="relative w-full max-w-md bg-white rounded-t-2xl md:rounded-2xl shadow-2xl p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-700 text-foreground flex items-center gap-2">
+                <Icon name="TruckIcon" size={16} className="text-orange-500" />
+                Mettre en livraison
+              </h3>
+              <button onClick={() => setShowDeliveryModal(false)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
+                <Icon name="XMarkIcon" size={16} />
+              </button>
+            </div>
+
+            {/* Client */}
+            <div className="text-sm bg-muted/40 rounded-lg px-3 py-2">
+              <span className="font-600 text-foreground">{reservation.clientName}</span>
+              {reservation.clientPhone && <span className="text-muted-foreground"> · {reservation.clientPhone}</span>}
+            </div>
+
+            {/* Address */}
+            <div className="space-y-1.5">
+              <label className="block text-xs font-600 text-foreground">Adresse de livraison *</label>
+              <textarea
+                value={deliveryAddress}
+                onChange={(e) => setDeliveryAddress(e.target.value)}
+                placeholder="Rue, ville, code postal, pays…"
+                rows={2}
+                className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-400/30 resize-none"
+              />
+            </div>
+
+            {/* Driver */}
+            <div className="space-y-1.5">
+              <label className="block text-xs font-600 text-foreground">Livreur (optionnel)</label>
+              {loadingDrivers ? (
+                <p className="text-xs text-muted-foreground">Chargement des livreurs…</p>
+              ) : (
+                <select
+                  value={deliveryDriverId}
+                  onChange={(e) => setDeliveryDriverId(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-400/30 bg-white"
+                >
+                  <option value="">— Assigner plus tard —</option>
+                  {drivers.map((dr) => (
+                    <option key={dr.id} value={dr.id}>
+                      {dr.name} {dr.driverStatus === 'on' ? '🟢' : '⚫'}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            {deliveryResult && (
+              <div className={`flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg ${deliveryResult.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+                <Icon name={deliveryResult.ok ? 'CheckCircleIcon' : 'ExclamationCircleIcon'} size={13} />
+                {deliveryResult.msg}
+              </div>
+            )}
+
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={() => setShowDeliveryModal(false)}
+                className="flex-1 py-2.5 border border-border text-sm font-500 text-muted-foreground rounded-xl hover:bg-muted transition-colors"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleCreateDelivery}
+                disabled={creatingDelivery || !deliveryAddress.trim() || deliveryResult?.ok === true}
+                className="flex-1 py-2.5 bg-orange-500 text-white text-sm font-600 rounded-xl hover:bg-orange-600 transition-colors disabled:opacity-50"
+              >
+                {creatingDelivery ? 'Création…' : deliveryResult?.ok ? 'Créée ✓' : 'Confirmer'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

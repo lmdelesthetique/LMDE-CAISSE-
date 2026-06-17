@@ -331,6 +331,16 @@ export default function LivraisonsPage() {
                   const cfg = DELIVERY_STATUS_CONFIG[d.status] ?? { label: d.status, color: 'text-gray-800', bg: 'bg-gray-100 border-gray-300', dot: 'bg-gray-400' };
                   const products = d.products ?? [];
                   const isNewShopify = newShopifyIds.has(d.id);
+                  const { country } = parseLivraisonAddress(d.deliveryAddress);
+                  const countryBadge = country.toLowerCase().includes('martinique')
+                    ? 'bg-teal-100 text-teal-700 border-teal-200'
+                    : country.toLowerCase().includes('guadeloupe')
+                      ? 'bg-purple-100 text-purple-700 border-purple-200'
+                      : country.toLowerCase().includes('réunion') || country.toLowerCase().includes('reunion')
+                        ? 'bg-orange-100 text-orange-700 border-orange-200'
+                        : country
+                          ? 'bg-blue-100 text-blue-700 border-blue-200'
+                          : '';
                   return (
                     <tr key={d.id} className={`hover:bg-gray-50 transition-colors ${isNewShopify ? 'bg-green-50/60' : ''}`}>
                       {/* Order# */}
@@ -376,6 +386,11 @@ export default function LivraisonsPage() {
                       {/* Address */}
                       <td className="px-4 py-3 hidden md:table-cell max-w-[180px]">
                         <p className="text-xs text-gray-600 line-clamp-2">{d.deliveryAddress}</p>
+                        {country && (
+                          <span className={`inline-block mt-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded border ${countryBadge}`}>
+                            {country}
+                          </span>
+                        )}
                       </td>
 
                       {/* Items */}

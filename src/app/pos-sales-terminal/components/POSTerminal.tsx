@@ -106,6 +106,38 @@ function ClientFicheSlideOver({ client, allRewards, loyaltyTiers, onClose, onPoi
   const [pointsReason, setPointsReason] = useState('Correction manuelle');
   const [savingPoints, setSavingPoints] = useState(false);
 
+  // Parrainage
+  const [sendingReferral, setSendingReferral] = useState(false);
+  const [referralSent, setReferralSent] = useState(false);
+  const [copiedReferral, setCopiedReferral] = useState(false);
+  const [generatingReferral, setGeneratingReferral] = useState(false);
+
+  const handleSendReferralEmail = async () => {
+    setSendingReferral(true);
+    try {
+      await fetch('/api/subscriptions/send-referral-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId: client.id }),
+      });
+      setReferralSent(true);
+      setTimeout(() => setReferralSent(false), 5000);
+    } catch {}
+    setSendingReferral(false);
+  };
+
+  const handleGenerateReferral = async () => {
+    setGeneratingReferral(true);
+    try {
+      const res = await fetch(`/api/clients/${client.id}/generate-referral-code`, { method: 'POST' });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json.referral_code) {
+        setFullClient(prev => prev ? { ...prev, referralCode: json.referral_code } : prev);
+      }
+    } catch {}
+    setGeneratingReferral(false);
+  };
+
   useEffect(() => {
     (async () => {
       setLoading(true);
@@ -406,6 +438,64 @@ function ClientFicheSlideOver({ client, allRewards, loyaltyTiers, onClose, onPoi
                 </div>
               </div>
             )}
+
+            {/* Parrainage */}
+            <div className="p-4 border-b border-border">
+              <p className="text-[10px] font-700 text-muted-foreground uppercase tracking-wide mb-2">Parrainage</p>
+              {fullClient?.referralCode ? (
+                <div className="space-y-2">
+                  <div className="bg-pink-50 border border-pink-200 rounded-xl p-3 text-center">
+                    <p className="text-[10px] text-pink-500 font-600 mb-1">Code parrainage</p>
+                    <p className="text-xl font-900 text-pink-600 tracking-[6px] font-mono">{fullClient.referralCode}</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-muted/30 rounded-lg p-2 text-center">
+                      <p className="text-sm font-700 text-foreground">{fullClient.referralCount ?? 0}</p>
+                      <p className="text-[10px] text-muted-foreground">Filleul{(fullClient.referralCount ?? 0) > 1 ? 's' : ''}</p>
+                    </div>
+                    <div className="bg-muted/30 rounded-lg p-2 text-center">
+                      <p className="text-sm font-700 text-amber-600">{fullClient.referralPointsEarned ?? 0} pts</p>
+                      <p className="text-[10px] text-muted-foreground">Pts gagnés</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(`https://mondedelesthetique.fr/?ref=${fullClient.referralCode}`);
+                        setCopiedReferral(true);
+                        setTimeout(() => setCopiedReferral(false), 2000);
+                      }}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-1.5 border border-pink-200 rounded-lg text-xs font-600 text-pink-600 hover:bg-pink-50 transition-colors"
+                    >
+                      <Icon name={copiedReferral ? 'CheckIcon' : 'ClipboardDocumentIcon'} size={12} />
+                      {copiedReferral ? 'Copié !' : 'Copier'}
+                    </button>
+                    <button
+                      onClick={handleSendReferralEmail}
+                      disabled={sendingReferral || !fullClient?.email}
+                      title={!fullClient?.email ? 'Aucun email dans la fiche' : 'Envoyer le code par email'}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-1.5 bg-pink-500 text-white rounded-lg text-xs font-600 hover:bg-pink-600 disabled:opacity-50 transition-colors"
+                    >
+                      {sendingReferral
+                        ? <Icon name="ArrowPathIcon" size={12} className="animate-spin" />
+                        : <Icon name="EnvelopeIcon" size={12} />}
+                      {sendingReferral ? 'Envoi…' : referralSent ? 'Envoyé ✓' : 'Envoyer'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={handleGenerateReferral}
+                  disabled={generatingReferral}
+                  className="w-full flex items-center justify-center gap-2 py-2 bg-pink-50 border border-dashed border-pink-300 rounded-xl text-xs font-600 text-pink-600 hover:bg-pink-100 disabled:opacity-50 transition-colors"
+                >
+                  {generatingReferral
+                    ? <Icon name="ArrowPathIcon" size={13} className="animate-spin" />
+                    : <Icon name="GiftIcon" size={13} />}
+                  {generatingReferral ? 'Génération…' : 'Générer un code parrainage'}
+                </button>
+              )}
+            </div>
 
             {/* Purchase history */}
             <div className="p-4">
@@ -1637,6 +1727,9 @@ export default function POSTerminal() {
             onClear={handleClientClear}
           />
 
+          {/* Scrollable middle: client info + cart */}
+          <div className="flex-1 overflow-y-auto min-h-0 scrollbar-thin">
+
           {/* Voir fiche client */}
           {client && (
             <button
@@ -1987,7 +2080,9 @@ export default function POSTerminal() {
             tvaRate={LIVE_TAX_RATE}
             cashierName={employee?.fullName || 'Caisse'}
           />
-          {/* Payment buttons */}
+          </div>{/* end scrollable middle */}
+
+          {/* Payment buttons — always visible at bottom */}
           <div className="border-t border-border p-4 space-y-3 shrink-0">
             <div className="grid grid-cols-2 gap-2">
               {[
