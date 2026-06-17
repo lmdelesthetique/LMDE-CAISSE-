@@ -334,60 +334,47 @@ export const supplierOrderService = {
   },
 
   async update(id: string, payload: Partial<FoOrder>): Promise<FoOrder | null> {
-    const supabase = createClient();
     try {
-      const u: any = {};
-      if (payload.orderStatus !== undefined) u.order_status = payload.orderStatus;
-      if (payload.notes !== undefined) u.notes = payload.notes;
-      if (payload.internalNotes !== undefined) u.internal_notes = payload.internalNotes;
-      if (payload.trackingNumber !== undefined) u.tracking_number = payload.trackingNumber;
-      if (payload.expectedDeliveryAt !== undefined) u.expected_delivery_at = payload.expectedDeliveryAt;
-      if (payload.shippedAt !== undefined) u.shipped_at = payload.shippedAt;
-      if (payload.receivedAt !== undefined) u.received_at = payload.receivedAt;
-      if (payload.subtotal !== undefined) u.subtotal = payload.subtotal;
-      if (payload.transportCost !== undefined) u.transport_cost = payload.transportCost;
-      if (payload.customsCost !== undefined) u.customs_cost = payload.customsCost;
-      if (payload.vatImport !== undefined) u.vat_import = payload.vatImport;
-      if (payload.freightForwarderCost !== undefined) u.freight_forwarder_cost = payload.freightForwarderCost;
-      if (payload.bankFees !== undefined) u.bank_fees = payload.bankFees;
-      if (payload.exchangeFees !== undefined) u.exchange_fees = payload.exchangeFees;
-      if (payload.localDelivery !== undefined) u.local_delivery = payload.localDelivery;
-      if (payload.otherCosts !== undefined) u.other_costs = payload.otherCosts;
-      if (payload.totalRealCost !== undefined) u.total_real_cost = payload.totalRealCost;
-      if (payload.costMethod !== undefined) u.cost_method = payload.costMethod;
-      if (payload.costsValidated !== undefined) u.costs_validated = payload.costsValidated;
-      if (payload.stockIntegrated !== undefined) u.stock_integrated = payload.stockIntegrated;
-      if (payload.stockUpdated !== undefined) u.stock_updated = payload.stockUpdated;
-      if (payload.paymentStatus !== undefined) u.payment_status = payload.paymentStatus;
-      if (payload.paymentMethod !== undefined) u.payment_method = payload.paymentMethod;
-      if (payload.paymentAmount !== undefined) u.payment_amount = payload.paymentAmount;
-      if (payload.paymentDate !== undefined) u.payment_date = payload.paymentDate;
-      if (payload.paymentProofUrl !== undefined) u.payment_proof_url = payload.paymentProofUrl;
-      if (payload.balanceDue !== undefined) u.balance_due = payload.balanceDue;
-      if (payload.supplierValidated !== undefined) u.supplier_validated = payload.supplierValidated;
-      if (payload.supplierComment !== undefined) u.supplier_comment = payload.supplierComment;
-      if (payload.supplierFinalAmount !== undefined) u.supplier_final_amount = payload.supplierFinalAmount;
-      u.updated_at = new Date().toISOString();
-
-      const { data, error } = await supabase.from('fo_orders').update(u).eq('id', id).select('*, suppliers(company_name)').single();
-      if (error) return null;
-      return data ? mapOrder(data) : null;
-    } catch { return null; }
+      const res = await fetch(`/api/fo-orders/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        console.error('[supplierOrderService.update]', err);
+        return null;
+      }
+      // Re-fetch the full order so caller gets updated data
+      return await supplierOrderService.getById(id);
+    } catch (e) {
+      console.error('[supplierOrderService.update]', e);
+      return null;
+    }
   },
 
   async changeStatus(orderId: string, newStatus: FoOrderStatus, changedBy: string, comment?: string): Promise<boolean> {
     const supabase = createClient();
     try {
+      // Read current status (anon read is fine)
       const { data: current } = await supabase.from('fo_orders').select('order_status').eq('id', orderId).single();
-      const { error } = await supabase.from('fo_orders').update({ order_status: newStatus, updated_at: new Date().toISOString() }).eq('id', orderId);
-      if (error) return false;
-      await supabase.from('fo_order_status_history').insert({
-        order_id: orderId,
-        old_status: current?.order_status,
-        new_status: newStatus,
-        changed_by: changedBy,
-        comment,
+      // Write through service-role API route
+      const res = await fetch(`/api/fo-orders/${orderId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderStatus: newStatus }),
       });
+      if (!res.ok) return false;
+      // History insert — best effort through anon client
+      try {
+        await supabase.from('fo_order_status_history').insert({
+          order_id: orderId,
+          old_status: current?.order_status,
+          new_status: newStatus,
+          changed_by: changedBy,
+          comment,
+        });
+      } catch { /* non-critical */ }
       return true;
     } catch { return false; }
   },
