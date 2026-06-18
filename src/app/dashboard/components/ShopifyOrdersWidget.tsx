@@ -7,6 +7,31 @@ import type { ShopifyOrderSummary } from '@/lib/services/shopifyService';
 
 const LAST_SEEN_KEY = 'beautypos_shopify_last_seen_order_id';
 
+// ─── Fulfillment classification (mirrors webhook logic) ────────────────────────
+type FulfillmentType = 'local_delivery' | 'expedition' | 'pickup';
+
+const PICKUP_KEYWORDS = ['pickup', 'retrait', 'click', 'collect', 'magasin', 'sur place', 'store'];
+const LOCAL_KEYWORDS  = ['local', 'domicile', 'coursier', 'livraison locale', 'express', 'same day', 'same-day'];
+
+function classifyOrder(order: ShopifyOrderSummary): FulfillmentType {
+  const ship = order.shipping_address;
+  if (!ship || !ship.address1?.trim()) return 'pickup';
+  const shippingText = (order.shipping_lines ?? [])
+    .map((sl) => sl.title.toLowerCase())
+    .join(' ');
+  if (PICKUP_KEYWORDS.some((kw) => shippingText.includes(kw))) return 'pickup';
+  if (LOCAL_KEYWORDS.some((kw) => shippingText.includes(kw))) return 'local_delivery';
+  return 'expedition';
+}
+
+const FULFILLMENT_LABELS: Record<FulfillmentType, { label: string; cls: string; icon: string }> = {
+  expedition:     { label: 'Colissimo',       cls: 'bg-blue-50 text-blue-700 border-blue-200',    icon: '📦' },
+  local_delivery: { label: 'Livraison locale', cls: 'bg-orange-50 text-orange-700 border-orange-200', icon: '🚚' },
+  pickup:         { label: 'Retrait magasin',  cls: 'bg-purple-50 text-purple-700 border-purple-200', icon: '🏪' },
+};
+
+// ─── Helpers ───────────────────────────────────────────────────────────────────
+
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diff / 60000);
@@ -32,6 +57,8 @@ function fmtEur(v: string | number): string {
   return parseFloat(String(v)).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
 }
 
+// ─── Modal ─────────────────────────────────────────────────────────────────────
+
 interface DetailModalProps {
   order: ShopifyOrderSummary;
   onClose: () => void;
@@ -42,55 +69,127 @@ function OrderDetailModal({ order, onClose }: DetailModalProps) {
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState(false);
   const [createError, setCreateError] = useState('');
+  const [manualType, setManualType] = useState<FulfillmentType | null>(null);
+
   const badge = financialBadge(order.financial_status);
+  const detectedType = classifyOrder(order);
+  const activeType = manualType ?? detectedType;
+  const fulfillmentInfo = FULFILLMENT_LABELS[activeType];
 
   const shipping = (order.shipping_lines ?? []).reduce(
     (sum, sl) => sum + parseFloat(sl.price || '0'), 0
   );
-
   const clientPhone = order.phone || order.shipping_address?.phone || order.billing_address?.phone || null;
   const clientName  = order.customer
     ? `${order.customer.first_name} ${order.customer.last_name}`.trim()
     : order.shipping_address?.name ?? '';
 
-  const handleCreateDelivery = async () => {
-    if (!order.shipping_address) return;
+  const addr = order.shipping_address;
+  const addressStr = addr
+    ? [addr.address1, addr.address2, addr.city, addr.zip, addr.country].filter(Boolean).join(', ')
+    : '';
+
+  const products = order.line_items.map((li) => ({
+    name: li.title,
+    qty: li.quantity,
+    sku: li.sku ?? undefined,
+    price: parseFloat(li.price),
+  }));
+
+  const handleRoute = async () => {
     setCreating(true);
     setCreateError('');
-    const addr = order.shipping_address;
-    const addressParts = [addr.address1, addr.address2, addr.city, addr.zip, addr.country].filter(Boolean);
     try {
-      await deliveryService.create({
-        shopifyOrderId: String(order.id),
-        shopifyOrderNumber: order.name,
-        clientName,
-        clientPhone: clientPhone ?? undefined,
-        deliveryAddress: addressParts.join(', '),
-        deliveryNotes: order.note ?? undefined,
-        products: order.line_items.map((li) => ({ name: li.title, qty: li.quantity, sku: li.sku ?? undefined, price: parseFloat(li.price) })),
-        totalAmount: parseFloat(order.total_price),
-      });
-      setCreated(true);
-      setTimeout(() => { onClose(); router.push('/livraisons'); }, 1200);
+      if (activeType === 'local_delivery') {
+        await deliveryService.create({
+          shopifyOrderId: String(order.id),
+          shopifyOrderNumber: order.name,
+          clientName,
+          clientPhone: clientPhone ?? undefined,
+          deliveryAddress: addressStr,
+          deliveryNotes: order.note ?? undefined,
+          products,
+          totalAmount: parseFloat(order.total_price),
+        });
+        setCreated(true);
+        setTimeout(() => { onClose(); router.push('/livraisons'); }, 1200);
+      } else if (activeType === 'expedition') {
+        const res = await fetch('/api/expeditions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            shopifyOrderId: String(order.id),
+            shopifyOrderNumber: order.name,
+            clientName,
+            clientPhone,
+            shippingAddress: addressStr,
+            carrier: (order.shipping_lines ?? [])[0]?.title || 'Colissimo',
+            products,
+            totalAmount: parseFloat(order.total_price),
+            notes: order.note ?? null,
+          }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json?.error ?? `Erreur ${res.status}`);
+        setCreated(true);
+        setTimeout(() => { onClose(); router.push('/expeditions'); }, 1200);
+      } else {
+        // pickup
+        const res = await fetch('/api/pickup-notifications', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            shopifyOrderId: String(order.id),
+            shopifyOrderNumber: order.name,
+            clientName,
+            clientPhone,
+            clientEmail: order.customer?.email ?? null,
+            products,
+            totalAmount: parseFloat(order.total_price),
+            notes: order.note ?? null,
+          }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json?.error ?? `Erreur ${res.status}`);
+        setCreated(true);
+        setTimeout(() => { onClose(); router.push('/expeditions'); }, 1200);
+      }
     } catch (err: any) {
-      const msg: string = err?.message ?? String(err ?? 'Erreur inconnue');
-      console.error('[ShopifyOrdersWidget] create delivery error:', msg);
-      setCreateError(`Erreur : ${msg}`);
+      setCreateError(`Erreur : ${err?.message ?? 'Erreur inconnue'}`);
     } finally {
       setCreating(false);
     }
+  };
+
+  const actionLabels: Record<FulfillmentType, string> = {
+    expedition:     '📦 Créer une expédition Colissimo',
+    local_delivery: '🚚 Créer une livraison locale',
+    pickup:         '🏪 Enregistrer retrait magasin',
+  };
+  const successLabels: Record<FulfillmentType, string> = {
+    expedition:     '✅ Expédition créée — redirection…',
+    local_delivery: '✅ Livraison créée — redirection…',
+    pickup:         '✅ Retrait enregistré — redirection…',
+  };
+  const actionColors: Record<FulfillmentType, string> = {
+    expedition:     'bg-blue-600 hover:bg-blue-700',
+    local_delivery: 'bg-orange-500 hover:bg-orange-600',
+    pickup:         'bg-purple-600 hover:bg-purple-700',
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <div className="relative w-full md:max-w-2xl bg-white rounded-t-3xl md:rounded-2xl shadow-2xl max-h-[90dvh] flex flex-col overflow-hidden">
-        {/* Modal header */}
+        {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-lg font-black text-foreground">Commande {order.name}</h2>
               <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${badge.cls}`}>{badge.label}</span>
+              <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${fulfillmentInfo.cls}`}>
+                {fulfillmentInfo.icon} {fulfillmentInfo.label}
+              </span>
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">
               {new Date(order.created_at).toLocaleString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
@@ -107,13 +206,24 @@ function OrderDetailModal({ order, onClose }: DetailModalProps) {
               <p className="font-bold text-foreground">{clientName || '—'}</p>
               {order.customer?.email && <p className="text-sm text-muted-foreground">✉️ {order.customer.email}</p>}
               {clientPhone && <p className="text-sm text-muted-foreground">📞 {clientPhone}</p>}
-              {order.shipping_address && (
-                <p className="text-sm text-muted-foreground">
-                  📍 {[order.shipping_address.address1, order.shipping_address.city, order.shipping_address.zip, order.shipping_address.country].filter(Boolean).join(', ')}
-                </p>
-              )}
+              {addr && <p className="text-sm text-muted-foreground">📍 {addressStr}</p>}
             </div>
           </section>
+
+          {/* Shipping method */}
+          {(order.shipping_lines ?? []).length > 0 && (
+            <section>
+              <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Mode de livraison choisi</p>
+              <div className="flex flex-wrap gap-2">
+                {order.shipping_lines.map((sl, i) => (
+                  <span key={i} className={`inline-flex items-center gap-1.5 text-sm font-bold px-3 py-1.5 rounded-lg border ${fulfillmentInfo.cls}`}>
+                    {fulfillmentInfo.icon} {sl.title}
+                    {parseFloat(sl.price) > 0 && <span className="font-normal opacity-70">· {fmtEur(sl.price)}</span>}
+                  </span>
+                ))}
+              </div>
+            </section>
+          )}
 
           {/* Products */}
           <section>
@@ -177,27 +287,48 @@ function OrderDetailModal({ order, onClose }: DetailModalProps) {
             </section>
           )}
 
-          {/* Delivery action */}
-          {order.shipping_address && (
-            <section>
-              {created ? (
-                <div className="w-full py-3 bg-green-100 text-green-800 font-bold text-sm rounded-xl text-center">
-                  ✅ Livraison créée — redirection…
-                </div>
-              ) : (
-                <>
+          {/* Manual override — allow changing routing */}
+          <section>
+            <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
+              Destination
+              {manualType && <span className="ml-2 text-amber-600 font-normal">(modifié manuellement)</span>}
+            </p>
+            <div className="flex gap-2">
+              {(['expedition', 'local_delivery', 'pickup'] as FulfillmentType[]).map((t) => {
+                const info = FULFILLMENT_LABELS[t];
+                const isActive = activeType === t;
+                return (
                   <button
-                    onClick={handleCreateDelivery}
-                    disabled={creating}
-                    className="w-full py-3 bg-orange-500 text-white font-bold text-sm rounded-xl hover:bg-orange-600 transition-colors disabled:opacity-50"
+                    key={t}
+                    onClick={() => setManualType(t === detectedType && manualType === t ? null : t)}
+                    className={`flex-1 py-2 px-2 text-[11px] font-bold rounded-lg border transition-colors ${isActive ? `${info.cls} border-current` : 'bg-muted/30 text-muted-foreground border-border hover:bg-muted/60'}`}
                   >
-                    {creating ? 'Création…' : '🚚 Créer une livraison'}
+                    {info.icon} {info.label}
                   </button>
-                  {createError && <p className="text-xs text-red-600 text-center mt-1">{createError}</p>}
-                </>
-              )}
-            </section>
-          )}
+                );
+              })}
+            </div>
+          </section>
+
+          {/* Action */}
+          <section>
+            {created ? (
+              <div className="w-full py-3 bg-green-100 text-green-800 font-bold text-sm rounded-xl text-center">
+                {successLabels[activeType]}
+              </div>
+            ) : (
+              <>
+                <button
+                  onClick={handleRoute}
+                  disabled={creating}
+                  className={`w-full py-3 text-white font-bold text-sm rounded-xl transition-colors disabled:opacity-50 ${actionColors[activeType]}`}
+                >
+                  {creating ? 'Création…' : actionLabels[activeType]}
+                </button>
+                {createError && <p className="text-xs text-red-600 text-center mt-1">{createError}</p>}
+              </>
+            )}
+          </section>
         </div>
       </div>
     </div>
@@ -231,7 +362,6 @@ export default function ShopifyOrdersWidget() {
     }
   }, []);
 
-  // Mark as seen when widget is interacted with
   const markSeen = useCallback(() => {
     if (orders.length) {
       localStorage.setItem(LAST_SEEN_KEY, String(orders[0].id));
@@ -245,7 +375,6 @@ export default function ShopifyOrdersWidget() {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [load]);
 
-  // Compute today's stats
   const todayStr = new Date().toISOString().slice(0, 10);
   const todayOrders = orders.filter((o) => o.created_at.startsWith(todayStr));
   const todayRevenue = todayOrders.reduce((s, o) => s + parseFloat(o.total_price), 0);
@@ -304,7 +433,9 @@ export default function ShopifyOrdersWidget() {
                 const productsSummary = order.line_items
                   .slice(0, 2)
                   .map((li) => `${li.title} ×${li.quantity}`)
-                  .join(', ') + (order.line_items.length > 2 ? `…` : '');
+                  .join(', ') + (order.line_items.length > 2 ? '…' : '');
+                const fType = classifyOrder(order);
+                const fInfo = FULFILLMENT_LABELS[fType];
 
                 return (
                   <button
@@ -318,8 +449,11 @@ export default function ShopifyOrdersWidget() {
                           <span className="font-bold text-sm text-foreground">{order.name}</span>
                           <span className="text-xs text-muted-foreground">— {name}</span>
                         </div>
-                        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                           <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${badge.cls}`}>{badge.label}</span>
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${fInfo.cls}`}>
+                            {fInfo.icon} {fInfo.label}
+                          </span>
                           <span className="text-[11px] text-muted-foreground">{order.line_items.length} produit{order.line_items.length !== 1 ? 's' : ''}</span>
                           <span className="text-[11px] text-muted-foreground">{timeAgo(order.created_at)}</span>
                         </div>
@@ -342,10 +476,10 @@ export default function ShopifyOrdersWidget() {
         {/* Footer */}
         <div className="px-5 py-3 border-t border-border">
           <a
-            href="/livraisons"
+            href="/expeditions"
             className="flex items-center justify-center gap-1.5 text-xs font-bold text-emerald-600 hover:text-emerald-700 transition-colors"
           >
-            Voir toutes les commandes
+            Voir expéditions & livraisons
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
             </svg>
