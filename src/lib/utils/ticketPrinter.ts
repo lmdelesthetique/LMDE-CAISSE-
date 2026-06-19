@@ -212,7 +212,7 @@ ${d.referralCode ? `<p class="tc">${SEP}</p>
 <p class="tc">Votre code parrainage :</p>
 <p class="tc" style="font-size:15px;letter-spacing:4px"><strong>${esc(d.referralCode)}</strong></p>
 <p class="tc">Offrez -10% a vos amies</p>
-<p class="tc">et gagnez des points fidelit&#233; !</p>` : ''}
+<p class="tc">et gagnez + 300 points a chaque client !</p>` : ''}
 
 <p class="tc">${SEP}</p>
 <p class="tc">${esc(d.receiptFooter ?? 'Merci de votre visite !')}</p>
