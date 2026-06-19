@@ -532,6 +532,7 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
   const [cancelling, setCancelling] = useState(false);
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
   const [hasDelivery, setHasDelivery] = useState(false);
+  const [clientReferralCode, setClientReferralCode] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     const load = async () => {
@@ -551,6 +552,12 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
           reason: '',
         });
         setHasDelivery(rec.hasDelivery);
+        if (rec.clientId) {
+          fetch(`/api/clients/${rec.clientId}`)
+            .then((r) => r.json())
+            .then((c) => { if (c?.referral_code) setClientReferralCode(c.referral_code); })
+            .catch(() => {});
+        }
       } else {
         setFetchError('Impossible de charger les détails depuis le serveur');
       }
@@ -580,6 +587,7 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
       totalTTC: receipt.totalAmount,
       paymentMethod: parseMethod(receipt.paymentMethod ?? '').label,
       isDuplicate: true,
+      referralCode: clientReferralCode,
     }));
   };
 

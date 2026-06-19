@@ -37,6 +37,7 @@ export interface TicketPrintData {
   isDemo?: boolean;
   rewardDiscountAmount?: number;
   rewardDescription?: string;
+  referralCode?: string;
   // template settings from ticket_settings table
   showTVADetails?: boolean;
   showPoints?: boolean;
@@ -206,10 +207,17 @@ ${loyaltyHTML ? `<p>${SEP}</p>` : ''}
 
 ${retHTML}
 
+${d.referralCode ? `<p class="tc">${SEP}</p>
+<p class="tc">*** PARRAINEZ VOS PROCHES ***</p>
+<p class="tc">Votre code parrainage :</p>
+<p class="tc" style="font-size:15px;letter-spacing:4px"><strong>${esc(d.referralCode)}</strong></p>
+<p class="tc">Offrez -10% a vos amies</p>
+<p class="tc">et gagnez des points fidelit&#233; !</p>` : ''}
+
 <p class="tc">${SEP}</p>
 <p class="tc">${esc(d.receiptFooter ?? 'Merci de votre visite !')}</p>
 <p class="tc">Conservez ce ticket pour</p>
-<p class="tc">tout retour ou échange.</p>
+<p class="tc">tout retour ou &#233;change.</p>
 <p class="tc">${SEP}</p>
 ${d.companySiret ? `<p class="tc">RCS Fort-de-France ${esc(d.companySiret)}</p>` : ''}
 <p class="tc">${SEP}</p>

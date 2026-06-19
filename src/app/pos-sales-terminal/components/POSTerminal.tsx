@@ -2461,6 +2461,7 @@ function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, l
           loyalty: loyaltyBlock,
           isDemo: isDemoMode,
           rewardDiscountAmount: rewardDiscountAmount > 0 ? rewardDiscountAmount : undefined,
+          referralCode: fullClient?.referralCode ?? undefined,
         }));
         setSt('print', 'done');
       } catch { setSt('print', 'error'); setErr('print', "Erreur ouverture impression"); }
