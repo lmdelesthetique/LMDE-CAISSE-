@@ -40,6 +40,8 @@ const FIELD_MAP: Record<string, string> = {
   supplierValidated: 'supplier_validated',
   supplierComment: 'supplier_comment',
   supplierFinalAmount: 'supplier_final_amount',
+  orderGroup: 'order_group',
+  transportMethod: 'transport_method',
 };
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {

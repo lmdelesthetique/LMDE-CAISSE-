@@ -94,6 +94,8 @@ function NouvelleCommandeContent() {
   const [currency, setCurrency] = useState('EUR');
   const [notes, setNotes] = useState('');
   const [expectedDelivery, setExpectedDelivery] = useState('');
+  const [orderGroup, setOrderGroup] = useState('');
+  const [transportMethod, setTransportMethod] = useState('');
   const [lines, setLines] = useState<DraftLine[]>([]);
   const [search, setSearch] = useState('');
   const [searchResults, setSearchResults] = useState<StockProduct[]>([]);
@@ -243,6 +245,8 @@ function NouvelleCommandeContent() {
         expectedDeliveryAt: expectedDelivery || undefined,
         subtotal,
         totalRealCost: subtotal,
+        orderGroup: orderGroup || undefined,
+        transportMethod: transportMethod || undefined,
       });
       if (order) {
         for (const l of lines) {
@@ -333,6 +337,32 @@ function NouvelleCommandeContent() {
                 <div>
                   <label className="block text-xs font-500 text-muted-foreground mb-1.5">Notes</label>
                   <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notes internes..." className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                </div>
+                <div>
+                  <label className="block text-xs font-500 text-muted-foreground mb-1.5">Groupe de commande</label>
+                  <input
+                    type="text"
+                    value={orderGroup}
+                    onChange={(e) => setOrderGroup(e.target.value)}
+                    placeholder="ex : COMMANDE CONTENAIRE 1"
+                    className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-1">Permet de grouper plusieurs commandes (ex: même contenaire)</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-500 text-muted-foreground mb-1.5">Mode de transport</label>
+                  <select
+                    value={transportMethod}
+                    onChange={(e) => setTransportMethod(e.target.value)}
+                    className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  >
+                    <option value="">Sélectionner...</option>
+                    <option value="avion">✈️ Avion</option>
+                    <option value="bateau">🚢 Bateau</option>
+                    <option value="camion">🚛 Camion</option>
+                    <option value="courrier">📦 Courrier express</option>
+                    <option value="autre">Autre</option>
+                  </select>
                 </div>
               </div>
             </div>

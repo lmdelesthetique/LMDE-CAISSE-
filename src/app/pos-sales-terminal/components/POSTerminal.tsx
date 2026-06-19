@@ -610,6 +610,7 @@ export default function POSTerminal() {
   const [referralCodeInput, setReferralCodeInput] = useState('');
   const [referralCodeLoading, setReferralCodeLoading] = useState(false);
   const [referralCodeError, setReferralCodeError] = useState<string | null>(null);
+  const [clientReferralCode, setClientReferralCode] = useState<string | undefined>(undefined);
   const [referralValidated, setReferralValidated] = useState<{ parrainId: string; firstName: string; code: string } | null>(null);
   const [pendingReferral, setPendingReferral] = useState<{ referralId: string; parrainId: string; discountPct: number } | null>(null);
   const [demoProductRef, setDemoProductRef] = useState<{ id: string; name: string; ref: string } | null>(null);
@@ -826,6 +827,12 @@ export default function POSTerminal() {
   const handleClientSelect = useCallback(async (posClient: import('./POSTerminal').POSClient) => {
     setClient(posClient);
     setAppliedReward(null);
+    setClientReferralCode(undefined);
+    // Non-blocking fetch of referral code for ticket printing
+    fetch(`/api/clients/${posClient.id}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.referral_code) setClientReferralCode(data.referral_code); })
+      .catch(() => {});
     // Notify cashier immediately if client has store credit (avoir)
     if (posClient.balance > 0) {
       toast(`💳 ${posClient.name} a un avoir de ${posClient.balance.toFixed(2)} € disponible`, {
@@ -913,6 +920,7 @@ export default function POSTerminal() {
     setAppliedReward(null);
     setAvailableRewards([]);
     setShowAvailableRewards(false);
+    setClientReferralCode(undefined);
     setAllClientRewards([]);
     setShowAllRewards(false);
     setPendingReferral(null);
@@ -2329,6 +2337,7 @@ export default function POSTerminal() {
           ticketRef={lastSaleTicketRef}
           loyaltyInfo={lastSaleLoyalty}
           rewardDiscountAmount={lastSaleRewardDiscount}
+          referralCode={clientReferralCode}
           onClose={handleDocChoiceClose}
         />
       )}
@@ -2368,6 +2377,7 @@ interface PostPaymentDocModalProps {
   ticketRef?: string;
   loyaltyInfo?: { pointsEarned: number; totalPoints: number; nextTier: LoyaltyTier | null; pointsToNext: number; currentTierName?: string | null } | null;
   rewardDiscountAmount?: number;
+  referralCode?: string;
   onClose: () => void;
 }
 
@@ -2433,7 +2443,7 @@ function ActionRow({ checked, onToggle, emoji, label, desc, status, errorMsg, ch
   );
 }
 
-function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, loyaltyInfo, rewardDiscountAmount = 0, onClose }: PostPaymentDocModalProps) {
+function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, loyaltyInfo, rewardDiscountAmount = 0, referralCode, onClose }: PostPaymentDocModalProps) {
   const clientEmail = client?.email ?? '';
   const hasClientEmail = clientEmail.includes('@');
 
@@ -2497,7 +2507,7 @@ function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, l
           loyalty: loyaltyBlock,
           isDemo: isDemoMode,
           rewardDiscountAmount: rewardDiscountAmount > 0 ? rewardDiscountAmount : undefined,
-          referralCode: fullClient?.referralCode ?? undefined,
+          referralCode: referralCode,
         }));
         setSt('print', 'done');
       } catch { setSt('print', 'error'); setErr('print', "Erreur ouverture impression"); }

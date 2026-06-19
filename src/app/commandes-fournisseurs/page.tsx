@@ -57,6 +57,7 @@ export default function CommandesFournisseursPage() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('all');
   const [search, setSearch] = useState('');
+  const [groupFilter, setGroupFilter] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -74,16 +75,19 @@ export default function CommandesFournisseursPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  const groups = [...new Set(orders.map((o) => o.orderGroup).filter(Boolean))] as string[];
+
   const filtered = orders.filter((o) => {
     const q = search.toLowerCase();
-    const matchSearch = !q || o.orderNumber.toLowerCase().includes(q) || (o.supplierName || '').toLowerCase().includes(q);
+    const matchSearch = !q || o.orderNumber.toLowerCase().includes(q) || (o.supplierName || '').toLowerCase().includes(q) || (o.orderGroup || '').toLowerCase().includes(q);
     let matchTab = true;
     if (tab === 'draft') matchTab = o.orderStatus === 'draft';
     else if (tab === 'active') matchTab = ACTIVE_STATUSES.includes(o.orderStatus);
     else if (tab === 'shipped') matchTab = o.orderStatus === 'shipped';
     else if (tab === 'received') matchTab = RECEIVED_STATUSES.includes(o.orderStatus);
     else if (tab === 'suspended') matchTab = o.orderStatus === 'suspended';
-    return matchSearch && matchTab;
+    const matchGroup = !groupFilter || o.orderGroup === groupFilter;
+    return matchSearch && matchTab && matchGroup;
   });
 
   const kpis = [
@@ -167,12 +171,24 @@ export default function CommandesFournisseursPage() {
             <Icon name="MagnifyingGlassIcon" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input
               type="text"
-              placeholder="Rechercher par numéro ou fournisseur..."
+              placeholder="Rechercher par numéro, fournisseur ou groupe..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full pl-9 pr-4 py-2 border border-border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
           </div>
+          {groups.length > 0 && (
+            <select
+              value={groupFilter}
+              onChange={(e) => setGroupFilter(e.target.value)}
+              className="px-3 py-2 border border-border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 min-w-[200px]"
+            >
+              <option value="">Tous les groupes</option>
+              {groups.map((g) => (
+                <option key={g} value={g}>{g}</option>
+              ))}
+            </select>
+          )}
         </div>
 
         {/* Tabs */}
@@ -211,6 +227,7 @@ export default function CommandesFournisseursPage() {
                   <tr className="border-b border-border bg-muted/30">
                     <th className="text-left px-4 py-3 font-600 text-muted-foreground text-xs uppercase tracking-wide">N° Commande</th>
                     <th className="text-left px-4 py-3 font-600 text-muted-foreground text-xs uppercase tracking-wide">Fournisseur</th>
+                    <th className="text-left px-4 py-3 font-600 text-muted-foreground text-xs uppercase tracking-wide">Groupe</th>
                     <th className="text-left px-4 py-3 font-600 text-muted-foreground text-xs uppercase tracking-wide">Statut</th>
                     <th className="text-left px-4 py-3 font-600 text-muted-foreground text-xs uppercase tracking-wide">Paiement</th>
                     <th className="text-right px-4 py-3 font-600 text-muted-foreground text-xs uppercase tracking-wide">Montant</th>
@@ -226,6 +243,20 @@ export default function CommandesFournisseursPage() {
                         <span className="font-600 text-foreground">{order.orderNumber}</span>
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">{order.supplierName || '—'}</td>
+                      <td className="px-4 py-3">
+                        {order.orderGroup ? (
+                          <div>
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-600 bg-violet-50 text-violet-700 border border-violet-200">
+                              {order.orderGroup}
+                            </span>
+                            {order.transportMethod && (
+                              <p className="text-[10px] text-muted-foreground mt-0.5">
+                                {({ avion: '✈️ Avion', bateau: '🚢 Bateau', camion: '🚛 Camion', courrier: '📦 Courrier', autre: 'Autre' } as Record<string,string>)[order.transportMethod] ?? order.transportMethod}
+                              </p>
+                            )}
+                          </div>
+                        ) : <span className="text-muted-foreground">—</span>}
+                      </td>
                       <td className="px-4 py-3"><StatusBadge status={order.orderStatus} /></td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-500 ${

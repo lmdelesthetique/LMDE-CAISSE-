@@ -88,6 +88,8 @@ export interface FoOrder {
   supplierValidated: boolean;
   supplierComment?: string;
   supplierFinalAmount?: number;
+  orderGroup?: string;
+  transportMethod?: string;
   lines?: FoOrderLine[];
   createdAt: string;
   updatedAt: string;
@@ -182,6 +184,8 @@ function mapOrder(row: any): FoOrder {
     supplierValidated: row.supplier_validated,
     supplierComment: row.supplier_comment,
     supplierFinalAmount: row.supplier_final_amount ? Number(row.supplier_final_amount) : undefined,
+    orderGroup: row.order_group || undefined,
+    transportMethod: row.transport_method || undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -325,6 +329,8 @@ export const supplierOrderService = {
           total_real_cost: payload.totalRealCost || 0,
           cost_method: payload.costMethod || 'by_value',
           payment_status: payload.paymentStatus || 'pending',
+          order_group: payload.orderGroup || null,
+          transport_method: payload.transportMethod || null,
         })
         .select('*, suppliers(company_name)')
         .single();

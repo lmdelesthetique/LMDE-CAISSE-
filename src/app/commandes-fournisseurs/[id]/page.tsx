@@ -136,6 +136,12 @@ export default function OrderDetailPage() {
     bank: 0, exchange: 0, local: 0, other: 0,
   });
 
+  // Group / transport inline edit
+  const [editingMeta, setEditingMeta] = useState(false);
+  const [editGroup, setEditGroup] = useState('');
+  const [editTransportMeth, setEditTransportMeth] = useState('');
+  const [savingMeta, setSavingMeta] = useState(false);
+
   // Draft edit mode
   const [editMode, setEditMode] = useState(false);
   const [editedLines, setEditedLines] = useState<FoOrderLine[]>([]);
@@ -144,6 +150,7 @@ export default function OrderDetailPage() {
   const [editCustoms, setEditCustoms] = useState(0);
   const [savingEdit, setSavingEdit] = useState(false);
   const [sendingOrder, setSendingOrder] = useState(false);
+  const [saveEditError, setSaveEditError] = useState<string | null>(null);
   const [showAddLineModal, setShowAddLineModal] = useState(false);
   const [productSearch, setProductSearch] = useState('');
   const [productResults, setProductResults] = useState<any[]>([]);
@@ -619,50 +626,46 @@ export default function OrderDetailPage() {
   const handleSaveEdit = async () => {
     if (!order) return;
     setSavingEdit(true);
-    const supabase = createClient();
-    const originalIds = new Set(order.lines?.map((l) => l.id) ?? []);
+    setSaveEditError(null);
+    try {
+      const newSubtotal = editedLines.reduce((s, l) => s + l.qtyOrdered * l.unitPrice, 0);
+      const newTotalRealCost = newSubtotal
+        + (editTransport || 0)
+        + (editCustoms || 0)
+        + (order.vatImport || 0)
+        + (order.freightForwarderCost || 0)
+        + (order.bankFees || 0)
+        + (order.exchangeFees || 0)
+        + (order.localDelivery || 0)
+        + (order.otherCosts || 0);
 
-    // Delete removed lines
-    for (const orig of order.lines ?? []) {
-      if (!editedLines.some((el) => el.id === orig.id)) {
-        await supplierOrderService.deleteLine(orig.id);
+      const res = await fetch(`/api/fo-orders/${order.id}/lines`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lines: editedLines,
+          originalLineIds: order.lines?.map((l) => l.id) ?? [],
+          subtotal: newSubtotal,
+          totalRealCost: newTotalRealCost,
+          notes: editNotes,
+          transportCost: editTransport,
+          customsCost: editCustoms,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setSaveEditError(err.error || 'Erreur lors de l\'enregistrement');
+        return;
       }
+
+      setEditMode(false);
+      load();
+    } catch {
+      setSaveEditError('Erreur réseau lors de l\'enregistrement');
+    } finally {
+      setSavingEdit(false);
     }
-
-    // Update existing lines
-    for (const el of editedLines.filter((l) => !l.id.startsWith('new-') && originalIds.has(l.id))) {
-      await supplierOrderService.updateLine(el.id, {
-        qtyOrdered: el.qtyOrdered,
-        unitPrice: el.unitPrice,
-        lineTotal: el.qtyOrdered * el.unitPrice,
-      });
-    }
-
-    // Add new lines
-    for (const nl of editedLines.filter((l) => l.id.startsWith('new-'))) {
-      await supplierOrderService.addLine({
-        orderId: order.id,
-        productId: nl.productId,
-        productName: nl.productName,
-        productRef: nl.productRef,
-        qtyOrdered: nl.qtyOrdered,
-        unitPrice: nl.unitPrice,
-        salePrice: nl.salePrice,
-      });
-    }
-
-    // Recalculate subtotal
-    const newSubtotal = editedLines.reduce((s, l) => s + l.qtyOrdered * l.unitPrice, 0);
-    await supplierOrderService.update(order.id, {
-      notes: editNotes,
-      transportCost: editTransport,
-      customsCost: editCustoms,
-      subtotal: newSubtotal,
-    });
-
-    setEditMode(false);
-    setSavingEdit(false);
-    load();
   };
 
   const handleSendOrder = async () => {
@@ -939,6 +942,79 @@ export default function OrderDetailPage() {
                     </div>
                   ))}
                 </div>
+                {/* Group & transport */}
+                <div className="mt-4 pt-4 border-t border-border">
+                  {editingMeta ? (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-xs text-muted-foreground mb-1">Groupe de commande</label>
+                        <input
+                          type="text"
+                          value={editGroup}
+                          onChange={(e) => setEditGroup(e.target.value)}
+                          placeholder="ex : COMMANDE CONTENAIRE 1"
+                          className="w-full px-3 py-1.5 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-muted-foreground mb-1">Mode de transport</label>
+                        <select
+                          value={editTransportMeth}
+                          onChange={(e) => setEditTransportMeth(e.target.value)}
+                          className="w-full px-3 py-1.5 border border-border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        >
+                          <option value="">Sélectionner...</option>
+                          <option value="avion">✈️ Avion</option>
+                          <option value="bateau">🚢 Bateau</option>
+                          <option value="camion">🚛 Camion</option>
+                          <option value="courrier">📦 Courrier express</option>
+                          <option value="autre">Autre</option>
+                        </select>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={async () => {
+                            setSavingMeta(true);
+                            await supplierOrderService.update(order.id, { orderGroup: editGroup || undefined, transportMethod: editTransportMeth || undefined });
+                            setEditingMeta(false);
+                            setSavingMeta(false);
+                            load();
+                          }}
+                          disabled={savingMeta}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-500 hover:bg-primary/90 transition-colors disabled:opacity-50"
+                        >
+                          {savingMeta ? <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Icon name="CheckIcon" size={12} />}
+                          Sauvegarder
+                        </button>
+                        <button onClick={() => setEditingMeta(false)} className="px-3 py-1.5 border border-border rounded-lg text-xs text-muted-foreground hover:bg-muted transition-colors">Annuler</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="grid grid-cols-2 gap-3 flex-1 text-sm">
+                        <div>
+                          <p className="text-xs text-muted-foreground">Groupe commande</p>
+                          {order.orderGroup ? (
+                            <span className="inline-flex items-center gap-1 mt-0.5 px-2 py-0.5 rounded-full text-xs font-600 bg-violet-50 text-violet-700 border border-violet-200">{order.orderGroup}</span>
+                          ) : <p className="font-500 text-foreground mt-0.5">—</p>}
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Mode de transport</p>
+                          <p className="font-500 text-foreground mt-0.5">
+                            {order.transportMethod ? ({ avion: '✈️ Avion', bateau: '🚢 Bateau', camion: '🚛 Camion', courrier: '📦 Courrier', autre: 'Autre' } as Record<string,string>)[order.transportMethod] ?? order.transportMethod : '—'}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => { setEditGroup(order.orderGroup || ''); setEditTransportMeth(order.transportMethod || ''); setEditingMeta(true); }}
+                        className="shrink-0 p-1.5 rounded-lg hover:bg-muted text-muted-foreground transition-colors"
+                        title="Modifier groupe / transport"
+                      >
+                        <Icon name="PencilIcon" size={13} />
+                      </button>
+                    </div>
+                  )}
+                </div>
                 {order.notes && (
                   <div className="mt-4 pt-4 border-t border-border">
                     <p className="text-xs text-muted-foreground mb-1">Notes</p>
@@ -1047,6 +1123,12 @@ export default function OrderDetailPage() {
                       />
                     </div>
                   </div>
+                  {saveEditError && (
+                    <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                      <Icon name="ExclamationCircleIcon" size={15} className="shrink-0" />
+                      {saveEditError}
+                    </div>
+                  )}
                   <div className="flex gap-2 pt-1">
                     <button
                       onClick={handleSaveEdit}
