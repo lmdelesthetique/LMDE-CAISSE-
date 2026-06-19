@@ -1712,6 +1712,42 @@ export default function POSTerminal() {
         </div>
       </div>
 
+      {/* Shopify new orders persistent card */}
+      {newShopifyOrders.length > 0 && (
+        <button
+          onClick={() => { setNewShopifyOrders([]); router.push('/shopify-sync'); }}
+          className="w-full flex items-center justify-between gap-3 px-4 py-2.5 bg-pink-50 border-b-2 border-pink-400 hover:bg-pink-100 transition-colors group shrink-0"
+        >
+          <div className="flex items-center gap-3">
+            <div className="relative shrink-0">
+              <span className="text-xl">🛍️</span>
+              <span className="absolute -top-1 -right-1 bg-pink-600 text-white text-[9px] font-900 rounded-full w-4 h-4 flex items-center justify-center">
+                {newShopifyOrders.length}
+              </span>
+            </div>
+            <div className="text-left">
+              <p className="text-xs font-900 text-pink-700 uppercase tracking-wider leading-tight">
+                🔔 Nouvelle commande Shopify
+              </p>
+              <p className="text-[11px] text-pink-600 font-500 mt-0.5">
+                {newShopifyOrders.length > 1
+                  ? `${newShopifyOrders.length} commandes en attente de traitement`
+                  : `#${newShopifyOrders[0].order_number} — ${
+                      newShopifyOrders[0].customer
+                        ? `${newShopifyOrders[0].customer.first_name ?? ''} ${newShopifyOrders[0].customer.last_name ?? ''}`.trim()
+                        : 'Client inconnu'
+                    } — ${parseFloat(newShopifyOrders[0].total_price || '0').toFixed(2)} €`}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-xs font-700 text-pink-700 bg-pink-200 px-3 py-1 rounded-full group-hover:bg-pink-300 transition-colors">
+              Voir les commandes →
+            </span>
+          </div>
+        </button>
+      )}
+
       {/* Main split */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left: product grid */}
