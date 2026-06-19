@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import Image from 'next/image';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
@@ -1177,6 +1178,7 @@ export default function OrderDetailPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-border bg-muted/30">
+                        <th className="w-12 px-3 py-3" />
                         <th className="text-left px-4 py-3 font-600 text-muted-foreground text-xs uppercase">Produit</th>
                         <th className="text-center px-4 py-3 font-600 text-muted-foreground text-xs uppercase">Qté</th>
                         <th className="text-right px-4 py-3 font-600 text-muted-foreground text-xs uppercase">Prix achat</th>
@@ -1189,6 +1191,21 @@ export default function OrderDetailPage() {
                     <tbody className="divide-y divide-border">
                       {(editMode ? editedLines : lines).map((line) => (
                         <tr key={line.id} className={`hover:bg-muted/20 ${editMode ? 'bg-amber-50/20' : ''}`}>
+                          <td className="pl-3 pr-0 py-3">
+                            <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center overflow-hidden shrink-0">
+                              {line.productImageUrl ? (
+                                <Image
+                                  src={line.productImageUrl}
+                                  alt={line.productName}
+                                  width={40}
+                                  height={40}
+                                  className="object-cover w-full h-full"
+                                />
+                              ) : (
+                                <Icon name="PhotoIcon" size={16} className="text-muted-foreground" />
+                              )}
+                            </div>
+                          </td>
                           <td className="px-4 py-3">
                             <p className="font-500 text-foreground">{line.productName}</p>
                             <p className="text-xs text-muted-foreground">{line.productRef}{line.color ? ` · ${line.color}` : ''}{line.size ? ` · ${line.size}` : ''}</p>
@@ -1249,7 +1266,7 @@ export default function OrderDetailPage() {
                     {editMode && (
                       <tfoot>
                         <tr className="border-t border-border bg-muted/10">
-                          <td colSpan={3} className="px-4 py-2 text-sm text-muted-foreground">Sous-total</td>
+                          <td colSpan={4} className="px-4 py-2 text-sm text-muted-foreground">Sous-total</td>
                           <td className="px-4 py-2 text-right font-700 text-foreground">
                             {editedLines.reduce((s, l) => s + l.qtyOrdered * l.unitPrice, 0).toFixed(2)} {order.currency}
                           </td>
