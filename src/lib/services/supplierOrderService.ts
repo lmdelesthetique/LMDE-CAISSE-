@@ -48,6 +48,7 @@ export interface FoOrderLine {
   volumeM3: number;
   customCostShare: number;
   note?: string;
+  confirmedUnitPrice?: number;
 }
 
 export interface FoOrder {
@@ -224,6 +225,7 @@ function mapLine(row: any): FoOrderLine {
     volumeM3: Number(row.volume_m3),
     customCostShare: Number(row.custom_cost_share),
     note: row.note,
+    confirmedUnitPrice: row.confirmed_unit_price != null ? Number(row.confirmed_unit_price) : undefined,
   };
 }
 

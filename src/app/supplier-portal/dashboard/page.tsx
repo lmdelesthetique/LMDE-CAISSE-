@@ -4,6 +4,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { useSupplierAuth } from '@/contexts/SupplierAuthContext';
+import { exportPurchaseOrderPDF } from '@/lib/utils/purchaseOrderPDF';
+import type { FoOrder, FoOrderLine } from '@/lib/services/supplierOrderService';
 
 type OrderStatus =
   | 'draft' | 'sent' | 'awaiting_validation' | 'modification_requested' | 'validated'
@@ -43,6 +45,7 @@ interface OrderLine {
   unit_price: number;
   line_total: number;
   note: string | null;
+  confirmed_unit_price?: number | null;
 }
 
 interface ChatMessage {
@@ -142,6 +145,13 @@ export default function SupplierDashboardPage() {
   // Out-of-stock report
   const [reportingLine, setReportingLine] = useState<string | null>(null);
 
+  // Price confirmation (step 3)
+  // priceInputs[orderId][lineId] = 'CONFIRMED' | number-string
+  const [priceInputs, setPriceInputs] = useState<Record<string, Record<string, string>>>({});
+  const [confirmingPrices, setConfirmingPrices] = useState<string | null>(null);
+  const [priceConfirmError, setPriceConfirmError] = useState<string | null>(null);
+  const [downloadingPDFId, setDownloadingPDFId] = useState<string | null>(null);
+
   // Messaging
   const [newMsg, setNewMsg] = useState('');
   const [sending, setSending] = useState(false);
@@ -216,11 +226,29 @@ export default function SupplierDashboardPage() {
     setExpandedId(orderId);
     if (!orderLines[orderId]) {
       setLinesLoading(true);
-      const { data } = await supabase.rpc('get_supplier_portal_order_lines', {
-        p_order_id: orderId,
-        p_supplier_id: supplierUser!.supplierId,
+      const [{ data }, confirmedRes] = await Promise.all([
+        supabase.rpc('get_supplier_portal_order_lines', {
+          p_order_id: orderId,
+          p_supplier_id: supplierUser!.supplierId,
+        }),
+        fetch(`/api/fo-orders/${orderId}/confirm-prices?supplierId=${encodeURIComponent(supplierUser!.supplierId)}`),
+      ]);
+      const confirmedMap: Record<string, number | null> = confirmedRes.ok ? await confirmedRes.json() : {};
+      const linesWithConfirmed = ((data as OrderLine[]) ?? []).map((l) => ({
+        ...l,
+        confirmed_unit_price: confirmedMap[l.id] ?? null,
+      }));
+      setOrderLines((prev) => ({ ...prev, [orderId]: linesWithConfirmed }));
+      // Init price inputs from already-confirmed values
+      const inputs: Record<string, string> = {};
+      linesWithConfirmed.forEach((l) => {
+        if (l.confirmed_unit_price != null) {
+          inputs[l.id] = String(l.confirmed_unit_price);
+        }
       });
-      setOrderLines((prev) => ({ ...prev, [orderId]: (data as OrderLine[]) ?? [] }));
+      if (Object.keys(inputs).length > 0) {
+        setPriceInputs((prev) => ({ ...prev, [orderId]: { ...(prev[orderId] ?? {}), ...inputs } }));
+      }
       setLinesLoading(false);
     }
   };
@@ -238,6 +266,93 @@ export default function SupplierDashboardPage() {
     setRespondComment('');
     setResponding(false);
     await loadOrders();
+  };
+
+  const handleDownloadPDF = async (order: Order, lines: OrderLine[]) => {
+    setDownloadingPDFId(order.id);
+    try {
+      // Map portal types to FoOrder/FoOrderLine for PDF utility
+      const foOrder: FoOrder = {
+        id: order.id,
+        orderNumber: order.order_number,
+        supplierName: supplierUser?.supplierName,
+        orderStatus: order.order_status as any,
+        currency: 'EUR',
+        exchangeRate: 1,
+        subtotal: order.subtotal,
+        transportCost: order.transport_cost,
+        customsCost: order.customs_cost,
+        vatImport: 0, freightForwarderCost: 0, bankFees: 0,
+        exchangeFees: 0, localDelivery: 0, otherCosts: 0,
+        totalRealCost: order.total_real_cost,
+        costMethod: 'by_value',
+        costsValidated: false,
+        stockIntegrated: false,
+        stockUpdated: false,
+        paymentStatus: (order.payment_status as any) ?? 'pending',
+        paymentAmount: order.payment_amount ?? undefined,
+        balanceDue: 0,
+        supplierValidated: false,
+        createdAt: order.created_at,
+        updatedAt: order.created_at,
+      };
+      const foLines: FoOrderLine[] = lines.map((l) => ({
+        id: l.id,
+        orderId: order.id,
+        productId: l.product_id ?? undefined,
+        productName: l.product_name,
+        productRef: l.product_ref ?? undefined,
+        productImageUrl: l.product_image_url ?? undefined,
+        variant: l.variant ?? undefined,
+        color: l.color ?? undefined,
+        qtyOrdered: l.qty_ordered,
+        qtyReceived: l.qty_received,
+        unitPrice: l.unit_price,
+        lineTotal: l.line_total,
+        unitTransport: 0, unitCustoms: 0, unitVatImport: 0,
+        unitFreight: 0, unitOther: 0, unitRealCost: 0,
+        salePrice: 0, grossMargin: 0, marginRate: 0,
+        previousCost: 0, qtyMissing: 0, qtyDamaged: 0,
+        weightKg: 0, volumeM3: 0, customCostShare: 0,
+        confirmedUnitPrice: l.confirmed_unit_price ?? undefined,
+      }));
+      await exportPurchaseOrderPDF(foOrder, foLines);
+    } catch (e) {
+      console.error('[PDF download]', e);
+    } finally {
+      setDownloadingPDFId(null);
+    }
+  };
+
+  const handleConfirmPrices = async (orderId: string, lines: OrderLine[]) => {
+    if (!supplierUser) return;
+    setConfirmingPrices(orderId);
+    setPriceConfirmError(null);
+    try {
+      const inputs = priceInputs[orderId] ?? {};
+      const lineConfirmations = lines.map((l) => {
+        const raw = inputs[l.id];
+        const price = raw === 'CONFIRMED' ? Number(l.unit_price) : Number(raw);
+        return { lineId: l.id, confirmedPrice: price };
+      });
+      const res = await fetch(`/api/fo-orders/${orderId}/confirm-prices`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ supplierId: supplierUser.supplierId, lineConfirmations }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setPriceConfirmError(err.error || 'Erreur lors de l\'envoi');
+        return;
+      }
+      // Refresh orders
+      await loadOrders();
+      setExpandedId(null);
+    } catch {
+      setPriceConfirmError('Erreur réseau');
+    } finally {
+      setConfirmingPrices(null);
+    }
   };
 
   const handleReportOutOfStock = async (orderId: string, orderNumber: string, productName: string) => {
@@ -385,10 +500,17 @@ export default function SupplierDashboardPage() {
                     isExpanded={expandedId === order.id}
                     linesLoading={linesLoading && expandedId === order.id}
                     reportingLine={reportingLine}
+                    priceInputs={priceInputs[order.id] ?? {}}
+                    confirmingPrices={confirmingPrices === order.id}
+                    priceConfirmError={confirmingPrices === null ? priceConfirmError : null}
                     onToggle={() => toggleExpand(order.id)}
                     onAccept={() => { setRespondComment(''); setRespondModal({ order, response: 'accepted' }); }}
                     onRefuse={() => { setRespondComment(''); setRespondModal({ order, response: 'refused' }); }}
                     onReportOutOfStock={(productName) => handleReportOutOfStock(order.id, order.order_number, productName)}
+                    onPriceInput={(lineId, value) => setPriceInputs((prev) => ({ ...prev, [order.id]: { ...(prev[order.id] ?? {}), [lineId]: value } }))}
+                    onConfirmPrices={(lines) => handleConfirmPrices(order.id, lines)}
+                    onDownloadPDF={() => handleDownloadPDF(order, orderLines[order.id] ?? [])}
+                    downloadingPDF={downloadingPDFId === order.id}
                   />
                 ))
               )}
@@ -544,18 +666,39 @@ interface OrderCardProps {
   isExpanded: boolean;
   linesLoading: boolean;
   reportingLine: string | null;
+  priceInputs: Record<string, string>;
+  confirmingPrices: boolean;
+  priceConfirmError: string | null;
   onToggle: () => void;
   onAccept: () => void;
   onRefuse: () => void;
   onReportOutOfStock: (productName: string) => void;
+  onPriceInput: (lineId: string, value: string) => void;
+  onConfirmPrices: (lines: OrderLine[]) => void;
+  onDownloadPDF: () => void;
+  downloadingPDF: boolean;
 }
 
 function OrderCard({
   order, lines, isExpanded, linesLoading, reportingLine,
-  onToggle, onAccept, onRefuse, onReportOutOfStock,
+  priceInputs, confirmingPrices, priceConfirmError,
+  onToggle, onAccept, onRefuse, onReportOutOfStock, onPriceInput, onConfirmPrices,
+  onDownloadPDF, downloadingPDF,
 }: OrderCardProps) {
   const canRespond = order.supplier_response === 'pending';
   const isActive = ['sent', 'awaiting_validation', 'validated', 'modification_requested'].includes(order.order_status);
+  const showPriceConfirmation = order.supplier_response === 'accepted' && order.order_status === 'sent';
+
+  // How many lines have a valid price input
+  const confirmedCount = lines
+    ? lines.filter((l) => {
+        const val = priceInputs[l.id];
+        if (val === 'CONFIRMED') return true;
+        const n = Number(val);
+        return !isNaN(n) && n > 0;
+      }).length
+    : 0;
+  const allConfirmed = lines ? confirmedCount === lines.length && lines.length > 0 : false;
 
   return (
     <div className={`border rounded-xl overflow-hidden transition-all ${
@@ -654,6 +797,27 @@ function OrderCard({
             </>
           )}
 
+          {/* PDF download — shown after price confirmation */}
+          {['awaiting_validation', 'validated', 'payment_pending', 'payment_in_progress', 'paid',
+            'payment_received_by_supplier', 'in_preparation', 'in_production', 'ready_to_ship',
+            'shipped', 'partially_received', 'fully_received', 'costs_recorded', 'stock_integrated', 'closed',
+          ].includes(order.order_status) && (
+            <button
+              onClick={onDownloadPDF}
+              disabled={downloadingPDF}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-indigo-700 border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors disabled:opacity-50"
+            >
+              {downloadingPDF ? (
+                <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+              ) : (
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                </svg>
+              )}
+              Télécharger PDF
+            </button>
+          )}
+
           {/* Expand/collapse lines */}
           <button
             onClick={onToggle}
@@ -676,77 +840,192 @@ function OrderCard({
             <p className="text-sm text-gray-400 text-center py-8">Aucun article dans cette commande.</p>
           ) : (
             <div className="p-4 space-y-3">
+              {/* Price confirmation banner */}
+              {showPriceConfirmation && (
+                <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex items-start gap-2">
+                  <svg className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div className="flex-1">
+                    <p className="text-xs font-semibold text-blue-800">Confirmation des tarifs requise</p>
+                    <p className="text-xs text-blue-600 mt-0.5">Vérifiez et confirmez le prix unitaire de chaque produit avant de valider.</p>
+                  </div>
+                  <span className="text-xs font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full shrink-0">
+                    {confirmedCount}/{lines?.length ?? 0} confirmés
+                  </span>
+                </div>
+              )}
+
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{lines.length} article{lines.length > 1 ? 's' : ''}</p>
-              {lines.map((line) => (
-                <div key={line.id} className="bg-white rounded-xl border border-gray-100 p-3 flex items-start gap-3">
-                  {/* Product image */}
-                  <div className="w-14 h-14 rounded-lg overflow-hidden bg-gray-100 shrink-0 border border-gray-200">
-                    {line.product_image_url ? (
-                      <img
-                        src={line.product_image_url}
-                        alt={`Photo de ${line.product_name}`}
-                        className="w-full h-full object-cover"
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <svg className="w-5 h-5 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
-                        </svg>
+              {lines.map((line) => {
+                const inputVal = priceInputs[line.id] ?? '';
+                const isLineConfirmed = inputVal === 'CONFIRMED' || (inputVal !== '' && !isNaN(Number(inputVal)) && Number(inputVal) > 0);
+                const hasKnownPrice = Number(line.unit_price) > 0;
+
+                return (
+                <div key={line.id} className={`bg-white rounded-xl border p-3 ${showPriceConfirmation && isLineConfirmed ? 'border-emerald-200' : 'border-gray-100'}`}>
+                  <div className="flex items-start gap-3">
+                    {/* Product image */}
+                    <div className="w-14 h-14 rounded-lg overflow-hidden bg-gray-100 shrink-0 border border-gray-200">
+                      {line.product_image_url ? (
+                        <img
+                          src={line.product_image_url}
+                          alt={`Photo de ${line.product_name}`}
+                          className="w-full h-full object-cover"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <svg className="w-5 h-5 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+                          </svg>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Product info */}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 leading-tight">{line.product_name}</p>
+                      <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                        {line.product_ref && <span className="text-[11px] text-gray-400 font-mono">{line.product_ref}</span>}
+                        {line.variant && <span className="text-[11px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{line.variant}</span>}
+                        {line.color && <span className="text-[11px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{line.color}</span>}
                       </div>
+                      {line.note && <p className="text-[11px] text-amber-600 mt-1 italic">{line.note}</p>}
+                    </div>
+
+                    {/* Qty + Price */}
+                    <div className="text-right shrink-0 min-w-[100px]">
+                      <div className="text-xs text-gray-500 space-y-0.5">
+                        <p>Qté : <span className="font-bold text-gray-800">{line.qty_ordered}</span></p>
+                        {!showPriceConfirmation && (
+                          <>
+                            {line.qty_received > 0 && <p>Reçue : <span className="font-semibold text-emerald-600">{line.qty_received}</span></p>}
+                            <p>P.U. : <span className="font-semibold text-gray-700">{Number(line.unit_price).toFixed(2)} €</span></p>
+                          </>
+                        )}
+                      </div>
+                      {!showPriceConfirmation && (
+                        <p className="mt-1 text-sm font-bold text-gray-900">{Number(line.line_total).toFixed(2)} €</p>
+                      )}
+                    </div>
+
+                    {/* Report out of stock (only when not in price confirmation mode) */}
+                    {!showPriceConfirmation && (
+                      <button
+                        onClick={() => onReportOutOfStock(line.product_name)}
+                        disabled={!!reportingLine}
+                        title="Signaler ce produit hors stock"
+                        className="shrink-0 p-1.5 rounded-lg border border-orange-200 text-orange-500 hover:bg-orange-50 hover:text-orange-700 transition-colors disabled:opacity-40"
+                      >
+                        {reportingLine === (line.id + line.product_name) ? (
+                          <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                        ) : (
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                          </svg>
+                        )}
+                      </button>
                     )}
                   </div>
 
-                  {/* Product info */}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-gray-900 leading-tight">{line.product_name}</p>
-                    <div className="flex flex-wrap items-center gap-2 mt-0.5">
-                      {line.product_ref && <span className="text-[11px] text-gray-400 font-mono">{line.product_ref}</span>}
-                      {line.variant && <span className="text-[11px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{line.variant}</span>}
-                      {line.color && <span className="text-[11px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{line.color}</span>}
+                  {/* Price confirmation UI per line */}
+                  {showPriceConfirmation && (
+                    <div className="mt-3 pt-3 border-t border-gray-100">
+                      {isLineConfirmed ? (
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5 text-emerald-700">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                            </svg>
+                            <span className="text-xs font-semibold">
+                              Prix confirmé : {inputVal === 'CONFIRMED' ? Number(line.unit_price).toFixed(2) : Number(inputVal).toFixed(2)} €
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => onPriceInput(line.id, '')}
+                            className="text-[11px] text-gray-400 hover:text-gray-600 underline"
+                          >
+                            Modifier
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {hasKnownPrice && (
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs text-gray-500">Dernier prix connu : <span className="font-semibold text-gray-700">{Number(line.unit_price).toFixed(2)} €</span></span>
+                              <button
+                                onClick={() => onPriceInput(line.id, 'CONFIRMED')}
+                                className="flex items-center gap-1 px-3 py-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-lg hover:bg-emerald-700 transition-colors active:scale-95"
+                              >
+                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                                </svg>
+                                Je confirme ce prix
+                              </button>
+                            </div>
+                          )}
+                          <div>
+                            <label className="block text-[11px] text-gray-500 mb-1">
+                              {hasKnownPrice ? 'Ou entrez un nouveau prix' : 'Prix unitaire (obligatoire)'}
+                            </label>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={inputVal === 'CONFIRMED' ? '' : inputVal}
+                                onChange={(e) => onPriceInput(line.id, e.target.value)}
+                                placeholder="0.00"
+                                className={`w-28 px-2.5 py-1.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 ${!hasKnownPrice ? 'border-amber-300 bg-amber-50' : 'border-gray-200'}`}
+                              />
+                              <span className="text-sm text-gray-500">€</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    {line.note && <p className="text-[11px] text-amber-600 mt-1 italic">{line.note}</p>}
-                  </div>
+                  )}
+                </div>
+                );
+              })}
 
-                  {/* Qty + Price */}
-                  <div className="text-right shrink-0 min-w-[100px]">
-                    <div className="text-xs text-gray-500 space-y-0.5">
-                      <p>Qté commandée : <span className="font-bold text-gray-800">{line.qty_ordered}</span></p>
-                      {line.qty_received > 0 && <p>Qté reçue : <span className="font-semibold text-emerald-600">{line.qty_received}</span></p>}
-                      <p>P.U. : <span className="font-semibold text-gray-700">{Number(line.unit_price).toFixed(2)} €</span></p>
-                    </div>
-                    <p className="mt-1 text-sm font-bold text-gray-900">{Number(line.line_total).toFixed(2)} €</p>
-                  </div>
-
-                  {/* Report out of stock */}
+              {/* Price confirmation submit */}
+              {showPriceConfirmation && (
+                <div className="pt-2 space-y-2">
+                  {priceConfirmError && (
+                    <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{priceConfirmError}</p>
+                  )}
                   <button
-                    onClick={() => onReportOutOfStock(line.product_name)}
-                    disabled={!!reportingLine}
-                    title="Signaler ce produit hors stock"
-                    className="shrink-0 p-1.5 rounded-lg border border-orange-200 text-orange-500 hover:bg-orange-50 hover:text-orange-700 transition-colors disabled:opacity-40"
+                    onClick={() => onConfirmPrices(lines)}
+                    disabled={!allConfirmed || confirmingPrices}
+                    className="w-full flex items-center justify-center gap-2 py-3 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {reportingLine === (line.id + line.product_name) ? (
+                    {confirmingPrices ? (
                       <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                     ) : (
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
                     )}
+                    {allConfirmed ? 'Envoyer la confirmation des prix' : `En attente — ${confirmedCount}/${lines.length} produits confirmés`}
                   </button>
                 </div>
-              ))}
+              )}
 
               {/* Order total summary */}
-              <div className="border-t border-gray-200 pt-3 flex justify-end">
-                <div className="text-right text-xs space-y-1">
-                  {order.subtotal > 0 && <p className="text-gray-500">Sous-total : <span className="font-medium text-gray-700">{Number(order.subtotal).toFixed(2)} €</span></p>}
-                  {order.transport_cost > 0 && <p className="text-gray-500">Transport : <span className="font-medium text-gray-700">{Number(order.transport_cost).toFixed(2)} €</span></p>}
-                  {order.customs_cost > 0 && <p className="text-gray-500">Douane : <span className="font-medium text-gray-700">{Number(order.customs_cost).toFixed(2)} €</span></p>}
-                  <p className="text-sm font-bold text-gray-900 pt-1 border-t border-gray-100">
-                    Total : {Number(order.total_real_cost).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
-                  </p>
+              {!showPriceConfirmation && (
+                <div className="border-t border-gray-200 pt-3 flex justify-end">
+                  <div className="text-right text-xs space-y-1">
+                    {order.subtotal > 0 && <p className="text-gray-500">Sous-total : <span className="font-medium text-gray-700">{Number(order.subtotal).toFixed(2)} €</span></p>}
+                    {order.transport_cost > 0 && <p className="text-gray-500">Transport : <span className="font-medium text-gray-700">{Number(order.transport_cost).toFixed(2)} €</span></p>}
+                    {order.customs_cost > 0 && <p className="text-gray-500">Douane : <span className="font-medium text-gray-700">{Number(order.customs_cost).toFixed(2)} €</span></p>}
+                    <p className="text-sm font-bold text-gray-900 pt-1 border-t border-gray-100">
+                      Total : {Number(order.total_real_cost).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                    </p>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
         </div>

@@ -168,34 +168,115 @@ export async function exportPurchaseOrderPDF(order: FoOrder, lines: FoOrderLine[
   doc.text('Articles commandés', margin, y + 5);
   y += 9;
 
-  const tableRows = lines.map((l) => [
-    l.productRef || '—',
-    l.productName + (l.variant ? `\n${l.variant}` : '') + (l.color ? ` / ${l.color}` : '') + (l.size ? ` T.${l.size}` : ''),
-    String(l.qtyOrdered),
-    l.qtyReceived > 0 ? String(l.qtyReceived) : '—',
-    fmt(l.unitPrice, order.currency),
-    fmt(l.lineTotal, order.currency),
-    l.unitRealCost > 0 ? fmt(l.unitRealCost, order.currency) : '—',
-    l.marginRate > 0 ? `${l.marginRate.toFixed(1)}%` : '—',
-  ]);
+  // Pre-load product images
+  const imageMap: Record<string, HTMLImageElement> = {};
+  await Promise.all(lines.map((l) => {
+    if (!l.productImageUrl) return;
+    return new Promise<void>((resolve) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => { imageMap[l.id] = img; resolve(); };
+      img.onerror = () => resolve();
+      img.src = l.productImageUrl!;
+      setTimeout(resolve, 2000);
+    });
+  }));
+
+  const hasConfirmedPrices = lines.some((l) => l.confirmedUnitPrice != null);
+  const IMG_COL_W = 14;
+  const ROW_H = 16;
+
+  const tableHead = hasConfirmedPrices
+    ? [['', 'Réf.', 'Désignation', 'Qté', 'Prix achat', 'Prix confirmé', 'Total ligne']]
+    : [['', 'Réf.', 'Désignation', 'Qté cmd.', 'Qté reçue', 'Prix unit.', 'Total ligne']];
+
+  const tableRows = lines.map((l) => hasConfirmedPrices
+    ? [
+        '',
+        l.productRef || '—',
+        l.productName + (l.variant ? `\n${l.variant}` : '') + (l.color ? ` / ${l.color}` : ''),
+        String(l.qtyOrdered),
+        fmt(l.unitPrice, order.currency),
+        l.confirmedUnitPrice != null ? fmt(l.confirmedUnitPrice, order.currency) : '—',
+        fmt((l.confirmedUnitPrice ?? l.unitPrice) * l.qtyOrdered, order.currency),
+      ]
+    : [
+        '',
+        l.productRef || '—',
+        l.productName + (l.variant ? `\n${l.variant}` : '') + (l.color ? ` / ${l.color}` : ''),
+        String(l.qtyOrdered),
+        l.qtyReceived > 0 ? String(l.qtyReceived) : '—',
+        fmt(l.unitPrice, order.currency),
+        fmt(l.lineTotal, order.currency),
+      ]
+  );
+
+  const colStyles = hasConfirmedPrices
+    ? {
+        0: { cellWidth: IMG_COL_W },
+        1: { cellWidth: 18 },
+        2: { cellWidth: 'auto' as const },
+        3: { cellWidth: 14, halign: 'center' as const },
+        4: { cellWidth: 24, halign: 'right' as const },
+        5: { cellWidth: 26, halign: 'right' as const, fontStyle: 'bold' as const },
+        6: { cellWidth: 26, halign: 'right' as const, fontStyle: 'bold' as const },
+      }
+    : {
+        0: { cellWidth: IMG_COL_W },
+        1: { cellWidth: 18 },
+        2: { cellWidth: 'auto' as const },
+        3: { cellWidth: 16, halign: 'center' as const },
+        4: { cellWidth: 18, halign: 'center' as const },
+        5: { cellWidth: 22, halign: 'right' as const },
+        6: { cellWidth: 24, halign: 'right' as const, fontStyle: 'bold' as const },
+      };
 
   autoTable(doc, {
     startY: y,
-    head: [['Réf.', 'Désignation', 'Qté cmd.', 'Qté reçue', 'Prix unit.', 'Total ligne', 'Coût réel unit.', 'Taux marge']],
+    head: tableHead,
     body: tableRows,
     margin: { left: margin, right: margin },
-    styles: { fontSize: 8, cellPadding: 3, textColor: DARK, lineColor: [229, 231, 235], lineWidth: 0.3 },
+    styles: { fontSize: 8, cellPadding: 3, textColor: DARK, lineColor: [229, 231, 235], lineWidth: 0.3, minCellHeight: ROW_H },
     headStyles: { fillColor: DARK, textColor: WHITE, fontStyle: 'bold', fontSize: 7.5 },
     alternateRowStyles: { fillColor: LIGHT },
-    columnStyles: {
-      0: { cellWidth: 18 },
-      1: { cellWidth: 'auto' },
-      2: { cellWidth: 16, halign: 'center' },
-      3: { cellWidth: 18, halign: 'center' },
-      4: { cellWidth: 22, halign: 'right' },
-      5: { cellWidth: 24, halign: 'right', fontStyle: 'bold' },
-      6: { cellWidth: 24, halign: 'right' },
-      7: { cellWidth: 18, halign: 'right' },
+    columnStyles: colStyles,
+    didDrawCell: (data: any) => {
+      if (data.section === 'body' && data.column.index === 0) {
+        const lineIndex = data.row.index;
+        const line = lines[lineIndex];
+        if (line && imageMap[line.id]) {
+          try {
+            const padding = 1.5;
+            const size = Math.min(data.cell.width, data.cell.height) - padding * 2;
+            doc.addImage(
+              imageMap[line.id],
+              'JPEG',
+              data.cell.x + padding,
+              data.cell.y + padding,
+              size,
+              size,
+            );
+          } catch { /* image embed failed, leave blank */ }
+        }
+      }
+      // Highlight confirmed price cell
+      if (hasConfirmedPrices && data.section === 'body' && data.column.index === 5) {
+        const lineIndex = data.row.index;
+        const line = lines[lineIndex];
+        if (line?.confirmedUnitPrice != null) {
+          doc.setFillColor(220, 252, 231); // emerald-100
+          doc.rect(data.cell.x, data.cell.y, data.cell.width, data.cell.height, 'F');
+          doc.setTextColor(4, 120, 87); // emerald-700
+          doc.setFontSize(8);
+          doc.setFont('helvetica', 'bold');
+          doc.text(
+            fmt(line.confirmedUnitPrice, order.currency),
+            data.cell.x + data.cell.width - 3,
+            data.cell.y + data.cell.height / 2 + 2.5,
+            { align: 'right' },
+          );
+        }
+      }
     },
   });
 

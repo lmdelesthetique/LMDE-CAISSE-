@@ -116,6 +116,11 @@ export default function OrderDetailPage() {
   const [bulkUpdateEnabled, setBulkUpdateEnabled] = useState(false);
   const [bulkUpdating, setBulkUpdating] = useState(false);
   const [bulkUpdateDone, setBulkUpdateDone] = useState(false);
+  // Validate prices (step 4)
+  const [validatingPrices, setValidatingPrices] = useState(false);
+  const [validatePricesResult, setValidatePricesResult] = useState<string | null>(null);
+  const [markingPaid, setMarkingPaid] = useState(false);
+
   // Print labels from order
   const [showOrderLabelModal, setShowOrderLabelModal] = useState(false);
   const [orderLabelProducts, setOrderLabelProducts] = useState<ProductRecord[]>([]);
@@ -743,6 +748,38 @@ export default function OrderDetailPage() {
     }
   };
 
+  const handleValidatePrices = async () => {
+    if (!order) return;
+    setValidatingPrices(true);
+    setValidatePricesResult(null);
+    try {
+      const res = await fetch(`/api/fo-orders/${order.id}/validate-prices`, { method: 'POST' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setValidatePricesResult(`Erreur : ${err.error || 'inconnue'}`);
+      } else {
+        const data = await res.json();
+        setValidatePricesResult(`✅ ${data.updatedCount} prix achat mis à jour`);
+        load();
+      }
+    } catch {
+      setValidatePricesResult('Erreur réseau');
+    } finally {
+      setValidatingPrices(false);
+    }
+  };
+
+  const handleMarkPaid = async () => {
+    if (!order) return;
+    setMarkingPaid(true);
+    try {
+      await supplierOrderService.changeStatus(order.id, 'paid', 'Admin', 'Commande marquée comme payée');
+      load();
+    } finally {
+      setMarkingPaid(false);
+    }
+  };
+
   const handleExportPDF = async () => {
     if (!order) return;
     setExportingPDF(true);
@@ -921,6 +958,140 @@ export default function OrderDetailPage() {
             </button>
           ))}
         </div>
+
+        {/* Price validation panel — shown when supplier has confirmed prices */}
+        {tab === 'overview' && order.orderStatus === 'awaiting_validation' && (
+          <div className="mb-5 bg-blue-50 border border-blue-200 rounded-xl overflow-hidden shadow-card">
+            <div className="px-5 py-4 border-b border-blue-200 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+                  <Icon name="CheckBadgeIcon" size={16} className="text-blue-700" />
+                </div>
+                <div>
+                  <h3 className="font-700 text-blue-900 text-sm">Validation des tarifs fournisseur</h3>
+                  <p className="text-xs text-blue-600 mt-0.5">Le fournisseur a confirmé ses prix. Vérifiez et validez pour mettre à jour les prix d'achat.</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {validatePricesResult && (
+                  <span className={`text-xs px-3 py-1.5 rounded-lg font-600 ${validatePricesResult.startsWith('✅') ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                    {validatePricesResult}
+                  </span>
+                )}
+                <button
+                  onClick={handleValidatePrices}
+                  disabled={validatingPrices}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-700 text-white text-sm font-600 rounded-lg hover:bg-blue-800 transition-colors disabled:opacity-50"
+                >
+                  {validatingPrices ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Icon name="CheckIcon" size={14} />
+                  )}
+                  Valider les tarifs
+                </button>
+                <button
+                  onClick={handleMarkPaid}
+                  disabled={markingPaid}
+                  className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm font-600 rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                >
+                  {markingPaid ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Icon name="BanknotesIcon" size={14} />
+                  )}
+                  Marquer payée
+                </button>
+              </div>
+            </div>
+            {/* Comparison table */}
+            {lines.some((l) => l.confirmedUnitPrice != null) ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-blue-100/60">
+                      <th className="px-4 py-2.5 text-left text-xs font-600 text-blue-800">Produit</th>
+                      <th className="px-4 py-2.5 text-right text-xs font-600 text-blue-800">Qté</th>
+                      <th className="px-4 py-2.5 text-right text-xs font-600 text-blue-800">Ancien prix</th>
+                      <th className="px-4 py-2.5 text-right text-xs font-600 text-blue-800">Prix confirmé</th>
+                      <th className="px-4 py-2.5 text-right text-xs font-600 text-blue-800">Écart</th>
+                      <th className="px-4 py-2.5 text-right text-xs font-600 text-blue-800">Total ligne</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-blue-100">
+                    {lines.map((line) => {
+                      const confirmed = line.confirmedUnitPrice ?? line.unitPrice;
+                      const diff = confirmed - line.unitPrice;
+                      const diffPct = line.unitPrice > 0 ? (diff / line.unitPrice) * 100 : 0;
+                      return (
+                        <tr key={line.id} className="bg-white/70 hover:bg-blue-50/30 transition-colors">
+                          <td className="px-4 py-3">
+                            <p className="font-500 text-foreground text-xs">{line.productName}</p>
+                            {line.productRef && <p className="text-[11px] text-muted-foreground font-mono">{line.productRef}</p>}
+                          </td>
+                          <td className="px-4 py-3 text-right text-xs font-500">{line.qtyOrdered}</td>
+                          <td className="px-4 py-3 text-right text-xs text-muted-foreground">{line.unitPrice.toFixed(2)} €</td>
+                          <td className="px-4 py-3 text-right text-xs font-700 text-blue-800">
+                            {line.confirmedUnitPrice != null ? `${line.confirmedUnitPrice.toFixed(2)} €` : <span className="text-muted-foreground italic">non confirmé</span>}
+                          </td>
+                          <td className="px-4 py-3 text-right text-xs font-600">
+                            {line.confirmedUnitPrice != null ? (
+                              <span className={diff > 0 ? 'text-red-600' : diff < 0 ? 'text-emerald-600' : 'text-gray-400'}>
+                                {diff > 0 ? '+' : ''}{diff.toFixed(2)} € ({diffPct > 0 ? '+' : ''}{diffPct.toFixed(1)}%)
+                              </span>
+                            ) : '—'}
+                          </td>
+                          <td className="px-4 py-3 text-right text-xs font-700">
+                            {(confirmed * line.qtyOrdered).toFixed(2)} €
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-blue-100/60 font-700">
+                      <td className="px-4 py-2.5 text-xs text-blue-800" colSpan={5}>Total confirmé</td>
+                      <td className="px-4 py-2.5 text-right text-sm text-blue-900">
+                        {lines.reduce((s, l) => s + (l.confirmedUnitPrice ?? l.unitPrice) * l.qtyOrdered, 0).toFixed(2)} €
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            ) : (
+              <div className="px-5 py-6 text-center text-sm text-blue-600">
+                Aucun prix confirmé pour le moment.
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Mark as paid quick action for validated orders */}
+        {tab === 'overview' && order.orderStatus === 'validated' && (
+          <div className="mb-5 flex items-center justify-between gap-4 p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center">
+                <Icon name="CheckBadgeIcon" size={16} className="text-emerald-700" />
+              </div>
+              <div>
+                <p className="font-600 text-emerald-900 text-sm">Commande validée — tarifs mis à jour</p>
+                <p className="text-xs text-emerald-600 mt-0.5">Procédez au paiement fournisseur pour finaliser.</p>
+              </div>
+            </div>
+            <button
+              onClick={handleMarkPaid}
+              disabled={markingPaid}
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm font-600 rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50"
+            >
+              {markingPaid ? (
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Icon name="BanknotesIcon" size={14} />
+              )}
+              Marquer comme payée
+            </button>
+          </div>
+        )}
 
         {/* Overview */}
         {tab === 'overview' && (
