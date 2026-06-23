@@ -146,8 +146,10 @@ export default function SupplierDashboardPage() {
   const [reportingLine, setReportingLine] = useState<string | null>(null);
 
   // Price confirmation (step 3)
-  // priceInputs[orderId][lineId] = 'CONFIRMED' | number-string
+  // priceInputs[orderId][lineId] = 'CONFIRMED' | raw-price-string (typed, not yet validated)
   const [priceInputs, setPriceInputs] = useState<Record<string, Record<string, string>>>({});
+  // manualConfirmedLines[orderId][lineId] = true when user explicitly clicked "Valider"
+  const [manualConfirmedLines, setManualConfirmedLines] = useState<Record<string, Record<string, boolean>>>({});
   const [confirmingPrices, setConfirmingPrices] = useState<string | null>(null);
   const [priceConfirmError, setPriceConfirmError] = useState<string | null>(null);
   const [downloadingPDFId, setDownloadingPDFId] = useState<string | null>(null);
@@ -239,15 +241,18 @@ export default function SupplierDashboardPage() {
         confirmed_unit_price: confirmedMap[l.id] ?? null,
       }));
       setOrderLines((prev) => ({ ...prev, [orderId]: linesWithConfirmed }));
-      // Init price inputs from already-confirmed values
+      // Init price inputs + manual confirmed from already-confirmed values
       const inputs: Record<string, string> = {};
+      const confirmed: Record<string, boolean> = {};
       linesWithConfirmed.forEach((l) => {
         if (l.confirmed_unit_price != null) {
           inputs[l.id] = String(l.confirmed_unit_price);
+          confirmed[l.id] = true;
         }
       });
       if (Object.keys(inputs).length > 0) {
         setPriceInputs((prev) => ({ ...prev, [orderId]: { ...(prev[orderId] ?? {}), ...inputs } }));
+        setManualConfirmedLines((prev) => ({ ...prev, [orderId]: { ...(prev[orderId] ?? {}), ...confirmed } }));
       }
       setLinesLoading(false);
     }
@@ -507,7 +512,13 @@ export default function SupplierDashboardPage() {
                     onAccept={() => { setRespondComment(''); setRespondModal({ order, response: 'accepted' }); }}
                     onRefuse={() => { setRespondComment(''); setRespondModal({ order, response: 'refused' }); }}
                     onReportOutOfStock={(productName) => handleReportOutOfStock(order.id, order.order_number, productName)}
+                    manualConfirmedLines={manualConfirmedLines[order.id] ?? {}}
                     onPriceInput={(lineId, value) => setPriceInputs((prev) => ({ ...prev, [order.id]: { ...(prev[order.id] ?? {}), [lineId]: value } }))}
+                    onManualConfirmLine={(lineId) => setManualConfirmedLines((prev) => ({ ...prev, [order.id]: { ...(prev[order.id] ?? {}), [lineId]: true } }))}
+                    onClearLine={(lineId) => {
+                      setPriceInputs((prev) => ({ ...prev, [order.id]: { ...(prev[order.id] ?? {}), [lineId]: '' } }));
+                      setManualConfirmedLines((prev) => ({ ...prev, [order.id]: { ...(prev[order.id] ?? {}), [lineId]: false } }));
+                    }}
                     onConfirmPrices={(lines) => handleConfirmPrices(order.id, lines)}
                     onDownloadPDF={() => handleDownloadPDF(order, orderLines[order.id] ?? [])}
                     downloadingPDF={downloadingPDFId === order.id}
@@ -673,7 +684,10 @@ interface OrderCardProps {
   onAccept: () => void;
   onRefuse: () => void;
   onReportOutOfStock: (productName: string) => void;
+  manualConfirmedLines: Record<string, boolean>;
   onPriceInput: (lineId: string, value: string) => void;
+  onManualConfirmLine: (lineId: string) => void;
+  onClearLine: (lineId: string) => void;
   onConfirmPrices: (lines: OrderLine[]) => void;
   onDownloadPDF: () => void;
   downloadingPDF: boolean;
@@ -681,22 +695,18 @@ interface OrderCardProps {
 
 function OrderCard({
   order, lines, isExpanded, linesLoading, reportingLine,
-  priceInputs, confirmingPrices, priceConfirmError,
-  onToggle, onAccept, onRefuse, onReportOutOfStock, onPriceInput, onConfirmPrices,
+  priceInputs, manualConfirmedLines, confirmingPrices, priceConfirmError,
+  onToggle, onAccept, onRefuse, onReportOutOfStock,
+  onPriceInput, onManualConfirmLine, onClearLine, onConfirmPrices,
   onDownloadPDF, downloadingPDF,
 }: OrderCardProps) {
   const canRespond = order.supplier_response === 'pending';
   const isActive = ['sent', 'awaiting_validation', 'validated', 'modification_requested'].includes(order.order_status);
   const showPriceConfirmation = order.supplier_response === 'accepted' && order.order_status === 'sent';
 
-  // How many lines have a valid price input
+  // A line is confirmed when: "Je confirme ce prix" was clicked OR user clicked "Valider" on typed price
   const confirmedCount = lines
-    ? lines.filter((l) => {
-        const val = priceInputs[l.id];
-        if (val === 'CONFIRMED') return true;
-        const n = Number(val);
-        return !isNaN(n) && n > 0;
-      }).length
+    ? lines.filter((l) => priceInputs[l.id] === 'CONFIRMED' || manualConfirmedLines[l.id] === true).length
     : 0;
   const allConfirmed = lines ? confirmedCount === lines.length && lines.length > 0 : false;
 
@@ -859,7 +869,9 @@ function OrderCard({
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{lines.length} article{lines.length > 1 ? 's' : ''}</p>
               {lines.map((line) => {
                 const inputVal = priceInputs[line.id] ?? '';
-                const isLineConfirmed = inputVal === 'CONFIRMED' || (inputVal !== '' && !isNaN(Number(inputVal)) && Number(inputVal) > 0);
+                const isLineConfirmed = inputVal === 'CONFIRMED' || manualConfirmedLines[line.id] === true;
+                const typedPrice = inputVal !== '' && inputVal !== 'CONFIRMED' ? Number(inputVal) : NaN;
+                const typedPriceValid = !isNaN(typedPrice) && typedPrice > 0;
                 const hasKnownPrice = Number(line.unit_price) > 0;
 
                 return (
@@ -943,7 +955,7 @@ function OrderCard({
                             </span>
                           </div>
                           <button
-                            onClick={() => onPriceInput(line.id, '')}
+                            onClick={() => onClearLine(line.id)}
                             className="text-[11px] text-gray-400 hover:text-gray-600 underline"
                           >
                             Modifier
@@ -967,7 +979,7 @@ function OrderCard({
                           )}
                           <div>
                             <label className="block text-[11px] text-gray-500 mb-1">
-                              {hasKnownPrice ? 'Ou entrez un nouveau prix' : 'Prix unitaire (obligatoire)'}
+                              {hasKnownPrice ? 'Ou entrez un nouveau prix :' : 'Prix unitaire (obligatoire) :'}
                             </label>
                             <div className="flex items-center gap-2">
                               <input
@@ -976,10 +988,24 @@ function OrderCard({
                                 step="0.01"
                                 value={inputVal === 'CONFIRMED' ? '' : inputVal}
                                 onChange={(e) => onPriceInput(line.id, e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && typedPriceValid) onManualConfirmLine(line.id);
+                                }}
                                 placeholder="0.00"
                                 className={`w-28 px-2.5 py-1.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 ${!hasKnownPrice ? 'border-amber-300 bg-amber-50' : 'border-gray-200'}`}
                               />
                               <span className="text-sm text-gray-500">€</span>
+                              {typedPriceValid && (
+                                <button
+                                  onClick={() => onManualConfirmLine(line.id)}
+                                  className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition-colors active:scale-95"
+                                >
+                                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                                  </svg>
+                                  Valider
+                                </button>
+                              )}
                             </div>
                           </div>
                         </div>

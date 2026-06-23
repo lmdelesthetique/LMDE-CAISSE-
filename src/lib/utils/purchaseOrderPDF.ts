@@ -168,18 +168,27 @@ export async function exportPurchaseOrderPDF(order: FoOrder, lines: FoOrderLine[
   doc.text('Articles commandés', margin, y + 5);
   y += 9;
 
-  // Pre-load product images
-  const imageMap: Record<string, HTMLImageElement> = {};
-  await Promise.all(lines.map((l) => {
+  // Pre-load product images via fetch → data URL (avoids CORS canvas taint)
+  const imageMap: Record<string, string> = {};
+  await Promise.all(lines.map(async (l) => {
     if (!l.productImageUrl) return;
-    return new Promise<void>((resolve) => {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => { imageMap[l.id] = img; resolve(); };
-      img.onerror = () => resolve();
-      img.src = l.productImageUrl!;
-      setTimeout(resolve, 2000);
-    });
+    try {
+      const controller = new AbortController();
+      const tid = setTimeout(() => controller.abort(), 4000);
+      const res = await fetch(l.productImageUrl, { signal: controller.signal });
+      clearTimeout(tid);
+      if (!res.ok) return;
+      const blob = await res.blob();
+      await new Promise<void>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          if (typeof reader.result === 'string') imageMap[l.id] = reader.result;
+          resolve();
+        };
+        reader.onerror = () => resolve();
+        reader.readAsDataURL(blob);
+      });
+    } catch { /* skip */ }
   }));
 
   const hasConfirmedPrices = lines.some((l) => l.confirmedUnitPrice != null);
@@ -246,11 +255,15 @@ export async function exportPurchaseOrderPDF(order: FoOrder, lines: FoOrderLine[
         const line = lines[lineIndex];
         if (line && imageMap[line.id]) {
           try {
+            const dataUrl = imageMap[line.id];
+            const fmt = dataUrl.startsWith('data:image/png') ? 'PNG'
+              : dataUrl.startsWith('data:image/webp') ? 'WEBP'
+              : 'JPEG';
             const padding = 1.5;
             const size = Math.min(data.cell.width, data.cell.height) - padding * 2;
             doc.addImage(
-              imageMap[line.id],
-              'JPEG',
+              dataUrl,
+              fmt,
               data.cell.x + padding,
               data.cell.y + padding,
               size,

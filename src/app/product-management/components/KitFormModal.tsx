@@ -44,6 +44,7 @@ export default function KitFormModal({ kitProductId, onClose, onSaved }: KitForm
   const [allProducts, setAllProducts] = useState<SimpleProduct[]>([]);
   const [components, setComponents] = useState<KitComponent[]>([]);
   const [search, setSearch] = useState('');
+  const [searchFocused, setSearchFocused] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   // Kit info fields
@@ -136,6 +137,7 @@ export default function KitFormModal({ kitProductId, onClose, onSaved }: KitForm
       },
     ]);
     setSearch('');
+    setSearchFocused(false);
   };
 
   const removeComponent = (id: string) => {
@@ -342,13 +344,20 @@ export default function KitFormModal({ kitProductId, onClose, onSaved }: KitForm
                   <input
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Rechercher un produit…"
+                    onFocus={() => setSearchFocused(true)}
+                    onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
+                    placeholder="Rechercher un produit… (ou cliquez pour voir tous)"
                     className="w-full pl-9 pr-4 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
                   />
                 </div>
-                {search && filteredProducts.length > 0 && (
-                  <div className="mt-1 border border-border rounded-xl bg-white shadow-modal max-h-48 overflow-y-auto">
-                    {filteredProducts.slice(0, 10).map((p) => (
+                {(searchFocused || search) && filteredProducts.length > 0 && (
+                  <div className="mt-1 border border-border rounded-xl bg-white shadow-modal max-h-56 overflow-y-auto">
+                    {!search && (
+                      <p className="px-3 py-1.5 text-[11px] text-muted-foreground border-b border-border bg-gray-50">
+                        {filteredProducts.length} produit{filteredProducts.length > 1 ? 's' : ''} disponible{filteredProducts.length > 1 ? 's' : ''} — tapez pour filtrer
+                      </p>
+                    )}
+                    {filteredProducts.slice(0, search ? 10 : 40).map((p) => (
                       <button
                         key={p.id}
                         onClick={() => addComponent(p)}
