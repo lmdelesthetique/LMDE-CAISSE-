@@ -22,12 +22,12 @@ const RECEPTION_COLOR: Record<StatutReception, string> = {
   confirme: 'bg-emerald-50 text-emerald-700',
 };
 
-const CAMPAGNE_STATUT_LABEL: Record<CampagneStatut, string> = {
-  brouillon: 'En préparation',
-  active: 'Active',
-  terminee: 'Terminée',
-  annulee: 'Annulée',
-};
+function fmtBytes(bytes: number | null | undefined): string {
+  if (!bytes) return '';
+  if (bytes >= 1073741824) return `${(bytes / 1073741824).toFixed(1)} Go`;
+  if (bytes >= 1048576) return `${(bytes / 1048576).toFixed(0)} Mo`;
+  return `${(bytes / 1024).toFixed(0)} Ko`;
+}
 
 export default function CampagneDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -35,6 +35,8 @@ export default function CampagneDetailPage() {
   const [loading, setLoading] = useState(true);
   const [updatingReception, setUpdatingReception] = useState<string | null>(null);
   const [updatingStatut, setUpdatingStatut] = useState(false);
+  const [downloadingVideo, setDownloadingVideo] = useState<string | null>(null);
+  const [deletingVideo, setDeletingVideo] = useState<string | null>(null);
   const [toast, setToast] = useState<{ ok: boolean; msg: string } | null>(null);
 
   const load = useCallback(async () => {
@@ -52,7 +54,7 @@ export default function CampagneDetailPage() {
 
   const showToast = (ok: boolean, msg: string) => {
     setToast({ ok, msg });
-    setTimeout(() => setToast(null), 3000);
+    setTimeout(() => setToast(null), 3500);
   };
 
   const handleUpdateReception = async (assignmentId: string, statut_reception: StatutReception) => {
@@ -102,6 +104,41 @@ export default function CampagneDetailPage() {
     } catch {}
   };
 
+  const handleDownloadVideo = async (contenu: any) => {
+    if (!contenu.video_path) return;
+    setDownloadingVideo(contenu.id);
+    try {
+      const res = await fetch(`/api/ambassadrice/video-url?path=${encodeURIComponent(contenu.video_path)}`);
+      const data = await res.json();
+      if (!res.ok || !data.url) { showToast(false, 'Impossible de générer l\'URL de téléchargement'); return; }
+      window.open(data.url, '_blank');
+    } catch {
+      showToast(false, 'Erreur réseau');
+    } finally {
+      setDownloadingVideo(null);
+    }
+  };
+
+  const handleDeleteVideo = async (contenu: any) => {
+    const ok = window.confirm(
+      `Supprimer la vidéo "${contenu.video_filename || 'cette vidéo'}" ?\n\nAssurez-vous de l'avoir téléchargée d'abord — cette action est irréversible.`
+    );
+    if (!ok) return;
+
+    setDeletingVideo(contenu.id);
+    try {
+      const res = await fetch(`/api/admin/videos/${contenu.id}/delete`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) { showToast(false, data.error || 'Erreur suppression'); return; }
+      showToast(true, 'Vidéo supprimée — espace libéré');
+      load();
+    } catch {
+      showToast(false, 'Erreur réseau');
+    } finally {
+      setDeletingVideo(null);
+    }
+  };
+
   if (loading) {
     return (
       <AppLayout>
@@ -128,10 +165,14 @@ export default function CampagneDetailPage() {
   const assignments = data.assignments ?? [];
   const totalContenus = assignments.reduce((sum: number, a: any) => sum + (a.contenus?.length ?? 0), 0);
   const doneContenus = assignments.reduce(
-    (sum: number, a: any) => sum + (a.contenus ?? []).filter((c: any) => c.statut === 'poste').length,
+    (sum: number, a: any) => sum + (a.contenus ?? []).filter((c: any) => c.statut === 'poste' || c.statut === 'realise').length,
     0
   );
   const totalCost = assignments.reduce((sum: number, a: any) => sum + (a.cout_total ?? 0), 0);
+  const totalVideos = assignments.reduce(
+    (sum: number, a: any) => sum + (a.contenus ?? []).filter((c: any) => c.video_path && !c.video_deleted_at).length,
+    0
+  );
 
   return (
     <AppLayout>
@@ -142,7 +183,6 @@ export default function CampagneDetailPage() {
       )}
 
       <div className="p-6 max-w-5xl mx-auto space-y-6">
-        {/* Back */}
         <Link href="/campagnes-ambassadrices" className="text-sm text-primary hover:underline">
           ← Retour aux campagnes
         </Link>
@@ -179,7 +219,7 @@ export default function CampagneDetailPage() {
           </div>
 
           {/* Quick stats */}
-          <div className="grid grid-cols-3 gap-4 mt-4">
+          <div className="grid grid-cols-4 gap-4 mt-4">
             <div className="text-center">
               <p className="text-xl font-bold tabular-nums">{assignments.length}</p>
               <p className="text-xs text-muted-foreground">Ambassadrices</p>
@@ -189,13 +229,17 @@ export default function CampagneDetailPage() {
               <p className="text-xs text-muted-foreground">Contenus</p>
             </div>
             <div className="text-center">
+              <p className="text-xl font-bold tabular-nums text-pink-600">🎬 {totalVideos}</p>
+              <p className="text-xs text-muted-foreground">Vidéos reçues</p>
+            </div>
+            <div className="text-center">
               <p className="text-xl font-bold tabular-nums">{totalCost.toFixed(0)} €</p>
               <p className="text-xs text-muted-foreground">Coût total</p>
             </div>
           </div>
         </div>
 
-        {/* Assignments table */}
+        {/* Assignments */}
         {assignments.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 border border-dashed border-border rounded-2xl">
             <p className="text-muted-foreground text-sm">Aucune ambassadrice assignée</p>
@@ -206,8 +250,8 @@ export default function CampagneDetailPage() {
               const amb = assignment.ambassadrice;
               const products = assignment.products ?? [];
               const contenus = assignment.contenus ?? [];
-              const doneCount = contenus.filter((c: any) => c.statut === 'poste').length;
-              const driveCount = contenus.filter((c: any) => c.drive_deposited).length;
+              const doneCount = contenus.filter((c: any) => c.statut === 'poste' || c.statut === 'realise').length;
+              const videoCount = contenus.filter((c: any) => c.video_path && !c.video_deleted_at).length;
 
               return (
                 <div key={assignment.id} className="bg-card border border-border rounded-2xl overflow-hidden">
@@ -221,7 +265,9 @@ export default function CampagneDetailPage() {
                       <div className="flex gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
                         <span>📦 {products.length} produit{products.length > 1 ? 's' : ''}</span>
                         <span>📋 {doneCount}/{contenus.length} contenus</span>
-                        <span>📁 {driveCount} sur Drive</span>
+                        <span className={videoCount > 0 ? 'text-pink-600 font-semibold' : ''}>
+                          🎬 {videoCount} vidéo{videoCount > 1 ? 's' : ''}
+                        </span>
                         <span>💰 {(assignment.cout_total ?? 0).toFixed(2)} €</span>
                       </div>
                     </div>
@@ -257,33 +303,76 @@ export default function CampagneDetailPage() {
                     </div>
                   )}
 
-                  {/* Contenus */}
+                  {/* Contenus + videos */}
                   {contenus.length > 0 && (
                     <div className="px-5 pb-4 border-t border-border pt-3">
-                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Contenus</p>
-                      <div className="space-y-1.5">
-                        {contenus.map((c: any) => (
-                          <div key={c.id} className="flex items-center gap-2 text-xs">
-                            <select
-                              value={c.statut}
-                              onChange={(e) => handleUpdateContenu(c.id, { statut: e.target.value })}
-                              className="px-2 py-1 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none"
-                            >
-                              <option value="a_faire">À faire</option>
-                              <option value="en_cours">En cours</option>
-                              <option value="tourne">Tourné</option>
-                              <option value="poste">Posté</option>
-                            </select>
-                            <span className="capitalize text-gray-700">{c.type_contenu}</span>
-                            {c.product_name && <span className="text-gray-400">— {c.product_name}</span>}
-                            <button
-                              onClick={() => handleUpdateContenu(c.id, { drive_deposited: !c.drive_deposited })}
-                              className={`ml-auto px-2 py-0.5 rounded text-xs font-medium ${c.drive_deposited ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}
-                            >
-                              📁 {c.drive_deposited ? 'Drive ✓' : 'Drive'}
-                            </button>
-                          </div>
-                        ))}
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Contenus & Vidéos</p>
+                      <div className="space-y-2">
+                        {contenus.map((c: any) => {
+                          const hasVideo = !!c.video_path && !c.video_deleted_at;
+                          const wasDeleted = !c.video_path && !!c.video_deleted_at;
+                          return (
+                            <div key={c.id} className="flex items-center gap-2 text-xs flex-wrap">
+                              <select
+                                value={c.statut}
+                                onChange={(e) => handleUpdateContenu(c.id, { statut: e.target.value })}
+                                className="px-2 py-1 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none shrink-0"
+                              >
+                                <option value="a_faire">À faire</option>
+                                <option value="en_cours">En cours</option>
+                                <option value="tourne">Tourné</option>
+                                <option value="realise">Réalisé</option>
+                                <option value="poste">Posté</option>
+                              </select>
+                              <span className="capitalize text-gray-700 shrink-0">{c.type_contenu}</span>
+                              {c.product_name && <span className="text-gray-400 shrink-0">— {c.product_name}</span>}
+
+                              <div className="ml-auto flex items-center gap-1.5 shrink-0">
+                                {hasVideo && (
+                                  <>
+                                    <span className="text-emerald-600 font-semibold flex items-center gap-1">
+                                      ✅
+                                      {c.video_filename && (
+                                        <span className="text-gray-500 font-normal max-w-[120px] truncate hidden sm:inline">
+                                          {c.video_filename}
+                                        </span>
+                                      )}
+                                      {c.video_size_bytes && (
+                                        <span className="text-gray-400 font-normal">{fmtBytes(c.video_size_bytes)}</span>
+                                      )}
+                                    </span>
+                                    <button
+                                      onClick={() => handleDownloadVideo(c)}
+                                      disabled={downloadingVideo === c.id}
+                                      title="Télécharger la vidéo"
+                                      className="px-2 py-0.5 rounded bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100 transition-colors disabled:opacity-50 font-medium"
+                                    >
+                                      {downloadingVideo === c.id ? (
+                                        <span className="inline-block w-3 h-3 border border-blue-400 border-t-transparent rounded-full animate-spin" />
+                                      ) : '⬇️'}
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteVideo(c)}
+                                      disabled={deletingVideo === c.id}
+                                      title="Supprimer la vidéo (libère l'espace)"
+                                      className="px-2 py-0.5 rounded bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors disabled:opacity-50 font-medium"
+                                    >
+                                      {deletingVideo === c.id ? (
+                                        <span className="inline-block w-3 h-3 border border-red-400 border-t-transparent rounded-full animate-spin" />
+                                      ) : '🗑️'}
+                                    </button>
+                                  </>
+                                )}
+                                {wasDeleted && (
+                                  <span className="text-gray-400 italic">🗑️ Supprimée</span>
+                                )}
+                                {!hasVideo && !wasDeleted && (
+                                  <span className="text-gray-300">⏳ En attente</span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}

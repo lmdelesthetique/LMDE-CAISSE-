@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 
 type Grade = 'debutante' | 'confirmee' | 'elite';
-type ContenuStatut = 'a_faire' | 'en_cours' | 'tourne' | 'poste';
+type ContenuStatut = 'a_faire' | 'en_cours' | 'tourne' | 'poste' | 'realise';
 type ContenuType = 'reel' | 'story' | 'demo' | 'temoignage' | 'guide';
 
 const GRADE_STARS: Record<Grade, string> = {
@@ -18,6 +18,7 @@ const STATUT_LABEL: Record<ContenuStatut, string> = {
   en_cours: 'En cours',
   tourne: 'Tourné',
   poste: 'Posté',
+  realise: 'Réalisé',
 };
 
 const STATUT_COLOR: Record<ContenuStatut, string> = {
@@ -25,6 +26,7 @@ const STATUT_COLOR: Record<ContenuStatut, string> = {
   en_cours: 'bg-amber-100 text-amber-700',
   tourne: 'bg-blue-100 text-blue-700',
   poste: 'bg-emerald-100 text-emerald-700',
+  realise: 'bg-violet-100 text-violet-700',
 };
 
 const TYPE_LABEL: Record<ContenuType, string> = {
@@ -65,13 +67,11 @@ function ScriptModal({
     setTimeout(() => setCopied(false), 2000);
   }
 
-  // guide_tournage or fallback to guide
   const guideContent = script.guide_tournage || script.guide || '';
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 px-0">
       <div className="bg-white w-full rounded-t-3xl shadow-2xl max-h-[90vh] flex flex-col">
-        {/* Header */}
         <div className="bg-gradient-to-r from-pink-500 to-violet-600 px-5 pt-5 pb-3 rounded-t-3xl">
           <div className="flex items-start justify-between mb-3">
             <div>
@@ -80,7 +80,6 @@ function ScriptModal({
             </div>
             <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full bg-white/20 text-white text-lg font-bold">×</button>
           </div>
-          {/* Tabs */}
           <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
             {SCRIPT_TABS.map((tab) => (
               <button
@@ -96,7 +95,6 @@ function ScriptModal({
           </div>
         </div>
 
-        {/* Content */}
         <div className="flex-1 overflow-y-auto px-5 py-4">
           {activeTab === 'hooks' && (
             <div className="space-y-3">
@@ -104,23 +102,18 @@ function ScriptModal({
               {(script.hooks ?? []).map((h: string, i: number) => (
                 <div key={i} className="bg-amber-50 border border-amber-200 rounded-xl p-3">
                   <p className="font-semibold text-amber-900 text-sm">{i + 1}. {h}</p>
-                  <button onClick={() => copyText(h)} className="mt-1.5 text-xs text-amber-600 underline">
-                    📋 Copier ce hook
-                  </button>
+                  <button onClick={() => copyText(h)} className="mt-1.5 text-xs text-amber-600 underline">📋 Copier ce hook</button>
                 </div>
               ))}
               {script.hashtags && (
                 <div className="bg-violet-50 border border-violet-200 rounded-xl p-3 mt-4">
                   <p className="text-xs font-bold text-violet-700 mb-1"># Hashtags suggérés</p>
                   <p className="text-sm text-violet-600">{script.hashtags}</p>
-                  <button onClick={() => copyText(script.hashtags)} className="mt-1.5 text-xs text-violet-500 underline">
-                    📋 Copier les hashtags
-                  </button>
+                  <button onClick={() => copyText(script.hashtags)} className="mt-1.5 text-xs text-violet-500 underline">📋 Copier les hashtags</button>
                 </div>
               )}
             </div>
           )}
-
           {activeTab === 'reel' && (
             <div>
               <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-3">Script Reel (60 secondes) :</p>
@@ -130,7 +123,6 @@ function ScriptModal({
               </button>
             </div>
           )}
-
           {activeTab === 'story' && (
             <div>
               <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-3">Script Stories :</p>
@@ -140,7 +132,6 @@ function ScriptModal({
               </button>
             </div>
           )}
-
           {activeTab === 'temoignage' && (
             <div>
               <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-3">Témoignage authentique :</p>
@@ -156,38 +147,145 @@ function ScriptModal({
               </button>
             </div>
           )}
-
           {activeTab === 'guide' && (
             <div className="space-y-3">
               {guideContent && (
                 <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
                   <p className="text-xs font-bold text-yellow-800 mb-2">🎥 Guide de tournage</p>
                   <p className="text-sm text-yellow-800 whitespace-pre-wrap">{guideContent}</p>
-                  <button onClick={() => copyText(guideContent)} className="mt-2 text-xs text-yellow-700 underline">
-                    📋 Copier le guide
-                  </button>
+                  <button onClick={() => copyText(guideContent)} className="mt-2 text-xs text-yellow-700 underline">📋 Copier le guide</button>
                 </div>
               )}
               {script.hashtags && (
                 <div className="bg-violet-50 border border-violet-200 rounded-xl p-4">
                   <p className="text-xs font-bold text-violet-700 mb-1"># Hashtags</p>
                   <p className="text-sm text-violet-600">{script.hashtags}</p>
-                  <button onClick={() => copyText(script.hashtags)} className="mt-2 text-xs text-violet-500 underline">
-                    📋 Copier
-                  </button>
+                  <button onClick={() => copyText(script.hashtags)} className="mt-2 text-xs text-violet-500 underline">📋 Copier</button>
                 </div>
               )}
             </div>
           )}
         </div>
 
-        {/* Footer */}
         <div className="px-5 pb-6 pt-3 border-t border-gray-100">
           <button onClick={onClose} className="w-full py-3 border-2 border-gray-200 text-gray-700 font-bold rounded-2xl text-sm hover:bg-gray-50 transition-colors">
             Fermer
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Video Upload Section ─────────────────────────────────────────────────────
+
+function VideoUploadSection({
+  contenu,
+  assignmentId,
+  productId,
+  ambassadriceId,
+  onUploadComplete,
+}: {
+  contenu: any;
+  assignmentId: string;
+  productId: string;
+  ambassadriceId: string;
+  onUploadComplete: () => void;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const hasVideo = !!contenu.video_path && !contenu.video_deleted_at;
+
+  async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const sizeGb = file.size / 1073741824;
+    if (sizeGb > 1) {
+      const ok = window.confirm(
+        `Cette vidéo fait ${sizeGb.toFixed(1)} Go. L'upload peut prendre quelques minutes. Continuer ?`
+      );
+      if (!ok) return;
+    }
+
+    setUploading(true);
+    setError(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('video', file);
+      formData.append('contenuId', contenu.id);
+      formData.append('assignmentId', assignmentId);
+      formData.append('productId', productId);
+      formData.append('ambassadriceId', ambassadriceId);
+
+      const res = await fetch('/api/ambassadrice/upload-video', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Upload échoué');
+
+      onUploadComplete();
+    } catch (err: any) {
+      setError(err.message || 'Erreur lors de l\'upload');
+    } finally {
+      setUploading(false);
+      // Reset file input
+      e.target.value = '';
+    }
+  }
+
+  if (hasVideo) {
+    return (
+      <div className="flex items-center gap-2 bg-emerald-50 rounded-xl p-3 border border-emerald-200 mt-2">
+        <span className="text-emerald-600 text-base shrink-0">✅</span>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-bold text-emerald-700 leading-tight">Vidéo déposée !</p>
+          {contenu.video_filename && (
+            <p className="text-xs text-emerald-600 truncate">{contenu.video_filename}</p>
+          )}
+        </div>
+        <label className="shrink-0 text-xs text-emerald-600 underline cursor-pointer">
+          Remplacer
+          <input type="file" accept="video/*" className="hidden" disabled={uploading} onChange={handleFileSelect} />
+        </label>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-pink-50 rounded-xl p-3 border border-pink-100 mt-2">
+      <p className="text-xs font-bold text-pink-800 mb-2">📤 Déposer ma vidéo</p>
+
+      {uploading && (
+        <div className="mb-3">
+          <div className="bg-pink-200 rounded-full h-2 overflow-hidden">
+            <div className="bg-pink-600 h-2 rounded-full animate-pulse" style={{ width: '60%' }} />
+          </div>
+          <p className="text-xs text-pink-600 mt-1">Upload en cours… patience 🙏</p>
+        </div>
+      )}
+
+      {error && (
+        <p className="text-xs text-red-600 mb-2 bg-red-50 rounded-lg px-2 py-1">❌ {error}</p>
+      )}
+
+      <label className={`flex items-center justify-center gap-2 w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer transition-colors ${
+        uploading ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-pink-600 text-white hover:bg-pink-700 active:scale-[0.98]'
+      }`}>
+        {uploading ? '⏳ Upload en cours…' : '📱 Choisir ma vidéo'}
+        <input
+          type="file"
+          accept="video/*"
+          className="hidden"
+          disabled={uploading}
+          onChange={handleFileSelect}
+        />
+      </label>
+      <p className="text-xs text-pink-400 text-center mt-1.5">MP4, MOV, HEVC acceptés · Toutes tailles</p>
     </div>
   );
 }
@@ -257,7 +355,6 @@ export default function AmbassadricePortalPage() {
     }
   };
 
-  // ── Loading ──────────────────────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-pink-50 to-violet-50 flex items-center justify-center">
@@ -266,7 +363,6 @@ export default function AmbassadricePortalPage() {
     );
   }
 
-  // ── Error ─────────────────────────────────────────────────────────────────────
   if (error) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-pink-50 to-violet-50 flex items-center justify-center p-6">
@@ -297,7 +393,7 @@ export default function AmbassadricePortalPage() {
   const products: any[] = assignment.products ?? [];
   const allContenus: any[] = contenus ?? [];
   const totalContenus = allContenus.length;
-  const doneContenus = allContenus.filter((c) => c.statut === 'poste').length;
+  const doneContenus = allContenus.filter((c) => c.statut === 'poste' || c.statut === 'realise').length;
   const progress = totalContenus > 0 ? Math.round((doneContenus / totalContenus) * 100) : 0;
 
   const activeScript = scriptModal
@@ -306,7 +402,6 @@ export default function AmbassadricePortalPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-pink-50 to-violet-50 pb-20">
-      {/* Script Modal */}
       {scriptModal && activeScript && (
         <ScriptModal
           productName={scriptModal.productName}
@@ -368,7 +463,8 @@ export default function AmbassadricePortalPage() {
           products.map((product) => {
             const productContenus = allContenus.filter((c) => c.product_id === product.id);
             const hasScript = (assignment.ai_scripts ?? {})[product.id];
-            const doneForProduct = productContenus.filter((c) => c.statut === 'poste').length;
+            const doneForProduct = productContenus.filter((c) => c.statut === 'poste' || c.statut === 'realise').length;
+            const videosUploaded = productContenus.filter((c) => c.video_path && !c.video_deleted_at).length;
 
             return (
               <div key={product.id} className="bg-white rounded-2xl shadow-sm overflow-hidden">
@@ -383,11 +479,18 @@ export default function AmbassadricePortalPage() {
                     <p className="font-semibold text-gray-900 text-sm">{product.name}</p>
                     <p className="text-xs text-gray-400">x{product.quantity} · {(product.price ?? 0).toFixed(2)} €</p>
                   </div>
-                  {doneForProduct > 0 && (
-                    <span className="text-xs font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
-                      {doneForProduct} ✓
-                    </span>
-                  )}
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    {doneForProduct > 0 && (
+                      <span className="text-xs font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
+                        {doneForProduct} ✓
+                      </span>
+                    )}
+                    {videosUploaded > 0 && (
+                      <span className="text-xs font-bold text-pink-600 bg-pink-50 border border-pink-200 rounded-full px-2 py-0.5">
+                        🎬 {videosUploaded} vidéo{videosUploaded > 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="px-4 py-3 space-y-3">
@@ -401,27 +504,39 @@ export default function AmbassadricePortalPage() {
                     </button>
                   )}
 
-                  {/* Contenus list */}
+                  {/* Contenus list with per-contenu video upload */}
                   {productContenus.length > 0 && (
-                    <div className="space-y-2">
+                    <div className="space-y-4">
                       {productContenus.map((c) => (
-                        <div key={c.id} className="flex items-center gap-2">
-                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${STATUT_COLOR[c.statut as ContenuStatut]}`}>
-                            {STATUT_LABEL[c.statut as ContenuStatut]}
-                          </span>
-                          <span className="text-xs text-gray-600 capitalize">{TYPE_LABEL[c.type_contenu as ContenuType]}</span>
-                          <div className="flex-1" />
-                          <select
-                            value={c.statut}
-                            onChange={(e) => handleUpdateContenu(c.id, { statut: e.target.value })}
-                            disabled={updatingContenu === c.id}
-                            className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white focus:outline-none disabled:opacity-50"
-                          >
-                            <option value="a_faire">À faire</option>
-                            <option value="en_cours">En cours</option>
-                            <option value="tourne">Tourné</option>
-                            <option value="poste">Posté</option>
-                          </select>
+                        <div key={c.id}>
+                          {/* Contenu row */}
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${STATUT_COLOR[(c.statut as ContenuStatut) ?? 'a_faire']}`}>
+                              {STATUT_LABEL[(c.statut as ContenuStatut) ?? 'a_faire']}
+                            </span>
+                            <span className="text-xs text-gray-600 capitalize">{TYPE_LABEL[c.type_contenu as ContenuType]}</span>
+                            <div className="flex-1" />
+                            <select
+                              value={c.statut}
+                              onChange={(e) => handleUpdateContenu(c.id, { statut: e.target.value })}
+                              disabled={updatingContenu === c.id}
+                              className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white focus:outline-none disabled:opacity-50"
+                            >
+                              <option value="a_faire">À faire</option>
+                              <option value="en_cours">En cours</option>
+                              <option value="tourne">Tourné</option>
+                              <option value="realise">Réalisé</option>
+                              <option value="poste">Posté</option>
+                            </select>
+                          </div>
+                          {/* Video upload per contenu */}
+                          <VideoUploadSection
+                            contenu={c}
+                            assignmentId={assignment.id}
+                            productId={product.id}
+                            ambassadriceId={ambassadrice.id}
+                            onUploadComplete={load}
+                          />
                         </div>
                       ))}
                     </div>
@@ -435,37 +550,6 @@ export default function AmbassadricePortalPage() {
                     adding={addingContenu}
                     onAdd={handleAddContenu}
                   />
-
-                  {/* Drive actions */}
-                  <div className="flex gap-2">
-                    {ambassadrice.google_drive_url && (
-                      <a
-                        href={ambassadrice.google_drive_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex-1 py-2.5 text-center bg-blue-50 text-blue-700 font-bold rounded-xl text-xs border border-blue-200 hover:bg-blue-100 transition-colors"
-                      >
-                        📁 Ouvrir mon Drive
-                      </a>
-                    )}
-                    {productContenus.some((c) => !c.drive_deposited) && (
-                      <button
-                        onClick={async () => {
-                          for (const c of productContenus.filter((c) => !c.drive_deposited)) {
-                            await handleUpdateContenu(c.id, { drive_deposited: true });
-                          }
-                        }}
-                        className="flex-1 py-2.5 bg-emerald-50 text-emerald-700 font-bold rounded-xl text-xs border border-emerald-200 hover:bg-emerald-100 transition-colors"
-                      >
-                        ✓ Confirmer le dépôt Drive
-                      </button>
-                    )}
-                    {productContenus.length > 0 && productContenus.every((c) => c.drive_deposited) && (
-                      <span className="flex-1 py-2.5 text-center text-emerald-600 font-bold text-xs">
-                        ✅ Tous déposés sur Drive
-                      </span>
-                    )}
-                  </div>
                 </div>
               </div>
             );
