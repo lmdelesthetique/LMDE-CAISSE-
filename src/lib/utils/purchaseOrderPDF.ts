@@ -43,10 +43,10 @@ export async function exportPurchaseOrderPDF(order: FoOrder, lines: FoOrderLine[
   const margin = 15;
   const contentW = pageW - margin * 2;
 
-  // ── Brand colors ──────────────────────────────────────────────────────────
-  const PRIMARY = [139, 92, 246] as [number, number, number];   // violet-500
-  const DARK    = [30, 27, 75]   as [number, number, number];   // indigo-950
-  const LIGHT   = [245, 243, 255] as [number, number, number];  // violet-50
+  // ── Brand colors — rose claire ────────────────────────────────────────────
+  const PRIMARY = [236, 72, 153]  as [number, number, number];  // pink-500
+  const DARK    = [157, 23, 77]   as [number, number, number];  // pink-800
+  const LIGHT   = [253, 242, 248] as [number, number, number];  // pink-50
   const MUTED   = [107, 114, 128] as [number, number, number];  // gray-500
   const WHITE   = [255, 255, 255] as [number, number, number];
 
@@ -168,25 +168,38 @@ export async function exportPurchaseOrderPDF(order: FoOrder, lines: FoOrderLine[
   doc.text('Articles commandés', margin, y + 5);
   y += 9;
 
-  // Pre-load product images via fetch → data URL (avoids CORS canvas taint)
+  // Pre-load product images: fetch blob → object URL (no CORS taint) → canvas → PNG data URL
+  // Using canvas avoids jsPDF's lack of WEBP support and any CORS canvas-taint issues.
   const imageMap: Record<string, string> = {};
   await Promise.all(lines.map(async (l) => {
     if (!l.productImageUrl) return;
     try {
       const controller = new AbortController();
-      const tid = setTimeout(() => controller.abort(), 4000);
+      const tid = setTimeout(() => controller.abort(), 5000);
       const res = await fetch(l.productImageUrl, { signal: controller.signal });
       clearTimeout(tid);
       if (!res.ok) return;
       const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
       await new Promise<void>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          if (typeof reader.result === 'string') imageMap[l.id] = reader.result;
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const canvas = document.createElement('canvas');
+            const sz = Math.min(Math.max(img.naturalWidth || 64, 1), 256);
+            canvas.width = sz;
+            canvas.height = sz;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(img, 0, 0, sz, sz);
+              imageMap[l.id] = canvas.toDataURL('image/png');
+            }
+          } catch { /* skip */ }
+          URL.revokeObjectURL(objectUrl);
           resolve();
         };
-        reader.onerror = () => resolve();
-        reader.readAsDataURL(blob);
+        img.onerror = () => { URL.revokeObjectURL(objectUrl); resolve(); };
+        img.src = objectUrl;
       });
     } catch { /* skip */ }
   }));
@@ -255,15 +268,11 @@ export async function exportPurchaseOrderPDF(order: FoOrder, lines: FoOrderLine[
         const line = lines[lineIndex];
         if (line && imageMap[line.id]) {
           try {
-            const dataUrl = imageMap[line.id];
-            const fmt = dataUrl.startsWith('data:image/png') ? 'PNG'
-              : dataUrl.startsWith('data:image/webp') ? 'WEBP'
-              : 'JPEG';
             const padding = 1.5;
             const size = Math.min(data.cell.width, data.cell.height) - padding * 2;
             doc.addImage(
-              dataUrl,
-              fmt,
+              imageMap[line.id],
+              'PNG',
               data.cell.x + padding,
               data.cell.y + padding,
               size,
@@ -488,9 +497,9 @@ export async function exportOrdersListPDF(orders: { id: string; orderNumber: str
   const pageH = doc.internal.pageSize.getHeight();
   const margin = 15;
 
-  const PRIMARY = [139, 92, 246] as [number, number, number];
-  const DARK    = [30, 27, 75]   as [number, number, number];
-  const LIGHT   = [245, 243, 255] as [number, number, number];
+  const PRIMARY = [236, 72, 153]  as [number, number, number];  // pink-500
+  const DARK    = [157, 23, 77]   as [number, number, number];  // pink-800
+  const LIGHT   = [253, 242, 248] as [number, number, number];  // pink-50
   const WHITE   = [255, 255, 255] as [number, number, number];
 
   // Header

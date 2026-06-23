@@ -29,6 +29,7 @@ interface Order {
   payment_amount: number | null;
   subtotal: number;
   transport_cost: number;
+  transport_method?: string | null;
   customs_cost: number;
 }
 
@@ -154,6 +155,11 @@ export default function SupplierDashboardPage() {
   const [priceConfirmError, setPriceConfirmError] = useState<string | null>(null);
   const [downloadingPDFId, setDownloadingPDFId] = useState<string | null>(null);
 
+  // Shipping (step after price confirmation — awaiting_validation status)
+  const [shippingForms, setShippingForms] = useState<Record<string, { carrier: string; cost: string }>>({});
+  const [shippingEditMode, setShippingEditMode] = useState<Record<string, boolean>>({});
+  const [savingShipping, setSavingShipping] = useState<string | null>(null);
+
   // Messaging
   const [newMsg, setNewMsg] = useState('');
   const [sending, setSending] = useState(false);
@@ -255,7 +261,41 @@ export default function SupplierDashboardPage() {
         setManualConfirmedLines((prev) => ({ ...prev, [orderId]: { ...(prev[orderId] ?? {}), ...confirmed } }));
       }
       setLinesLoading(false);
+
+      // Init shipping form if order is awaiting_validation
+      const expandedOrder = orders.find((o) => o.id === orderId);
+      if (expandedOrder?.order_status === 'awaiting_validation') {
+        const hasShipping = Number(expandedOrder.transport_cost) > 0;
+        setShippingForms((prev) => ({
+          ...prev,
+          [orderId]: { carrier: expandedOrder.transport_method || '', cost: hasShipping ? String(expandedOrder.transport_cost) : '' },
+        }));
+        setShippingEditMode((prev) => ({ ...prev, [orderId]: !hasShipping }));
+      }
     }
+  };
+
+  const handleSaveShipping = async (orderId: string) => {
+    if (!supplierUser) return;
+    const form = shippingForms[orderId];
+    if (!form || form.cost === '') return;
+    setSavingShipping(orderId);
+    try {
+      const res = await fetch(`/api/fo-orders/${orderId}/shipping`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          supplierId: supplierUser.supplierId,
+          shippingCarrier: form.carrier || null,
+          shippingCost: Number(form.cost),
+        }),
+      });
+      if (res.ok) {
+        await loadOrders();
+        setShippingEditMode((prev) => ({ ...prev, [orderId]: false }));
+      }
+    } catch { /* */ }
+    setSavingShipping(null);
   };
 
   const handleRespond = async () => {
@@ -286,6 +326,7 @@ export default function SupplierDashboardPage() {
         exchangeRate: 1,
         subtotal: order.subtotal,
         transportCost: order.transport_cost,
+        transportMethod: order.transport_method || undefined,
         customsCost: order.customs_cost,
         vatImport: 0, freightForwarderCost: 0, bankFees: 0,
         exchangeFees: 0, localDelivery: 0, otherCosts: 0,
@@ -522,6 +563,12 @@ export default function SupplierDashboardPage() {
                     onConfirmPrices={(lines) => handleConfirmPrices(order.id, lines)}
                     onDownloadPDF={() => handleDownloadPDF(order, orderLines[order.id] ?? [])}
                     downloadingPDF={downloadingPDFId === order.id}
+                    shippingForm={shippingForms[order.id]}
+                    shippingEditMode={shippingEditMode[order.id] ?? false}
+                    savingShipping={savingShipping === order.id}
+                    onShippingChange={(field, value) => setShippingForms((prev) => ({ ...prev, [order.id]: { ...(prev[order.id] ?? { carrier: '', cost: '' }), [field]: value } }))}
+                    onSaveShipping={() => handleSaveShipping(order.id)}
+                    onEditShipping={() => setShippingEditMode((prev) => ({ ...prev, [order.id]: true }))}
                   />
                 ))
               )}
@@ -691,6 +738,12 @@ interface OrderCardProps {
   onConfirmPrices: (lines: OrderLine[]) => void;
   onDownloadPDF: () => void;
   downloadingPDF: boolean;
+  shippingForm?: { carrier: string; cost: string };
+  shippingEditMode: boolean;
+  savingShipping: boolean;
+  onShippingChange: (field: 'carrier' | 'cost', value: string) => void;
+  onSaveShipping: () => void;
+  onEditShipping: () => void;
 }
 
 function OrderCard({
@@ -699,6 +752,8 @@ function OrderCard({
   onToggle, onAccept, onRefuse, onReportOutOfStock,
   onPriceInput, onManualConfirmLine, onClearLine, onConfirmPrices,
   onDownloadPDF, downloadingPDF,
+  shippingForm, shippingEditMode, savingShipping,
+  onShippingChange, onSaveShipping, onEditShipping,
 }: OrderCardProps) {
   const canRespond = order.supplier_response === 'pending';
   const isActive = ['sent', 'awaiting_validation', 'validated', 'modification_requested'].includes(order.order_status);
@@ -1036,6 +1091,91 @@ function OrderCard({
                     )}
                     {allConfirmed ? 'Envoyer la confirmation des prix' : `En attente — ${confirmedCount}/${lines.length} produits confirmés`}
                   </button>
+                </div>
+              )}
+
+              {/* Frais d'expédition — shown after price confirmation (awaiting_validation) */}
+              {order.order_status === 'awaiting_validation' && (
+                <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-orange-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0 1.106 1.106 0 00-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12" />
+                    </svg>
+                    <p className="text-sm font-semibold text-orange-800 flex-1">Frais d'expédition</p>
+                    {order.transport_cost > 0 && !shippingEditMode && (
+                      <button onClick={onEditShipping} className="text-xs text-orange-600 hover:text-orange-800 underline">Modifier</button>
+                    )}
+                  </div>
+
+                  {order.transport_cost > 0 && !shippingEditMode ? (
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-lg bg-orange-100 flex items-center justify-center shrink-0">
+                        <svg className="w-4 h-4 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                        </svg>
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-orange-900">{Number(order.transport_cost).toFixed(2)} €</p>
+                        {order.transport_method && (
+                          <p className="text-xs text-orange-600">Transporteur : <span className="font-semibold">{order.transport_method}</span></p>
+                        )}
+                        <p className="text-[11px] text-orange-400 mt-0.5">Imputé à la facture fiscale</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-orange-700 mb-1.5">Transporteur</label>
+                        <select
+                          value={shippingForm?.carrier ?? ''}
+                          onChange={(e) => onShippingChange('carrier', e.target.value)}
+                          className="w-full px-3 py-2 text-sm border border-orange-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-orange-400/20 focus:border-orange-400"
+                        >
+                          <option value="">— Sélectionner un transporteur —</option>
+                          <option value="DHL">DHL</option>
+                          <option value="FedEx">FedEx</option>
+                          <option value="UPS">UPS</option>
+                          <option value="Colissimo">Colissimo (La Poste)</option>
+                          <option value="Chronopost">Chronopost</option>
+                          <option value="TNT">TNT</option>
+                          <option value="GLS">GLS</option>
+                          <option value="DPD">DPD</option>
+                          <option value="Direct">Direct / Sans transporteur</option>
+                          <option value="Autre">Autre</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-orange-700 mb-1.5">Montant des frais d'expédition</label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={shippingForm?.cost ?? ''}
+                            onChange={(e) => onShippingChange('cost', e.target.value)}
+                            placeholder="0.00"
+                            className="w-36 px-3 py-2 text-sm border border-orange-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-orange-400/20 focus:border-orange-400"
+                          />
+                          <span className="text-sm text-orange-600 font-medium">€</span>
+                        </div>
+                        <p className="text-[11px] text-orange-400 mt-1">Ces frais seront imputés à la facture fiscale et inclus dans le PDF</p>
+                      </div>
+                      <button
+                        onClick={onSaveShipping}
+                        disabled={savingShipping || !shippingForm?.cost || Number(shippingForm.cost) < 0}
+                        className="w-full flex items-center justify-center gap-2 py-2.5 bg-orange-600 text-white text-sm font-semibold rounded-xl hover:bg-orange-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
+                      >
+                        {savingShipping ? (
+                          <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                        ) : (
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        )}
+                        Enregistrer les frais d'expédition
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 

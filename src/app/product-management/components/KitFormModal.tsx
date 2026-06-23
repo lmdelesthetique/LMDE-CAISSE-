@@ -351,13 +351,11 @@ export default function KitFormModal({ kitProductId, onClose, onSaved }: KitForm
                   />
                 </div>
                 {(searchFocused || search) && filteredProducts.length > 0 && (
-                  <div className="mt-1 border border-border rounded-xl bg-white shadow-modal max-h-56 overflow-y-auto">
-                    {!search && (
-                      <p className="px-3 py-1.5 text-[11px] text-muted-foreground border-b border-border bg-gray-50">
-                        {filteredProducts.length} produit{filteredProducts.length > 1 ? 's' : ''} disponible{filteredProducts.length > 1 ? 's' : ''} — tapez pour filtrer
-                      </p>
-                    )}
-                    {filteredProducts.slice(0, search ? 10 : 40).map((p) => (
+                  <div className="mt-1 border border-border rounded-xl bg-white shadow-modal max-h-80 overflow-y-auto">
+                    <p className="px-3 py-1.5 text-[11px] text-muted-foreground border-b border-border bg-gray-50 sticky top-0">
+                      {filteredProducts.length} produit{filteredProducts.length > 1 ? 's' : ''} {search ? 'trouvé' + (filteredProducts.length > 1 ? 's' : '') : 'disponible' + (filteredProducts.length > 1 ? 's' : '')}
+                    </p>
+                    {filteredProducts.map((p) => (
                       <button
                         key={p.id}
                         onClick={() => addComponent(p)}
