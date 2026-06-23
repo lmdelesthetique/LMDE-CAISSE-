@@ -3,6 +3,13 @@ export interface WhatsAppMessage {
   message: string;
 }
 
+export interface WhatsAppResult {
+  ok: boolean;
+  error?: string;
+  waLink: string;
+  provider?: 'meta' | 'brevo' | 'manual';
+}
+
 function cleanPhone(raw: string): string {
   let phone = raw.replace(/\s+/g, '').replace(/^\+/, '').replace(/^0/, '596');
   if (!phone.startsWith('596') && !phone.startsWith('590') && phone.length === 9) {
@@ -11,44 +18,73 @@ function cleanPhone(raw: string): string {
   return phone;
 }
 
-export async function sendWhatsApp({ to, message }: WhatsAppMessage): Promise<{ ok: boolean; error?: string }> {
-  const apiKey = process.env.BREVO_API_KEY;
-  const phone = cleanPhone(to);
+async function sendViaMeta(phone: string, message: string): Promise<{ ok: boolean; error?: string }> {
+  const token = process.env.WHATSAPP_ACCESS_TOKEN;
+  const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  if (!token || !phoneId) return { ok: false, error: 'Meta API not configured' };
 
+  const res = await fetch(`https://graph.facebook.com/v18.0/${phoneId}/messages`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to: phone,
+      type: 'text',
+      text: { preview_url: false, body: message },
+    }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (res.ok) { console.log('[WhatsApp] ✅ sent via Meta'); return { ok: true }; }
+  console.error('[WhatsApp] Meta error:', data);
+  return { ok: false, error: (data as any).error?.message || `Meta HTTP ${res.status}` };
+}
+
+async function sendViaBrevo(phone: string, message: string): Promise<{ ok: boolean; error?: string }> {
+  const apiKey = process.env.BREVO_API_KEY;
+  if (!apiKey) return { ok: false, error: 'BREVO_API_KEY not configured' };
+
+  const res = await fetch('https://api.brevo.com/v3/whatsapp/sendMessage', {
+    method: 'POST',
+    headers: { 'api-key': apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      senderNumber: process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? process.env.BREVO_SENDER_NUMBER ?? '262692000000',
+      contactNumbers: [phone],
+      text: message,
+    }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (res.ok) { console.log('[WhatsApp] ✅ sent via Brevo'); return { ok: true }; }
+  console.error('[WhatsApp] Brevo error:', data);
+  return { ok: false, error: (data as any).message || `Brevo HTTP ${res.status}` };
+}
+
+export async function sendWhatsApp({ to, message }: WhatsAppMessage): Promise<WhatsAppResult> {
+  const phone = cleanPhone(to);
+  const waLink = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
   console.log('[WhatsApp] → phone:', phone);
 
-  if (apiKey) {
-    try {
-      const res = await fetch('https://api.brevo.com/v3/whatsapp/sendMessage', {
-        method: 'POST',
-        headers: {
-          'api-key': apiKey,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          senderNumber: process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? process.env.BREVO_SENDER_NUMBER ?? '262692000000',
-          contactNumbers: [phone],
-          text: message,
-        }),
-      });
+  const hasMetaConfig = !!(process.env.WHATSAPP_ACCESS_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID);
+  const hasBrevoConfig = !!process.env.BREVO_API_KEY;
 
-      const data = await res.json().catch(() => ({}));
-
-      if (res.ok) {
-        console.log('[WhatsApp] ✅ sent via Brevo');
-        return { ok: true };
-      }
-
-      console.error('[WhatsApp] Brevo error:', data);
-      return { ok: false, error: (data as any).message || `Brevo HTTP ${res.status}` };
-    } catch (err: any) {
-      console.error('[WhatsApp] fetch error:', err);
-      return { ok: false, error: err.message };
+  try {
+    if (hasMetaConfig) {
+      const result = await sendViaMeta(phone, message);
+      if (result.ok) return { ok: true, waLink, provider: 'meta' };
     }
+    if (hasBrevoConfig) {
+      const result = await sendViaBrevo(phone, message);
+      if (result.ok) return { ok: true, waLink, provider: 'brevo' };
+      return { ok: false, error: result.error, waLink, provider: 'brevo' };
+    }
+  } catch (err: any) {
+    console.error('[WhatsApp] exception:', err);
+    return { ok: false, error: err.message, waLink, provider: 'manual' };
   }
 
-  console.log('[WhatsApp] No BREVO_API_KEY — use wa.me fallback');
-  return { ok: false, error: 'BREVO_API_KEY not configured' };
+  return { ok: false, error: 'Aucune API WhatsApp configurée', waLink, provider: 'manual' };
 }
 
 export function getWhatsAppLink(phone: string, message: string): string {

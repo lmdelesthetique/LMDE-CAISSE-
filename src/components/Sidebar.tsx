@@ -67,6 +67,7 @@ const navItems: NavItem[] = [
   },
   { id: 'nav-ambassadrices', label: 'Ambassadrices', icon: 'StarIcon', href: '/ambassadrices', group: 'gestion' },
   { id: 'nav-campagnes-ambassadrices', label: 'Campagnes', icon: 'MegaphoneIcon', href: '/campagnes-ambassadrices', group: 'gestion' },
+  { id: 'nav-marketing', label: 'Marketing WhatsApp', icon: 'ChatBubbleLeftEllipsisIcon', href: '/marketing', group: 'gestion' },
   { id: 'nav-livreurs', label: 'Livreurs', icon: 'UserGroupIcon', href: '/livreurs', group: 'gestion' },
   { id: 'nav-livraisons', label: 'Livraisons', icon: 'TruckIcon', href: '/livraisons', group: 'gestion' },
   { id: 'nav-expeditions', label: 'Expéditions', icon: 'ArchiveBoxArrowDownIcon', href: '/expeditions', group: 'gestion' },
