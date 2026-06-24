@@ -11,6 +11,8 @@ function makeAdminClient() {
   );
 }
 
+export const maxDuration = 300; // 5 min max (Vercel/Next.js)
+
 export async function POST(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -18,52 +20,65 @@ export async function POST(
   const { id } = await params;
   const supabase = makeAdminClient();
 
-  const { data: campagne, error: fetchErr } = await supabase
-    .from('campagnes_marketing').select('*').eq('id', id).maybeSingle();
-  if (fetchErr || !campagne) return NextResponse.json({ error: 'Campagne introuvable' }, { status: 404 });
-  if (campagne.statut === 'en_cours') return NextResponse.json({ error: 'Campagne déjà en cours' }, { status: 409 });
+  try {
+    const { data: campagne, error: fetchErr } = await supabase
+      .from('campagnes_marketing').select('*').eq('id', id).maybeSingle();
+    if (fetchErr || !campagne) return NextResponse.json({ error: 'Campagne introuvable' }, { status: 404 });
+    if (campagne.statut === 'en_cours') return NextResponse.json({ error: 'Campagne déjà en cours' }, { status: 409 });
 
-  const clients = await getSegmentClients(campagne.segment as SegmentKey);
-  if (!clients.length) return NextResponse.json({ error: 'Aucune cliente dans ce segment' }, { status: 400 });
+    const clients = await getSegmentClients(campagne.segment as SegmentKey);
+    if (!clients.length) return NextResponse.json({ error: 'Aucune cliente dans ce segment' }, { status: 400 });
 
-  await supabase.from('campagnes_marketing').update({
-    statut: 'en_cours',
-    total_clients: clients.length,
-    envoyes: 0,
-    erreurs: 0,
-  }).eq('id', id);
+    await supabase.from('campagnes_marketing').update({
+      statut: 'en_cours',
+      total_clients: clients.length,
+      envoyes: 0,
+      erreurs: 0,
+    }).eq('id', id);
 
-  let envoyes = 0;
-  let erreurs = 0;
+    let envoyes = 0;
+    let erreurs = 0;
+    const logs: any[] = [];
 
-  for (const client of clients) {
-    const clientName = `${client.first_name} ${client.last_name}`.trim() || 'Cliente';
-    const personalizedMsg = campagne.message.replace(/\{prénom\}/gi, client.first_name || 'Cliente');
+    for (const client of clients) {
+      const clientName = `${client.first_name} ${client.last_name}`.trim() || 'Cliente';
+      const personalizedMsg = campagne.message.replace(/\{prénom\}/gi, client.first_name || 'Cliente');
 
-    const result = await sendWhatsApp({ to: client.phone, message: personalizedMsg });
+      const result = await sendWhatsApp({ to: client.phone, message: personalizedMsg });
 
-    const statut = result.ok ? 'envoye' : 'erreur';
-    if (result.ok) envoyes++; else erreurs++;
+      if (result.ok) envoyes++; else erreurs++;
 
-    await supabase.from('campagne_marketing_logs').insert({
-      campagne_id: id,
-      client_id: client.id,
-      phone: client.phone,
-      client_name: clientName,
-      statut,
-      error_message: result.error ?? null,
-    });
+      logs.push({
+        campagne_id: id,
+        client_id: client.id,
+        phone: client.phone,
+        client_name: clientName,
+        statut: result.ok ? 'envoye' : 'erreur',
+        error_message: result.error ?? null,
+      });
 
-    // Rate limit: 500ms between sends
-    await new Promise(r => setTimeout(r, 500));
+      // Insert logs in batches of 100 to avoid holding them all in memory
+      if (logs.length >= 100) {
+        await supabase.from('campagne_marketing_logs').insert(logs.splice(0, 100));
+      }
+    }
+
+    // Insert remaining logs
+    if (logs.length > 0) {
+      await supabase.from('campagne_marketing_logs').insert(logs);
+    }
+
+    await supabase.from('campagnes_marketing').update({
+      statut: 'terminee',
+      envoyes,
+      erreurs,
+      sent_at: new Date().toISOString(),
+    }).eq('id', id);
+
+    return NextResponse.json({ ok: true, envoyes, erreurs, total: clients.length });
+  } catch (e: any) {
+    console.error('[envoyer]', e.message);
+    try { await supabase.from('campagnes_marketing').update({ statut: 'erreur' }).eq('id', id); } catch { /* non-blocking */ }
+    return NextResponse.json({ error: e.message }, { status: 500 });
   }
-
-  await supabase.from('campagnes_marketing').update({
-    statut: 'terminee',
-    envoyes,
-    erreurs,
-    sent_at: new Date().toISOString(),
-  }).eq('id', id);
-
-  return NextResponse.json({ ok: true, envoyes, erreurs, total: clients.length });
 }

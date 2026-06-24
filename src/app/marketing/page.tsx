@@ -46,6 +46,12 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
+async function safeJson(res: Response): Promise<any> {
+  const text = await res.text();
+  try { return JSON.parse(text); }
+  catch { return { error: `Réponse invalide du serveur: ${text.slice(0, 120)}` }; }
+}
+
 export default function MarketingPage() {
   const [activeTab, setActiveTab] = useState<Tab>('creer');
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -101,13 +107,12 @@ export default function MarketingPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ nom, segment, message }),
       });
-      const data = await res.json();
+      const data = await safeJson(res);
       if (!res.ok) { setSendResult({ ok: false, error: data.error }); return; }
 
-      // Immediately send
       setSendingId(data.id);
       const sendRes = await fetch(`/api/marketing/campagnes/${data.id}/envoyer`, { method: 'POST' });
-      const sendData = await sendRes.json();
+      const sendData = await safeJson(sendRes);
       if (sendRes.ok) {
         setSendResult({ ok: true, envoyes: sendData.envoyes, erreurs: sendData.erreurs });
         setNom(''); setMessage('');
@@ -115,6 +120,8 @@ export default function MarketingPage() {
       } else {
         setSendResult({ ok: false, error: sendData.error });
       }
+    } catch (e: any) {
+      setSendResult({ ok: false, error: e.message });
     } finally {
       setCreating(false);
       setSendingId(null);
@@ -126,9 +133,11 @@ export default function MarketingPage() {
     setSendResult(null);
     try {
       const res = await fetch(`/api/marketing/campagnes/${id}/envoyer`, { method: 'POST' });
-      const data = await res.json();
+      const data = await safeJson(res);
       setSendResult(res.ok ? { ok: true, envoyes: data.envoyes, erreurs: data.erreurs } : { ok: false, error: data.error });
       if (res.ok) loadStats();
+    } catch (e: any) {
+      setSendResult({ ok: false, error: e.message });
     } finally {
       setSendingId(null);
     }
@@ -139,11 +148,13 @@ export default function MarketingPage() {
     setAiStrategy(null);
     try {
       const res = await fetch('/api/ai/marketing-strategy', { method: 'POST' });
+      const data = await safeJson(res);
       if (res.ok) {
-        const data = await res.json();
         setAiStrategy(data.strategy);
         setAiMock(data.usedMock ?? false);
       }
+    } catch (e: any) {
+      console.error('[ai-strategy]', e.message);
     } finally {
       setAiLoading(false);
     }
