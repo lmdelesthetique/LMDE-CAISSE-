@@ -37,6 +37,7 @@ import { useSettings } from '@/contexts/SettingsContext';
 import { deliveryService, type CreateDeliveryInput } from '@/lib/services/deliveryService';
 import { useRouter } from 'next/navigation';
 import { ShopifyOrderAlert, type ShopifyNewOrder } from '@/components/ShopifyOrderAlert';
+import POSMarketingPanel from './POSMarketingPanel';
 
 export interface CartItem {
   id: string;
@@ -702,6 +703,7 @@ export default function POSTerminal() {
   } | null>(null);
 
   const [barcodeStatus, setBarcodeStatus] = useState<'idle' | 'scanning' | 'found' | 'notfound'>('idle');
+  const [showMarketing, setShowMarketing] = useState(false);
 
   // Load loyalty tiers + demo product on mount
   useEffect(() => {
@@ -1652,6 +1654,15 @@ export default function POSTerminal() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Marketing IA button */}
+          <button
+            onClick={() => setShowMarketing(true)}
+            title="Lancer une campagne marketing IA"
+            className="flex items-center gap-1.5 px-3 py-1.5 border border-pink-200 bg-pink-50 rounded-lg text-sm font-500 text-pink-700 hover:bg-pink-100 transition-colors"
+          >
+            <Icon name="MegaphoneIcon" size={14} />
+            <span>Marketing IA</span>
+          </button>
           {/* Camera scanner button */}
           <button
             onClick={handleOpenCamera}
@@ -2362,6 +2373,11 @@ export default function POSTerminal() {
       {/* Ouverture de caisse modal */}
       {showOuverture && sessionChecked && (
         <OuvertureCaisseModal onConfirm={handleOuvertureConfirm} />
+      )}
+
+      {/* Marketing IA panel */}
+      {showMarketing && (
+        <POSMarketingPanel onClose={() => setShowMarketing(false)} />
       )}
     </div>
   );

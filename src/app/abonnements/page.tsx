@@ -521,7 +521,7 @@ export default function AbonnementsPage() {
       `🎁 Votre box beauté du mois est prête à être personnalisée !\n\n` +
       `💰 Quota restant : ${remainingQuota.toFixed(0)} €\n\n` +
       `Complétez votre sélection ici :\n` +
-      `lmdecaisse.com/client-portal/login\n\n` +
+      `${process.env.NEXT_PUBLIC_SITE_URL ?? 'https://lmdecaisse.com'}/client-portal/login\n\n` +
       `📅 Date limite : le 25 du mois\n\n` +
       `Le Monde de l'Esthétique 💅`;
 

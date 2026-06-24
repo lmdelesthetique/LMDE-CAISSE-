@@ -45,29 +45,39 @@ export async function POST(_req: NextRequest) {
       return NextResponse.json({ strategy: mockStrategy(stats), usedMock: true, stats });
     }
 
-    const prompt = `Tu es une experte en marketing beauté et WhatsApp marketing pour un salon de beauté en Martinique.
+    const prompt = `Tu es un stratège marketing senior pour Le Monde de l'Esthétique (LMDE), boutique beauté en Martinique. Notre système : La Spirale MDLE (contenu → conversion → fidélisation → ambassadrices).
 
-Données actuelles des segments clientes :
+SEGMENTS CLIENTES ACTUELS :
 ${statsLabel}
 
-Génère une stratégie marketing WhatsApp complète en JSON pur (sans markdown) :
+Génère une stratégie marketing WhatsApp Spirale MDLE en JSON pur (sans markdown) :
 {
-  "resume": "Synthèse de la situation en 2 phrases",
+  "resume": "Situation actuelle en 2 phrases avec les vrais chiffres de segments",
   "segments_prioritaires": [
-    { "segment": "clé_segment", "raison": "Pourquoi ce segment est prioritaire", "action": "Action concrète recommandée" }
+    {
+      "segment": "clé_segment",
+      "raison": "Pourquoi ce segment est prioritaire avec chiffres",
+      "action": "Action WhatsApp concrète avec message exact et délai"
+    }
   ],
   "messages_suggeres": [
-    { "segment": "clé_segment", "message": "Message WhatsApp prêt à envoyer (max 160 chars, utilise {prénom})" }
+    {
+      "segment": "clé_segment",
+      "message": "Message WhatsApp exact prêt à envoyer, max 160 chars, utilise {prénom}, inclut une offre ou CTA précis, termine par Le Monde de l'Esthétique 💅"
+    }
   ],
   "calendrier": [
-    { "semaine": 1, "action": "Action de la semaine" }
+    { "semaine": 1, "action": "Segment + message + canal + offre spécifique" },
+    { "semaine": 2, "action": "Segment + message + canal + offre spécifique" },
+    { "semaine": 3, "action": "Segment + message + canal + offre spécifique" },
+    { "semaine": 4, "action": "Segment + message + canal + offre spécifique" }
   ],
   "kpi_cibles": {
-    "taux_ouverture": "XX%",
-    "taux_conversion": "XX%",
-    "ca_additionnel_estime": "XXXX €"
+    "taux_ouverture": "XX% (WhatsApp Business)",
+    "taux_conversion": "XX% estimé",
+    "ca_additionnel_estime": "XXXX € si X% des cibles convertissent"
   },
-  "conseil_principal": "Conseil stratégique le plus important"
+  "conseil_principal": "Action la plus rentable à faire CETTE semaine avec chiffres précis"
 }`;
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {

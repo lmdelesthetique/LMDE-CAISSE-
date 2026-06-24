@@ -82,23 +82,27 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ report: mockReport(totalCA, totalTickets, topProducts), usedMock: true });
     }
 
-    const prompt = `Tu es une analyste business experte en commerce de beauté en Martinique.
+    const prompt = `Tu es un stratège marketing senior pour Le Monde de l'Esthétique (LMDE), boutique beauté en Martinique. Tu analyses les données réelles et donnes des actions concrètes avec des chiffres précis.
 
-Données de la période "${period}" :
+DONNÉES RÉELLES — PÉRIODE "${period}" :
 - CA Total : ${totalCA.toFixed(2)} €
 - Nombre de tickets : ${totalTickets}
 - Panier moyen : ${avgCart.toFixed(2)} €
-- Top produits : ${JSON.stringify(topProducts)}
+- Top 10 produits : ${JSON.stringify(topProducts)}
 - Répartition paiements : ${JSON.stringify(paymentBreakdown)}
 
-Génère un rapport d'analyse concis en JSON (sans markdown, JSON pur) :
+Génère un rapport stratégique en JSON pur (sans markdown) :
 {
-  "resume": "Résumé en 2 phrases percutantes...",
-  "points_positifs": ["Point positif 1", "Point positif 2"],
-  "points_attention": ["Point d'attention 1"],
-  "recommandations": ["Action 1", "Action 2", "Action 3"],
-  "promotion_suggeree": "Idée promo concrète et chiffrée...",
-  "objectif_mois_prochain": "Objectif CA chiffré avec justification..."
+  "resume": "2 phrases percutantes avec les vrais chiffres — CA, tickets, panier moyen, tendance",
+  "points_positifs": ["Analyse positive avec chiffres réels", "Deuxième point positif chiffré"],
+  "points_attention": ["Alerte concrète avec chiffres", "Deuxième alerte actionnable"],
+  "recommandations": [
+    "Action 1 : produit spécifique + segment cible + canal + délai (ex: relancer les 45 inactives via WhatsApp cette semaine avec code RETOUR20)",
+    "Action 2 : bundle recommandé avec prix et marge estimée",
+    "Action 3 : action stock ou contenu à faire avant vendredi"
+  ],
+  "promotion_suggeree": "Bundle ou promo spécifique : noms des produits + prix exact avant/après + segment cible + canal + durée",
+  "objectif_mois_prochain": "CA cible précis en € avec 2 leviers concrets pour l'atteindre"
 }`;
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {

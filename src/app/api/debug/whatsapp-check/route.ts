@@ -4,6 +4,9 @@ import { sendWhatsApp } from '@/lib/whatsappService';
 export async function GET() {
   const hasBrevo = !!process.env.BREVO_API_KEY;
   const hasMeta = !!(process.env.WHATSAPP_ACCESS_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID);
+  const hasResend = !!process.env.RESEND_API_KEY;
+
+  const activeProvider = hasMeta ? 'Meta WhatsApp API ✅' : hasBrevo ? 'Brevo WhatsApp ✅' : hasResend ? 'Resend Email (fallback) ✅' : 'Aucun ❌';
 
   return NextResponse.json({
     brevo: {
@@ -14,8 +17,13 @@ export async function GET() {
       configured: hasMeta,
       phoneId: hasMeta ? process.env.WHATSAPP_PHONE_NUMBER_ID : 'manquant',
     },
-    activeProvider: hasMeta ? 'Meta API' : hasBrevo ? 'Brevo' : 'Aucun ❌',
-    instructions: 'Appelez GET /api/debug/whatsapp-check?test=0696XXXXXX pour envoyer un message test',
+    resend: {
+      configured: hasResend,
+      note: 'Utilisé comme fallback email quand WhatsApp non configuré',
+    },
+    activeProvider,
+    campagnesChannel: hasMeta ? 'WhatsApp (Meta)' : hasBrevo ? 'WhatsApp (Brevo)' : hasResend ? 'Email (Resend) — clients avec email seulement' : 'Aucun canal actif ❌',
+    instructions: 'POST /api/debug/whatsapp-check avec { phone } pour tester WhatsApp',
   });
 }
 

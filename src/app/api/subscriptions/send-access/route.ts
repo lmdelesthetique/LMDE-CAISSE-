@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
 
     const phone  = sub.portal_phone ?? '—';
     const pin    = sub.pin_code    ?? '—';
-    const portalUrl = 'https://www.lmdecaisse.com/client-portal/login';
+    const portalUrl = `${process.env.NEXT_PUBLIC_SITE_URL ?? 'https://lmdecaisse.com'}/client-portal/login`;
 
     const html = `<!DOCTYPE html>
 <html lang="fr">

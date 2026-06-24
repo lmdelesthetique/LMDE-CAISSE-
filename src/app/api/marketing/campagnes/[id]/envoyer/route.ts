@@ -44,7 +44,7 @@ export async function POST(
       const clientName = `${client.first_name} ${client.last_name}`.trim() || 'Cliente';
       const personalizedMsg = campagne.message.replace(/\{prénom\}/gi, client.first_name || 'Cliente');
 
-      const result = await sendWhatsApp({ to: client.phone, message: personalizedMsg });
+      const result = await sendWhatsApp({ to: client.phone, message: personalizedMsg, email: client.email });
 
       if (result.ok) envoyes++; else erreurs++;
 
@@ -75,7 +75,7 @@ export async function POST(
       sent_at: new Date().toISOString(),
     }).eq('id', id);
 
-    return NextResponse.json({ ok: true, envoyes, erreurs, total: clients.length });
+    return NextResponse.json({ ok: true, envoyes, erreurs, total: clients.length, channel: 'whatsapp/email' });
   } catch (e: any) {
     console.error('[envoyer]', e.message);
     try { await supabase.from('campagnes_marketing').update({ statut: 'erreur' }).eq('id', id); } catch { /* non-blocking */ }

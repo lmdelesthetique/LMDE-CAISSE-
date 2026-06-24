@@ -81,7 +81,7 @@ export async function POST(req: NextRequest) {
           line_items: [{ price: price.id, quantity: 1 }],
           after_completion: {
             type: 'redirect',
-            redirect: { url: 'https://www.lmdecaisse.com/client-portal/login' },
+            redirect: { url: `${process.env.NEXT_PUBLIC_SITE_URL ?? 'https://lmdecaisse.com'}/client-portal/login` },
           },
         });
         paymentUrl = link.url;

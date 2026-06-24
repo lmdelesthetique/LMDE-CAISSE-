@@ -600,7 +600,7 @@ export default function OrderDetailPage() {
     const supabase = createClient();
     const { data } = await supabase
       .from('products')
-      .select('id, name, ref, buy_price, sell_price_ttc')
+      .select('id, name, ref, buy_price, sell_price_ttc, image_url')
       .ilike('name', `%${q}%`)
       .limit(10);
     setProductResults(data || []);
@@ -614,6 +614,7 @@ export default function OrderDetailPage() {
       productId: product.id,
       productName: product.name,
       productRef: product.ref ?? '',
+      productImageUrl: product.image_url ?? undefined,
       qtyOrdered: 1,
       qtyReceived: 0,
       unitPrice: product.buy_price ?? 0,
