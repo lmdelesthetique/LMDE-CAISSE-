@@ -1364,6 +1364,7 @@ export default function POSTerminal() {
 
         // Always show doc choice modal after payment
         setLastSaleTotal(total);
+        setLastSaleGlobalDiscount(globalDiscountAmount);
         setLastSaleClient(client);
         setLastSaleItems([...cart]);
         setLastSaleMethod(method);
@@ -1485,6 +1486,7 @@ export default function POSTerminal() {
       setShowPayment(false);
       setLastSaleTotal(total);
       setLastSaleRewardDiscount(rewardDiscountAmount);
+      setLastSaleGlobalDiscount(globalDiscountAmount);
       setLastSaleClient(client);
       setLastSaleItems([...cart]);
       setLastSaleMethod(method);
@@ -1526,6 +1528,7 @@ export default function POSTerminal() {
   const [lastSaleTicketRef, setLastSaleTicketRef] = useState('');
   const [lastSaleLoyalty, setLastSaleLoyalty] = useState<{ pointsEarned: number; totalPoints: number; nextTier: LoyaltyTier | null; pointsToNext: number; currentTierName: string | null } | null>(null);
   const [lastSaleRewardDiscount, setLastSaleRewardDiscount] = useState(0);
+  const [lastSaleGlobalDiscount, setLastSaleGlobalDiscount] = useState(0);
 
   const handleDocChoiceClose = useCallback(() => {
     setShowDocChoice(false);
@@ -2348,6 +2351,7 @@ export default function POSTerminal() {
           ticketRef={lastSaleTicketRef}
           loyaltyInfo={lastSaleLoyalty}
           rewardDiscountAmount={lastSaleRewardDiscount}
+          globalDiscountAmount={lastSaleGlobalDiscount}
           referralCode={clientReferralCode}
           onClose={handleDocChoiceClose}
         />
@@ -2393,6 +2397,7 @@ interface PostPaymentDocModalProps {
   ticketRef?: string;
   loyaltyInfo?: { pointsEarned: number; totalPoints: number; nextTier: LoyaltyTier | null; pointsToNext: number; currentTierName?: string | null } | null;
   rewardDiscountAmount?: number;
+  globalDiscountAmount?: number;
   referralCode?: string;
   onClose: () => void;
 }
@@ -2459,7 +2464,7 @@ function ActionRow({ checked, onToggle, emoji, label, desc, status, errorMsg, ch
   );
 }
 
-function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, loyaltyInfo, rewardDiscountAmount = 0, referralCode, onClose }: PostPaymentDocModalProps) {
+function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, loyaltyInfo, rewardDiscountAmount = 0, globalDiscountAmount = 0, referralCode, onClose }: PostPaymentDocModalProps) {
   const clientEmail = client?.email ?? '';
   const hasClientEmail = clientEmail.includes('@');
 
@@ -2522,6 +2527,7 @@ function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, l
           paymentMethod: paymentMethod || 'Carte / Espèces',
           loyalty: loyaltyBlock,
           isDemo: isDemoMode,
+          globalDiscount: globalDiscountAmount > 0 ? globalDiscountAmount : undefined,
           rewardDiscountAmount: rewardDiscountAmount > 0 ? rewardDiscountAmount : undefined,
           referralCode: referralCode,
         }));
@@ -2539,6 +2545,7 @@ function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, l
           items: items.map(i => ({ name: i.name, qty: i.qty, price: i.price, discount: i.discount, discountType: i.discountType })),
           subtotalHT, totalTVA, totalTTC: total,
           paymentMethod: paymentMethod || 'Carte / Espèces',
+          globalDiscount: globalDiscountAmount > 0 ? globalDiscountAmount : undefined,
         }));
         const res = await fetch('/api/factures', {
           method: 'POST',

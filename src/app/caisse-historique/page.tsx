@@ -574,6 +574,11 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
     const s = loadSettingsFromCache();
     const subtotalHT = receipt.subtotalHT || receipt.totalAmount / (1 + s.tvaRate / 100);
     const totalTVA = receipt.totalTVA || receipt.totalAmount - subtotalHT;
+    const totalItemDiscount = receipt.items.reduce((sum, i) => {
+      if (!i.discount || i.discount <= 0) return sum;
+      return sum + (i.discountType === 'percent' ? i.price * i.qty * (i.discount / 100) : i.discount);
+    }, 0);
+    const globalDiscount = Math.max(0, (receipt.discountAmount ?? 0) - totalItemDiscount);
     openAndPrint(generateTicketHTML({
       ...s,
       ticketNumber: receipt.ticketNumber,
@@ -588,6 +593,7 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
       paymentMethod: parseMethod(receipt.paymentMethod ?? '').label,
       isDuplicate: true,
       referralCode: clientReferralCode,
+      globalDiscount: globalDiscount > 0 ? globalDiscount : undefined,
     }));
   };
 
@@ -599,6 +605,11 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
     const s = loadSettingsFromCache();
     const subtotalHT = receipt.subtotalHT || receipt.totalAmount / (1 + s.tvaRate / 100);
     const totalTVA = receipt.totalTVA || receipt.totalAmount - subtotalHT;
+    const totalItemDiscount = receipt.items.reduce((sum, i) => {
+      if (!i.discount || i.discount <= 0) return sum;
+      return sum + (i.discountType === 'percent' ? i.price * i.qty * (i.discount / 100) : i.discount);
+    }, 0);
+    const globalDiscount = Math.max(0, (receipt.discountAmount ?? 0) - totalItemDiscount);
     openAndPrint(generateFactureHTML({
       numero: `FAC-${receipt.ticketNumber}`,
       docType: 'facture',
@@ -618,6 +629,7 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
       companyPhone: s.companyPhone,
       companySiret: s.companySiret,
       companyTva: s.companyTva,
+      globalDiscount: globalDiscount > 0 ? globalDiscount : undefined,
     }));
   };
 
@@ -799,6 +811,7 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
                         totalTTC: fallbackTicket.total_amount,
                         paymentMethod: parseMethod(fallbackTicket.payment_method ?? '').label,
                         isDuplicate: true,
+                        globalDiscount: (fallbackTicket.discount_amount ?? 0) > 0 ? fallbackTicket.discount_amount ?? 0 : undefined,
                       }));
                     }}
                     className="w-full flex items-center justify-center gap-2 py-2.5 border border-border rounded-xl text-sm font-500 text-foreground hover:bg-muted transition-colors"

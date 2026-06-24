@@ -35,6 +35,7 @@ export interface TicketPrintData {
   receiptFooter?: string;
   isDuplicate?: boolean;
   isDemo?: boolean;
+  globalDiscount?: number;
   rewardDiscountAmount?: number;
   rewardDescription?: string;
   referralCode?: string;
@@ -194,6 +195,7 @@ ${itemsHTML}
 ${showTVA ? `${line('Sous-total HT :', `${d.subtotalHT.toFixed(2)}€`)}
 ${line(`TVA ${d.tvaRate}% :`, `${d.totalTVA.toFixed(2)}€`)}
 <p>${SEP}</p>` : ''}
+${(d.globalDiscount ?? 0) > 0 ? `${line('Remise :', `-${d.globalDiscount!.toFixed(2)}€`)}` : ''}
 ${(d.rewardDiscountAmount ?? 0) > 0 ? `${line('🎁 Récompense :', `-${d.rewardDiscountAmount!.toFixed(2)}€`)}` : ''}
 <div class="tl ttc"><span>TOTAL TTC :</span><span>${d.totalTTC.toFixed(2)}€</span></div>
 <p>${SEP}</p>
@@ -312,6 +314,7 @@ export interface FacturePrintData {
   totalTVA: number;
   totalTTC: number;
   tvaRate: number;
+  globalDiscount?: number;
   paymentMethod?: string;
   companyName: string;
   companyLine1?: string;
@@ -392,6 +395,7 @@ ${itemsHTML}
 <p>${SEP2}</p>
 ${tl('Sous-total HT :', `${d.subtotalHT.toFixed(2)}€`)}
 ${tl(`TVA ${d.tvaRate}% :`, `${d.totalTVA.toFixed(2)}€`)}
+${(d.globalDiscount ?? 0) > 0 ? tl('Remise :', `-${d.globalDiscount!.toFixed(2)}€`) : ''}
 <p>${SEP2}</p>
 <div class="tl ttc"><span>TOTAL TTC :</span><span>${d.totalTTC.toFixed(2)}€</span></div>
 <p>${SEP2}</p>
@@ -486,6 +490,10 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:11pt;color:#000;background
         <td style="padding:3px 4px;font-size:10pt">TVA ${d.tvaRate}%</td>
         <td style="padding:3px 4px;font-size:10pt;text-align:right">${d.totalTVA.toFixed(2)} €</td>
       </tr>
+      ${(d.globalDiscount ?? 0) > 0 ? `<tr>
+        <td style="padding:3px 4px;font-size:10pt;color:#dc2626;font-weight:bold">Remise</td>
+        <td style="padding:3px 4px;font-size:10pt;text-align:right;color:#dc2626;font-weight:bold">-${d.globalDiscount!.toFixed(2)} €</td>
+      </tr>` : ''}
       <tr>
         <td style="padding:5px 4px;font-size:13pt;font-weight:bold;border-top:2px solid #000;border-bottom:2px solid #000">TOTAL TTC</td>
         <td style="padding:5px 4px;font-size:13pt;font-weight:bold;text-align:right;border-top:2px solid #000;border-bottom:2px solid #000">${d.totalTTC.toFixed(2)} €</td>
