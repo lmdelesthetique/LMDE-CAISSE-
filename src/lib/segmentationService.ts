@@ -61,6 +61,22 @@ function cleanClient(c: any): ClientForSegment {
 }
 
 const BASE_SELECT = 'id, first_name, last_name, phone, email, loyalty_points, created_at';
+const PAGE_SIZE = 1000;
+
+// Fetches ALL rows by paginating through Supabase's 1000-row limit
+async function fetchAll(buildQuery: (from: number, to: number) => any): Promise<any[]> {
+  const results: any[] = [];
+  let page = 0;
+  while (true) {
+    const from = page * PAGE_SIZE;
+    const { data } = await buildQuery(from, from + PAGE_SIZE - 1);
+    if (!data?.length) break;
+    results.push(...data);
+    if (data.length < PAGE_SIZE) break;
+    page++;
+  }
+  return results;
+}
 
 export async function getSegmentClients(segment: SegmentKey): Promise<ClientForSegment[]> {
   const supabase = makeAdminClient();
@@ -70,28 +86,37 @@ export async function getSegmentClients(segment: SegmentKey): Promise<ClientForS
   const d6m = new Date(now); d6m.setMonth(now.getMonth() - 6);
 
   async function allClientsWithPhone(): Promise<any[]> {
-    const { data } = await supabase
-      .from('clients').select(BASE_SELECT)
-      .not('phone', 'is', null).neq('phone', '');
-    return data ?? [];
+    return fetchAll((from, to) =>
+      supabase.from('clients').select(BASE_SELECT)
+        .not('phone', 'is', null).neq('phone', '').range(from, to)
+    );
   }
 
   async function receiptClientIds(since: Date, until?: Date): Promise<Set<string>> {
-    let q = supabase.from('receipts').select('client_id')
-      .gte('created_at', since.toISOString())
-      .not('client_id', 'is', null)
-      .neq('status', 'cancelled');
-    if (until) q = q.lt('created_at', until.toISOString());
-    const { data } = await q;
-    return new Set((data ?? []).map((r: any) => r.client_id));
+    const rows = await fetchAll((from, to) => {
+      let q = supabase.from('receipts').select('client_id')
+        .gte('created_at', since.toISOString())
+        .not('client_id', 'is', null)
+        .neq('status', 'cancelled');
+      if (until) q = q.lt('created_at', until.toISOString());
+      return q.range(from, to);
+    });
+    return new Set(rows.map((r: any) => r.client_id));
   }
 
+  // Fetch clients by IDs in batches of 500 (IN clause limit)
   async function clientsByIds(ids: string[]): Promise<any[]> {
     if (!ids.length) return [];
-    const { data } = await supabase
-      .from('clients').select(BASE_SELECT).in('id', ids)
-      .not('phone', 'is', null).neq('phone', '');
-    return data ?? [];
+    const results: any[] = [];
+    for (let i = 0; i < ids.length; i += 500) {
+      const chunk = ids.slice(i, i + 500);
+      const rows = await fetchAll((from, to) =>
+        supabase.from('clients').select(BASE_SELECT)
+          .in('id', chunk).not('phone', 'is', null).neq('phone', '').range(from, to)
+      );
+      results.push(...rows);
+    }
+    return results;
   }
 
   switch (segment) {
@@ -123,11 +148,12 @@ export async function getSegmentClients(segment: SegmentKey): Promise<ClientForS
     }
 
     case 'vip': {
-      const { data: receipts } = await supabase
-        .from('receipts').select('client_id, total_amount')
-        .not('client_id', 'is', null).neq('status', 'cancelled');
+      const receipts = await fetchAll((from, to) =>
+        supabase.from('receipts').select('client_id, total_amount')
+          .not('client_id', 'is', null).neq('status', 'cancelled').range(from, to)
+      );
       const totals: Record<string, number> = {};
-      for (const r of receipts ?? []) {
+      for (const r of receipts) {
         totals[r.client_id] = (totals[r.client_id] ?? 0) + parseFloat(r.total_amount ?? 0);
       }
       const ids = Object.entries(totals).filter(([, v]) => v >= 500).map(([k]) => k);
@@ -135,34 +161,36 @@ export async function getSegmentClients(segment: SegmentKey): Promise<ClientForS
     }
 
     case 'abonnees': {
-      const { data: subs } = await supabase
-        .from('client_subscriptions').select('client_id').eq('status', 'active');
-      const ids = [...new Set((subs ?? []).map((s: any) => s.client_id).filter(Boolean))];
+      const subs = await fetchAll((from, to) =>
+        supabase.from('client_subscriptions').select('client_id').eq('status', 'active').range(from, to)
+      );
+      const ids = [...new Set(subs.map((s: any) => s.client_id).filter(Boolean))];
       return (await clientsByIds(ids)).map(cleanClient);
     }
 
     case 'sans_abonnement': {
-      const { data: subs } = await supabase
-        .from('client_subscriptions').select('client_id').eq('status', 'active');
-      const subIds = new Set((subs ?? []).map((s: any) => s.client_id));
+      const subs = await fetchAll((from, to) =>
+        supabase.from('client_subscriptions').select('client_id').eq('status', 'active').range(from, to)
+      );
+      const subIds = new Set(subs.map((s: any) => s.client_id));
       const all = await allClientsWithPhone();
       return all.filter(c => !subIds.has(c.id)).map(cleanClient);
     }
 
     case 'points_eleves': {
-      const { data } = await supabase
-        .from('clients').select(BASE_SELECT)
-        .gte('loyalty_points', 200)
-        .not('phone', 'is', null).neq('phone', '');
-      return (data ?? []).map(cleanClient);
+      const rows = await fetchAll((from, to) =>
+        supabase.from('clients').select(BASE_SELECT)
+          .gte('loyalty_points', 200).not('phone', 'is', null).neq('phone', '').range(from, to)
+      );
+      return rows.map(cleanClient);
     }
 
     case 'nouvelles': {
-      const { data } = await supabase
-        .from('clients').select(BASE_SELECT)
-        .gte('created_at', d30.toISOString())
-        .not('phone', 'is', null).neq('phone', '');
-      return (data ?? []).map(cleanClient);
+      const rows = await fetchAll((from, to) =>
+        supabase.from('clients').select(BASE_SELECT)
+          .gte('created_at', d30.toISOString()).not('phone', 'is', null).neq('phone', '').range(from, to)
+      );
+      return rows.map(cleanClient);
     }
 
     default:
