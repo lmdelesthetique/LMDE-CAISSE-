@@ -11,7 +11,7 @@ function makeAdminClient() {
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const path = searchParams.get('path');
-  const filename = searchParams.get('filename') || true; // triggers Content-Disposition: attachment
+  const filename = searchParams.get('filename'); // only set when admin wants to download
 
   if (!path) {
     return NextResponse.json({ error: 'Paramètre path manquant' }, { status: 400 });
@@ -20,16 +20,22 @@ export async function GET(request: NextRequest) {
   try {
     const supabase = makeAdminClient();
 
+    // Pass download option only when filename is explicitly provided (admin download)
+    // Without it, the URL is used for inline video preview (ambassadrice portal)
+    const options = filename ? { download: filename } : undefined;
+
     const { data, error } = await supabase.storage
       .from('ambassadrice-videos')
-      .createSignedUrl(path, 3600, { download: filename });
+      .createSignedUrl(path, 3600, options);
 
     if (error || !data) {
-      return NextResponse.json({ error: 'Impossible de générer l\'URL' }, { status: 500 });
+      console.error('[video-url] createSignedUrl error:', error);
+      return NextResponse.json({ error: error?.message ?? 'Impossible de générer l\'URL' }, { status: 500 });
     }
 
     return NextResponse.json({ url: data.signedUrl });
   } catch (e: any) {
+    console.error('[video-url] exception:', e.message);
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
