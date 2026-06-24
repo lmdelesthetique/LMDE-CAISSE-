@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 
+interface WeekStat {
+  semaine: number;
+  jours: string;
+  ca: number;
+  nb_tickets: number;
+}
+
 interface MLDEData {
   totalCA: number;
   nbTickets: number;
@@ -15,6 +22,11 @@ interface MLDEData {
   segmentVIP: number;
   segmentAbonnees: number;
   segmentNouvelles: number;
+  caParSemaine: WeekStat[];
+  casMoisPrecedent: number;
+  ticketsMoisPrecedent: number;
+  semaineCreuse: number;
+  semaineForte: number;
 }
 
 function mockSpiraleMLDE(d: MLDEData) {
@@ -119,6 +131,34 @@ function mockSpiraleMLDE(d: MLDEData) {
       raison: `${d.segmentInactifs} inactives signalent une phase de réactivation prioritaire`,
       action_concrete: 'Lancer campagne réactivation WhatsApp + live vendredi + kit ambassadrices simultanément',
     },
+    tendances_mois: {
+      analyse: `Semaine ${d.semaineCreuse} est la plus creuse (${d.caParSemaine[d.semaineCreuse - 1]?.ca.toFixed(0) ?? 0}€). Configurez ANTHROPIC_API_KEY pour une analyse IA réelle.`,
+      periode_creuse: `Semaine ${d.semaineCreuse} — ${d.caParSemaine[d.semaineCreuse - 1]?.jours ?? '?'}`,
+      periode_forte: `Semaine ${d.semaineForte} — ${d.caParSemaine[d.semaineForte - 1]?.jours ?? '?'}`,
+      facteur_risque: 'Fin de mois : baisse de trésorerie client probable — lancer offres dès S3',
+      evolution_vs_mois_precedent: d.casMoisPrecedent > 0
+        ? `${((d.totalCA - d.casMoisPrecedent) / d.casMoisPrecedent * 100).toFixed(1)}% vs mois précédent (${d.casMoisPrecedent.toFixed(0)}€)`
+        : 'Données mois précédent insuffisantes',
+      ca_par_semaine: d.caParSemaine,
+    },
+    plan_preventif: [
+      {
+        declencheur: `CA semaine inférieur à ${Math.round(d.totalCA / 5)}€`,
+        semaine_cible: `Semaine ${d.semaineCreuse} (${d.caParSemaine[d.semaineCreuse - 1]?.jours ?? '?'})`,
+        action: 'Lancer une offre flash 48h sur le produit star',
+        canal: 'WhatsApp + Story Instagram',
+        message_ou_contenu: `Offre spéciale 48h sur ${starProduit} — réservé à nos clientes fidèles`,
+        objectif: `Récupérer ${Math.round(d.totalCA * 0.15)}€ minimum`,
+      },
+      {
+        declencheur: 'Dès le 20 du mois si CA cumulé < objectif',
+        semaine_cible: 'Semaine 4 (22-fin du mois)',
+        action: 'Live vendredi dédié fin de mois + bundle économique',
+        canal: 'Instagram Live + WhatsApp',
+        message_ou_contenu: 'Bundle fin de mois : 2 produits achetés = 1 offert — ce vendredi soir 19h45',
+        objectif: `Atteindre ${Math.round(d.totalCA * 1.1)}€ avant fin de mois`,
+      },
+    ],
     recommandations: [
       `Relancer les ${d.segmentInactifs} clientes inactives 90j+ cette semaine avec code RETOUR20 — potentiel ${Math.round(d.segmentInactifs * 0.2 * 35)}€`,
       `Commander 20+ unités de ${d.produitsRupture[0]?.name ?? 'top produits'} avant rupture totale`,
@@ -134,17 +174,59 @@ export async function POST(_req: NextRequest) {
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
     const d30ago = new Date(now); d30ago.setDate(now.getDate() - 30);
 
-    // ── 1. Receipts for current month ──────────────────────────────────────────
-    const { data: receipts } = await supabase
-      .from('receipts')
-      .select('id, total_amount, items, payment_method')
-      .gte('created_at', startOfMonth)
-      .neq('status', 'cancelled')
-      .not('is_demo', 'eq', true);
+    // Dates for prev month
+    const startOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
+    const endOfPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59).toISOString();
+
+    // ── 1. Receipts for current month + prev month ─────────────────────────────
+    const [{ data: receipts }, { data: prevMonthReceipts }] = await Promise.all([
+      supabase
+        .from('receipts')
+        .select('id, total_amount, items, payment_method, created_at')
+        .gte('created_at', startOfMonth)
+        .neq('status', 'cancelled')
+        .not('is_demo', 'eq', true),
+      supabase
+        .from('receipts')
+        .select('id, total_amount, created_at')
+        .gte('created_at', startOfPrevMonth)
+        .lte('created_at', endOfPrevMonth)
+        .neq('status', 'cancelled')
+        .not('is_demo', 'eq', true),
+    ]);
 
     const totalCA = (receipts ?? []).reduce((s, r) => s + parseFloat(r.total_amount ?? 0), 0);
     const nbTickets = receipts?.length ?? 0;
     const panierMoyen = nbTickets > 0 ? totalCA / nbTickets : 0;
+
+    // ── 1b. Prev month totals ──────────────────────────────────────────────────
+    const casMoisPrecedent = (prevMonthReceipts ?? []).reduce((s, r) => s + parseFloat(r.total_amount ?? 0), 0);
+    const ticketsMoisPrecedent = prevMonthReceipts?.length ?? 0;
+
+    // ── 1c. Weekly breakdown for current month ─────────────────────────────────
+    const weekRanges = [
+      { semaine: 1, start: 1, end: 7, jours: '1-7' },
+      { semaine: 2, start: 8, end: 14, jours: '8-14' },
+      { semaine: 3, start: 15, end: 21, jours: '15-21' },
+      { semaine: 4, start: 22, end: 31, jours: '22-fin' },
+    ];
+    const caParSemaine: WeekStat[] = weekRanges.map(({ semaine, start, end, jours }) => {
+      const filtered = (receipts ?? []).filter(r => {
+        const day = new Date(r.created_at).getDate();
+        return day >= start && day <= end;
+      });
+      return {
+        semaine,
+        jours,
+        ca: parseFloat(filtered.reduce((s, r) => s + parseFloat(r.total_amount ?? 0), 0).toFixed(2)),
+        nb_tickets: filtered.length,
+      };
+    });
+    const semaineForte = caParSemaine.reduce((best, w) => (w.ca > caParSemaine[best - 1].ca ? w.semaine : best), 1);
+    const semaineCreuse = caParSemaine.reduce((worst, w) => {
+      const worstCA = caParSemaine[worst - 1].ca;
+      return (w.ca < worstCA && w.nb_tickets > 0) ? w.semaine : worst;
+    }, semaineForte);
 
     // ── 2. Top 10 products from receipt items ──────────────────────────────────
     const productSalesMap: Record<string, { name: string; qty: number; revenue: number }> = {};
@@ -251,6 +333,11 @@ export async function POST(_req: NextRequest) {
       segmentVIP,
       segmentAbonnees: countAbonnees ?? 0,
       segmentNouvelles: countNouvelles ?? 0,
+      caParSemaine,
+      casMoisPrecedent: parseFloat(casMoisPrecedent.toFixed(2)),
+      ticketsMoisPrecedent,
+      semaineCreuse,
+      semaineForte,
     };
 
     const apiKey = process.env.ANTHROPIC_API_KEY ?? '';
@@ -291,6 +378,16 @@ SEGMENTS CLIENTS :
 - VIP (top 20%) : ${data.segmentVIP} clientes
 - Abonnées box : ${data.segmentAbonnees} clientes
 - Nouvelles (≤2 achats) : ${data.segmentNouvelles} clientes
+
+TENDANCES CA PAR SEMAINE CE MOIS :
+${data.caParSemaine.map(w => `  Semaine ${w.semaine} (jours ${w.jours}) : ${w.ca.toFixed(2)}€ — ${w.nb_tickets} tickets`).join('\n')}
+
+COMPARAISON MOIS PRÉCÉDENT :
+- CA mois précédent : ${data.casMoisPrecedent.toFixed(2)}€ (${data.ticketsMoisPrecedent} tickets)
+- CA mois actuel : ${data.totalCA.toFixed(2)}€ (${data.nbTickets} tickets)
+- Évolution : ${data.casMoisPrecedent > 0 ? ((data.totalCA - data.casMoisPrecedent) / data.casMoisPrecedent * 100).toFixed(1) + '%' : 'N/A'}
+- Semaine la plus forte ce mois : Semaine ${data.semaineForte} (${data.caParSemaine[data.semaineForte - 1]?.ca.toFixed(2)}€)
+- Semaine la plus creuse ce mois : Semaine ${data.semaineCreuse} (${data.caParSemaine[data.semaineCreuse - 1]?.ca.toFixed(2)}€)
 
 Réponds UNIQUEMENT en JSON valide sans markdown. Structure exacte requise :
 
@@ -388,6 +485,29 @@ Réponds UNIQUEMENT en JSON valide sans markdown. Structure exacte requise :
     "raison": "pourquoi ce moment précis",
     "action_concrete": "quoi faire exactement cette semaine"
   },
+  "tendances_mois": {
+    "analyse": "2-3 phrases : décris la courbe du CA sur les 4 semaines, identifie le pattern récurrent (début fort/fin faible ?), explique pourquoi (fin de mois = trésorerie client basse, paies du 28, etc.)",
+    "periode_creuse": "Semaine X (jours X-X) — CA le plus faible avec chiffre exact",
+    "periode_forte": "Semaine X (jours X-X) — CA le plus fort avec chiffre exact",
+    "facteur_risque": "Raison principale de la baisse (fin de mois en Martinique, effet paie, vacances scolaires, etc.)",
+    "evolution_vs_mois_precedent": "+X% ou -X% avec les deux chiffres exacts",
+    "ca_par_semaine": [
+      { "semaine": 1, "jours": "1-7", "ca": 0, "nb_tickets": 0 },
+      { "semaine": 2, "jours": "8-14", "ca": 0, "nb_tickets": 0 },
+      { "semaine": 3, "jours": "15-21", "ca": 0, "nb_tickets": 0 },
+      { "semaine": 4, "jours": "22-fin", "ca": 0, "nb_tickets": 0 }
+    ]
+  },
+  "plan_preventif": [
+    {
+      "declencheur": "Condition précise qui déclenche l'action (ex: CA semaine < X€ ou on est à J20)",
+      "semaine_cible": "Semaine X — quand agir exactement",
+      "action": "Action concrète et précise à mettre en place",
+      "canal": "WhatsApp / Instagram Live / Story / Email",
+      "message_ou_contenu": "Message ou type de contenu exact à publier/envoyer",
+      "objectif": "Objectif chiffré en € ou en clientes"
+    }
+  ],
   "recommandations": [
     "Action concrète 1 avec chiffres précis",
     "Action concrète 2 avec chiffres précis",

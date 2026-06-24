@@ -59,6 +59,22 @@ interface SpiraleStrategy {
     raison: string;
     action_concrete: string;
   };
+  tendances_mois?: {
+    analyse: string;
+    periode_creuse: string;
+    periode_forte: string;
+    facteur_risque: string;
+    evolution_vs_mois_precedent: string;
+    ca_par_semaine: { semaine: number; jours: string; ca: number; nb_tickets: number }[];
+  };
+  plan_preventif?: {
+    declencheur: string;
+    semaine_cible: string;
+    action: string;
+    canal: string;
+    message_ou_contenu: string;
+    objectif: string;
+  }[];
   recommandations: string[];
 }
 
@@ -549,6 +565,98 @@ export default function MDLEStrategiePanel() {
               <div className="bg-violet-50 border border-violet-100 rounded-xl p-3 space-y-2">
                 <p className="text-xs text-violet-800"><span className="font-700">Pourquoi :</span> {strategy.cycle_modele.raison}</p>
                 <p className="text-xs text-violet-700"><span className="font-700">Action concrète :</span> {strategy.cycle_modele.action_concrete}</p>
+              </div>
+            </Card>
+          )}
+
+          {/* ── TENDANCES DU MOIS ────────────────────────────────────────────────── */}
+          {strategy.tendances_mois && (
+            <Card>
+              <SectionTitle emoji="📈" title="Tendances CA du Mois" color="text-sky-700" />
+              {/* Mini bar chart */}
+              {strategy.tendances_mois.ca_par_semaine?.length > 0 && (() => {
+                const weeks = strategy.tendances_mois!.ca_par_semaine;
+                const maxCA = Math.max(...weeks.map(w => w.ca), 1);
+                const creuse = strategy.tendances_mois!.periode_creuse;
+                const forte = strategy.tendances_mois!.periode_forte;
+                return (
+                  <div className="mb-4">
+                    <div className="flex items-end gap-2 h-20 mb-2">
+                      {weeks.map((w) => {
+                        const pct = Math.round((w.ca / maxCA) * 100);
+                        const isCreuse = creuse.includes(`Semaine ${w.semaine}`);
+                        const isForte = forte.includes(`Semaine ${w.semaine}`);
+                        return (
+                          <div key={w.semaine} className="flex-1 flex flex-col items-center gap-1">
+                            <p className="text-[9px] text-muted-foreground font-600">{w.ca > 0 ? `${w.ca.toFixed(0)}€` : '—'}</p>
+                            <div className="w-full rounded-t-md transition-all" style={{
+                              height: `${Math.max(pct, 4)}%`,
+                              background: isCreuse ? '#ef4444' : isForte ? '#10b981' : '#6366f1',
+                            }} />
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="flex gap-2">
+                      {weeks.map(w => (
+                        <div key={w.semaine} className="flex-1 text-center">
+                          <p className="text-[9px] font-700 text-muted-foreground">S{w.semaine}</p>
+                          <p className="text-[8px] text-muted-foreground/70">{w.jours}</p>
+                          <p className="text-[8px] text-muted-foreground/60">{w.nb_tickets} ventes</p>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex gap-3 mt-2 text-[9px]">
+                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-emerald-500 inline-block" />Plus forte</span>
+                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-red-500 inline-block" />Plus creuse</span>
+                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-indigo-500 inline-block" />Normale</span>
+                    </div>
+                  </div>
+                );
+              })()}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                <div className="bg-sky-50 border border-sky-100 rounded-xl p-3">
+                  <p className="text-[10px] font-700 text-sky-600 mb-1">Évolution vs mois précédent</p>
+                  <p className="text-sm font-700 text-sky-800">{strategy.tendances_mois.evolution_vs_mois_precedent}</p>
+                </div>
+                <div className="bg-red-50 border border-red-100 rounded-xl p-3">
+                  <p className="text-[10px] font-700 text-red-600 mb-1">Facteur de risque identifié</p>
+                  <p className="text-xs text-red-800">{strategy.tendances_mois.facteur_risque}</p>
+                </div>
+              </div>
+              <div className="bg-muted/20 rounded-xl p-3">
+                <p className="text-xs text-foreground leading-relaxed">{strategy.tendances_mois.analyse}</p>
+              </div>
+            </Card>
+          )}
+
+          {/* ── PLAN PRÉVENTIF ANTI-CHUTE ─────────────────────────────────────────── */}
+          {strategy.plan_preventif && strategy.plan_preventif.length > 0 && (
+            <Card>
+              <SectionTitle emoji="🛡️" title="Plan Préventif — Anticiper les Chutes de CA" color="text-orange-700" />
+              <div className="space-y-3">
+                {strategy.plan_preventif.map((action, i) => (
+                  <div key={i} className="border border-orange-100 rounded-xl p-3 bg-orange-50">
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="w-5 h-5 rounded-full bg-orange-500 text-white text-[10px] font-900 flex items-center justify-center shrink-0">{i + 1}</span>
+                        <p className="text-xs font-700 text-orange-800">{action.semaine_cible}</p>
+                      </div>
+                      <span className="text-[10px] bg-orange-200 text-orange-700 font-600 px-2 py-0.5 rounded-full shrink-0">{action.canal}</span>
+                    </div>
+                    <p className="text-[10px] text-orange-600 mb-2">
+                      <span className="font-700">Déclencheur :</span> {action.declencheur}
+                    </p>
+                    <p className="text-xs text-orange-800 font-600 mb-1">{action.action}</p>
+                    <div className="bg-white/70 border border-orange-100 rounded-lg px-3 py-2 mb-2">
+                      <div className="flex items-start gap-2">
+                        <p className="text-xs text-orange-700 flex-1 italic">"{action.message_ou_contenu}"</p>
+                        <CopyButton text={action.message_ou_contenu} />
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-emerald-700 font-600">🎯 Objectif : {action.objectif}</p>
+                  </div>
+                ))}
               </div>
             </Card>
           )}
