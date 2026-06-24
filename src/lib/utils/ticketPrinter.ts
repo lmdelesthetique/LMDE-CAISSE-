@@ -50,6 +50,7 @@ export interface TicketPrintData {
 const SEP = '================================';
 const SEP_DASH = '--------------------------------';
 
+
 function esc(s: string): string {
   return s
     .replace(/&/g, '&amp;')
@@ -64,7 +65,7 @@ function line(label: string, value: string): string {
 
 export function generateTicketHTML(d: TicketPrintData): string {
   const width = d.paperWidth ?? '80mm';
-  const baseFontSize = d.fontSize === 'small' ? '11px' : d.fontSize === 'large' ? '13px' : '12px';
+  const baseFontSize = d.fontSize === 'small' ? '9px' : d.fontSize === 'large' ? '11px' : '10px';
   const showTVA = d.showTVADetails !== false;
   const showPoints = d.showPoints !== false;
   const showNextTier = d.showNextTier !== false;
@@ -122,40 +123,52 @@ ${d.returnConditions
     : '';
 
   const css = `
-    *{box-sizing:border-box;margin:0;padding:0;}
+    *{box-sizing:border-box;margin:0;padding:0;word-break:break-word;overflow-wrap:anywhere;}
     html,body{
       font-family:'Courier New',Courier,monospace!important;
       font-size:${baseFontSize};font-weight:700;
-      width:${width};margin:0 auto;padding:6px 2px 20px 2px;
+      width:${width};max-width:${width};margin:0 auto;
+      padding:4px 4px 16px 4px;
       color:#000;background:#fff;
       -webkit-print-color-adjust:exact;print-color-adjust:exact;
     }
-    p{margin:0;padding:0;line-height:1.4;color:#000!important;
-      font-family:'Courier New',Courier,monospace!important;font-weight:700;}
+    p{margin:0;padding:0;line-height:1.35;color:#000!important;
+      font-family:'Courier New',Courier,monospace!important;font-weight:700;
+      word-break:break-word;overflow-wrap:anywhere;}
     .tc{text-align:center;}
-    .tl{display:flex;justify-content:space-between;font-weight:700;line-height:1.4;}
-    .tl span{font-family:'Courier New',Courier,monospace!important;}
-    .item-name{font-weight:700;margin-top:4px;}
-    .disc{font-size:11px;font-style:italic;}
-    .ttc{font-size:14px;font-weight:900;border-top:3px solid #000;border-bottom:3px solid #000;padding:4px 0;margin:4px 0;}
-    .fidelite{border:2px solid #000;padding:4px;margin:6px 0;font-weight:700;}
+    .tl{display:flex;justify-content:space-between;align-items:baseline;
+      font-weight:700;line-height:1.35;gap:3px;width:100%;}
+    .tl span{font-family:'Courier New',Courier,monospace!important;
+      min-width:0;word-break:break-word;}
+    .tl span:last-child{text-align:right;white-space:nowrap;flex-shrink:0;}
+    .tl span:first-child{flex:1;overflow:hidden;}
+    .item-name{font-weight:700;margin-top:3px;word-break:break-word;}
+    .disc{font-size:${baseFontSize};font-style:italic;}
+    .ttc{font-size:${d.fontSize === 'small' ? '11px' : d.fontSize === 'large' ? '13px' : '12px'};font-weight:900;
+      border-top:2px solid #000;border-bottom:2px solid #000;padding:3px 0;margin:3px 0;}
+    .fidelite{border:1px solid #000;padding:3px;margin:4px 0;font-weight:700;}
     .fidelite p{font-weight:700;}
     @media print{
-      @page{size:${width} auto;margin:2mm;}
+      @page{size:${width} auto;margin:0mm 2mm;}
       *{color:#000000!important;background:#ffffff!important;
         background-color:#ffffff!important;background-image:none!important;
         -webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;
         box-shadow:none!important;text-shadow:none!important;
-        border-color:#000000!important;-webkit-text-fill-color:#000000!important;}
+        border-color:#000000!important;-webkit-text-fill-color:#000000!important;
+        word-break:break-word!important;overflow-wrap:anywhere!important;}
       html,body{font-family:'Courier New',Courier,monospace!important;
-        font-size:${baseFontSize}!important;font-weight:700!important;width:${width}!important;
-        margin:0!important;padding:0!important;}
+        font-size:${baseFontSize}!important;font-weight:700!important;
+        width:${width}!important;max-width:${width}!important;
+        margin:0!important;padding:4px 4px 16px 4px!important;}
       p,span,div,td,th,strong{color:#000000!important;font-weight:700!important;
         font-family:'Courier New',Courier,monospace!important;}
-      .tl{display:flex!important;justify-content:space-between!important;}
-      .ttc{font-size:14px!important;font-weight:900!important;
-        border-top:3px solid #000!important;border-bottom:3px solid #000!important;}
-      .fidelite{border:2px solid #000!important;padding:4px!important;}
+      .tl{display:flex!important;justify-content:space-between!important;gap:3px!important;width:100%!important;}
+      .tl span:last-child{white-space:nowrap!important;flex-shrink:0!important;}
+      .tl span:first-child{flex:1!important;overflow:hidden!important;}
+      .ttc{font-size:${d.fontSize === 'small' ? '11px' : d.fontSize === 'large' ? '13px' : '12px'}!important;
+        font-weight:900!important;
+        border-top:2px solid #000!important;border-bottom:2px solid #000!important;}
+      .fidelite{border:1px solid #000!important;padding:3px!important;}
     }
   `;
 
@@ -344,21 +357,27 @@ export function generateFactureHTML(d: FacturePrintData): string {
   if (isThermal) {
     // ── Thermal format (same monospace as ticket) ────────────────────────────
     const css = `
-      *{box-sizing:border-box;margin:0;padding:0;}
-      html,body{font-family:'Courier New',Courier,monospace!important;font-size:12px;font-weight:700;
-        width:${width};margin:0 auto;padding:6px 2px 20px 2px;color:#000;background:#fff;
+      *{box-sizing:border-box;margin:0;padding:0;word-break:break-word;overflow-wrap:anywhere;}
+      html,body{font-family:'Courier New',Courier,monospace!important;font-size:10px;font-weight:700;
+        width:${width};max-width:${width};margin:0 auto;padding:4px 4px 16px 4px;color:#000;background:#fff;
         -webkit-print-color-adjust:exact;print-color-adjust:exact;}
-      p{margin:0;padding:0;line-height:1.4;color:#000!important;font-family:'Courier New',Courier,monospace!important;font-weight:700;}
+      p{margin:0;padding:0;line-height:1.35;color:#000!important;font-family:'Courier New',Courier,monospace!important;font-weight:700;word-break:break-word;}
       .tc{text-align:center;}
-      .tl{display:flex;justify-content:space-between;font-weight:700;line-height:1.4;}
-      .tl span{font-family:'Courier New',Courier,monospace!important;}
-      .item-name{font-weight:700;margin-top:4px;}
-      .ttc{font-size:14px;font-weight:900;border-top:3px solid #000;border-bottom:3px solid #000;padding:4px 0;margin:4px 0;}
-      @media print{@page{size:${width} auto;margin:2mm;}
-        *{color:#000!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
-        html,body{font-size:12px!important;width:${width}!important;margin:0!important;padding:0!important;}
-        .tl{display:flex!important;justify-content:space-between!important;}
-        .ttc{font-size:14px!important;font-weight:900!important;border-top:3px solid #000!important;border-bottom:3px solid #000!important;}}
+      .tl{display:flex;justify-content:space-between;align-items:baseline;font-weight:700;line-height:1.35;gap:3px;width:100%;}
+      .tl span{font-family:'Courier New',Courier,monospace!important;min-width:0;}
+      .tl span:last-child{text-align:right;white-space:nowrap;flex-shrink:0;}
+      .tl span:first-child{flex:1;overflow:hidden;}
+      .item-name{font-weight:700;margin-top:3px;word-break:break-word;}
+      .ttc{font-size:12px;font-weight:900;border-top:2px solid #000;border-bottom:2px solid #000;padding:3px 0;margin:3px 0;}
+      @media print{@page{size:${width} auto;margin:0mm 2mm;}
+        *{color:#000!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;
+          word-break:break-word!important;overflow-wrap:anywhere!important;}
+        html,body{font-size:10px!important;width:${width}!important;max-width:${width}!important;
+          margin:0!important;padding:4px 4px 16px 4px!important;}
+        .tl{display:flex!important;justify-content:space-between!important;gap:3px!important;width:100%!important;}
+        .tl span:last-child{white-space:nowrap!important;flex-shrink:0!important;}
+        .tl span:first-child{flex:1!important;overflow:hidden!important;}
+        .ttc{font-size:12px!important;font-weight:900!important;border-top:2px solid #000!important;border-bottom:2px solid #000!important;}}
     `;
     const SEP2 = '================================';
     const SEP3 = '--------------------------------';
