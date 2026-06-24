@@ -108,10 +108,21 @@ export default function CampagneDetailPage() {
     if (!contenu.video_path) return;
     setDownloadingVideo(contenu.id);
     try {
-      const res = await fetch(`/api/ambassadrice/video-url?path=${encodeURIComponent(contenu.video_path)}`);
+      const filename = contenu.video_filename || 'video.mp4';
+      const res = await fetch(
+        `/api/ambassadrice/video-url?path=${encodeURIComponent(contenu.video_path)}&filename=${encodeURIComponent(filename)}`
+      );
       const data = await res.json();
       if (!res.ok || !data.url) { showToast(false, 'Impossible de générer l\'URL de téléchargement'); return; }
-      window.open(data.url, '_blank');
+
+      // Force download on all platforms including iOS Safari
+      const a = document.createElement('a');
+      a.href = data.url;
+      a.download = filename;
+      a.rel = 'noopener noreferrer';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
     } catch {
       showToast(false, 'Erreur réseau');
     } finally {
