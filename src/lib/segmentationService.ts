@@ -198,6 +198,96 @@ export async function getSegmentClients(segment: SegmentKey): Promise<ClientForS
   }
 }
 
+// Fast count — avoids fetching all rows (used for preview badges)
+export async function getSegmentCount(segment: SegmentKey): Promise<number> {
+  const supabase = makeAdminClient();
+  const now = new Date();
+  const d30 = new Date(now); d30.setDate(now.getDate() - 30);
+  const d90 = new Date(now); d90.setDate(now.getDate() - 90);
+  const d6m = new Date(now); d6m.setMonth(now.getMonth() - 6);
+
+  switch (segment) {
+    case 'tous': {
+      const { count } = await supabase.from('clients')
+        .select('*', { count: 'exact', head: true })
+        .not('phone', 'is', null).neq('phone', '');
+      return count ?? 0;
+    }
+    case 'nouvelles': {
+      const { count } = await supabase.from('clients')
+        .select('*', { count: 'exact', head: true })
+        .gte('created_at', d30.toISOString())
+        .not('phone', 'is', null).neq('phone', '');
+      return count ?? 0;
+    }
+    case 'points_eleves': {
+      const { count } = await supabase.from('clients')
+        .select('*', { count: 'exact', head: true })
+        .gte('loyalty_points', 200)
+        .not('phone', 'is', null).neq('phone', '');
+      return count ?? 0;
+    }
+    case 'abonnees': {
+      const { count } = await supabase.from('client_subscriptions')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'active');
+      return count ?? 0;
+    }
+    case 'actifs_30j': {
+      const { data } = await supabase.from('receipts')
+        .select('client_id')
+        .gte('created_at', d30.toISOString())
+        .not('client_id', 'is', null).neq('status', 'cancelled');
+      return new Set((data ?? []).map((r: any) => r.client_id)).size;
+    }
+    case 'tièdes_90j': {
+      const [{ data: d30Data }, { data: d90Data }] = await Promise.all([
+        supabase.from('receipts').select('client_id').gte('created_at', d30.toISOString()).not('client_id', 'is', null).neq('status', 'cancelled'),
+        supabase.from('receipts').select('client_id').gte('created_at', d90.toISOString()).lt('created_at', d30.toISOString()).not('client_id', 'is', null).neq('status', 'cancelled'),
+      ]);
+      const recent = new Set((d30Data ?? []).map((r: any) => r.client_id));
+      const older = new Set((d90Data ?? []).map((r: any) => r.client_id));
+      return [...older].filter(id => !recent.has(id)).length;
+    }
+    case 'inactifs_90j': {
+      const [{ data: activeData }, { count: total }] = await Promise.all([
+        supabase.from('receipts').select('client_id').gte('created_at', d90.toISOString()).not('client_id', 'is', null).neq('status', 'cancelled'),
+        supabase.from('clients').select('*', { count: 'exact', head: true }).not('phone', 'is', null).neq('phone', ''),
+      ]);
+      const activeIds = new Set((activeData ?? []).map((r: any) => r.client_id));
+      return Math.max(0, (total ?? 0) - activeIds.size);
+    }
+    case 'inactifs_6mois': {
+      const [{ data: activeData }, { count: total }] = await Promise.all([
+        supabase.from('receipts').select('client_id').gte('created_at', d6m.toISOString()).not('client_id', 'is', null).neq('status', 'cancelled'),
+        supabase.from('clients').select('*', { count: 'exact', head: true }).not('phone', 'is', null).neq('phone', ''),
+      ]);
+      const activeIds = new Set((activeData ?? []).map((r: any) => r.client_id));
+      return Math.max(0, (total ?? 0) - activeIds.size);
+    }
+    case 'vip': {
+      const { data } = await supabase.from('receipts')
+        .select('client_id, total_amount')
+        .not('client_id', 'is', null).neq('status', 'cancelled');
+      const totals: Record<string, number> = {};
+      for (const r of data ?? []) {
+        totals[r.client_id] = (totals[r.client_id] ?? 0) + parseFloat(r.total_amount ?? 0);
+      }
+      return Object.values(totals).filter(v => v >= 500).length;
+    }
+    case 'sans_abonnement': {
+      const [{ data: subs }, { count: total }] = await Promise.all([
+        supabase.from('client_subscriptions').select('client_id').eq('status', 'active'),
+        supabase.from('clients').select('*', { count: 'exact', head: true }).not('phone', 'is', null).neq('phone', ''),
+      ]);
+      const subIds = new Set((subs ?? []).map((s: any) => s.client_id));
+      return Math.max(0, (total ?? 0) - subIds.size);
+    }
+    default:
+      return 0;
+  }
+}
+
 export async function getSegmentStats(): Promise<Record<SegmentKey, number>> {
   const entries = await Promise.all(
     SEGMENTS.map(async ({ key }) => {
