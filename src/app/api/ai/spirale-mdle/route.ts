@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { getSegmentStats } from '@/lib/segmentationService';
 
 interface MLDEData {
   totalCA: number;
@@ -168,7 +167,8 @@ export async function POST(_req: NextRequest) {
       .from('products')
       .select('id, name, stock')
       .gt('stock', 0)
-      .not('product_status', 'in', '("inactive","coming_soon")');
+      .neq('product_status', 'inactive')
+      .neq('product_status', 'coming_soon');
 
     const { data: recentReceipts } = await supabase
       .from('receipts')
@@ -196,15 +196,46 @@ export async function POST(_req: NextRequest) {
       .select('name, stock')
       .lte('stock', 5)
       .gt('stock', 0)
-      .not('product_status', 'in', '("inactive","coming_soon")');
+      .neq('product_status', 'inactive')
+      .neq('product_status', 'coming_soon');
 
     const produitsRupture = (ruptureProducts ?? [])
       .sort((a, b) => a.stock - b.stock)
       .slice(0, 10)
       .map(p => ({ name: p.name, stock: p.stock }));
 
-    // ── 5. Segments ────────────────────────────────────────────────────────────
-    const segments = await getSegmentStats();
+    // ── 5. Segments — fast count queries (avoid heavy getSegmentStats) ─────────
+    const d90ago = new Date(now); d90ago.setDate(now.getDate() - 90);
+    const d6mago = new Date(now); d6mago.setMonth(now.getMonth() - 6);
+
+    const [
+      { count: countTous },
+      { count: countAbonnees },
+      { count: countNouvelles },
+      { data: vipRows },
+      { data: actifRows },
+      { data: tiede90Rows },
+    ] = await Promise.all([
+      supabase.from('clients').select('*', { count: 'exact', head: true }).not('phone', 'is', null).neq('phone', ''),
+      supabase.from('client_subscriptions').select('*', { count: 'exact', head: true }).eq('status', 'active'),
+      supabase.from('clients').select('*', { count: 'exact', head: true }).gte('created_at', d30ago.toISOString()).not('phone', 'is', null).neq('phone', ''),
+      supabase.from('receipts').select('client_id, total_amount').not('client_id', 'is', null).neq('status', 'cancelled'),
+      supabase.from('receipts').select('client_id').gte('created_at', d30ago.toISOString()).not('client_id', 'is', null).neq('status', 'cancelled'),
+      supabase.from('receipts').select('client_id').gte('created_at', d90ago.toISOString()).not('client_id', 'is', null).neq('status', 'cancelled'),
+    ]);
+
+    // VIP: clients with total spent >= 500
+    const vipMap: Record<string, number> = {};
+    for (const r of vipRows ?? []) {
+      vipMap[r.client_id] = (vipMap[r.client_id] ?? 0) + parseFloat(r.total_amount ?? 0);
+    }
+    const segmentVIP = Object.values(vipMap).filter(v => v >= 500).length;
+
+    const actifIds = new Set((actifRows ?? []).map((r: any) => r.client_id));
+    const tiede90Ids = new Set((tiede90Rows ?? []).map((r: any) => r.client_id));
+    const segmentActifs = actifIds.size;
+    const segmentTiedes = [...tiede90Ids].filter(id => !actifIds.has(id)).length;
+    const segmentInactifs = Math.max(0, (countTous ?? 0) - tiede90Ids.size);
 
     const data: MLDEData = {
       totalCA,
@@ -214,12 +245,12 @@ export async function POST(_req: NextRequest) {
       topProduits,
       produitsDormants,
       produitsRupture,
-      segmentActifs: segments['actifs_30j'] ?? 0,
-      segmentTiedes: segments['tièdes_90j'] ?? 0,
-      segmentInactifs: segments['inactifs_90j'] ?? 0,
-      segmentVIP: segments['vip'] ?? 0,
-      segmentAbonnees: segments['abonnees'] ?? 0,
-      segmentNouvelles: segments['nouvelles'] ?? 0,
+      segmentActifs,
+      segmentTiedes,
+      segmentInactifs,
+      segmentVIP,
+      segmentAbonnees: countAbonnees ?? 0,
+      segmentNouvelles: countNouvelles ?? 0,
     };
 
     const apiKey = process.env.ANTHROPIC_API_KEY ?? '';
