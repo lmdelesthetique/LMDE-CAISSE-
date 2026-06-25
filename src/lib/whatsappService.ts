@@ -12,10 +12,29 @@ export interface WhatsAppResult {
 }
 
 function cleanPhone(raw: string): string {
-  let phone = raw.replace(/\s+/g, '').replace(/^\+/, '').replace(/^0/, '596');
-  if (!phone.startsWith('596') && !phone.startsWith('590') && phone.length === 9) {
+  // Strip spaces, dashes, dots, parentheses, then remove leading +
+  let phone = raw.replace(/[\s\-().]/g, '').replace(/^\+/, '');
+
+  // International dialing prefix 00xx → remove the 00
+  if (phone.startsWith('00')) phone = phone.slice(2);
+
+  // 10-digit local format starting with 0
+  if (phone.startsWith('0') && phone.length === 10) {
+    const local = phone.slice(1);
+    // Martinique/Guadeloupe mobiles: 0696, 0694, 0690-0693, 0692, 0693
+    if (/^069[0-9]/.test(phone) || /^059[0-9]/.test(phone)) {
+      phone = phone.startsWith('059') ? '590' + local : '596' + local;
+    } else {
+      // French metropolitan (06, 07, landlines starting with 01-05, 08, 09)
+      phone = '33' + local;
+    }
+  }
+  // 9-digit number without any country code prefix → assume Martinique local
+  else if (phone.length === 9 && /^[67]/.test(phone)) {
     phone = '596' + phone;
   }
+  // Anything else: already has country code (33xxxxxxxxx, 86xxxxxxxxxx, 1xxxxxxxxxx, etc.)
+
   return phone;
 }
 
@@ -24,7 +43,7 @@ async function sendViaMeta(phone: string, message: string): Promise<{ ok: boolea
   const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
   if (!token || !phoneId) return { ok: false, error: 'Meta API not configured' };
 
-  const res = await fetch(`https://graph.facebook.com/v18.0/${phoneId}/messages`, {
+  const res = await fetch(`https://graph.facebook.com/v21.0/${phoneId}/messages`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -38,8 +57,9 @@ async function sendViaMeta(phone: string, message: string): Promise<{ ok: boolea
 
   const data = await res.json().catch(() => ({}));
   if (res.ok) { console.log('[WhatsApp] ✅ sent via Meta'); return { ok: true }; }
-  console.error('[WhatsApp] Meta error:', data);
-  return { ok: false, error: (data as any).error?.message || `Meta HTTP ${res.status}` };
+  const errMsg = (data as any).error?.message || (data as any).error?.error_data?.details || `Meta HTTP ${res.status}`;
+  console.error('[WhatsApp] Meta error:', JSON.stringify(data));
+  return { ok: false, error: errMsg };
 }
 
 async function sendViaBrevo(phone: string, message: string): Promise<{ ok: boolean; error?: string }> {
