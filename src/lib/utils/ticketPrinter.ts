@@ -90,23 +90,29 @@ export function generateTicketHTML(d: TicketPrintData): string {
 <div class="tl"><span>${i.qty} x ${i.price.toFixed(2)}€</span><span>${lineTotal.toFixed(2)}€</span></div>${discHTML}`;
   }).join(`<p>${SEP_DASH}</p>`);
 
-  // Loyalty section
+  // Loyalty section — shown after parrainage, always if client has points
   let loyaltyHTML = '';
-  if (showPoints && d.loyalty && d.loyalty.pointsEarned > 0) {
-    const tierLine = d.loyalty.currentTierName
-      ? line('Palier actuel :', d.loyalty.currentTierName)
+  if (showPoints && d.loyalty && (d.loyalty.totalPoints > 0 || d.loyalty.pointsEarned > 0)) {
+    const earnedLine = d.loyalty.pointsEarned > 0
+      ? `<p>${d.loyalty.pointsEarned > 0 ? `Points gagnés ce jour : +${d.loyalty.pointsEarned} pts` : ''}</p>`
+      : '';
+    const rewardLine = d.loyalty.currentTierName
+      ? `<p>${SEP_DASH}</p>
+<p>Récompense débloquée :</p>
+<p><strong>&#11088; ${esc(d.loyalty.currentTierName)}</strong></p>`
       : '';
     const nextLine =
       showNextTier && d.loyalty.nextTierName && (d.loyalty.pointsToNext ?? 0) > 0
-        ? `<p>Prochaine récompense :</p>
-  <p>  ${esc(d.loyalty.nextTierName)} &mdash; ${d.loyalty.pointsToNext} pts</p>`
+        ? `<p>${SEP_DASH}</p>
+<p>Prochain palier : ${esc(d.loyalty.nextTierName)}</p>
+<p>encore ${d.loyalty.pointsToNext} pts à gagner</p>`
         : '';
     loyaltyHTML = `
 <div class="fidelite">
   <p class="tc">*** PROGRAMME FIDÉLITÉ ***</p>
-  ${line('Points gagnés ce jour :', `+ ${d.loyalty.pointsEarned} pts`)}
-  ${line('Solde total :', `${d.loyalty.totalPoints} pts`)}
-  ${tierLine}
+  ${earnedLine}
+  <p>Votre solde : <strong>${d.loyalty.totalPoints} pts</strong></p>
+  ${rewardLine}
   ${nextLine}
 </div>`;
   }
@@ -190,7 +196,6 @@ ${d.isDemo ? `<p class="tc">${SEP}</p>
 <p class="tc">${SEP}</p>
 ${d.isDuplicate ? `<p class="tc"><strong>*** DUPLICATA ***</strong></p>
 <p class="tc">${SEP}</p>` : ''}
-${d.companyLine1 ? `<p class="tc">${esc(d.companyLine1)}</p>` : ''}
 ${d.companyLine2 ? `<p class="tc">${esc(d.companyLine2)}</p>` : ''}
 ${d.companyCity ? `<p class="tc">${esc(d.companyCity)}</p>` : ''}
 ${d.companyTva ? `<p class="tc">TVA : ${esc(d.companyTva)}</p>` : ''}
@@ -221,9 +226,6 @@ ${line('Paiement :', d.paymentMethod)}
 ${line('Montant réglé :', `${d.totalTTC.toFixed(2)}€`)}
 <p>${SEP}</p>
 
-${loyaltyHTML}
-${loyaltyHTML ? `<p>${SEP}</p>` : ''}
-
 ${retHTML}
 
 ${d.referralCode ? `<p class="tc">${SEP}</p>
@@ -232,6 +234,9 @@ ${d.referralCode ? `<p class="tc">${SEP}</p>
 <p class="tc" style="font-size:15px;letter-spacing:4px"><strong>${esc(d.referralCode)}</strong></p>
 <p class="tc">Offrez -10% a vos amies</p>
 <p class="tc">et gagnez + 300 points a chaque client !</p>` : ''}
+
+${loyaltyHTML ? `<p>${SEP}</p>
+${loyaltyHTML}` : ''}
 
 <p class="tc">${SEP}</p>
 <p class="tc">${esc(d.receiptFooter ?? 'Merci de votre visite !')}</p>
