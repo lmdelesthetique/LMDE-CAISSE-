@@ -65,6 +65,11 @@ export default function CommandesFournisseursPage() {
   const [assigningGroup, setAssigningGroup] = useState(false);
   const [groupSuccess, setGroupSuccess] = useState<string | null>(null);
 
+  // WhatsApp supplier notify
+  const [notifyingId, setNotifyingId] = useState<string | null>(null);
+  const [notifyDone, setNotifyDone] = useState<Set<string>>(new Set());
+  const [notifyError, setNotifyError] = useState<string | null>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -126,6 +131,26 @@ export default function CommandesFournisseursPage() {
       load();
     } finally {
       setAssigningGroup(false);
+    }
+  };
+
+  const handleNotifySupplier = async (orderId: string) => {
+    setNotifyingId(orderId);
+    setNotifyError(null);
+    try {
+      const res = await fetch(`/api/fo-orders/${orderId}/notify-supplier`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        setNotifyError(data.error || 'Échec envoi WhatsApp');
+        setTimeout(() => setNotifyError(null), 5000);
+      } else {
+        setNotifyDone(prev => new Set([...prev, orderId]));
+      }
+    } catch {
+      setNotifyError('Erreur réseau');
+      setTimeout(() => setNotifyError(null), 5000);
+    } finally {
+      setNotifyingId(null);
     }
   };
 
@@ -307,6 +332,57 @@ export default function CommandesFournisseursPage() {
           ))}
         </div>
 
+        {/* Group total counter bar */}
+        {groupFilter && !loading && (
+          <div className="mb-4 bg-violet-50 border border-violet-200 rounded-xl overflow-hidden">
+            <div className="px-5 py-3 flex items-center gap-5 flex-wrap">
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="w-7 h-7 rounded-lg bg-violet-100 flex items-center justify-center">
+                  <Icon name="FolderIcon" size={14} className="text-violet-700" />
+                </div>
+                <span className="font-700 text-violet-900 text-sm">{groupFilter}</span>
+              </div>
+              <div className="h-5 w-px bg-violet-200 hidden sm:block" />
+              <div className="flex gap-6 flex-1 flex-wrap">
+                <div>
+                  <p className="text-[10px] font-600 text-violet-500 uppercase tracking-wide">Commandes</p>
+                  <p className="font-700 text-violet-900 text-lg leading-tight">{filtered.length}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-600 text-violet-500 uppercase tracking-wide">Total dépenses groupe</p>
+                  <p className="font-700 text-violet-900 text-2xl leading-tight">
+                    {filtered.reduce((s, o) => s + (o.totalRealCost || o.subtotal || 0), 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} EUR
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-600 text-violet-500 uppercase tracking-wide">Envoyées</p>
+                  <p className="font-700 text-blue-700 text-lg leading-tight">{filtered.filter(o => o.orderStatus === 'sent').length}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-600 text-violet-500 uppercase tracking-wide">Brouillons</p>
+                  <p className="font-700 text-gray-600 text-lg leading-tight">{filtered.filter(o => o.orderStatus === 'draft').length}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setGroupFilter('')}
+                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-violet-300 text-xs font-500 text-violet-700 hover:bg-violet-100 transition-colors"
+              >
+                <Icon name="XMarkIcon" size={12} />
+                Effacer filtre
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* WhatsApp error toast */}
+        {notifyError && (
+          <div className="mb-3 flex items-center gap-3 px-4 py-2.5 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+            <Icon name="ExclamationCircleIcon" size={15} className="shrink-0" />
+            <span className="flex-1">{notifyError}</span>
+            <button onClick={() => setNotifyError(null)}><Icon name="XMarkIcon" size={14} /></button>
+          </div>
+        )}
+
         {/* Table */}
         {loading ? (
           <div className="flex items-center justify-center py-20">
@@ -405,13 +481,36 @@ export default function CommandesFournisseursPage() {
                         {order.expectedDeliveryAt ? new Date(order.expectedDeliveryAt).toLocaleDateString('fr-FR') : '—'}
                       </td>
                       <td className="px-4 py-3">
-                        <Link
-                          href={`/commandes-fournisseurs/${order.id}`}
-                          className="flex items-center gap-1 text-xs text-primary hover:underline font-500"
-                        >
-                          Voir
-                          <Icon name="ChevronRightIcon" size={12} />
-                        </Link>
+                        <div className="flex items-center gap-2">
+                          <Link
+                            href={`/commandes-fournisseurs/${order.id}`}
+                            className="flex items-center gap-1 text-xs text-primary hover:underline font-500"
+                          >
+                            Voir
+                            <Icon name="ChevronRightIcon" size={12} />
+                          </Link>
+                          {order.orderStatus === 'sent' && (
+                            <button
+                              onClick={() => handleNotifySupplier(order.id)}
+                              disabled={notifyingId === order.id}
+                              title="Prévenir le fournisseur par WhatsApp"
+                              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-600 transition-colors ${
+                                notifyDone.has(order.id)
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                  : 'bg-green-50 text-green-700 border border-green-200 hover:bg-green-100'
+                              } disabled:opacity-50`}
+                            >
+                              {notifyingId === order.id ? (
+                                <div className="w-3 h-3 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
+                              ) : notifyDone.has(order.id) ? (
+                                <Icon name="CheckIcon" size={11} />
+                              ) : (
+                                <Icon name="ChatBubbleLeftEllipsisIcon" size={11} />
+                              )}
+                              {notifyDone.has(order.id) ? 'Envoyé' : 'WhatsApp'}
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
