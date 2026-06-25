@@ -45,11 +45,22 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
   // 3. Insert new lines
   for (const line of lines.filter((l: any) => String(l.id).startsWith('new-'))) {
+    // Fetch image_url from products table if not provided
+    let imageUrl = line.productImageUrl || null;
+    if (!imageUrl && (line.productId || line.productRef)) {
+      const q = line.productId
+        ? supabase.from('products').select('image_url').eq('id', line.productId).maybeSingle()
+        : supabase.from('products').select('image_url').eq('ref', line.productRef).maybeSingle();
+      const { data: prod } = await q;
+      imageUrl = prod?.image_url || null;
+    }
+
     const { error } = await supabase.from('fo_order_lines').insert({
       order_id: id,
       product_id: line.productId || null,
       product_name: line.productName,
       product_ref: line.productRef || null,
+      product_image_url: imageUrl,
       qty_ordered: line.qtyOrdered,
       qty_received: 0,
       unit_price: line.unitPrice,

@@ -58,6 +58,12 @@ export default function CommandesFournisseursPage() {
   const [tab, setTab] = useState('all');
   const [search, setSearch] = useState('');
   const [groupFilter, setGroupFilter] = useState('');
+  // Group management
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showGroupPanel, setShowGroupPanel] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [assigningGroup, setAssigningGroup] = useState(false);
+  const [groupSuccess, setGroupSuccess] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -76,6 +82,39 @@ export default function CommandesFournisseursPage() {
   useEffect(() => { load(); }, [load]);
 
   const groups = [...new Set(orders.map((o) => o.orderGroup).filter(Boolean))] as string[];
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filtered.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filtered.map(o => o.id)));
+    }
+  };
+
+  const handleAssignGroup = async () => {
+    if (!newGroupName.trim() || selectedIds.size === 0) return;
+    setAssigningGroup(true);
+    setGroupSuccess(null);
+    try {
+      await Promise.all(
+        [...selectedIds].map(id => supplierOrderService.update(id, { orderGroup: newGroupName.trim() }))
+      );
+      setGroupSuccess(`✅ ${selectedIds.size} commande${selectedIds.size > 1 ? 's' : ''} assignée${selectedIds.size > 1 ? 's' : ''} au groupe "${newGroupName.trim()}"`);
+      setSelectedIds(new Set());
+      setNewGroupName('');
+      load();
+    } finally {
+      setAssigningGroup(false);
+    }
+  };
 
   const filtered = orders.filter((o) => {
     const q = search.toLowerCase();
@@ -166,7 +205,7 @@ export default function CommandesFournisseursPage() {
         </div>
 
         {/* Filters */}
-        <div className="flex flex-wrap gap-3 mb-4">
+        <div className="flex flex-wrap gap-3 mb-3">
           <div className="relative flex-1 min-w-[200px]">
             <Icon name="MagnifyingGlassIcon" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input
@@ -177,19 +216,83 @@ export default function CommandesFournisseursPage() {
               className="w-full pl-9 pr-4 py-2 border border-border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
           </div>
-          {groups.length > 0 && (
-            <select
-              value={groupFilter}
-              onChange={(e) => setGroupFilter(e.target.value)}
-              className="px-3 py-2 border border-border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 min-w-[200px]"
-            >
-              <option value="">Tous les groupes</option>
-              {groups.map((g) => (
-                <option key={g} value={g}>{g}</option>
-              ))}
-            </select>
-          )}
+          <select
+            value={groupFilter}
+            onChange={(e) => setGroupFilter(e.target.value)}
+            className="px-3 py-2 border border-border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 min-w-[200px]"
+          >
+            <option value="">Tous les groupes</option>
+            {groups.map((g) => (
+              <option key={g} value={g}>{g}</option>
+            ))}
+          </select>
+          <button
+            onClick={() => { setShowGroupPanel(p => !p); setGroupSuccess(null); }}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-500 transition-colors ${showGroupPanel ? 'bg-violet-50 border-violet-300 text-violet-700' : 'border-border text-muted-foreground hover:bg-muted'}`}
+          >
+            <Icon name="FolderIcon" size={15} />
+            Gérer les groupes
+            {selectedIds.size > 0 && (
+              <span className="bg-violet-600 text-white text-[11px] font-700 rounded-full px-1.5 py-0.5 leading-none">{selectedIds.size}</span>
+            )}
+          </button>
         </div>
+
+        {/* Group management panel */}
+        {showGroupPanel && (
+          <div className="mb-4 bg-violet-50 border border-violet-200 rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Icon name="FolderIcon" size={16} className="text-violet-600" />
+              <h3 className="font-600 text-sm text-violet-800">Gérer les groupes de commandes</h3>
+              <span className="text-xs text-violet-600">— Cochez les commandes dans le tableau, puis assignez-les à un groupe</span>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              {/* Existing groups quick-assign */}
+              {groups.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {groups.map(g => (
+                    <button
+                      key={g}
+                      onClick={() => setNewGroupName(g)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-600 border transition-colors ${newGroupName === g ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-violet-700 border-violet-300 hover:bg-violet-100'}`}
+                    >
+                      {g}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="flex items-center gap-2 flex-1 min-w-[260px]">
+                <input
+                  type="text"
+                  value={newGroupName}
+                  onChange={(e) => setNewGroupName(e.target.value)}
+                  placeholder="Nom du groupe (ex: Contenaire 1, Groupage Juin...)"
+                  className="flex-1 px-3 py-1.5 border border-violet-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-300"
+                  onKeyDown={(e) => e.key === 'Enter' && handleAssignGroup()}
+                />
+                <button
+                  onClick={handleAssignGroup}
+                  disabled={!newGroupName.trim() || selectedIds.size === 0 || assigningGroup}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white rounded-lg text-sm font-500 hover:bg-violet-700 transition-colors disabled:opacity-40"
+                >
+                  {assigningGroup ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Icon name="CheckIcon" size={14} />}
+                  Assigner ({selectedIds.size})
+                </button>
+                {selectedIds.size > 0 && (
+                  <button
+                    onClick={() => setSelectedIds(new Set())}
+                    className="px-3 py-1.5 border border-border rounded-lg text-sm text-muted-foreground hover:bg-muted transition-colors"
+                  >
+                    Désélectionner
+                  </button>
+                )}
+              </div>
+            </div>
+            {groupSuccess && (
+              <p className="mt-2 text-sm text-violet-700 font-500">{groupSuccess}</p>
+            )}
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="flex gap-1 mb-4 border-b border-border">
@@ -225,6 +328,16 @@ export default function CommandesFournisseursPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/30">
+                    {showGroupPanel && (
+                      <th className="px-3 py-3 w-10">
+                        <input
+                          type="checkbox"
+                          checked={filtered.length > 0 && selectedIds.size === filtered.length}
+                          onChange={toggleSelectAll}
+                          className="w-4 h-4 rounded border-border text-violet-600 focus:ring-violet-400 cursor-pointer"
+                        />
+                      </th>
+                    )}
                     <th className="text-left px-4 py-3 font-600 text-muted-foreground text-xs uppercase tracking-wide">N° Commande</th>
                     <th className="text-left px-4 py-3 font-600 text-muted-foreground text-xs uppercase tracking-wide">Fournisseur</th>
                     <th className="text-left px-4 py-3 font-600 text-muted-foreground text-xs uppercase tracking-wide">Groupe</th>
@@ -238,7 +351,17 @@ export default function CommandesFournisseursPage() {
                 </thead>
                 <tbody className="divide-y divide-border">
                   {filtered.map((order) => (
-                    <tr key={order.id} className="hover:bg-muted/20 transition-colors">
+                    <tr key={order.id} className={`hover:bg-muted/20 transition-colors ${selectedIds.has(order.id) ? 'bg-violet-50/50' : ''}`}>
+                      {showGroupPanel && (
+                        <td className="px-3 py-3">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(order.id)}
+                            onChange={() => toggleSelect(order.id)}
+                            className="w-4 h-4 rounded border-border text-violet-600 focus:ring-violet-400 cursor-pointer"
+                          />
+                        </td>
+                      )}
                       <td className="px-4 py-3">
                         <span className="font-600 text-foreground">{order.orderNumber}</span>
                       </td>
@@ -246,9 +369,12 @@ export default function CommandesFournisseursPage() {
                       <td className="px-4 py-3">
                         {order.orderGroup ? (
                           <div>
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-600 bg-violet-50 text-violet-700 border border-violet-200">
+                            <button
+                              onClick={() => setGroupFilter(order.orderGroup === groupFilter ? '' : order.orderGroup!)}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-600 bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100 transition-colors"
+                            >
                               {order.orderGroup}
-                            </span>
+                            </button>
                             {order.transportMethod && (
                               <p className="text-[10px] text-muted-foreground mt-0.5">
                                 {({ avion: '✈️ Avion', bateau: '🚢 Bateau', camion: '🚛 Camion', courrier: '📦 Courrier', autre: 'Autre' } as Record<string,string>)[order.transportMethod] ?? order.transportMethod}
