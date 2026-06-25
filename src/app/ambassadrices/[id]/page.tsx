@@ -137,22 +137,58 @@ export default function AmbassadriceDetailPage() {
               <p className="text-sm text-muted-foreground mt-3 italic">{data.notes}</p>
             )}
           </div>
+        </div>
 
-          {/* PIN status badge */}
-          <div className="sm:w-56 flex flex-col justify-center items-center gap-2">
-            {data.pin_code ? (
-              <div className="w-full text-center bg-pink-50 border border-pink-200 rounded-2xl px-4 py-4">
-                <p className="text-xs font-bold text-pink-500 uppercase tracking-wide mb-1">Code PIN actif</p>
-                <p className="text-3xl font-mono font-black text-pink-700 tracking-[0.25em]">••••••</p>
-                <p className="text-xs text-pink-400 mt-2">Accès via clavier numérique uniquement</p>
-              </div>
-            ) : (
-              <div className="w-full text-center bg-gray-50 border border-dashed border-gray-300 rounded-2xl px-4 py-4">
-                <p className="text-xs text-gray-400">Aucun code PIN généré</p>
-                <p className="text-xs text-gray-400 mt-1">→ Voir section ci-dessous</p>
-              </div>
-            )}
+        {/* PIN Code — prominent card right after profile */}
+        <div className="bg-gradient-to-br from-pink-50 to-rose-50 border-2 border-pink-200 rounded-2xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <p className="text-base font-bold text-pink-800">🔑 Code PIN ambassadrice</p>
+              <p className="text-xs text-pink-500 mt-0.5">Accès à l'espace personnel via clavier numérique</p>
+            </div>
+            <button
+              onClick={generatePin}
+              disabled={generatingPin}
+              className="px-4 py-2 bg-pink-500 text-white text-sm font-bold rounded-xl hover:bg-pink-600 transition-colors disabled:opacity-50 shrink-0"
+            >
+              {generatingPin ? '...' : data.pin_code ? '🔄 Regénérer' : '🔑 Générer le code'}
+            </button>
           </div>
+
+          {data.pin_code ? (
+            <>
+              <div className="flex items-center gap-3">
+                <div className="flex-1 flex items-center gap-3 bg-white border-2 border-pink-200 rounded-xl px-5 py-4">
+                  <span className="text-3xl font-mono font-black tracking-[0.35em] text-pink-700">
+                    {pinVisible ? data.pin_code : '••••••'}
+                  </span>
+                  <button
+                    onClick={() => setPinVisible(v => !v)}
+                    className="text-pink-400 hover:text-pink-600 text-xl ml-auto"
+                  >
+                    {pinVisible ? '🙈' : '👁️'}
+                  </button>
+                </div>
+                <button
+                  onClick={copyPin}
+                  className="px-4 py-4 bg-white border-2 border-pink-200 rounded-xl text-sm font-bold text-pink-600 hover:bg-pink-50 transition-colors"
+                >
+                  {pinCopied ? '✓' : '📋'}
+                </button>
+              </div>
+              <div className="mt-3 p-3 bg-white/70 rounded-xl border border-pink-100">
+                <p className="text-xs text-pink-700 font-semibold mb-1">Lien à envoyer à l'ambassadrice :</p>
+                <p className="text-xs text-pink-600 font-mono break-all">
+                  {typeof window !== 'undefined' ? window.location.origin : ''}/espace-ambassadrice/login
+                </p>
+              </div>
+            </>
+          ) : (
+            <div className="text-center py-4 bg-white/60 rounded-xl border border-dashed border-pink-300">
+              <p className="text-sm text-pink-400 font-medium">Aucun code généré</p>
+              <p className="text-xs text-pink-300 mt-1">Cliquez sur "Générer le code" pour créer un accès</p>
+            </div>
+          )}
         </div>
 
         {/* Stats */}
@@ -181,58 +217,6 @@ export default function AmbassadriceDetailPage() {
               className="mt-2 inline-flex items-center gap-1.5 text-sm text-blue-600 hover:underline">
               📁 Ouvrir le Drive
             </a>
-          )}
-        </div>
-
-        {/* PIN Code */}
-        <div className="bg-card border border-border rounded-2xl p-5">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <p className="text-sm font-semibold text-foreground">Code PIN ambassadrice</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Accès à l'espace personnel via clavier numérique</p>
-            </div>
-            <button
-              onClick={generatePin}
-              disabled={generatingPin}
-              className="px-3 py-1.5 bg-pink-500 text-white text-xs font-bold rounded-xl hover:bg-pink-600 transition-colors disabled:opacity-50"
-            >
-              {generatingPin ? '...' : data.pin_code ? '🔄 Regénérer' : '🔑 Générer'}
-            </button>
-          </div>
-
-          {data.pin_code ? (
-            <div className="flex items-center gap-3 mt-2">
-              <div className="flex-1 flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3">
-                <span className="text-2xl font-mono font-bold tracking-[0.3em] text-gray-800">
-                  {pinVisible ? data.pin_code : '••••••'}
-                </span>
-                <button
-                  onClick={() => setPinVisible(v => !v)}
-                  className="text-gray-400 hover:text-gray-600 text-lg ml-auto"
-                >
-                  {pinVisible ? '🙈' : '👁️'}
-                </button>
-              </div>
-              <button
-                onClick={copyPin}
-                className="px-3 py-3 bg-white border border-gray-200 rounded-xl text-sm hover:bg-gray-50 transition-colors"
-              >
-                {pinCopied ? '✓' : '📋'}
-              </button>
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground italic">Aucun code généré — cliquez sur "Générer"</p>
-          )}
-
-          {data.pin_code && (
-            <div className="mt-3 p-3 bg-pink-50 rounded-xl">
-              <p className="text-xs text-pink-700 font-medium">
-                Lien de connexion à partager avec l'ambassadrice :
-              </p>
-              <p className="text-xs text-pink-600 font-mono mt-1 break-all">
-                {typeof window !== 'undefined' ? window.location.origin : ''}/espace-ambassadrice/login
-              </p>
-            </div>
           )}
         </div>
 
