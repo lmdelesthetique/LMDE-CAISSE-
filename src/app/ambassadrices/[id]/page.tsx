@@ -24,6 +24,9 @@ export default function AmbassadriceDetailPage() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [copyDone, setCopyDone] = useState(false);
+  const [generatingPin, setGeneratingPin] = useState(false);
+  const [pinVisible, setPinVisible] = useState(false);
+  const [pinCopied, setPinCopied] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -37,6 +40,28 @@ export default function AmbassadriceDetailPage() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+
+  const generatePin = async () => {
+    setGeneratingPin(true);
+    try {
+      const res = await fetch(`/api/ambassadrices/${id}/generate-pin`, { method: 'POST' });
+      const json = await res.json();
+      if (json.pin) {
+        setData((prev: any) => ({ ...prev, pin_code: json.pin }));
+        setPinVisible(true);
+      }
+    } finally {
+      setGeneratingPin(false);
+    }
+  };
+
+  const copyPin = () => {
+    if (!data?.pin_code) return;
+    navigator.clipboard.writeText(data.pin_code).then(() => {
+      setPinCopied(true);
+      setTimeout(() => setPinCopied(false), 2000);
+    });
+  };
 
   const copyPortalLink = () => {
     if (!data) return;
@@ -176,6 +201,58 @@ export default function AmbassadriceDetailPage() {
               className="mt-2 inline-flex items-center gap-1.5 text-sm text-blue-600 hover:underline">
               📁 Ouvrir le Drive
             </a>
+          )}
+        </div>
+
+        {/* PIN Code */}
+        <div className="bg-card border border-border rounded-2xl p-5">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <p className="text-sm font-semibold text-foreground">Code PIN ambassadrice</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Accès à l'espace personnel via clavier numérique</p>
+            </div>
+            <button
+              onClick={generatePin}
+              disabled={generatingPin}
+              className="px-3 py-1.5 bg-pink-500 text-white text-xs font-bold rounded-xl hover:bg-pink-600 transition-colors disabled:opacity-50"
+            >
+              {generatingPin ? '...' : data.pin_code ? '🔄 Regénérer' : '🔑 Générer'}
+            </button>
+          </div>
+
+          {data.pin_code ? (
+            <div className="flex items-center gap-3 mt-2">
+              <div className="flex-1 flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3">
+                <span className="text-2xl font-mono font-bold tracking-[0.3em] text-gray-800">
+                  {pinVisible ? data.pin_code : '••••••'}
+                </span>
+                <button
+                  onClick={() => setPinVisible(v => !v)}
+                  className="text-gray-400 hover:text-gray-600 text-lg ml-auto"
+                >
+                  {pinVisible ? '🙈' : '👁️'}
+                </button>
+              </div>
+              <button
+                onClick={copyPin}
+                className="px-3 py-3 bg-white border border-gray-200 rounded-xl text-sm hover:bg-gray-50 transition-colors"
+              >
+                {pinCopied ? '✓' : '📋'}
+              </button>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground italic">Aucun code généré — cliquez sur "Générer"</p>
+          )}
+
+          {data.pin_code && (
+            <div className="mt-3 p-3 bg-pink-50 rounded-xl">
+              <p className="text-xs text-pink-700 font-medium">
+                Lien de connexion à partager avec l'ambassadrice :
+              </p>
+              <p className="text-xs text-pink-600 font-mono mt-1 break-all">
+                {typeof window !== 'undefined' ? window.location.origin : ''}/espace-ambassadrice/login
+              </p>
+            </div>
           )}
         </div>
 
