@@ -60,7 +60,7 @@ function esc(s: string): string {
 }
 
 function line(label: string, value: string): string {
-  return `<div class="tl"><span>${esc(label)}</span><span>${esc(value)}</span></div>`;
+  return `<p class="tc">${esc(label)} ${esc(value)}</p>`;
 }
 
 export function generateTicketHTML(d: TicketPrintData): string {
@@ -84,10 +84,10 @@ export function generateTicketHTML(d: TicketPrintData): string {
       : `Remise : -${i.discountType === 'percent' ? `${i.discount}%` : `${(i.discount ?? 0).toFixed(2)}€`}`;
     const discHTML =
       (i.discount ?? 0) > 0
-        ? `<div class="tl disc"><span>  ${discLabel}</span><span></span></div>`
+        ? `<p class="disc">${discLabel}</p>`
         : '';
     return `<p class="item-name">${esc(i.name)}</p>
-${line(`  ${i.qty} x ${i.price.toFixed(2)}€`, `${lineTotal.toFixed(2)}€`)}${discHTML}`;
+<div class="tl"><span>${i.qty} x ${i.price.toFixed(2)}€</span><span>${lineTotal.toFixed(2)}€</span></div>${discHTML}`;
   }).join(`<p>${SEP_DASH}</p>`);
 
   // Loyalty section
@@ -129,28 +129,29 @@ ${d.returnConditions
       font-family:Arial,Helvetica,sans-serif!important;
       font-size:${baseFontSize};font-weight:600;
       width:100%;margin:0 auto;
-      padding:4px 0 16px 0;
+      padding:2px 0 8px 0;
       color:#000;background:#fff;
       -webkit-print-color-adjust:exact;print-color-adjust:exact;
+      text-align:center;
     }
-    p{margin:0;padding:0 2px;line-height:1.4;color:#000!important;
+    p{margin:0;padding:0;line-height:1.4;color:#000!important;
       font-family:Arial,Helvetica,sans-serif!important;font-weight:600;
-      word-break:break-word;overflow-wrap:anywhere;}
+      word-break:break-word;overflow-wrap:anywhere;text-align:center;}
     .tc{text-align:center;}
     .tl{display:flex;justify-content:space-between;align-items:baseline;
-      font-weight:600;line-height:1.4;gap:4px;width:100%;padding:0 2px;}
+      font-weight:600;line-height:1.4;gap:2px;width:100%;}
     .tl span{font-family:Arial,Helvetica,sans-serif!important;min-width:0;}
     .tl span:last-child{text-align:right;white-space:nowrap;flex-shrink:0;font-weight:700;}
-    .tl span:first-child{flex:1;overflow:hidden;text-overflow:ellipsis;}
-    .item-name{font-weight:700;margin-top:3px;padding:0 2px;word-break:break-word;}
-    .disc{font-size:${baseFontSize};font-style:italic;}
+    .tl span:first-child{flex:1;text-align:left;}
+    .item-name{font-weight:700;margin-top:3px;word-break:break-word;text-align:center;}
+    .disc{font-size:${baseFontSize};font-style:italic;text-align:center;}
     .ttc{font-size:${ttcSize};font-weight:900;
       border-top:2px solid #000;border-bottom:2px solid #000;
-      padding:3px 2px;margin:3px 0;}
-    .fidelite{border:1px solid #000;padding:3px 4px;margin:4px 0;font-weight:600;}
-    .fidelite p{font-weight:600;}
+      padding:3px 0;margin:3px 0;text-align:center;}
+    .fidelite{border:1px solid #000;padding:3px 4px;margin:4px 0;font-weight:600;text-align:center;}
+    .fidelite p{font-weight:600;text-align:center;}
     @media print{
-      @page{size:${width} auto;margin:3mm 7mm;}
+      @page{size:${width} auto;margin:2mm 2mm;}
       *{color:#000000!important;background:#ffffff!important;
         background-color:#ffffff!important;background-image:none!important;
         -webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;
@@ -159,17 +160,19 @@ ${d.returnConditions
         word-break:break-word!important;overflow-wrap:anywhere!important;}
       html,body{font-family:Arial,Helvetica,sans-serif!important;
         font-size:${baseFontSize}!important;font-weight:600!important;
-        width:100%!important;margin:0!important;padding:4px 0 16px 0!important;}
-      p,span,div,td,th,strong{color:#000000!important;font-weight:600!important;
-        font-family:Arial,Helvetica,sans-serif!important;}
+        width:100%!important;margin:0!important;padding:2px 0 8px 0!important;
+        text-align:center!important;}
+      p,span,div{color:#000000!important;font-weight:600!important;
+        font-family:Arial,Helvetica,sans-serif!important;text-align:center!important;}
       .tl{display:flex!important;justify-content:space-between!important;
-        gap:4px!important;width:100%!important;padding:0 2px!important;}
-      .tl span:last-child{white-space:nowrap!important;flex-shrink:0!important;font-weight:700!important;}
-      .tl span:first-child{flex:1!important;overflow:hidden!important;text-overflow:ellipsis!important;}
+        gap:2px!important;width:100%!important;}
+      .tl span{text-align:left!important;}
+      .tl span:last-child{white-space:nowrap!important;flex-shrink:0!important;font-weight:700!important;text-align:right!important;}
+      .tl span:first-child{flex:1!important;text-align:left!important;}
       .ttc{font-size:${ttcSize}!important;font-weight:900!important;
         border-top:2px solid #000!important;border-bottom:2px solid #000!important;
-        padding:3px 2px!important;}
-      .fidelite{border:1px solid #000!important;padding:3px 4px!important;}
+        padding:3px 0!important;text-align:center!important;}
+      .fidelite{border:1px solid #000!important;padding:3px 4px!important;text-align:center!important;}
     }
   `;
 
@@ -211,7 +214,7 @@ ${line(`TVA ${d.tvaRate}% :`, `${d.totalTVA.toFixed(2)}€`)}
 <p>${SEP}</p>` : ''}
 ${(d.globalDiscount ?? 0) > 0 ? `${line('Remise :', `-${d.globalDiscount!.toFixed(2)}€`)}` : ''}
 ${(d.rewardDiscountAmount ?? 0) > 0 ? `${line('🎁 Récompense :', `-${d.rewardDiscountAmount!.toFixed(2)}€`)}` : ''}
-<div class="tl ttc"><span>TOTAL TTC :</span><span>${d.totalTTC.toFixed(2)}€</span></div>
+<p class="ttc">TOTAL TTC : ${d.totalTTC.toFixed(2)}€</p>
 <p>${SEP}</p>
 
 ${line('Paiement :', d.paymentMethod)}
