@@ -79,6 +79,11 @@ export default function CommandesFournisseursPage() {
       ]);
       setOrders(data);
       setStats(s);
+      // Sync stale totals in background after display is shown
+      fetch('/api/fo-orders/sync-totals', { method: 'POST' })
+        .then(r => r.json())
+        .then(d => { if (d.fixed > 0) supplierOrderService.getAll().then(setOrders); })
+        .catch(() => {});
     } finally {
       setLoading(false);
     }
@@ -472,7 +477,7 @@ export default function CommandesFournisseursPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right font-600 text-foreground">
-                        {order.totalRealCost.toFixed(2)} {order.currency}
+                        {Math.max(order.totalRealCost || 0, order.subtotal || 0).toFixed(2)} {order.currency}
                       </td>
                       <td className="px-4 py-3 text-muted-foreground text-xs">
                         {new Date(order.createdAt).toLocaleDateString('fr-FR')}
