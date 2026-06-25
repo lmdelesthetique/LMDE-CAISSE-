@@ -179,23 +179,12 @@ export async function POST(_req: NextRequest) {
     const endOfPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59).toISOString();
 
     // ── Tout en parallèle — une seule vague de requêtes ───────────────────────
-    const [
-      { data: receipts },
-      { data: prevMonthReceipts },
-      { data: allActiveProducts },
-      { data: ruptureProducts },
-      { count: countTous },
-      { count: countAbonnees },
-      { count: countNouvelles },
-      { data: vipRows },
-      { data: actifRows },
-      { data: tiede90Rows },
-    ] = await Promise.all([
+    const results = await Promise.all([
       supabase.from('receipts').select('total_amount, items, created_at')
-        .gte('created_at', startOfMonth).neq('status', 'cancelled').not('is_demo', 'eq', true),
+        .gte('created_at', startOfMonth).neq('status', 'cancelled').neq('is_demo', true),
       supabase.from('receipts').select('total_amount, created_at')
         .gte('created_at', startOfPrevMonth).lte('created_at', endOfPrevMonth)
-        .neq('status', 'cancelled').not('is_demo', 'eq', true),
+        .neq('status', 'cancelled').neq('is_demo', true),
       supabase.from('products').select('id, name, stock')
         .gt('stock', 0).neq('product_status', 'inactive').neq('product_status', 'coming_soon'),
       supabase.from('products').select('name, stock')
@@ -207,6 +196,21 @@ export async function POST(_req: NextRequest) {
       supabase.from('receipts').select('client_id').gte('created_at', d30ago.toISOString()).not('client_id', 'is', null).neq('status', 'cancelled'),
       supabase.from('receipts').select('client_id').gte('created_at', d90ago.toISOString()).not('client_id', 'is', null).neq('status', 'cancelled'),
     ]);
+
+    const [
+      { data: receipts, error: err0 },
+      { data: prevMonthReceipts },
+      { data: allActiveProducts },
+      { data: ruptureProducts },
+      { count: countTous },
+      { count: countAbonnees },
+      { count: countNouvelles },
+      { data: vipRows },
+      { data: actifRows },
+      { data: tiede90Rows },
+    ] = results;
+
+    if (err0) console.error('[spirale-mdle] receipts query error:', err0.message);
 
     // ── CA + tendances ─────────────────────────────────────────────────────────
     const totalCA = (receipts ?? []).reduce((s, r) => s + parseFloat(r.total_amount ?? 0), 0);
@@ -469,31 +473,48 @@ Réponds UNIQUEMENT en JSON valide sans markdown. Structure exacte requise :
   ]
 }`;
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 4000,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
-
-    if (!response.ok) throw new Error(`Claude API error: ${response.status}`);
-    const claudeData = await response.json();
-    const text: string = claudeData.content?.[0]?.text ?? '';
-
     let strategy: any;
     try {
-      strategy = JSON.parse(text);
-    } catch {
-      const match = text.match(/\{[\s\S]*\}/);
-      strategy = match ? JSON.parse(match[0]) : mockSpiraleMLDE(data);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 28000);
+
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        signal: controller.signal,
+        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 3000,
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      });
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        console.error(`[ai/spirale-mdle] Claude API ${response.status}`);
+        strategy = mockSpiraleMLDE(data);
+      } else {
+        const claudeData = await response.json();
+        const text: string = claudeData.content?.[0]?.text ?? '';
+        try {
+          strategy = JSON.parse(text);
+        } catch {
+          try {
+            const match = text.match(/\{[\s\S]*\}/);
+            strategy = match ? JSON.parse(match[0]) : mockSpiraleMLDE(data);
+          } catch {
+            strategy = mockSpiraleMLDE(data);
+          }
+        }
+      }
+    } catch (claudeErr: any) {
+      console.error('[ai/spirale-mdle] Claude error:', claudeErr.message);
+      strategy = mockSpiraleMLDE(data);
     }
 
     return NextResponse.json({ strategy, usedMock: false, data });
   } catch (e: any) {
-    console.error('[ai/spirale-mdle]', e.message);
+    console.error('[ai/spirale-mdle] Fatal:', e.message, e.stack);
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
