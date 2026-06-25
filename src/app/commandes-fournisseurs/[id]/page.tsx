@@ -148,6 +148,17 @@ export default function OrderDetailPage() {
   const [editTransportMeth, setEditTransportMeth] = useState('');
   const [savingMeta, setSavingMeta] = useState(false);
 
+  // Notes inline edit
+  const [editingNotes, setEditingNotes] = useState(false);
+  const [editNotesVal, setEditNotesVal] = useState('');
+  const [savingNotes, setSavingNotes] = useState(false);
+
+  // Currency inline edit
+  const [editingCurrency, setEditingCurrency] = useState(false);
+  const [editCurrencyVal, setEditCurrencyVal] = useState('');
+  const [editExchangeRateVal, setEditExchangeRateVal] = useState('');
+  const [savingCurrency, setSavingCurrency] = useState(false);
+
   // Draft edit mode
   const [editMode, setEditMode] = useState(false);
   const [editedLines, setEditedLines] = useState<FoOrderLine[]>([]);
@@ -814,6 +825,11 @@ export default function OrderDetailPage() {
   const getEC = (key: string): number =>
     costModes[key] === 'pct' ? order.subtotal * (costPcts[key] || 0) / 100 : (costs as any)[key] || 0;
 
+  // Currency conversion: when order is in USD (or non-EUR), show EUR equivalents
+  // exchangeRate = EUR per 1 unit of currency (e.g. 1 USD × 0.92 = 0.92 EUR)
+  const showEUR = order.currency !== 'EUR' && order.exchangeRate > 0;
+  const toEUR = (amount: number) => showEUR ? amount * order.exchangeRate : amount;
+
   // Supplier payment amount = products + only the cost lines checked as "include in supplier payment"
   const supplierExtraFees =
     (supplierIncludes.transport ? getEC('transport') : 0) +
@@ -1096,14 +1112,169 @@ export default function OrderDetailPage() {
 
         {/* Overview */}
         {tab === 'overview' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          <div className="space-y-5">
+
+            {/* Notes & Réservation client — section principale */}
+            <div className={`rounded-xl border shadow-card overflow-hidden ${(order.notes || order.internalNotes) ? 'bg-amber-50 border-amber-200' : 'bg-white border-border'}`}>
+              <div className="px-5 py-4 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${(order.notes || order.internalNotes) ? 'bg-amber-100' : 'bg-muted'}`}>
+                    <Icon name="DocumentTextIcon" size={16} className={(order.notes || order.internalNotes) ? 'text-amber-700' : 'text-muted-foreground'} />
+                  </div>
+                  <div>
+                    <h3 className={`font-700 text-sm ${(order.notes || order.internalNotes) ? 'text-amber-900' : 'text-foreground'}`}>Note client / Réservation</h3>
+                    {!(order.notes || order.internalNotes) && <p className="text-xs text-muted-foreground mt-0.5">Aucune note pour cette commande</p>}
+                  </div>
+                </div>
+                {!editingNotes && (
+                  <button
+                    onClick={() => { setEditNotesVal(order.notes || ''); setEditingNotes(true); }}
+                    className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-500 transition-colors ${(order.notes || order.internalNotes) ? 'hover:bg-amber-100 text-amber-700' : 'hover:bg-muted text-muted-foreground'}`}
+                  >
+                    <Icon name="PencilIcon" size={13} />
+                    {(order.notes || order.internalNotes) ? 'Modifier' : 'Ajouter une note'}
+                  </button>
+                )}
+              </div>
+              {(order.notes || order.internalNotes) && !editingNotes && (
+                <div className="px-5 pb-5 space-y-3 border-t border-amber-200">
+                  {order.notes && (
+                    <div className="pt-3">
+                      <p className="text-xs font-700 text-amber-700 uppercase tracking-wide mb-1.5">Note commande</p>
+                      <p className="text-sm text-amber-900 whitespace-pre-wrap leading-relaxed">{order.notes}</p>
+                    </div>
+                  )}
+                  {order.internalNotes && (
+                    <div className={order.notes ? 'pt-2 border-t border-amber-200' : 'pt-3'}>
+                      <p className="text-xs font-700 text-amber-700 uppercase tracking-wide mb-1.5">Note interne</p>
+                      <p className="text-sm text-amber-900 whitespace-pre-wrap leading-relaxed">{order.internalNotes}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+              {editingNotes && (
+                <div className="px-5 pb-5 pt-3 space-y-3 border-t border-amber-200">
+                  <div>
+                    <label className="block text-xs font-600 text-amber-800 mb-1">Note commande (visible fournisseur)</label>
+                    <textarea
+                      rows={3}
+                      value={editNotesVal}
+                      onChange={(e) => setEditNotesVal(e.target.value)}
+                      autoFocus
+                      className="w-full px-3 py-2 border border-amber-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/30 resize-none bg-white"
+                      placeholder="Ex : Commande urgente — client en attente de la réf XX, livraison avant le …"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={async () => {
+                        setSavingNotes(true);
+                        await supplierOrderService.update(order.id, { notes: editNotesVal });
+                        setEditingNotes(false);
+                        setSavingNotes(false);
+                        load();
+                      }}
+                      disabled={savingNotes}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-600 hover:bg-amber-700 disabled:opacity-50 transition-colors"
+                    >
+                      {savingNotes ? <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Icon name="CheckIcon" size={12} />}
+                      Sauvegarder
+                    </button>
+                    <button onClick={() => setEditingNotes(false)} className="px-3 py-1.5 border border-amber-300 rounded-lg text-xs text-amber-700 hover:bg-amber-100 transition-colors">Annuler</button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Currency conversion banner */}
+            {showEUR && (
+              <div className="flex items-center gap-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl text-sm">
+                <Icon name="ArrowsRightLeftIcon" size={16} className="text-blue-600 shrink-0" />
+                <div className="flex-1">
+                  <span className="font-700 text-blue-900">Conversion {order.currency} → EUR active</span>
+                  <span className="text-blue-600 ml-2">1 {order.currency} = {order.exchangeRate} €</span>
+                  <span className="text-blue-500 ml-2 text-xs">· Sous-total : {order.subtotal.toFixed(2)} {order.currency} = <strong>{toEUR(order.subtotal).toFixed(2)} €</strong></span>
+                </div>
+                <button
+                  onClick={() => { setEditCurrencyVal(order.currency); setEditExchangeRateVal(String(order.exchangeRate)); setEditingCurrency(true); }}
+                  className="shrink-0 text-xs text-blue-600 hover:text-blue-800 underline"
+                >
+                  Modifier
+                </button>
+              </div>
+            )}
+
+            {/* Currency editor */}
+            {editingCurrency && (
+              <div className="bg-white border border-blue-200 rounded-xl p-5 shadow-card space-y-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <Icon name="ArrowsRightLeftIcon" size={16} className="text-blue-600" />
+                  <p className="text-sm font-700 text-foreground">Devise & taux de change</p>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs text-muted-foreground mb-1">Devise de la commande</label>
+                    <select
+                      value={editCurrencyVal}
+                      onChange={(e) => setEditCurrencyVal(e.target.value)}
+                      className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    >
+                      <option value="EUR">EUR — Euro</option>
+                      <option value="USD">USD — Dollar américain</option>
+                      <option value="GBP">GBP — Livre sterling</option>
+                      <option value="CNY">CNY — Yuan chinois</option>
+                      <option value="AED">AED — Dirham EAU</option>
+                      <option value="JPY">JPY — Yen japonais</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-muted-foreground mb-1">
+                      Taux de change (1 {editCurrencyVal} = X €)
+                    </label>
+                    <input
+                      type="number" min="0" step="0.0001"
+                      value={editExchangeRateVal}
+                      onChange={(e) => setEditExchangeRateVal(e.target.value)}
+                      placeholder="ex : 0.92"
+                      className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    />
+                    {editCurrencyVal !== 'EUR' && parseFloat(editExchangeRateVal) > 0 && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Sous-total : {order.subtotal.toFixed(2)} {editCurrencyVal} = <strong>{(order.subtotal * parseFloat(editExchangeRateVal)).toFixed(2)} €</strong>
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <button
+                    onClick={async () => {
+                      setSavingCurrency(true);
+                      await supplierOrderService.update(order.id, {
+                        currency: editCurrencyVal,
+                        exchangeRate: parseFloat(editExchangeRateVal) || 1,
+                      });
+                      setEditingCurrency(false);
+                      setSavingCurrency(false);
+                      load();
+                    }}
+                    disabled={savingCurrency}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-500 hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                  >
+                    {savingCurrency ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Icon name="CheckIcon" size={14} />}
+                    Enregistrer
+                  </button>
+                  <button onClick={() => setEditingCurrency(false)} className="px-4 py-2 border border-border rounded-lg text-sm text-muted-foreground hover:bg-muted transition-colors">Annuler</button>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
             <div className="lg:col-span-2 space-y-5">
               <div className="bg-white border border-border rounded-xl p-5 shadow-card">
                 <h3 className="font-600 text-foreground mb-4">Informations commande</h3>
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   {[
                     { label: 'Fournisseur', value: order.supplierName || '—' },
-                    { label: 'Devise', value: `${order.currency} (×${order.exchangeRate})` },
                     { label: 'Livraison prévue', value: order.expectedDeliveryAt ? new Date(order.expectedDeliveryAt).toLocaleDateString('fr-FR') : '—' },
                     { label: 'Tracking', value: order.trackingNumber || '—' },
                     { label: 'Méthode coût', value: costMethod === 'by_value' ? 'Par valeur' : costMethod === 'by_quantity' ? 'Par quantité' : 'Autre' },
@@ -1114,6 +1285,20 @@ export default function OrderDetailPage() {
                       <p className="font-500 text-foreground mt-0.5">{item.value}</p>
                     </div>
                   ))}
+                  <div>
+                    <p className="text-xs text-muted-foreground">Devise</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className={`font-600 ${showEUR ? 'text-blue-700' : 'text-foreground'}`}>{order.currency}</span>
+                      {showEUR && <span className="text-xs text-blue-500">1 {order.currency} = {order.exchangeRate} €</span>}
+                      <button
+                        onClick={() => { setEditCurrencyVal(order.currency); setEditExchangeRateVal(String(order.exchangeRate)); setEditingCurrency(true); }}
+                        className="ml-auto p-1 rounded hover:bg-muted text-muted-foreground transition-colors"
+                        title="Modifier devise"
+                      >
+                        <Icon name="PencilIcon" size={11} />
+                      </button>
+                    </div>
+                  </div>
                 </div>
                 {/* Group & transport */}
                 <div className="mt-4 pt-4 border-t border-border">
@@ -1188,12 +1373,6 @@ export default function OrderDetailPage() {
                     </div>
                   )}
                 </div>
-                {order.notes && (
-                  <div className="mt-4 pt-4 border-t border-border">
-                    <p className="text-xs text-muted-foreground mb-1">Notes</p>
-                    <p className="text-sm text-foreground">{order.notes}</p>
-                  </div>
-                )}
               </div>
             </div>
             <div className="space-y-4">
@@ -1206,13 +1385,21 @@ export default function OrderDetailPage() {
                   <h3 className="font-600 text-foreground">Paiement fournisseur</h3>
                 </div>
                 <div className="space-y-2 text-sm">
-                  <div className="flex justify-between"><span className="text-muted-foreground">Montant produits</span><span className="font-500">{order.subtotal.toFixed(2)} {order.currency}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Montant produits</span>
+                    <span className="font-500 text-right">
+                      {order.subtotal.toFixed(2)} {order.currency}
+                      {showEUR && <span className="block text-xs text-blue-500 font-400">≈ {toEUR(order.subtotal).toFixed(2)} €</span>}
+                    </span>
+                  </div>
                   {supplierExtraFees > 0 && (
                     <div className="flex justify-between"><span className="text-muted-foreground">Frais inclus fournisseur</span><span>{supplierExtraFees.toFixed(2)} {order.currency}</span></div>
                   )}
                   <div className="border-t border-border pt-2 flex justify-between font-700 text-blue-700">
                     <span>À payer fournisseur</span>
-                    <span>{supplierPaymentAmount.toFixed(2)} {order.currency}</span>
+                    <span className="text-right">
+                      {supplierPaymentAmount.toFixed(2)} {order.currency}
+                      {showEUR && <span className="block text-xs text-blue-400 font-400">≈ {toEUR(supplierPaymentAmount).toFixed(2)} €</span>}
+                    </span>
                   </div>
                   <div className="flex justify-between"><span className="text-muted-foreground">Montant payé</span><span className="font-500">{amountPaid.toFixed(2)} {order.currency}</span></div>
                   {balanceDue > 0 && (
@@ -1234,7 +1421,10 @@ export default function OrderDetailPage() {
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between font-600 text-blue-700">
                     <span>Coût import réel</span>
-                    <span>{importCost.toFixed(2)} {order.currency}</span>
+                    <span className="text-right">
+                      {importCost.toFixed(2)} {order.currency}
+                      {showEUR && <span className="block text-xs text-blue-400 font-400">≈ {toEUR(importCost).toFixed(2)} €</span>}
+                    </span>
                   </div>
                   {totalSalePrice > 0 && (
                     <>
@@ -1254,6 +1444,7 @@ export default function OrderDetailPage() {
                 </div>
               </div>
             </div>
+          </div>
           </div>
         )}
 

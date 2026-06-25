@@ -42,6 +42,8 @@ const FIELD_MAP: Record<string, string> = {
   supplierFinalAmount: 'supplier_final_amount',
   orderGroup: 'order_group',
   transportMethod: 'transport_method',
+  currency: 'currency',
+  exchangeRate: 'exchange_rate',
 };
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
