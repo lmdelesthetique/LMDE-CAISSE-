@@ -23,6 +23,7 @@ interface Ambassadrice {
   google_drive_url: string | null;
   date_entree: string;
   created_at: string;
+  pin_code: string | null;
 }
 
 const GRADE_LABEL: Record<Grade, string> = {
@@ -61,6 +62,9 @@ export default function AmbassadricesPage() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ ok: boolean; msg: string } | null>(null);
   const [copyToast, setCopyToast] = useState<string | null>(null);
+  const [generatingPin, setGeneratingPin] = useState(false);
+  const [pinVisible, setPinVisible] = useState(false);
+  const [pinCopied, setPinCopied] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -88,8 +92,35 @@ export default function AmbassadricesPage() {
     setShowModal(true);
   };
 
+  const generatePin = async () => {
+    if (!editTarget) return;
+    setGeneratingPin(true);
+    try {
+      const res = await fetch(`/api/ambassadrices/${editTarget.id}/generate-pin`, { method: 'POST' });
+      const json = await res.json();
+      if (json.pin) {
+        const updated = { ...editTarget, pin_code: json.pin };
+        setEditTarget(updated);
+        setAmbassadrices(prev => prev.map(a => a.id === editTarget.id ? updated : a));
+        setPinVisible(true);
+      }
+    } finally {
+      setGeneratingPin(false);
+    }
+  };
+
+  const copyPin = () => {
+    if (!editTarget?.pin_code) return;
+    navigator.clipboard.writeText(editTarget.pin_code).then(() => {
+      setPinCopied(true);
+      setTimeout(() => setPinCopied(false), 2000);
+    });
+  };
+
   const openEdit = (a: Ambassadrice) => {
     setEditTarget(a);
+    setPinVisible(false);
+    setPinCopied(false);
     setForm({
       prenom: a.prenom,
       nom: a.nom,
@@ -330,6 +361,57 @@ export default function AmbassadricesPage() {
                   className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:border-primary focus:outline-none resize-none"
                 />
               </div>
+
+              {/* PIN — only when editing an existing ambassadrice */}
+              {editTarget && (
+                <div className="bg-gradient-to-br from-pink-50 to-rose-50 border-2 border-pink-200 rounded-2xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <p className="text-sm font-bold text-pink-800">🔑 Code PIN d'accès</p>
+                      <p className="text-xs text-pink-400 mt-0.5">Connexion via clavier numérique</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={generatePin}
+                      disabled={generatingPin}
+                      className="px-3 py-1.5 bg-pink-500 text-white text-xs font-bold rounded-xl hover:bg-pink-600 transition-colors disabled:opacity-50"
+                    >
+                      {generatingPin ? '...' : editTarget.pin_code ? '🔄 Regénérer' : '🔑 Générer'}
+                    </button>
+                  </div>
+
+                  {editTarget.pin_code ? (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 flex items-center gap-3 bg-white border-2 border-pink-200 rounded-xl px-4 py-3">
+                          <span className="text-2xl font-mono font-black tracking-[0.3em] text-pink-700">
+                            {pinVisible ? editTarget.pin_code : '••••••'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setPinVisible(v => !v)}
+                            className="text-pink-300 hover:text-pink-600 text-lg ml-auto"
+                          >
+                            {pinVisible ? '🙈' : '👁️'}
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={copyPin}
+                          className="px-3 py-3 bg-white border-2 border-pink-200 rounded-xl text-sm font-bold text-pink-500 hover:bg-pink-50"
+                        >
+                          {pinCopied ? '✓' : '📋'}
+                        </button>
+                      </div>
+                      <p className="text-xs text-pink-400 mt-2 text-center">
+                        Lien : <span className="font-mono">/espace-ambassadrice/login</span>
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-xs text-pink-400 text-center py-2">Aucun code — cliquez sur "Générer"</p>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="px-5 pb-5 pt-3 flex gap-3 border-t border-gray-100">
