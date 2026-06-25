@@ -23,7 +23,6 @@ export default function AmbassadriceDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [copyDone, setCopyDone] = useState(false);
   const [generatingPin, setGeneratingPin] = useState(false);
   const [pinVisible, setPinVisible] = useState(false);
   const [pinCopied, setPinCopied] = useState(false);
@@ -63,14 +62,6 @@ export default function AmbassadriceDetailPage() {
     });
   };
 
-  const copyPortalLink = () => {
-    if (!data) return;
-    const url = `${window.location.origin}/ambassadrice/${data.lien_unique}`;
-    navigator.clipboard.writeText(url).then(() => {
-      setCopyDone(true);
-      setTimeout(() => setCopyDone(false), 2000);
-    });
-  };
 
   if (loading) {
     return (
@@ -96,7 +87,6 @@ export default function AmbassadriceDetailPage() {
   }
 
   const stats = data.stats ?? {};
-  const portalUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/ambassadrice/${data.lien_unique}`;
 
   return (
     <AppLayout>
@@ -148,30 +138,20 @@ export default function AmbassadriceDetailPage() {
             )}
           </div>
 
-          {/* Portal link */}
-          <div className="sm:w-64 space-y-2">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Lien portail</p>
-            <div className="flex gap-2">
-              <input
-                readOnly
-                value={portalUrl}
-                className="flex-1 px-3 py-2 text-xs border-2 border-gray-200 rounded-xl bg-gray-50 font-mono text-gray-600 truncate"
-              />
-              <button
-                onClick={copyPortalLink}
-                className="px-3 py-2 bg-primary text-primary-foreground text-xs font-bold rounded-xl hover:opacity-90 transition-opacity shrink-0"
-              >
-                {copyDone ? '✓' : '🔗'}
-              </button>
-            </div>
-            <a
-              href={portalUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block text-center py-2 border border-primary text-primary text-xs font-semibold rounded-xl hover:bg-primary/5 transition-colors"
-            >
-              Ouvrir le portail
-            </a>
+          {/* PIN status badge */}
+          <div className="sm:w-56 flex flex-col justify-center items-center gap-2">
+            {data.pin_code ? (
+              <div className="w-full text-center bg-pink-50 border border-pink-200 rounded-2xl px-4 py-4">
+                <p className="text-xs font-bold text-pink-500 uppercase tracking-wide mb-1">Code PIN actif</p>
+                <p className="text-3xl font-mono font-black text-pink-700 tracking-[0.25em]">••••••</p>
+                <p className="text-xs text-pink-400 mt-2">Accès via clavier numérique uniquement</p>
+              </div>
+            ) : (
+              <div className="w-full text-center bg-gray-50 border border-dashed border-gray-300 rounded-2xl px-4 py-4">
+                <p className="text-xs text-gray-400">Aucun code PIN généré</p>
+                <p className="text-xs text-gray-400 mt-1">→ Voir section ci-dessous</p>
+              </div>
+            )}
           </div>
         </div>
 

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 
 type Grade = 'debutante' | 'confirmee' | 'elite';
 type ContenuStatut = 'a_faire' | 'en_cours' | 'tourne' | 'poste' | 'realise';
@@ -303,12 +303,25 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 export default function AmbassadricePortalPage() {
   const { lienUnique } = useParams<{ lienUnique: string }>();
+  const router = useRouter();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [scriptModal, setScriptModal] = useState<{ productId: string; productName: string } | null>(null);
   const [addingContenu, setAddingContenu] = useState<string | null>(null);
   const [updatingContenu, setUpdatingContenu] = useState<string | null>(null);
+
+  // Guard: require PIN session — redirect to login if not authenticated
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('ambassadrice_session');
+      if (!raw) { router.replace('/espace-ambassadrice/login'); return; }
+      const session = JSON.parse(raw);
+      if (session.lienUnique !== lienUnique) { router.replace('/espace-ambassadrice/login'); return; }
+    } catch {
+      router.replace('/espace-ambassadrice/login');
+    }
+  }, [lienUnique, router]);
 
   const load = useCallback(async () => {
     setLoading(true);
