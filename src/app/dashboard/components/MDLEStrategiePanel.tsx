@@ -574,11 +574,11 @@ export default function MDLEStrategiePanel() {
             <Card>
               <SectionTitle emoji="📈" title="Tendances CA du Mois" color="text-sky-700" />
               {/* Mini bar chart */}
-              {strategy.tendances_mois.ca_par_semaine?.length > 0 && (() => {
+              {Array.isArray(strategy.tendances_mois?.ca_par_semaine) && strategy.tendances_mois!.ca_par_semaine.length > 0 && (() => {
                 const weeks = strategy.tendances_mois!.ca_par_semaine;
                 const maxCA = Math.max(...weeks.map(w => w.ca), 1);
-                const creuse = strategy.tendances_mois!.periode_creuse;
-                const forte = strategy.tendances_mois!.periode_forte;
+                const creuse: string = strategy.tendances_mois!.periode_creuse ?? '';
+                const forte: string = strategy.tendances_mois!.periode_forte ?? '';
                 return (
                   <div className="mb-4">
                     <div className="flex items-end gap-2 h-20 mb-2">

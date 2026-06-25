@@ -83,6 +83,19 @@ export default function CommandesFournisseursPage() {
 
   const groups = [...new Set(orders.map((o) => o.orderGroup).filter(Boolean))] as string[];
 
+  const filtered = orders.filter((o) => {
+    const q = search.toLowerCase();
+    const matchSearch = !q || o.orderNumber.toLowerCase().includes(q) || (o.supplierName || '').toLowerCase().includes(q) || (o.orderGroup || '').toLowerCase().includes(q);
+    let matchTab = true;
+    if (tab === 'draft') matchTab = o.orderStatus === 'draft';
+    else if (tab === 'active') matchTab = ACTIVE_STATUSES.includes(o.orderStatus);
+    else if (tab === 'shipped') matchTab = o.orderStatus === 'shipped';
+    else if (tab === 'received') matchTab = RECEIVED_STATUSES.includes(o.orderStatus);
+    else if (tab === 'suspended') matchTab = o.orderStatus === 'suspended';
+    const matchGroup = !groupFilter || o.orderGroup === groupFilter;
+    return matchSearch && matchTab && matchGroup;
+  });
+
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => {
       const next = new Set(prev);
@@ -115,19 +128,6 @@ export default function CommandesFournisseursPage() {
       setAssigningGroup(false);
     }
   };
-
-  const filtered = orders.filter((o) => {
-    const q = search.toLowerCase();
-    const matchSearch = !q || o.orderNumber.toLowerCase().includes(q) || (o.supplierName || '').toLowerCase().includes(q) || (o.orderGroup || '').toLowerCase().includes(q);
-    let matchTab = true;
-    if (tab === 'draft') matchTab = o.orderStatus === 'draft';
-    else if (tab === 'active') matchTab = ACTIVE_STATUSES.includes(o.orderStatus);
-    else if (tab === 'shipped') matchTab = o.orderStatus === 'shipped';
-    else if (tab === 'received') matchTab = RECEIVED_STATUSES.includes(o.orderStatus);
-    else if (tab === 'suspended') matchTab = o.orderStatus === 'suspended';
-    const matchGroup = !groupFilter || o.orderGroup === groupFilter;
-    return matchSearch && matchTab && matchGroup;
-  });
 
   const kpis = [
     { label: 'Brouillons', value: stats?.draft ?? 0, icon: 'DocumentIcon', color: 'text-gray-600 bg-gray-100' },
