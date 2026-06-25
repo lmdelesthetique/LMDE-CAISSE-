@@ -127,6 +127,9 @@ export default function OrderDetailPage() {
   const [orderLabelInitialQtys, setOrderLabelInitialQtys] = useState<Record<string, number>>({});
   const [orderLabelLoading, setOrderLabelLoading] = useState(false);
 
+  // Image backfill
+  const [backfilledImages, setBackfilledImages] = useState(false);
+
   // Stock update on reception
   const [receivedQtys, setReceivedQtys] = useState<Record<string, number>>({});
   const [stockUpdateBanner, setStockUpdateBanner] = useState<string | null>(null);
@@ -240,6 +243,16 @@ export default function OrderDetailPage() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Auto-backfill product images silently on first load (fixes supplier portal too)
+  useEffect(() => {
+    if (backfilledImages || !id || loading) return;
+    setBackfilledImages(true);
+    fetch(`/api/fo-orders/${id}/backfill-images`, { method: 'POST' })
+      .then((r) => r.json())
+      .then((data) => { if (data.updated > 0) load(); })
+      .catch(() => {});
+  }, [backfilledImages, id, loading, load]);
 
   const updateStockForReception = useCallback(async (qtysToAdd: Record<string, number>) => {
     if (!order) return;
@@ -1518,6 +1531,23 @@ export default function OrderDetailPage() {
                   </div>
                 </div>
               </>
+            )}
+
+            {/* Image sync banner */}
+            {lines.some((l) => !l.productImageUrl) && (
+              <div className="flex items-center gap-3 px-4 py-2.5 bg-blue-50 border border-blue-200 rounded-xl text-sm">
+                <Icon name="PhotoIcon" size={15} className="text-blue-500 shrink-0" />
+                <span className="flex-1 text-blue-700 text-xs">Certains produits n'ont pas d'image dans la commande.</span>
+                <button
+                  onClick={() => {
+                    setBackfilledImages(false);
+                  }}
+                  className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-xs font-600 rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  <Icon name="ArrowPathIcon" size={13} />
+                  Sync images
+                </button>
+              </div>
             )}
 
             {/* Lines table */}
