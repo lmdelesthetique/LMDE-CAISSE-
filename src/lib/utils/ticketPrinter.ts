@@ -150,7 +150,7 @@ ${d.returnConditions
     .fidelite{border:1px solid #000;padding:3px 4px;margin:4px 0;font-weight:600;}
     .fidelite p{font-weight:600;}
     @media print{
-      @page{size:${width} auto;margin:3mm 4mm;}
+      @page{size:${width} auto;margin:3mm 7mm;}
       *{color:#000000!important;background:#ffffff!important;
         background-color:#ffffff!important;background-image:none!important;
         -webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;
@@ -370,7 +370,7 @@ export function generateFactureHTML(d: FacturePrintData): string {
       .tl span:first-child{flex:1;overflow:hidden;text-overflow:ellipsis;}
       .item-name{font-weight:700;margin-top:3px;padding:0 2px;word-break:break-word;}
       .ttc{font-size:12px;font-weight:900;border-top:2px solid #000;border-bottom:2px solid #000;padding:3px 2px;margin:3px 0;}
-      @media print{@page{size:${width} auto;margin:3mm 4mm;}
+      @media print{@page{size:${width} auto;margin:3mm 7mm;}
         *{color:#000!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;
           word-break:break-word!important;overflow-wrap:anywhere!important;}
         html,body{font-family:Arial,Helvetica,sans-serif!important;font-size:10px!important;

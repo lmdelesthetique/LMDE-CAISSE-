@@ -491,6 +491,7 @@ export default function StockPage() {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiMock, setAiMock] = useState(false);
+  const [globalSearch, setGlobalSearch] = useState('');
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -596,43 +597,171 @@ export default function StockPage() {
     [products]
   );
 
+  const globalSearchResults = useMemo(() => {
+    if (globalSearch.trim().length < 2) return [];
+    const q = globalSearch.toLowerCase();
+    return products.filter(p =>
+      p.name.toLowerCase().includes(q) ||
+      p.ref.toLowerCase().includes(q) ||
+      p.supplier.toLowerCase().includes(q) ||
+      p.category.toLowerCase().includes(q)
+    ).slice(0, 10);
+  }, [products, globalSearch]);
+
   const fmt = (n: number) => new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n);
 
   return (
     <AppLayout>
       <div className="flex flex-col h-full">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-white shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
-              <Icon name="ArchiveBoxIcon" size={20} className="text-primary" />
+        <div className="border-b border-border bg-white shrink-0">
+          <div className="flex items-center justify-between px-6 py-4">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
+                <Icon name="ArchiveBoxIcon" size={20} className="text-primary" />
+              </div>
+              <div>
+                <h1 className="text-lg font-700 text-foreground">Stock Intelligent</h1>
+                <p className="text-xs text-muted-foreground">Vision complète · Décisions rapides</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-lg font-700 text-foreground">Stock Intelligent</h1>
-              <p className="text-xs text-muted-foreground">Vision complète · Décisions rapides</p>
+            <div className="flex items-center gap-2">
+              {/* Barcode scanner status */}
+              <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-500 transition-all ${
+                barcodeStatus === 'scanning' ? 'border-amber-300 bg-amber-50 text-amber-700' :
+                barcodeStatus === 'found' ? 'border-emerald-300 bg-emerald-50 text-emerald-700' :
+                barcodeStatus === 'notfound'? 'border-red-300 bg-red-50 text-red-600' : 'border-border bg-white text-muted-foreground'
+              }`}>
+                <Icon name="QrCodeIcon" size={14} />
+                <span>
+                  {barcodeStatus === 'scanning' ? 'Scan en cours...' :
+                   barcodeStatus === 'found' ? 'Produit trouvé ✓' :
+                   barcodeStatus === 'notfound'? 'Code inconnu ✗' : 'Scanner actif'}
+                </span>
+              </div>
+              <button
+                onClick={loadData}
+                className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border text-sm font-500 hover:bg-muted transition-colors"
+              >
+                <Icon name="ArrowPathIcon" size={15} className="text-muted-foreground" />
+                <span className="hidden sm:inline">Actualiser</span>
+              </button>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            {/* Barcode scanner status */}
-            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-500 transition-all ${
-              barcodeStatus === 'scanning' ? 'border-amber-300 bg-amber-50 text-amber-700' :
-              barcodeStatus === 'found' ? 'border-emerald-300 bg-emerald-50 text-emerald-700' :
-              barcodeStatus === 'notfound'? 'border-red-300 bg-red-50 text-red-600' : 'border-border bg-white text-muted-foreground'
-            }`}>
-              <Icon name="QrCodeIcon" size={14} />
-              <span>
-                {barcodeStatus === 'scanning' ? 'Scan en cours...' :
-                 barcodeStatus === 'found' ? 'Produit trouvé ✓' :
-                 barcodeStatus === 'notfound'? 'Code inconnu ✗' : 'Scanner actif'}
-              </span>
+
+          {/* Global product search bar */}
+          <div className="px-6 pb-3 relative">
+            <div className="relative">
+              <Icon name="MagnifyingGlassIcon" size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              <input
+                type="text"
+                value={globalSearch}
+                onChange={e => setGlobalSearch(e.target.value)}
+                placeholder="Chercher un produit — analyser son stock et ses ventes..."
+                className="w-full pl-10 pr-10 py-2.5 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white"
+              />
+              {globalSearch && (
+                <button onClick={() => setGlobalSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-muted transition-colors">
+                  <Icon name="XMarkIcon" size={14} className="text-muted-foreground" />
+                </button>
+              )}
             </div>
-            <button
-              onClick={loadData}
-              className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border text-sm font-500 hover:bg-muted transition-colors"
-            >
-              <Icon name="ArrowPathIcon" size={15} className="text-muted-foreground" />
-              <span className="hidden sm:inline">Actualiser</span>
-            </button>
+
+            {/* Search results dropdown */}
+            {globalSearch.trim().length >= 2 && (
+              <div className="absolute left-6 right-6 top-full mt-1 z-40 bg-white border border-border rounded-2xl shadow-2xl overflow-hidden max-h-[70vh] overflow-y-auto">
+                {globalSearchResults.length === 0 ? (
+                  <div className="flex flex-col items-center py-8 text-muted-foreground">
+                    <Icon name="ArchiveBoxXMarkIcon" size={28} className="mb-2 opacity-40" />
+                    <p className="text-sm">Aucun produit trouvé pour &laquo;&nbsp;{globalSearch}&nbsp;&raquo;</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="px-4 py-2 border-b border-border bg-muted/30 flex items-center justify-between">
+                      <p className="text-xs font-500 text-muted-foreground">{globalSearchResults.length} produit(s)</p>
+                      <button onClick={() => setGlobalSearch('')} className="text-xs text-primary hover:underline">Fermer</button>
+                    </div>
+                    <div className="divide-y divide-border">
+                      {globalSearchResults.map(p => {
+                        const cfg = STATUS_CONFIG[p.stockStatus as keyof typeof STATUS_CONFIG] ?? STATUS_CONFIG.ok;
+                        return (
+                          <div key={p.id} className="flex items-center gap-3 px-4 py-3 hover:bg-muted/20 transition-colors">
+                            <div className="w-12 h-12 rounded-xl overflow-hidden bg-muted shrink-0">
+                              {p.imageUrl ? (
+                                <AppImage src={p.imageUrl} alt={p.name} width={48} height={48} className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center">
+                                  <Icon name="PhotoIcon" size={18} className="text-muted-foreground" />
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="font-600 text-sm text-foreground">{p.name}</p>
+                                <span className={`text-[10px] font-600 px-2 py-0.5 rounded-full border ${cfg.color}`}>
+                                  <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1 ${cfg.dot}`} />
+                                  {cfg.label}
+                                </span>
+                              </div>
+                              <p className="text-xs text-muted-foreground mt-0.5">{p.ref} · {p.supplier || '—'} · {p.category}</p>
+                              <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5">
+                                <div className="flex items-center gap-1">
+                                  <span className="text-[10px] text-muted-foreground">Stock:</span>
+                                  <span className={`text-xs font-700 ${p.stock <= 0 ? 'text-red-600' : p.stock <= p.minStock ? 'text-amber-600' : 'text-emerald-600'}`}>{p.stock}</span>
+                                  <span className="text-[10px] text-muted-foreground">/ min {p.minStock}</span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <span className="text-[10px] text-muted-foreground">7j:</span>
+                                  <span className="text-xs font-600 text-foreground">{p.sales7d} ventes</span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <span className="text-[10px] text-muted-foreground">30j:</span>
+                                  <span className="text-xs font-600 text-foreground">{p.sales30d} ventes</span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <span className="text-[10px] text-muted-foreground">Marge:</span>
+                                  <span className={`text-xs font-700 ${p.marginRate >= 30 ? 'text-teal-600' : p.marginRate >= 15 ? 'text-amber-600' : 'text-red-600'}`}>{p.marginRate.toFixed(0)}%</span>
+                                </div>
+                                {p.daysBeforeStockout !== null && (
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[10px] text-muted-foreground">Rupture:</span>
+                                    <span className={`text-xs font-700 ${p.daysBeforeStockout < 7 ? 'text-red-600' : 'text-amber-600'}`}>dans {p.daysBeforeStockout}j</span>
+                                  </div>
+                                )}
+                                {p.suggestedReorder > 0 && (
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[10px] text-muted-foreground">Commander:</span>
+                                    <span className="text-xs font-700 text-amber-700">{p.suggestedReorder} u.</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex flex-col gap-1.5 shrink-0">
+                              {(p.stockStatus === 'rupture' || p.stockStatus === 'faible') && (
+                                <button
+                                  onClick={() => { setOrderProduct(p); setGlobalSearch(''); }}
+                                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-600 hover:bg-blue-700 transition-colors"
+                                >
+                                  <Icon name="ShoppingCartIcon" size={11} />
+                                  Commander
+                                </button>
+                              )}
+                              <button
+                                onClick={() => { setSelectedProduct(p); setGlobalSearch(''); }}
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-primary/10 text-primary text-xs font-600 hover:bg-primary/20 transition-colors"
+                              >
+                                <Icon name="BoltIcon" size={11} />
+                                Actions
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
