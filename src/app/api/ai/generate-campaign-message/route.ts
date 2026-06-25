@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { SEGMENTS, getSegmentClients, type SegmentKey } from '@/lib/segmentationService';
+import { SEGMENTS, getSegmentCount, type SegmentKey } from '@/lib/segmentationService';
 
 const MOCK_MESSAGES: Record<string, string> = {
   tous: "Bonjour {prénom} 💄 Découvrez nos nouveautés et offres exclusives du moment !\n\nLe Monde de l'Esthétique 💅",
@@ -30,8 +30,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const clients = await getSegmentClients(segment);
-    const count = clients.length;
+    const count = await getSegmentCount(segment);
 
     const prompt = `Tu es une experte en marketing beauté pour un salon en Martinique.
 

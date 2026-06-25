@@ -174,36 +174,47 @@ export async function POST(_req: NextRequest) {
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
     const d30ago = new Date(now); d30ago.setDate(now.getDate() - 30);
 
-    // Dates for prev month
+    const d90ago = new Date(now); d90ago.setDate(now.getDate() - 90);
     const startOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
     const endOfPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59).toISOString();
 
-    // ── 1. Receipts for current month + prev month ─────────────────────────────
-    const [{ data: receipts }, { data: prevMonthReceipts }] = await Promise.all([
-      supabase
-        .from('receipts')
-        .select('id, total_amount, items, payment_method, created_at')
-        .gte('created_at', startOfMonth)
-        .neq('status', 'cancelled')
-        .not('is_demo', 'eq', true),
-      supabase
-        .from('receipts')
-        .select('id, total_amount, created_at')
-        .gte('created_at', startOfPrevMonth)
-        .lte('created_at', endOfPrevMonth)
-        .neq('status', 'cancelled')
-        .not('is_demo', 'eq', true),
+    // ── Tout en parallèle — une seule vague de requêtes ───────────────────────
+    const [
+      { data: receipts },
+      { data: prevMonthReceipts },
+      { data: allActiveProducts },
+      { data: ruptureProducts },
+      { count: countTous },
+      { count: countAbonnees },
+      { count: countNouvelles },
+      { data: vipRows },
+      { data: actifRows },
+      { data: tiede90Rows },
+    ] = await Promise.all([
+      supabase.from('receipts').select('total_amount, items, created_at')
+        .gte('created_at', startOfMonth).neq('status', 'cancelled').not('is_demo', 'eq', true),
+      supabase.from('receipts').select('total_amount, created_at')
+        .gte('created_at', startOfPrevMonth).lte('created_at', endOfPrevMonth)
+        .neq('status', 'cancelled').not('is_demo', 'eq', true),
+      supabase.from('products').select('id, name, stock')
+        .gt('stock', 0).neq('product_status', 'inactive').neq('product_status', 'coming_soon'),
+      supabase.from('products').select('name, stock')
+        .lte('stock', 5).gt('stock', 0).neq('product_status', 'inactive').neq('product_status', 'coming_soon'),
+      supabase.from('clients').select('*', { count: 'exact', head: true }).not('phone', 'is', null).neq('phone', ''),
+      supabase.from('client_subscriptions').select('*', { count: 'exact', head: true }).eq('status', 'active'),
+      supabase.from('clients').select('*', { count: 'exact', head: true }).gte('created_at', d30ago.toISOString()).not('phone', 'is', null).neq('phone', ''),
+      supabase.from('receipts').select('client_id, total_amount').not('client_id', 'is', null).neq('status', 'cancelled'),
+      supabase.from('receipts').select('client_id').gte('created_at', d30ago.toISOString()).not('client_id', 'is', null).neq('status', 'cancelled'),
+      supabase.from('receipts').select('client_id').gte('created_at', d90ago.toISOString()).not('client_id', 'is', null).neq('status', 'cancelled'),
     ]);
 
+    // ── CA + tendances ─────────────────────────────────────────────────────────
     const totalCA = (receipts ?? []).reduce((s, r) => s + parseFloat(r.total_amount ?? 0), 0);
     const nbTickets = receipts?.length ?? 0;
     const panierMoyen = nbTickets > 0 ? totalCA / nbTickets : 0;
-
-    // ── 1b. Prev month totals ──────────────────────────────────────────────────
     const casMoisPrecedent = (prevMonthReceipts ?? []).reduce((s, r) => s + parseFloat(r.total_amount ?? 0), 0);
     const ticketsMoisPrecedent = prevMonthReceipts?.length ?? 0;
 
-    // ── 1c. Weekly breakdown for current month ─────────────────────────────────
     const weekRanges = [
       { semaine: 1, start: 1, end: 7, jours: '1-7' },
       { semaine: 2, start: 8, end: 14, jours: '8-14' },
@@ -215,21 +226,17 @@ export async function POST(_req: NextRequest) {
         const day = new Date(r.created_at).getDate();
         return day >= start && day <= end;
       });
-      return {
-        semaine,
-        jours,
-        ca: parseFloat(filtered.reduce((s, r) => s + parseFloat(r.total_amount ?? 0), 0).toFixed(2)),
-        nb_tickets: filtered.length,
-      };
+      return { semaine, jours, ca: parseFloat(filtered.reduce((s, r) => s + parseFloat(r.total_amount ?? 0), 0).toFixed(2)), nb_tickets: filtered.length };
     });
     const semaineForte = caParSemaine.reduce((best, w) => (w.ca > caParSemaine[best - 1].ca ? w.semaine : best), 1);
     const semaineCreuse = caParSemaine.reduce((worst, w) => {
-      const worstCA = caParSemaine[worst - 1].ca;
-      return (w.ca < worstCA && w.nb_tickets > 0) ? w.semaine : worst;
+      return (w.ca < caParSemaine[worst - 1].ca && w.nb_tickets > 0) ? w.semaine : worst;
     }, semaineForte);
 
-    // ── 2. Top 10 products from receipt items ──────────────────────────────────
+    // ── Top produits ───────────────────────────────────────────────────────────
     const productSalesMap: Record<string, { name: string; qty: number; revenue: number }> = {};
+    const soldLast30 = new Set<string>();
+    const d30agoStr = d30ago.toISOString();
     for (const r of receipts ?? []) {
       const items = Array.isArray(r.items) ? r.items : [];
       for (const item of items) {
@@ -237,74 +244,21 @@ export async function POST(_req: NextRequest) {
         if (!productSalesMap[name]) productSalesMap[name] = { name, qty: 0, revenue: 0 };
         productSalesMap[name].qty += item.qty ?? item.quantity ?? 1;
         productSalesMap[name].revenue += item.total ?? (item.price * (item.qty ?? 1));
+        if (r.created_at >= d30agoStr) soldLast30.add(name.toLowerCase());
       }
     }
-    const topProduits = Object.values(productSalesMap)
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 10)
-      .map(p => ({ name: p.name, qty: p.qty, revenue: parseFloat(p.revenue.toFixed(2)) }));
+    const topProduits = Object.values(productSalesMap).sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 10).map(p => ({ name: p.name, qty: p.qty, revenue: parseFloat(p.revenue.toFixed(2)) }));
 
-    // ── 3. Dormant products (stock > 0, not sold in 30 days) ──────────────────
-    const { data: allActiveProducts } = await supabase
-      .from('products')
-      .select('id, name, stock')
-      .gt('stock', 0)
-      .neq('product_status', 'inactive')
-      .neq('product_status', 'coming_soon');
-
-    const { data: recentReceipts } = await supabase
-      .from('receipts')
-      .select('items')
-      .gte('created_at', d30ago.toISOString())
-      .neq('status', 'cancelled')
-      .not('is_demo', 'eq', true);
-
-    const soldLast30 = new Set<string>();
-    for (const r of recentReceipts ?? []) {
-      const items = Array.isArray(r.items) ? r.items : [];
-      for (const item of items) {
-        soldLast30.add((item.name ?? '').toLowerCase().trim());
-      }
-    }
+    // ── Produits dormants + rupture ────────────────────────────────────────────
     const produitsDormants = (allActiveProducts ?? [])
       .filter(p => !soldLast30.has(p.name.toLowerCase().trim()))
-      .sort((a, b) => b.stock - a.stock)
-      .slice(0, 10)
+      .sort((a, b) => b.stock - a.stock).slice(0, 10)
       .map(p => ({ name: p.name, stock: p.stock }));
-
-    // ── 4. Rupture products (stock ≤ 5) ────────────────────────────────────────
-    const { data: ruptureProducts } = await supabase
-      .from('products')
-      .select('name, stock')
-      .lte('stock', 5)
-      .gt('stock', 0)
-      .neq('product_status', 'inactive')
-      .neq('product_status', 'coming_soon');
 
     const produitsRupture = (ruptureProducts ?? [])
-      .sort((a, b) => a.stock - b.stock)
-      .slice(0, 10)
+      .sort((a, b) => a.stock - b.stock).slice(0, 10)
       .map(p => ({ name: p.name, stock: p.stock }));
-
-    // ── 5. Segments — fast count queries (avoid heavy getSegmentStats) ─────────
-    const d90ago = new Date(now); d90ago.setDate(now.getDate() - 90);
-    const d6mago = new Date(now); d6mago.setMonth(now.getMonth() - 6);
-
-    const [
-      { count: countTous },
-      { count: countAbonnees },
-      { count: countNouvelles },
-      { data: vipRows },
-      { data: actifRows },
-      { data: tiede90Rows },
-    ] = await Promise.all([
-      supabase.from('clients').select('*', { count: 'exact', head: true }).not('phone', 'is', null).neq('phone', ''),
-      supabase.from('client_subscriptions').select('*', { count: 'exact', head: true }).eq('status', 'active'),
-      supabase.from('clients').select('*', { count: 'exact', head: true }).gte('created_at', d30ago.toISOString()).not('phone', 'is', null).neq('phone', ''),
-      supabase.from('receipts').select('client_id, total_amount').not('client_id', 'is', null).neq('status', 'cancelled'),
-      supabase.from('receipts').select('client_id').gte('created_at', d30ago.toISOString()).not('client_id', 'is', null).neq('status', 'cancelled'),
-      supabase.from('receipts').select('client_id').gte('created_at', d90ago.toISOString()).not('client_id', 'is', null).neq('status', 'cancelled'),
-    ]);
 
     // VIP: clients with total spent >= 500
     const vipMap: Record<string, number> = {};
