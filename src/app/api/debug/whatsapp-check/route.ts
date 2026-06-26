@@ -31,12 +31,12 @@ export async function POST(req: NextRequest) {
   let body: any;
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'JSON invalide' }, { status: 400 }); }
 
-  const { phone } = body as { phone?: string };
+  const { phone, message } = body as { phone?: string; message?: string };
   if (!phone) return NextResponse.json({ error: 'Paramètre phone requis' }, { status: 400 });
 
   const result = await sendWhatsApp({
     to: phone,
-    message: `✅ Test WhatsApp — Le Monde de l'Esthétique\n\nCe message confirme que l'envoi WhatsApp fonctionne correctement.\n\n${new Date().toLocaleString('fr-FR')}`,
+    message: message ?? `✅ Test WhatsApp — Le Monde de l'Esthétique\n\nCe message confirme que l'envoi WhatsApp fonctionne correctement.\n\n${new Date().toLocaleString('fr-FR')}`,
   });
 
   return NextResponse.json({
