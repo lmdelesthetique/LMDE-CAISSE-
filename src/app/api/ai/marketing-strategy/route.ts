@@ -33,52 +33,35 @@ function mockStrategy(stats: Record<string, number>) {
   };
 }
 
+export const maxDuration = 30;
+
 export async function POST(_req: NextRequest) {
+  // Load stats — fall back to empty object if it times out or fails
+  let stats: Record<string, number> = {};
   try {
-    const stats = await getSegmentStats();
-    const statsLabel = SEGMENTS.map(s => `- ${s.label} : ${stats[s.key]} clientes`).join('\n');
+    stats = await getSegmentStats();
+  } catch (e: any) {
+    console.error('[ai/marketing-strategy] getSegmentStats failed:', e.message);
+  }
 
-    const apiKey = process.env.ANTHROPIC_API_KEY ?? '';
-    const hasClaude = apiKey && apiKey !== 'your-anthropic-api-key-here';
+  const apiKey = process.env.ANTHROPIC_API_KEY ?? '';
+  const hasClaude = apiKey && apiKey !== 'your-anthropic-api-key-here';
 
-    if (!hasClaude) {
-      return NextResponse.json({ strategy: mockStrategy(stats), usedMock: true, stats });
-    }
+  if (!hasClaude) {
+    return NextResponse.json({ strategy: mockStrategy(stats), usedMock: true, stats });
+  }
 
-    const prompt = `Tu es un stratège marketing senior pour Le Monde de l'Esthétique (LMDE), boutique beauté en Martinique. Notre système : La Spirale MDLE (contenu → conversion → fidélisation → ambassadrices).
+  // Try Claude — fall back to mock on any failure
+  try {
+    const statsLabel = SEGMENTS.map(s => `- ${s.label} : ${stats[s.key] ?? 0} clientes`).join('\n');
+
+    const prompt = `Tu es un stratège marketing senior pour Le Monde de l'Esthétique (LMDE), boutique beauté en Martinique.
 
 SEGMENTS CLIENTES ACTUELS :
 ${statsLabel}
 
-Génère une stratégie marketing WhatsApp Spirale MDLE en JSON pur (sans markdown) :
-{
-  "resume": "Situation actuelle en 2 phrases avec les vrais chiffres de segments",
-  "segments_prioritaires": [
-    {
-      "segment": "clé_segment",
-      "raison": "Pourquoi ce segment est prioritaire avec chiffres",
-      "action": "Action WhatsApp concrète avec message exact et délai"
-    }
-  ],
-  "messages_suggeres": [
-    {
-      "segment": "clé_segment",
-      "message": "Message WhatsApp exact prêt à envoyer, max 160 chars, utilise {prénom}, inclut une offre ou CTA précis, termine par Le Monde de l'Esthétique 💅"
-    }
-  ],
-  "calendrier": [
-    { "semaine": 1, "action": "Segment + message + canal + offre spécifique" },
-    { "semaine": 2, "action": "Segment + message + canal + offre spécifique" },
-    { "semaine": 3, "action": "Segment + message + canal + offre spécifique" },
-    { "semaine": 4, "action": "Segment + message + canal + offre spécifique" }
-  ],
-  "kpi_cibles": {
-    "taux_ouverture": "XX% (WhatsApp Business)",
-    "taux_conversion": "XX% estimé",
-    "ca_additionnel_estime": "XXXX € si X% des cibles convertissent"
-  },
-  "conseil_principal": "Action la plus rentable à faire CETTE semaine avec chiffres précis"
-}`;
+Réponds UNIQUEMENT avec un objet JSON valide (pas de markdown, pas de \`\`\`):
+{"resume":"...","segments_prioritaires":[{"segment":"clé","raison":"...","action":"..."}],"messages_suggeres":[{"segment":"clé","message":"..."}],"calendrier":[{"semaine":1,"action":"..."},{"semaine":2,"action":"..."},{"semaine":3,"action":"..."},{"semaine":4,"action":"..."}],"kpi_cibles":{"taux_ouverture":"85%","taux_conversion":"12%","ca_additionnel_estime":"XX €"},"conseil_principal":"..."}`;
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -88,13 +71,18 @@ Génère une stratégie marketing WhatsApp Spirale MDLE en JSON pur (sans markdo
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1200,
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1000,
         messages: [{ role: 'user', content: prompt }],
       }),
     });
 
-    if (!response.ok) throw new Error(`Claude API error: ${response.status}`);
+    if (!response.ok) {
+      const errBody = await response.text().catch(() => '');
+      console.error('[ai/marketing-strategy] Claude error:', response.status, errBody);
+      return NextResponse.json({ strategy: mockStrategy(stats), usedMock: true, stats });
+    }
+
     const claudeData = await response.json();
     const text: string = claudeData.content?.[0]?.text ?? '';
 
@@ -103,12 +91,16 @@ Génère une stratégie marketing WhatsApp Spirale MDLE en JSON pur (sans markdo
       strategy = JSON.parse(text);
     } catch {
       const match = text.match(/\{[\s\S]*\}/);
-      strategy = match ? JSON.parse(match[0]) : mockStrategy(stats);
+      strategy = match ? JSON.parse(match[0]) : null;
+    }
+
+    if (!strategy) {
+      return NextResponse.json({ strategy: mockStrategy(stats), usedMock: true, stats });
     }
 
     return NextResponse.json({ strategy, usedMock: false, stats });
   } catch (e: any) {
-    console.error('[ai/marketing-strategy]', e.message);
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    console.error('[ai/marketing-strategy] Claude call failed:', e.message);
+    return NextResponse.json({ strategy: mockStrategy(stats), usedMock: true, stats });
   }
 }
