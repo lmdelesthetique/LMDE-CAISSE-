@@ -291,8 +291,8 @@ export async function getSegmentCount(segment: SegmentKey): Promise<number> {
 export async function getSegmentStats(): Promise<Record<SegmentKey, number>> {
   const entries = await Promise.all(
     SEGMENTS.map(async ({ key }) => {
-      const clients = await getSegmentClients(key);
-      return [key, clients.length] as [SegmentKey, number];
+      const count = await getSegmentCount(key);
+      return [key, count] as [SegmentKey, number];
     })
   );
   return Object.fromEntries(entries) as Record<SegmentKey, number>;
