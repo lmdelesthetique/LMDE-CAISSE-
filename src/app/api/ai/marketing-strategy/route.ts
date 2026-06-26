@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSegmentStats, SEGMENTS } from '@/lib/segmentationService';
+import { SEGMENTS } from '@/lib/segmentationService';
 
 function mockStrategy(stats: Record<string, number>) {
   const total = stats['tous'] ?? 0;
@@ -35,13 +35,42 @@ function mockStrategy(stats: Record<string, number>) {
 
 export const maxDuration = 30;
 
+// Only fetch the 3 most useful counts — fast Supabase count queries only
+async function fetchQuickStats(): Promise<Record<string, number>> {
+  const { createClient } = await import('@supabase/supabase-js');
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  );
+  const d90 = new Date(); d90.setDate(d90.getDate() - 90);
+  const d30 = new Date(); d30.setDate(d30.getDate() - 30);
+
+  const [{ count: total }, { count: nouvelles }, { data: actifs30 }] = await Promise.all([
+    supabase.from('clients').select('*', { count: 'exact', head: true }).not('phone', 'is', null).neq('phone', ''),
+    supabase.from('clients').select('*', { count: 'exact', head: true }).gte('created_at', d30.toISOString()).not('phone', 'is', null),
+    supabase.from('receipts').select('client_id').gte('created_at', d30.toISOString()).not('client_id', 'is', null).neq('status', 'cancelled'),
+  ]);
+
+  const actifs = new Set((actifs30 ?? []).map((r: any) => r.client_id)).size;
+  const tous = total ?? 0;
+  return {
+    tous,
+    actifs_30j: actifs,
+    inactifs_90j: Math.max(0, tous - actifs),
+    nouvelles: nouvelles ?? 0,
+  };
+}
+
 export async function POST(_req: NextRequest) {
-  // Load stats — fall back to empty object if it times out or fails
   let stats: Record<string, number> = {};
   try {
-    stats = await getSegmentStats();
+    stats = await Promise.race([
+      fetchQuickStats(),
+      new Promise<Record<string, number>>((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000)),
+    ]);
   } catch (e: any) {
-    console.error('[ai/marketing-strategy] getSegmentStats failed:', e.message);
+    console.error('[ai/marketing-strategy] stats fetch failed:', e.message);
   }
 
   const apiKey = process.env.ANTHROPIC_API_KEY ?? '';
