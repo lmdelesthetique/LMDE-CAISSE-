@@ -293,10 +293,10 @@ export default function MarketingPage() {
                     <p className="text-3xl font-bold text-pink-600">{segmentPreview.count}</p>
                     <p className="text-xs text-pink-700">clientes dans ce segment</p>
                   </div>
-                  {segmentPreview.preview.length > 0 && (
+                  {(segmentPreview.preview?.length ?? 0) > 0 && (
                     <div className="space-y-2">
                       <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Exemples</p>
-                      {segmentPreview.preview.map(c => (
+                      {(segmentPreview.preview ?? []).map(c => (
                         <div key={c.id} className="flex items-center gap-2 text-sm">
                           <div className="w-7 h-7 rounded-full bg-pink-100 flex items-center justify-center text-pink-600 text-xs font-bold shrink-0">
                             {(c.name[0] || '?').toUpperCase()}
