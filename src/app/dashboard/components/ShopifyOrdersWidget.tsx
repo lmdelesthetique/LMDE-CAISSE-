@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { deliveryService } from '@/lib/services/deliveryService';
 import type { ShopifyOrderSummary } from '@/lib/services/shopifyService';
 
-const LAST_SEEN_KEY = 'beautypos_shopify_last_seen_order_id';
+const LAST_SEEN_KEY    = 'beautypos_shopify_last_seen_order_id';
+const TREATED_KEY      = 'beautypos_shopify_treated_orders';
 
 // ─── Fulfillment classification (mirrors webhook logic) ────────────────────────
 type FulfillmentType = 'local_delivery' | 'expedition' | 'pickup';
@@ -337,13 +338,24 @@ function OrderDetailModal({ order, onClose }: DetailModalProps) {
 
 // ─── Main widget ───────────────────────────────────────────────────────────────
 
+function getTreatedSet(): Set<string> {
+  try { return new Set(JSON.parse(localStorage.getItem(TREATED_KEY) ?? '[]')); } catch { return new Set(); }
+}
+function saveTreated(set: Set<string>) {
+  localStorage.setItem(TREATED_KEY, JSON.stringify([...set]));
+}
+
 export default function ShopifyOrdersWidget() {
   const [orders, setOrders] = useState<ShopifyOrderSummary[]>([]);
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [hasNew, setHasNew] = useState(false);
   const [selected, setSelected] = useState<ShopifyOrderSummary | null>(null);
+  const [treated, setTreated] = useState<Set<string>>(new Set());
+  const [treating, setTreating] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => { setTreated(getTreatedSet()); }, []);
 
   const load = useCallback(async () => {
     try {
@@ -368,6 +380,20 @@ export default function ShopifyOrdersWidget() {
       setHasNew(false);
     }
   }, [orders]);
+
+  const handleTreat = useCallback(async (e: React.MouseEvent, orderId: string) => {
+    e.stopPropagation();
+    setTreating(orderId);
+    try {
+      await fetch(`/api/shopify/orders/${orderId}/fulfill`, { method: 'POST' });
+      const next = new Set(getTreatedSet());
+      next.add(orderId);
+      saveTreated(next);
+      setTreated(next);
+    } catch { /* ignore — still mark locally */ } finally {
+      setTreating(null);
+    }
+  }, []);
 
   useEffect(() => {
     load();
@@ -427,6 +453,9 @@ export default function ShopifyOrdersWidget() {
             <div className="divide-y divide-border">
               {orders.map((order) => {
                 const badge = financialBadge(order.financial_status);
+                const orderId = String(order.id);
+                const isTreated = treated.has(orderId);
+                const isTreating = treating === orderId;
                 const name = order.customer
                   ? `${order.customer.first_name} ${order.customer.last_name}`.trim()
                   : order.shipping_address?.name ?? '—';
@@ -438,35 +467,63 @@ export default function ShopifyOrdersWidget() {
                 const fInfo = FULFILLMENT_LABELS[fType];
 
                 return (
-                  <button
+                  <div
                     key={order.id}
-                    onClick={() => setSelected(order)}
-                    className="w-full text-left px-5 py-3.5 hover:bg-muted/40 transition-colors group"
+                    className={`relative flex items-center gap-2 px-4 py-3.5 border-b border-border transition-colors ${
+                      isTreated
+                        ? 'bg-emerald-50 border-l-4 border-l-emerald-400'
+                        : 'hover:bg-muted/40'
+                    }`}
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-bold text-sm text-foreground">{order.name}</span>
-                          <span className="text-xs text-muted-foreground">— {name}</span>
+                    {/* Main clickable area */}
+                    <button
+                      onClick={() => setSelected(order)}
+                      className="flex-1 text-left min-w-0 group"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`font-bold text-sm ${isTreated ? 'text-emerald-700' : 'text-foreground'}`}>
+                              {isTreated && '✓ '}{order.name}
+                            </span>
+                            <span className="text-xs text-muted-foreground">— {name}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${badge.cls}`}>{badge.label}</span>
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${fInfo.cls}`}>
+                              {fInfo.icon} {fInfo.label}
+                            </span>
+                            <span className="text-[11px] text-muted-foreground">{order.line_items.length} produit{order.line_items.length !== 1 ? 's' : ''}</span>
+                            <span className="text-[11px] text-muted-foreground">{timeAgo(order.created_at)}</span>
+                          </div>
+                          {productsSummary && (
+                            <p className="text-[11px] text-muted-foreground mt-1 truncate">{productsSummary}</p>
+                          )}
                         </div>
-                        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${badge.cls}`}>{badge.label}</span>
-                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${fInfo.cls}`}>
-                            {fInfo.icon} {fInfo.label}
-                          </span>
-                          <span className="text-[11px] text-muted-foreground">{order.line_items.length} produit{order.line_items.length !== 1 ? 's' : ''}</span>
-                          <span className="text-[11px] text-muted-foreground">{timeAgo(order.created_at)}</span>
+                        <div className="shrink-0 text-right">
+                          <p className={`text-sm font-black tabular-nums ${isTreated ? 'text-emerald-700' : 'text-foreground'}`}>
+                            {fmtEur(order.total_price)}
+                          </p>
+                          <p className="text-[10px] text-blue-500 font-semibold mt-1 group-hover:underline">👁 Voir →</p>
                         </div>
-                        {productsSummary && (
-                          <p className="text-[11px] text-muted-foreground mt-1 truncate">{productsSummary}</p>
-                        )}
                       </div>
-                      <div className="shrink-0 text-right">
-                        <p className="text-sm font-black text-foreground tabular-nums">{fmtEur(order.total_price)}</p>
-                        <p className="text-[10px] text-blue-500 font-semibold mt-1 group-hover:underline">👁 Voir →</p>
-                      </div>
-                    </div>
-                  </button>
+                    </button>
+
+                    {/* Traiter button */}
+                    <button
+                      onClick={(e) => isTreated ? undefined : handleTreat(e, orderId)}
+                      disabled={isTreating || isTreated}
+                      className={`shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-bold border transition-colors ${
+                        isTreated
+                          ? 'bg-emerald-100 text-emerald-700 border-emerald-300 cursor-default'
+                          : 'bg-white text-gray-700 border-gray-300 hover:bg-emerald-500 hover:text-white hover:border-emerald-500'
+                      }`}
+                    >
+                      {isTreating ? (
+                        <span className="inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                      ) : isTreated ? '✓ Traité' : 'Traiter'}
+                    </button>
+                  </div>
                 );
               })}
             </div>
