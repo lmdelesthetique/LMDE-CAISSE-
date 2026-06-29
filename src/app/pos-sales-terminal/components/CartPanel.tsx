@@ -97,6 +97,16 @@ function CartRow({
             {item.stock !== undefined && item.stock <= 0 && (
               <p className="text-[10px] font-600 text-amber-600 mt-0.5">⚠️ Stock insuffisant — vente autorisée</p>
             )}
+            {item.isKit && item.kitComponents && item.kitComponents.length > 0 && (
+              <div className="mt-1.5 pl-2 border-l-2 border-violet-200 flex flex-col gap-0.5">
+                {item.kitComponents.map(c => (
+                  <p key={c.componentId} className="text-[10px] text-violet-700 leading-tight">
+                    • {c.name} ×{c.quantity}
+                    {c.stock <= 0 && <span className="ml-1 text-red-500 font-600">(rupture)</span>}
+                  </p>
+                ))}
+              </div>
+            )}
             <div className="flex items-center gap-2 mt-0.5">
               <p className="text-xs text-muted-foreground">
                 {item.price.toFixed(2)} € / unité

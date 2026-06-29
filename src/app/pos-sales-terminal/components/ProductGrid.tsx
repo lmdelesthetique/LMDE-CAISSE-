@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { fetchAll } from '@/lib/utils/fetchAll';
 import { fetchActivePromotions, getProductPromo, promoDiscountLabel, type ActivePromo } from '@/lib/services/promotionService';
+import KitCompositionModal, { type KitComponent } from './KitCompositionModal';
 
 const supabase = createClient();
 
@@ -56,6 +57,8 @@ interface ProductGridProps {
     promoDiscountType?: 'percent' | 'amount';
     promoName?: string;
     isDemo?: boolean;
+    isKit?: boolean;
+    kitComponents?: KitComponent[];
   }) => void;
 }
 
@@ -80,8 +83,8 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
   const [variantPickerRows, setVariantPickerRows] = useState<ColorVariantRow[]>([]);
   const [variantPickerLoading, setVariantPickerLoading] = useState(false);
   const [promos, setPromos] = useState<ActivePromo[]>([]);
-  // store promo for pending variant pick
   const [pendingPromo, setPendingPromo] = useState<ActivePromo | null>(null);
+  const [kitModalProduct, setKitModalProduct] = useState<DBProduct | null>(null);
 
   const openVariantPicker = useCallback(async (product: DBProduct, promo?: ActivePromo | null) => {
     setVariantPickerProduct(product);
@@ -178,6 +181,8 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
 
     if (product.has_color_variants) {
       openVariantPicker(product, promo);
+    } else if (product.is_kit) {
+      setKitModalProduct(product);
     } else {
       onAddToCart({
         id: product.id,
@@ -583,6 +588,35 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Kit Composition Modal */}
+      {kitModalProduct && (
+        <KitCompositionModal
+          kitId={kitModalProduct.id}
+          kitName={kitModalProduct.name}
+          kitPrice={Number(kitModalProduct.sell_price_ttc)}
+          onClose={() => setKitModalProduct(null)}
+          onConfirm={(kitComponents) => {
+            const promo = getProductPromo(promos, kitModalProduct.id);
+            onAddToCart({
+              id: kitModalProduct.id,
+              name: kitModalProduct.name,
+              sku: kitModalProduct.ref || kitModalProduct.id,
+              price: Number(kitModalProduct.sell_price_ttc),
+              imageUrl: kitModalProduct.image_url,
+              stock: kitModalProduct.stock,
+              costPrice: computeCostPrice(kitModalProduct),
+              promoDiscount: promo?.discountValue ?? undefined,
+              promoDiscountType: promo?.discountType ?? undefined,
+              promoName: promo?.name ?? undefined,
+              isDemo: kitModalProduct.is_demo || false,
+              isKit: true,
+              kitComponents,
+            });
+            setKitModalProduct(null);
+          }}
+        />
       )}
     </div>
   );

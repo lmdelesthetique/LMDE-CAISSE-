@@ -507,7 +507,7 @@ export async function fetchProductById(productId: string): Promise<StockProduct 
  * For kit products, deducts each kit component individually.
  */
 export async function deductStockForSale(
-  items: Array<{ productId: string; name: string; qty: number; isFreePrice?: boolean }>,
+  items: Array<{ productId: string; name: string; qty: number; isFreePrice?: boolean; kitComponents?: Array<{ componentId: string; name: string; quantity: number }> }>,
   ticketRef: string,
   paymentMethod: string,
   cashierName: string,
@@ -547,18 +547,41 @@ export async function deductStockForSale(
     const isKit = Boolean(productData.is_kit);
 
     if (isKit) {
-      // For kits: deduct each kit component
-      const { data: kitComponents } = await supabase
-        .from('product_kits')
-        .select('component_id, quantity, products!product_kits_component_id_fkey(id, name, stock)')
-        .eq('product_id', item.productId);
+      // Use custom components from POS (if caissier modified the kit) or fetch from DB
+      let resolvedComponents: Array<{ component_id: string; name: string; quantity: number; currentStock: number }> = [];
 
-      if (kitComponents && kitComponents.length > 0) {
-        for (const comp of kitComponents as any[]) {
-          const compProduct = comp.products;
-          if (!compProduct) continue;
-          const compCurrentStock = Number(compProduct.stock) || 0;
-          const compQtyToDeduct = (Number(comp.quantity) || 1) * item.qty;
+      if (item.kitComponents && item.kitComponents.length > 0) {
+        // Custom components from POS modal — fetch fresh stock for each
+        for (const kc of item.kitComponents) {
+          const { data: cp } = await supabase.from('products').select('stock').eq('id', kc.componentId).maybeSingle();
+          resolvedComponents.push({
+            component_id: kc.componentId,
+            name: kc.name,
+            quantity: kc.quantity,
+            currentStock: Number(cp?.stock) || 0,
+          });
+        }
+      } else {
+        // Default: fetch from product_kits table
+        const { data: kitComponents } = await supabase
+          .from('product_kits')
+          .select('component_id, quantity, products!product_kits_component_id_fkey(id, name, stock)')
+          .eq('product_id', item.productId);
+        for (const comp of (kitComponents ?? []) as any[]) {
+          if (!comp.products) continue;
+          resolvedComponents.push({
+            component_id: comp.component_id,
+            name: comp.products.name,
+            quantity: Number(comp.quantity) || 1,
+            currentStock: Number(comp.products.stock) || 0,
+          });
+        }
+      }
+
+      if (resolvedComponents.length > 0) {
+        for (const comp of resolvedComponents) {
+          const compCurrentStock = comp.currentStock;
+          const compQtyToDeduct = comp.quantity * item.qty;
           const compNewStock = Math.max(0, compCurrentStock - compQtyToDeduct);
 
           const { error: compUpdateError } = await supabase
@@ -567,7 +590,7 @@ export async function deductStockForSale(
             .eq('id', comp.component_id);
 
           if (compUpdateError) {
-            errors.push(`Erreur décompte composant kit: ${compProduct.name}`);
+            errors.push(`Erreur décompte composant kit: ${comp.name}`);
             continue;
           }
 
@@ -575,7 +598,7 @@ export async function deductStockForSale(
 
           await supabase.from('stock_movements_log').insert({
             product_id: comp.component_id,
-            product_name: compProduct.name,
+            product_name: comp.name,
             movement_type: 'sale',
             quantity_before: compCurrentStock,
             quantity_after: compNewStock,

@@ -58,6 +58,8 @@ export interface CartItem {
   originalPrice?: number;
   promoName?: string;
   isDemo?: boolean;
+  isKit?: boolean;
+  kitComponents?: Array<{ componentId: string; name: string; quantity: number; stock: number }>;
 }
 
 export interface HeldTicket {
@@ -722,7 +724,7 @@ export default function POSTerminal() {
     });
   }, []);
 
-  const addToCart = useCallback(async (product: { id: string; name: string; sku: string; price: number; imageUrl?: string; stock?: number; variantName?: string; costPrice?: number; promoDiscount?: number; promoDiscountType?: 'percent' | 'amount'; promoName?: string; isDemo?: boolean }) => {
+  const addToCart = useCallback(async (product: { id: string; name: string; sku: string; price: number; imageUrl?: string; stock?: number; variantName?: string; costPrice?: number; promoDiscount?: number; promoDiscountType?: 'percent' | 'amount'; promoName?: string; isDemo?: boolean; isKit?: boolean; kitComponents?: CartItem['kitComponents'] }) => {
     // Fetch stock for display purposes only — never blocks the sale
     let availableStock = product.stock;
     if (product.stock === undefined && !product.id.startsWith('free-')) {
@@ -731,7 +733,10 @@ export default function POSTerminal() {
     }
 
     setCart((prev) => {
-      const existing = prev.find((i) => i.productId === product.id && i.variantName === product.variantName && !i.isFreePrice);
+      // Kits with custom components always create a new line (not merged)
+      const existing = !product.isKit
+        ? prev.find((i) => i.productId === product.id && i.variantName === product.variantName && !i.isFreePrice)
+        : undefined;
       if (existing) {
         return prev.map((i) => i.productId === product.id && i.variantName === product.variantName && !i.isFreePrice ? { ...i, qty: i.qty + 1 } : i);
       }
@@ -752,6 +757,8 @@ export default function POSTerminal() {
         stock: availableStock,
         promoName: product.promoName,
         isDemo: product.isDemo || false,
+        isKit: product.isKit || false,
+        kitComponents: product.kitComponents,
       }];
     });
   }, [cart]);
@@ -1186,6 +1193,7 @@ export default function POSTerminal() {
         name: i.name,
         qty: i.qty,
         isFreePrice: i.isFreePrice,
+        kitComponents: i.kitComponents,
       }));
       const { errors: stockErrors } = await deductStockForSale(
         stockItems,
