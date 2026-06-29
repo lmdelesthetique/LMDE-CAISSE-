@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { sendWhatsApp, msgLivreurNouvelleLivraison, msgLivreurAnnulation } from '@/lib/whatsappService';
+import { sendWhatsApp, sendNotifLivreurNouvelleLivraison, msgLivreurAnnulation } from '@/lib/whatsappService';
 
 // PATCH /api/livraisons/[id] — assign driver or update status
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -42,14 +42,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
     // WhatsApp to driver on assignment (non-blocking)
     if (body.assigned_to_driver && driver?.phone) {
-      sendWhatsApp({
-        to: driver.phone,
-        message: msgLivreurNouvelleLivraison(
-          driver.first_name ?? 'Livreur',
-          delivery.client_name ?? '',
-          delivery.delivery_address ?? ''
-        ),
-      }).catch((err) => console.error('[livraisons] WhatsApp failed (non-blocking):', err));
+      sendNotifLivreurNouvelleLivraison(
+        driver.phone,
+        driver.first_name ?? 'Livreur',
+        delivery.client_name ?? '',
+        delivery.delivery_address ?? ''
+      ).catch((err) => console.error('[livraisons] WhatsApp failed (non-blocking):', err));
     }
 
     // WhatsApp to driver on cancellation (non-blocking)

@@ -62,6 +62,39 @@ async function sendViaMeta(phone: string, message: string): Promise<{ ok: boolea
   return { ok: false, error: errMsg };
 }
 
+async function sendTemplateViaMeta(
+  phone: string,
+  templateName: string,
+  languageCode: string,
+  components: any[] = []
+): Promise<{ ok: boolean; error?: string }> {
+  const token = process.env.WHATSAPP_ACCESS_TOKEN;
+  const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  if (!token || !phoneId) return { ok: false, error: 'Meta API not configured' };
+
+  const res = await fetch(`https://graph.facebook.com/v21.0/${phoneId}/messages`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to: phone,
+      type: 'template',
+      template: {
+        name: templateName,
+        language: { code: languageCode },
+        ...(components.length ? { components } : {}),
+      },
+    }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (res.ok) { console.log(`[WhatsApp] ✅ template "${templateName}" sent via Meta`); return { ok: true }; }
+  const errMsg = (data as any).error?.message || (data as any).error?.error_data?.details || `Meta HTTP ${res.status}`;
+  console.error('[WhatsApp] Meta template error:', JSON.stringify(data));
+  return { ok: false, error: errMsg };
+}
+
 async function sendViaBrevo(phone: string, message: string): Promise<{ ok: boolean; error?: string }> {
   const apiKey = process.env.BREVO_API_KEY;
   if (!apiKey) return { ok: false, error: 'BREVO_API_KEY not configured' };
@@ -137,6 +170,140 @@ export function getWhatsAppLink(phone: string, message: string): string {
 }
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://lmdecaisse.com';
+
+// ─── Template senders (outbound business-initiated) ────────────────────────
+
+async function withMetaFallback(
+  to: string,
+  templateFn: (phone: string) => Promise<{ ok: boolean; error?: string }>,
+  fallbackMsg: string,
+  email?: string
+): Promise<WhatsAppResult> {
+  const phone = cleanPhone(to);
+  const waLink = `https://wa.me/${phone}`;
+  const hasMetaConfig = !!(process.env.WHATSAPP_ACCESS_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID);
+  const hasBrevoConfig = !!process.env.BREVO_API_KEY;
+  const hasResendConfig = !!process.env.RESEND_API_KEY;
+
+  try {
+    if (hasMetaConfig) {
+      const r = await templateFn(phone);
+      if (r.ok) return { ok: true, waLink, provider: 'meta' };
+      // Template failed — try free text (works if customer messaged within 24h)
+      const r2 = await sendViaMeta(phone, fallbackMsg);
+      if (r2.ok) return { ok: true, waLink, provider: 'meta' };
+    }
+    if (hasBrevoConfig) {
+      const r = await sendViaBrevo(phone, fallbackMsg);
+      if (r.ok) return { ok: true, waLink, provider: 'brevo' };
+    }
+    if (hasResendConfig && email) {
+      const r = await sendViaResend(email, fallbackMsg);
+      if (r.ok) return { ok: true, waLink, provider: 'email' };
+    }
+  } catch (err: any) {
+    console.error('[WhatsApp] exception:', err);
+  }
+  return { ok: false, error: 'Envoi échoué', waLink, provider: 'manual' };
+}
+
+// Livreur — nouvelle livraison (template: livreur_nouvelle_livraison)
+export async function sendNotifLivreurNouvelleLivraison(
+  to: string,
+  driverName: string,
+  clientName: string,
+  address: string
+): Promise<WhatsAppResult> {
+  const dashboardSuffix = 'livreur/login';
+  return withMetaFallback(
+    to,
+    (phone) => sendTemplateViaMeta(phone, 'livreur_nouvelle_livraison', 'en', [
+      { type: 'body', parameters: [
+        { type: 'text', text: driverName },
+        { type: 'text', text: clientName },
+        { type: 'text', text: address },
+      ]},
+      { type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: dashboardSuffix }] },
+    ]),
+    msgLivreurNouvelleLivraison(driverName, clientName, address)
+  );
+}
+
+// Client — box prête à personnaliser (template: box_prete__recuperer)
+export async function sendNotifClientBoxPrete(
+  to: string,
+  clientName: string,
+  quota: string,
+  link: string
+): Promise<WhatsAppResult> {
+  return withMetaFallback(
+    to,
+    (phone) => sendTemplateViaMeta(phone, 'box_prete__recuperer', 'fr', [
+      { type: 'body', parameters: [
+        { type: 'text', text: clientName },
+        { type: 'text', text: quota },
+        { type: 'text', text: link },
+      ]},
+    ]),
+    msgClientBoxPrete(clientName, quota, link)
+  );
+}
+
+// Client — box en route (template: box_mise_en_livraison)
+export async function sendNotifClientEnRoute(
+  to: string,
+  clientName: string,
+  driverName: string
+): Promise<WhatsAppResult> {
+  return withMetaFallback(
+    to,
+    (phone) => sendTemplateViaMeta(phone, 'box_mise_en_livraison', 'fr', [
+      { type: 'body', parameters: [
+        { type: 'text', text: clientName },
+        { type: 'text', text: driverName },
+      ]},
+    ]),
+    msgClientEnRoute(clientName, driverName)
+  );
+}
+
+// Client — box expédiée/livrée (template: box_expedie)
+export async function sendNotifClientLivree(
+  to: string,
+  clientName: string
+): Promise<WhatsAppResult> {
+  return withMetaFallback(
+    to,
+    (phone) => sendTemplateViaMeta(phone, 'box_expedie', 'fr', [
+      { type: 'body', parameters: [
+        { type: 'text', text: clientName },
+      ]},
+    ]),
+    msgClientLivree(clientName)
+  );
+}
+
+// Fournisseur — nouvelle commande (template: supplier_order_sent)
+export async function sendNotifFournisseurNouvelleCommande(
+  to: string,
+  supplierName: string,
+  orderRef: string,
+  portalLink: string,
+  email?: string
+): Promise<WhatsAppResult> {
+  return withMetaFallback(
+    to,
+    (phone) => sendTemplateViaMeta(phone, 'supplier_order_sent', 'en', [
+      { type: 'body', parameters: [
+        { type: 'text', text: supplierName },
+        { type: 'text', text: orderRef },
+        { type: 'text', text: portalLink },
+      ]},
+    ]),
+    `Bonjour ${supplierName},\n\nUne nouvelle commande (${orderRef}) vous a été envoyée.\n\nAccédez à votre portail : ${portalLink}\n\nLe Monde de l'Esthétique`,
+    email
+  );
+}
 
 // ─── Message templates ─────────────────────────────────────────────────────
 
