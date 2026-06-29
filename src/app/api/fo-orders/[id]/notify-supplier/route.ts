@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { sendWhatsApp } from '@/lib/whatsappService';
+import { sendNotifFournisseurNouvelleCommande } from '@/lib/whatsappService';
 
 function makeAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -24,7 +24,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
 
   const { data: supplier } = await supabase
     .from('suppliers')
-    .select('company_name, whatsapp, phone')
+    .select('company_name, whatsapp, phone, email')
     .eq('id', order.supplier_id)
     .single();
 
@@ -33,11 +33,12 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   const phone = supplier.whatsapp || supplier.phone;
   if (!phone) return NextResponse.json({ error: 'Aucun numéro WhatsApp/téléphone enregistré pour ce fournisseur' }, { status: 422 });
 
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || '';
-  const portalUrl = `${siteUrl}/supplier-portal/login`;
-  const message = `Le Monde de l'Esthétique vous a envoyé une nouvelle commande (${order.order_number}).\n\nCliquez sur le lien pour accéder à votre espace :\n${portalUrl}`;
-
-  const result = await sendWhatsApp({ to: phone, message });
+  const result = await sendNotifFournisseurNouvelleCommande(
+    phone,
+    supplier.company_name ?? 'Fournisseur',
+    order.order_number ?? id,
+    supplier.email ?? undefined
+  );
 
   if (!result.ok) {
     return NextResponse.json({ error: result.error || 'Échec envoi WhatsApp' }, { status: 500 });

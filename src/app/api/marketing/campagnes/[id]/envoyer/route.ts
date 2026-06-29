@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getSegmentClients, type SegmentKey } from '@/lib/segmentationService';
-import { sendWhatsApp } from '@/lib/whatsappService';
+import { sendNotifCampagneBoutique, sendNotifCampagneSite } from '@/lib/whatsappService';
 
 function makeAdminClient() {
   return createClient(
@@ -41,10 +41,19 @@ export async function POST(
     const logs: any[] = [];
 
     for (const client of clients) {
-      const clientName = `${client.first_name} ${client.last_name}`.trim() || 'Cliente';
-      const personalizedMsg = campagne.message.replace(/\{prénom\}/gi, client.first_name || 'Cliente');
+      const clientName = (client.first_name || 'Cliente').trim();
+      const messageAI = (campagne.message ?? '').replace(/\{prénom\}/gi, clientName);
+      const isSite = campagne.type === 'site';
 
-      const result = await sendWhatsApp({ to: client.phone, message: personalizedMsg, email: client.email });
+      const result = isSite
+        ? await sendNotifCampagneSite(client.phone, clientName, messageAI)
+        : await sendNotifCampagneBoutique(
+            client.phone,
+            clientName,
+            messageAI,
+            campagne.code_promo ?? '',
+            campagne.date_limite ?? ''
+          );
 
       if (result.ok) envoyes++; else erreurs++;
 

@@ -207,14 +207,15 @@ async function withMetaFallback(
   return { ok: false, error: 'Envoi échoué', waLink, provider: 'manual' };
 }
 
-// Livreur — nouvelle livraison (template: livreur_nouvelle_livraison)
+// ── Livreur ────────────────────────────────────────────────────────────────
+
+// template: livreur_nouvelle_livraison | EN | {{1}}=prénom livreur {{2}}=client {{3}}=adresse
 export async function sendNotifLivreurNouvelleLivraison(
   to: string,
   driverName: string,
   clientName: string,
   address: string
 ): Promise<WhatsAppResult> {
-  const dashboardSuffix = 'livreur/login';
   return withMetaFallback(
     to,
     (phone) => sendTemplateViaMeta(phone, 'livreur_nouvelle_livraison', 'en', [
@@ -223,33 +224,42 @@ export async function sendNotifLivreurNouvelleLivraison(
         { type: 'text', text: clientName },
         { type: 'text', text: address },
       ]},
-      { type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: dashboardSuffix }] },
     ]),
     msgLivreurNouvelleLivraison(driverName, clientName, address)
   );
 }
 
-// Client — box prête à personnaliser (template: box_prete__recuperer)
-export async function sendNotifClientBoxPrete(
+// ── Clients box ────────────────────────────────────────────────────────────
+
+// template: box_relance_commande | FR | {{1}}=prénom
+export async function sendNotifBoxRelance(
   to: string,
-  clientName: string,
-  quota: string,
-  link: string
+  clientName: string
+): Promise<WhatsAppResult> {
+  return withMetaFallback(
+    to,
+    (phone) => sendTemplateViaMeta(phone, 'box_relance_commande', 'fr', [
+      { type: 'body', parameters: [{ type: 'text', text: clientName }] },
+    ]),
+    `Bonjour ${clientName} ! ⏰ Plus que quelques jours pour composer votre box beauté du mois ! Les commandes ferment le 25. Le Monde de l'Esthétique 💅`
+  );
+}
+
+// template: box_prete__recuperer | FR | {{1}}=prénom (retrait en boutique)
+export async function sendNotifClientBoxPreteRetrait(
+  to: string,
+  clientName: string
 ): Promise<WhatsAppResult> {
   return withMetaFallback(
     to,
     (phone) => sendTemplateViaMeta(phone, 'box_prete__recuperer', 'fr', [
-      { type: 'body', parameters: [
-        { type: 'text', text: clientName },
-        { type: 'text', text: quota },
-        { type: 'text', text: link },
-      ]},
+      { type: 'body', parameters: [{ type: 'text', text: clientName }] },
     ]),
-    msgClientBoxPrete(clientName, quota, link)
+    msgClientBoxPrete(clientName, '', '')
   );
 }
 
-// Client — box en route (template: box_mise_en_livraison)
+// template: box_mise_en_livraison | FR | {{1}}=prénom (livraison à domicile en route)
 export async function sendNotifClientEnRoute(
   to: string,
   clientName: string,
@@ -258,37 +268,67 @@ export async function sendNotifClientEnRoute(
   return withMetaFallback(
     to,
     (phone) => sendTemplateViaMeta(phone, 'box_mise_en_livraison', 'fr', [
-      { type: 'body', parameters: [
-        { type: 'text', text: clientName },
-        { type: 'text', text: driverName },
-      ]},
+      { type: 'body', parameters: [{ type: 'text', text: clientName }] },
     ]),
     msgClientEnRoute(clientName, driverName)
   );
 }
 
-// Client — box expédiée/livrée (template: box_expedie)
-export async function sendNotifClientLivree(
+// template: box_expedie | FR | {{1}}=prénom {{2}}=numéro suivi (expédition Colissimo)
+export async function sendNotifClientBoxExpediee(
   to: string,
-  clientName: string
+  clientName: string,
+  trackingNumber: string
 ): Promise<WhatsAppResult> {
   return withMetaFallback(
     to,
     (phone) => sendTemplateViaMeta(phone, 'box_expedie', 'fr', [
       { type: 'body', parameters: [
         { type: 'text', text: clientName },
+        { type: 'text', text: trackingNumber },
       ]},
+    ]),
+    `Bonjour ${clientName} ! 📦 Votre box a été expédiée ! Numéro de suivi : ${trackingNumber} 💕`
+  );
+}
+
+// template: box_cloturee | FR | {{1}}=prénom (livrée/clôturée)
+export async function sendNotifClientLivree(
+  to: string,
+  clientName: string
+): Promise<WhatsAppResult> {
+  return withMetaFallback(
+    to,
+    (phone) => sendTemplateViaMeta(phone, 'box_cloturee', 'fr', [
+      { type: 'body', parameters: [{ type: 'text', text: clientName }] },
     ]),
     msgClientLivree(clientName)
   );
 }
 
-// Fournisseur — nouvelle commande (template: supplier_order_sent)
+// ── Ambassadrices ──────────────────────────────────────────────────────────
+
+// template: ambassadrice_box_prete | FR | {{1}}=prénom ambassadrice
+export async function sendNotifAmbassadriceBoxPrete(
+  to: string,
+  firstName: string
+): Promise<WhatsAppResult> {
+  return withMetaFallback(
+    to,
+    (phone) => sendTemplateViaMeta(phone, 'ambassadrice_box_prete', 'fr', [
+      { type: 'body', parameters: [{ type: 'text', text: firstName }] },
+    ]),
+    `Bonjour ${firstName} ! 🌟 Les produits de votre kit ambassadrice sont prêts. Rendez-vous sur votre espace ! Le Monde de l'Esthétique 💅`
+  );
+}
+
+// ── Fournisseurs ───────────────────────────────────────────────────────────
+
+// template: supplier_order_sent | EN | {{1}}=nom fournisseur {{2}}=référence commande
 export async function sendNotifFournisseurNouvelleCommande(
   to: string,
   supplierName: string,
   orderRef: string,
-  portalLink: string,
   email?: string
 ): Promise<WhatsAppResult> {
   return withMetaFallback(
@@ -297,12 +337,83 @@ export async function sendNotifFournisseurNouvelleCommande(
       { type: 'body', parameters: [
         { type: 'text', text: supplierName },
         { type: 'text', text: orderRef },
-        { type: 'text', text: portalLink },
       ]},
     ]),
-    `Bonjour ${supplierName},\n\nUne nouvelle commande (${orderRef}) vous a été envoyée.\n\nAccédez à votre portail : ${portalLink}\n\nLe Monde de l'Esthétique`,
+    `Hello ${supplierName}, a new order (${orderRef}) has been placed. Please visit your supplier portal. LMDE Beauty.`,
     email
   );
+}
+
+// template: supplier_order_reminder | EN | {{1}}=nom fournisseur {{2}}=référence commande
+export async function sendNotifFournisseurRelance(
+  to: string,
+  supplierName: string,
+  orderRef: string,
+  email?: string
+): Promise<WhatsAppResult> {
+  return withMetaFallback(
+    to,
+    (phone) => sendTemplateViaMeta(phone, 'supplier_order_reminder', 'en', [
+      { type: 'body', parameters: [
+        { type: 'text', text: supplierName },
+        { type: 'text', text: orderRef },
+      ]},
+    ]),
+    `Hello ${supplierName}, this is a reminder that order ${orderRef} is still awaiting your confirmation. LMDE Beauty.`,
+    email
+  );
+}
+
+// ── Campagnes marketing ────────────────────────────────────────────────────
+
+// template: campagne_boutique | FR | {{1}}=prénom {{2}}=message {{3}}=code promo {{4}}=date
+export async function sendNotifCampagneBoutique(
+  to: string,
+  clientName: string,
+  messageAI: string,
+  codePromo: string,
+  dateLimite: string
+): Promise<WhatsAppResult> {
+  return withMetaFallback(
+    to,
+    (phone) => sendTemplateViaMeta(phone, 'campagne_boutique', 'fr', [
+      { type: 'body', parameters: [
+        { type: 'text', text: clientName },
+        { type: 'text', text: messageAI },
+        { type: 'text', text: codePromo },
+        { type: 'text', text: dateLimite },
+      ]},
+    ]),
+    `Bonjour ${clientName} ! 💅 ${messageAI} Code promo : ${codePromo} — valable jusqu'au ${dateLimite} 🌸`
+  );
+}
+
+// template: campagne_site | FR | {{1}}=prénom {{2}}=message
+export async function sendNotifCampagneSite(
+  to: string,
+  clientName: string,
+  messageAI: string
+): Promise<WhatsAppResult> {
+  return withMetaFallback(
+    to,
+    (phone) => sendTemplateViaMeta(phone, 'campagne_site', 'fr', [
+      { type: 'body', parameters: [
+        { type: 'text', text: clientName },
+        { type: 'text', text: messageAI },
+      ]},
+    ]),
+    `Bonjour ${clientName} ! 💅 ${messageAI} Le Monde de l'Esthétique 💅`
+  );
+}
+
+// Legacy alias kept for compatibility
+export async function sendNotifClientBoxPrete(
+  to: string,
+  clientName: string,
+  quota: string,
+  link: string
+): Promise<WhatsAppResult> {
+  return sendNotifClientBoxPreteRetrait(to, clientName);
 }
 
 // ─── Message templates ─────────────────────────────────────────────────────
