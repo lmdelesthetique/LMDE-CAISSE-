@@ -26,7 +26,6 @@ export async function GET(req: NextRequest) {
   }
 
   if (action === 'verify' && code) {
-    // Vérifie le code reçu par SMS
     const res = await fetch(`https://graph.facebook.com/v21.0/${PHONE_ID}/verify_code`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
@@ -36,10 +35,22 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ action: 'verify_code', ok: res.ok, status: res.status, data });
   }
 
+  if (action === 'register') {
+    // Enregistrement final du numéro (après vérification OTP)
+    const res = await fetch(`https://graph.facebook.com/v21.0/${PHONE_ID}/register`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messaging_product: 'whatsapp', pin: '123456' }),
+    });
+    const data = await res.json().catch(() => ({}));
+    return NextResponse.json({ action: 'register', ok: res.ok, status: res.status, data });
+  }
+
   return NextResponse.json({
     instructions: {
-      step1: `GET /api/debug/whatsapp-register?action=request  →  envoie un SMS OTP sur le +590 690 22-0399`,
-      step2: `GET /api/debug/whatsapp-register?action=verify&code=XXXXXX  →  confirmez avec le code reçu`,
+      step1: `GET ?action=request  →  envoie SMS OTP`,
+      step2: `GET ?action=verify&code=XXXXXX  →  confirme le code`,
+      step3: `GET ?action=register  →  enregistrement final (à faire si le numéro est déjà vérifié)`,
     },
     currentPhoneId: PHONE_ID,
   });
