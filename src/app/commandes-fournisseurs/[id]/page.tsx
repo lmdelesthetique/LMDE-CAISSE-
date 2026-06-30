@@ -928,7 +928,7 @@ export default function OrderDetailPage() {
             <p className="text-sm text-muted-foreground mt-0.5">{order.supplierName} · Créée le {new Date(order.createdAt).toLocaleDateString('fr-FR')}</p>
           </div>
           <div className="flex gap-2 flex-wrap">
-            {['draft', 'sent', 'awaiting_validation'].includes(order.orderStatus) && !editMode && (
+            {!['paid', 'cancelled', 'closed'].includes(order.orderStatus) && !editMode && (
               <button
                 onClick={enterEditMode}
                 className="flex items-center gap-2 px-3 py-2 border border-primary text-primary rounded-lg text-sm font-500 hover:bg-primary/5 transition-colors"
