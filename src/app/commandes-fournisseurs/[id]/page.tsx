@@ -928,30 +928,28 @@ export default function OrderDetailPage() {
             <p className="text-sm text-muted-foreground mt-0.5">{order.supplierName} · Créée le {new Date(order.createdAt).toLocaleDateString('fr-FR')}</p>
           </div>
           <div className="flex gap-2 flex-wrap">
+            {['draft', 'sent', 'awaiting_validation'].includes(order.orderStatus) && !editMode && (
+              <button
+                onClick={enterEditMode}
+                className="flex items-center gap-2 px-3 py-2 border border-primary text-primary rounded-lg text-sm font-500 hover:bg-primary/5 transition-colors"
+              >
+                <Icon name="PencilIcon" size={15} />
+                Modifier
+              </button>
+            )}
             {order.orderStatus === 'draft' && (
-              <>
-                {!editMode && (
-                  <button
-                    onClick={enterEditMode}
-                    className="flex items-center gap-2 px-3 py-2 border border-primary text-primary rounded-lg text-sm font-500 hover:bg-primary/5 transition-colors"
-                  >
-                    <Icon name="PencilIcon" size={15} />
-                    Modifier
-                  </button>
+              <button
+                onClick={handleSendOrder}
+                disabled={sendingOrder}
+                className="flex items-center gap-2 px-3 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-500 hover:bg-primary/90 transition-colors disabled:opacity-50"
+              >
+                {sendingOrder ? (
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Icon name="PaperAirplaneIcon" size={15} />
                 )}
-                <button
-                  onClick={handleSendOrder}
-                  disabled={sendingOrder}
-                  className="flex items-center gap-2 px-3 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-500 hover:bg-primary/90 transition-colors disabled:opacity-50"
-                >
-                  {sendingOrder ? (
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <Icon name="PaperAirplaneIcon" size={15} />
-                  )}
-                  Envoyer au fournisseur
-                </button>
-              </>
+                Envoyer au fournisseur
+              </button>
             )}
             <button
               onClick={handleExportPDF}
