@@ -486,7 +486,7 @@ export default function CommandesFournisseursPage() {
                         {order.expectedDeliveryAt ? new Date(order.expectedDeliveryAt).toLocaleDateString('fr-FR') : '—'}
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <Link
                             href={`/commandes-fournisseurs/${order.id}`}
                             className="flex items-center gap-1 text-xs text-primary hover:underline font-500"
@@ -494,6 +494,15 @@ export default function CommandesFournisseursPage() {
                             Voir
                             <Icon name="ChevronRightIcon" size={12} />
                           </Link>
+                          {order.invoiceReceivedAt && (
+                            <Link
+                              href={`/commandes-fournisseurs/${order.id}`}
+                              className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-600 bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors"
+                              title={`Facture reçue le ${new Date(order.invoiceReceivedAt).toLocaleDateString('fr-FR')}`}
+                            >
+                              📥 Facture
+                            </Link>
+                          )}
                           {order.orderStatus === 'sent' && (
                             <button
                               onClick={() => handleNotifySupplier(order.id)}

@@ -92,6 +92,10 @@ export interface FoOrder {
   orderGroup?: string;
   transportMethod?: string;
   lines?: FoOrderLine[];
+  invoiceUploadToken?: string;
+  supplierInvoicePath?: string;
+  supplierInvoiceUrl?: string;
+  invoiceReceivedAt?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -187,6 +191,10 @@ function mapOrder(row: any): FoOrder {
     supplierFinalAmount: row.supplier_final_amount ? Number(row.supplier_final_amount) : undefined,
     orderGroup: row.order_group || undefined,
     transportMethod: row.transport_method || undefined,
+    invoiceUploadToken: row.invoice_upload_token || undefined,
+    supplierInvoicePath: row.supplier_invoice_path || undefined,
+    supplierInvoiceUrl: row.supplier_invoice_url || undefined,
+    invoiceReceivedAt: row.invoice_received_at || undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

@@ -135,6 +135,11 @@ export default function OrderDetailPage() {
   const [stockUpdateBanner, setStockUpdateBanner] = useState<string | null>(null);
   const [updatingStock, setUpdatingStock] = useState(false);
 
+  // Invoice real prices (entered by employee from received PDF)
+  const [realPrices, setRealPrices] = useState<Record<string, string>>({});
+  const [savingPrices, setSavingPrices] = useState(false);
+  const [pricesSaved, setPricesSaved] = useState(false);
+
   // Cost modes: 'eur' (fixed amount) | 'pct' (% of product subtotal)
   const [costModes, setCostModes] = useState<Record<string, 'eur' | 'pct'>>({
     transport: 'eur', customs: 'eur', vat: 'eur', freight: 'eur',
@@ -171,6 +176,8 @@ export default function OrderDetailPage() {
   const [savingEdit, setSavingEdit] = useState(false);
   const [sendingOrder, setSendingOrder] = useState(false);
   const [saveEditError, setSaveEditError] = useState<string | null>(null);
+  const [uploadLink, setUploadLink] = useState<string | null>(null);
+  const [copiedLink, setCopiedLink] = useState(false);
   const [showAddLineModal, setShowAddLineModal] = useState(false);
   const [productSearch, setProductSearch] = useState('');
   const [productResults, setProductResults] = useState<any[]>([]);
@@ -227,14 +234,23 @@ export default function OrderDetailPage() {
           local: o.localDelivery, other: o.otherCosts,
         });
         setCostMethod(o.costMethod);
+        if (o.invoiceUploadToken) {
+          const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://lmdecaisse.com';
+          setUploadLink(`${siteUrl}/depot-facture/${o.invoiceUploadToken}`);
+        }
         // Load saved structure pct for this order if exists
         const savedPct = localStorage.getItem(`beautypos_structure_pct_${id}`);
         if (savedPct !== null) setStructurePct(parseFloat(savedPct));
-        // Init received quantities per line
+        // Init received quantities and real prices per line
         if (o.lines) {
           const rq: Record<string, number> = {};
-          o.lines.forEach(l => { rq[l.id] = l.qtyReceived || 0; });
+          const rp: Record<string, string> = {};
+          o.lines.forEach(l => {
+            rq[l.id] = l.qtyReceived || 0;
+            rp[l.id] = l.confirmedUnitPrice != null ? String(l.confirmedUnitPrice) : String(l.unitPrice || '');
+          });
           setReceivedQtys(rq);
+          setRealPrices(rp);
         }
       }
     } finally {
@@ -702,9 +718,58 @@ export default function OrderDetailPage() {
   const handleSendOrder = async () => {
     if (!order) return;
     setSendingOrder(true);
+    // Generate upload token if not already done
+    try {
+      const res = await fetch(`/api/fo-orders/${order.id}/generate-upload-token`, { method: 'POST' });
+      const json = await res.json().catch(() => ({}));
+      if (json.token) {
+        const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://lmdecaisse.com';
+        setUploadLink(`${siteUrl}/depot-facture/${json.token}`);
+      }
+    } catch { /* non-blocking */ }
     await supplierOrderService.changeStatus(order.id, 'sent', 'Admin', 'Commande envoyée au fournisseur');
     setSendingOrder(false);
     load();
+  };
+
+  const handleGenerateLink = async () => {
+    if (!order) return;
+    const res = await fetch(`/api/fo-orders/${order.id}/generate-upload-token`, { method: 'POST' });
+    const json = await res.json().catch(() => ({}));
+    if (json.token) {
+      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://lmdecaisse.com';
+      setUploadLink(`${siteUrl}/depot-facture/${json.token}`);
+    }
+  };
+
+  const handleCopyLink = () => {
+    if (!uploadLink) return;
+    navigator.clipboard.writeText(uploadLink).then(() => {
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2500);
+    });
+  };
+
+  const handleSaveInvoicePrices = async () => {
+    if (!order) return;
+    setSavingPrices(true);
+    try {
+      const prices = lines.map(l => ({
+        lineId: l.id,
+        confirmedUnitPrice: parseFloat(realPrices[l.id] || '0') || 0,
+      })).filter(p => p.confirmedUnitPrice > 0);
+      const res = await fetch(`/api/fo-orders/${order.id}/save-invoice-prices`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prices }),
+      });
+      if (res.ok) {
+        setPricesSaved(true);
+        setTimeout(() => setPricesSaved(false), 3000);
+      }
+    } finally {
+      setSavingPrices(false);
+    }
   };
 
   const handleFullReception = async () => {
@@ -963,6 +1028,25 @@ export default function OrderDetailPage() {
               )}
               PDF
             </button>
+            {/* Lien dépôt facture */}
+            {uploadLink ? (
+              <button
+                onClick={handleCopyLink}
+                className="flex items-center gap-2 px-3 py-2 border border-violet-300 text-violet-700 bg-violet-50 rounded-lg text-sm font-500 hover:bg-violet-100 transition-colors"
+                title={uploadLink}
+              >
+                <Icon name={copiedLink ? 'CheckIcon' : 'LinkIcon'} size={15} />
+                {copiedLink ? 'Lien copié !' : 'Copier lien facture'}
+              </button>
+            ) : (
+              <button
+                onClick={handleGenerateLink}
+                className="flex items-center gap-2 px-3 py-2 border border-dashed border-violet-300 text-violet-600 rounded-lg text-sm font-500 hover:bg-violet-50 transition-colors"
+              >
+                <Icon name="LinkIcon" size={15} />
+                Générer lien dépôt
+              </button>
+            )}
             <button
               onClick={() => setShowStatusModal(true)}
               className="flex items-center gap-2 px-3 py-2 border border-border rounded-lg text-sm font-500 hover:bg-muted transition-colors"
@@ -972,6 +1056,30 @@ export default function OrderDetailPage() {
             </button>
           </div>
         </div>
+
+        {/* Bannière facture reçue */}
+        {order.invoiceReceivedAt && (
+          <div className="mb-4 flex items-center gap-3 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+            <span className="text-xl">📥</span>
+            <div className="flex-1">
+              <p className="text-sm font-700 text-emerald-800">Facture fournisseur reçue</p>
+              <p className="text-xs text-emerald-600">
+                {new Date(order.invoiceReceivedAt).toLocaleString('fr-FR')}
+              </p>
+            </div>
+            {order.supplierInvoiceUrl && (
+              <a
+                href={order.supplierInvoiceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-600 hover:bg-emerald-700 transition-colors"
+              >
+                <Icon name="DocumentArrowDownIcon" size={13} />
+                Voir la facture
+              </a>
+            )}
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="flex gap-1 mb-6 border-b border-border overflow-x-auto">
@@ -1720,6 +1828,107 @@ export default function OrderDetailPage() {
         {/* Reception */}
         {tab === 'reception' && (
           <div className="space-y-5">
+
+            {/* ── Facture fournisseur ── */}
+            {order.invoiceReceivedAt ? (
+              <div className="bg-white border border-border rounded-xl p-5 shadow-card">
+                <h3 className="font-600 text-foreground mb-4 flex items-center gap-2">
+                  <span className="text-lg">📥</span>
+                  Facture fournisseur reçue
+                </h3>
+                <div className="flex flex-wrap items-center gap-3 mb-4">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-muted-foreground">
+                      Reçue le {new Date(order.invoiceReceivedAt).toLocaleString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </div>
+                  {order.supplierInvoiceUrl && (
+                    <a
+                      href={order.supplierInvoiceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white rounded-lg text-sm font-500 hover:bg-violet-700 transition-colors"
+                    >
+                      <Icon name="DocumentIcon" size={14} />
+                      Voir la facture PDF
+                    </a>
+                  )}
+                </div>
+                {order.supplierInvoiceUrl && (
+                  <iframe
+                    src={order.supplierInvoiceUrl}
+                    className="w-full rounded-lg border border-border"
+                    style={{ height: 420 }}
+                    title="Facture fournisseur"
+                  />
+                )}
+
+                {/* Real price entry per line */}
+                {lines.length > 0 && (
+                  <div className="mt-5">
+                    <p className="text-sm font-600 text-foreground mb-3">
+                      Saisir les prix réels (d'après la facture) :
+                    </p>
+                    <div className="space-y-2">
+                      {lines.map((line) => (
+                        <div key={line.id} className="flex items-center gap-3 py-2 border-b border-border last:border-0">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-500 text-foreground truncate">{line.productName}</p>
+                            <p className="text-xs text-muted-foreground">{line.productRef} · Commandé: {line.qtyOrdered}</p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-xs text-muted-foreground">Prix estimé: {line.unitPrice?.toFixed(2)} {order.currency}</span>
+                            <div className="relative">
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={realPrices[line.id] ?? ''}
+                                onChange={(e) => setRealPrices(prev => ({ ...prev, [line.id]: e.target.value }))}
+                                placeholder="0.00"
+                                className="w-28 px-2.5 py-1.5 pr-8 border border-violet-300 rounded-lg text-sm text-right focus:outline-none focus:ring-2 focus:ring-violet-300 bg-violet-50"
+                              />
+                              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none">{order.currency}</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-4 flex items-center gap-3">
+                      <button
+                        onClick={handleSaveInvoicePrices}
+                        disabled={savingPrices}
+                        className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg text-sm font-500 hover:bg-violet-700 transition-colors disabled:opacity-50"
+                      >
+                        {savingPrices
+                          ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          : <Icon name="CheckIcon" size={15} />}
+                        Enregistrer les prix réels
+                      </button>
+                      {pricesSaved && (
+                        <span className="text-sm text-emerald-600 font-500">✅ Prix sauvegardés</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : uploadLink ? (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center gap-3">
+                <span className="text-lg">⏳</span>
+                <div className="flex-1">
+                  <p className="text-sm font-600 text-amber-800">En attente de la facture</p>
+                  <p className="text-xs text-amber-600">Le lien de dépôt a été généré. En attente de l'envoi par le fournisseur.</p>
+                </div>
+                <button
+                  onClick={handleCopyLink}
+                  className="flex items-center gap-1.5 px-3 py-1.5 border border-amber-300 text-amber-700 bg-white rounded-lg text-xs font-500 hover:bg-amber-50 transition-colors"
+                >
+                  <Icon name={copiedLink ? 'CheckIcon' : 'LinkIcon'} size={13} />
+                  {copiedLink ? 'Copié !' : 'Copier le lien'}
+                </button>
+              </div>
+            ) : null}
+
             <div className="bg-white border border-border rounded-xl p-5 shadow-card">
               <h3 className="font-600 text-foreground mb-4 flex items-center gap-2">
                 <Icon name="ArchiveBoxIcon" size={16} className="text-primary" />
