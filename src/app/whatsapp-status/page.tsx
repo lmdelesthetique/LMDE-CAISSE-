@@ -8,6 +8,7 @@ interface ApiStatus {
   brevo: { configured: boolean };
   resend: { configured: boolean };
   activeProvider: string;
+  templates?: { count: number; approved: string[]; pending: string[] };
 }
 
 interface TestResult {
@@ -160,6 +161,35 @@ export default function WhatsAppStatusPage() {
             </div>
           )}
         </div>
+
+        {/* Templates list */}
+        {apiStatus?.templates && (
+          <div className="rounded-2xl border-2 border-gray-200 p-5 bg-white">
+            <p className="text-sm font-bold text-gray-700 mb-3">
+              Templates Meta ({apiStatus.templates.count} total)
+            </p>
+            {apiStatus.templates.approved.length > 0 && (
+              <div className="mb-3">
+                <p className="text-xs font-bold text-emerald-600 uppercase tracking-wide mb-1.5">✅ Approuvés ({apiStatus.templates.approved.length})</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {apiStatus.templates.approved.map(n => (
+                    <span key={n} className="px-2 py-1 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-mono rounded-lg">{n}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {apiStatus.templates.pending.length > 0 && (
+              <div>
+                <p className="text-xs font-bold text-amber-600 uppercase tracking-wide mb-1.5">⏳ En attente / Rejetés ({apiStatus.templates.pending.length})</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {apiStatus.templates.pending.map(n => (
+                    <span key={n} className="px-2 py-1 bg-amber-50 border border-amber-200 text-amber-700 text-xs font-mono rounded-lg">{n}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Flow tests */}
         <div>
