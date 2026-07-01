@@ -4,7 +4,15 @@ import React, { useCallback, useEffect, useState } from 'react';
 import AppLayout from '@/components/AppLayout';
 
 interface ApiStatus {
-  meta: { configured: boolean; phoneId: string | null };
+  meta: {
+    configured: boolean;
+    phoneId: string | null;
+    phoneNumber?: string;
+    verifiedName?: string;
+    qualityRating?: string;
+    phoneStatus?: string;
+    phoneError?: string | null;
+  };
   brevo: { configured: boolean };
   resend: { configured: boolean };
   activeProvider: string;
@@ -156,8 +164,20 @@ export default function WhatsAppStatusPage() {
           )}
 
           {apiStatus && (
-            <div className="mt-3 p-3 bg-white/70 rounded-xl">
+            <div className="mt-3 p-3 bg-white/70 rounded-xl space-y-1">
               <p className="text-xs text-gray-500">Canal actif : <span className="font-bold text-gray-800">{apiStatus.activeProvider}</span></p>
+              {apiStatus.meta.phoneNumber && apiStatus.meta.phoneNumber !== 'N/A' && (
+                <p className="text-xs text-gray-500">Numéro : <span className="font-bold text-gray-800">{apiStatus.meta.phoneNumber}</span></p>
+              )}
+              {apiStatus.meta.verifiedName && apiStatus.meta.verifiedName !== 'N/A' && (
+                <p className="text-xs text-gray-500">Nom vérifié : <span className="font-bold text-gray-800">{apiStatus.meta.verifiedName}</span></p>
+              )}
+              {apiStatus.meta.phoneStatus && (
+                <p className="text-xs text-gray-500">Statut téléphone : <span className={`font-bold ${apiStatus.meta.phoneStatus === 'CONNECTED' ? 'text-emerald-600' : 'text-red-600'}`}>{apiStatus.meta.phoneStatus}</span></p>
+              )}
+              {apiStatus.meta.phoneError && (
+                <p className="text-xs text-red-600 font-mono">Erreur : {apiStatus.meta.phoneError}</p>
+              )}
             </div>
           )}
         </div>
