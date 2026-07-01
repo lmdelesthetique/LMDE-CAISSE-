@@ -234,9 +234,21 @@ export default function OrderDetailPage() {
           local: o.localDelivery, other: o.otherCosts,
         });
         setCostMethod(o.costMethod);
+        // Generate upload link (token is always available via API)
         if (o.invoiceUploadToken) {
           const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://lmdecaisse.com';
           setUploadLink(`${siteUrl}/depot-facture/${o.invoiceUploadToken}`);
+        } else if (id) {
+          // Auto-fetch token (deterministic, no DB column required)
+          fetch(`/api/fo-orders/${id}/generate-upload-token`, { method: 'POST' })
+            .then(r => r.ok ? r.json() : null)
+            .then(json => {
+              if (json?.token) {
+                const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://lmdecaisse.com';
+                setUploadLink(`${siteUrl}/depot-facture/${json.token}`);
+              }
+            })
+            .catch(() => {});
         }
         // Load saved structure pct for this order if exists
         const savedPct = localStorage.getItem(`beautypos_structure_pct_${id}`);

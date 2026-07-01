@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { verifyInvoiceToken } from '@/lib/utils/invoiceToken';
 
 function admin() {
   return createAdminClient();
@@ -13,15 +14,43 @@ export async function GET(
   const { token } = params;
   const supabase = admin();
 
+  // 1. Try deterministic token (no migration needed)
+  const orderId = await verifyInvoiceToken(token);
+  if (orderId) {
+    const { data: order } = await supabase
+      .from('fo_orders')
+      .select('id, order_number, suppliers(company_name)')
+      .eq('id', orderId)
+      .maybeSingle();
+
+    if (!order) return NextResponse.json({ error: 'Commande introuvable' }, { status: 404 });
+
+    // Check if invoice already received (column may or may not exist)
+    let alreadyReceived = false;
+    try {
+      const { data: inv } = await supabase
+        .from('fo_orders')
+        .select('invoice_received_at')
+        .eq('id', orderId)
+        .maybeSingle();
+      alreadyReceived = !!inv?.invoice_received_at;
+    } catch { /* column not yet migrated */ }
+
+    return NextResponse.json({
+      orderNumber: order.order_number,
+      supplierName: (order.suppliers as any)?.company_name ?? null,
+      alreadyReceived,
+    });
+  }
+
+  // 2. Fallback: look up by stored token (migration applied)
   const { data: order } = await supabase
     .from('fo_orders')
-    .select('id, order_number, supplier_invoice_url, invoice_received_at, suppliers(company_name)')
+    .select('id, order_number, invoice_received_at, suppliers(company_name)')
     .eq('invoice_upload_token', token)
     .maybeSingle();
 
-  if (!order) {
-    return NextResponse.json({ error: 'Lien invalide ou expiré' }, { status: 404 });
-  }
+  if (!order) return NextResponse.json({ error: 'Lien invalide ou expiré' }, { status: 404 });
 
   return NextResponse.json({
     orderNumber: order.order_number,
@@ -38,15 +67,31 @@ export async function POST(
   const { token } = params;
   const supabase = admin();
 
-  const { data: order } = await supabase
-    .from('fo_orders')
-    .select('id, order_number')
-    .eq('invoice_upload_token', token)
-    .maybeSingle();
+  // Resolve order ID from token (deterministic or stored)
+  let orderId: string | null = null;
+  let orderNumber: string | null = null;
 
-  if (!order) {
-    return NextResponse.json({ error: 'Lien invalide ou expiré' }, { status: 404 });
+  const decodedId = await verifyInvoiceToken(token);
+  if (decodedId) {
+    const { data: o } = await supabase
+      .from('fo_orders')
+      .select('id, order_number')
+      .eq('id', decodedId)
+      .maybeSingle();
+    if (o) { orderId = o.id; orderNumber = o.order_number; }
   }
+
+  if (!orderId) {
+    // Fallback: stored token column
+    const { data: o } = await supabase
+      .from('fo_orders')
+      .select('id, order_number')
+      .eq('invoice_upload_token', token)
+      .maybeSingle();
+    if (o) { orderId = o.id; orderNumber = o.order_number; }
+  }
+
+  if (!orderId) return NextResponse.json({ error: 'Lien invalide ou expiré' }, { status: 404 });
 
   let formData: FormData;
   try {
@@ -63,21 +108,23 @@ export async function POST(
     return NextResponse.json({ error: 'Format non accepté (PDF uniquement)' }, { status: 400 });
   }
 
-  const path = `${order.id}/${Date.now()}.${ext}`;
+  const path = `${orderId}/${Date.now()}.${ext}`;
   const buffer = new Uint8Array(await file.arrayBuffer());
 
   // Ensure bucket exists (idempotent)
   await supabase.storage.createBucket('supplier-invoices', { public: false }).catch(() => {});
 
-  // Remove old invoice if any
-  const { data: existing } = await supabase
-    .from('fo_orders')
-    .select('supplier_invoice_path')
-    .eq('id', order.id)
-    .single();
-  if (existing?.supplier_invoice_path) {
-    await supabase.storage.from('supplier-invoices').remove([existing.supplier_invoice_path]);
-  }
+  // Remove old invoice if column exists
+  try {
+    const { data: existing } = await supabase
+      .from('fo_orders')
+      .select('supplier_invoice_path')
+      .eq('id', orderId)
+      .single();
+    if (existing?.supplier_invoice_path) {
+      await supabase.storage.from('supplier-invoices').remove([existing.supplier_invoice_path]);
+    }
+  } catch { /* column not yet migrated */ }
 
   const { data: uploaded, error: uploadError } = await supabase.storage
     .from('supplier-invoices')
@@ -88,26 +135,36 @@ export async function POST(
     return NextResponse.json({ error: uploadError.message }, { status: 500 });
   }
 
-  // Generate a long-lived signed URL (10 years = for practical use)
+  // Generate a long-lived signed URL (10 years)
   const { data: signedData } = await supabase.storage
     .from('supplier-invoices')
     .createSignedUrl(uploaded.path, 60 * 60 * 24 * 365 * 10);
 
+  // Update order — best effort (columns may not exist if migration pending)
+  const updatePayload: Record<string, any> = {
+    updated_at: new Date().toISOString(),
+  };
+
+  // Try with full columns (migration applied)
   const { error: dbError } = await supabase
     .from('fo_orders')
     .update({
+      ...updatePayload,
       supplier_invoice_path: uploaded.path,
       supplier_invoice_url: signedData?.signedUrl ?? null,
       invoice_received_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
     })
-    .eq('id', order.id);
+    .eq('id', orderId);
 
   if (dbError) {
-    console.error('[invoice-upload] db error:', dbError.message);
-    return NextResponse.json({ error: dbError.message }, { status: 500 });
+    // Migration not applied yet — update only updated_at (file is already in storage)
+    await supabase
+      .from('fo_orders')
+      .update(updatePayload)
+      .eq('id', orderId);
+    console.warn('[invoice-upload] columns missing — apply migration for full functionality. File saved at:', uploaded.path);
   }
 
-  console.log(`[invoice-upload] ✅ Invoice received for ${order.order_number}`);
-  return NextResponse.json({ ok: true, orderNumber: order.order_number });
+  console.log(`[invoice-upload] ✅ Invoice received for ${orderNumber}`);
+  return NextResponse.json({ ok: true, orderNumber });
 }
