@@ -38,9 +38,9 @@ const STATUS_TABS: { id: ReservationStatus | 'all'; label: string }[] = [
 
 function getNextAction(status: ReservationStatus): { label: string; icon: string; action: string } | null {
   switch (status) {
-    case 'pending':      return { label: 'Enregistrer acompte', icon: 'BanknotesIcon', action: 'deposit' };
-    case 'deposit_paid': return { label: 'Encaisser le solde',  icon: 'CurrencyEuroIcon', action: 'deposit' };
-    case 'ready':        return { label: 'Encaisser le solde',  icon: 'CurrencyEuroIcon', action: 'deposit' };
+    case 'pending':      return { label: 'Enregistrer acompte', icon: 'BanknotesIcon',     action: 'deposit' };
+    case 'deposit_paid': return { label: 'Ajouter paiement',    icon: 'BanknotesIcon',     action: 'deposit' };
+    case 'ready':        return { label: 'Ajouter paiement',    icon: 'CurrencyEuroIcon',  action: 'deposit' };
     default:             return null;
   }
 }

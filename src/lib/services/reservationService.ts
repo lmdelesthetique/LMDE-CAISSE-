@@ -47,6 +47,16 @@ export interface ReservationItem {
   format?: string;
 }
 
+export interface DepositEntry {
+  id: string;
+  amount: number;
+  method: string;
+  paid_at: string;
+  accounting_date: string;
+  cashier_name: string | null;
+  is_balance?: boolean;
+}
+
 export interface Reservation {
   id: string;
   reservationNumber: string;
@@ -58,6 +68,7 @@ export interface Reservation {
   totalAmount: number;
   depositAmount: number;
   depositPaid: number;
+  deposits: DepositEntry[];
   balanceDue: number;
   /** Amount paid when client returns to pay the remaining balance */
   balancePaid: number;
@@ -199,6 +210,7 @@ function mapReservation(row: any): Reservation {
     totalAmount: parseFloat(row.total_amount ?? 0),
     depositAmount: parseFloat(row.deposit_amount ?? 0),
     depositPaid: parseFloat(row.deposit_paid ?? 0),
+    deposits: Array.isArray(row.deposits) ? row.deposits : [],
     // Compute in code: DB generated column formula is total_amount - deposit_paid (misses balance_paid)
     balanceDue: Math.max(
       parseFloat(row.total_amount ?? 0) - parseFloat(row.deposit_paid ?? 0) - parseFloat(row.balance_paid ?? 0),
