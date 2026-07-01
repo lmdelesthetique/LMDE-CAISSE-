@@ -50,6 +50,8 @@ export async function GET() {
       phoneStatus: phoneInfo?.status ?? 'N/A',
       phoneError: phoneInfo?.error?.message ?? null,
     },
+    brevo: { configured: hasBrevo },
+    resend: { configured: hasResend },
     templates: {
       count: templates.length,
       approved: templates.filter((t: any) => t.status === 'APPROVED').map((t: any) => t.name),
