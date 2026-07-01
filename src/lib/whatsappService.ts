@@ -364,6 +364,28 @@ export async function sendNotifFournisseurRelance(
   );
 }
 
+// template: supplier_invoice_link | EN | {{1}}=nom fournisseur {{2}}=référence commande {{3}}=lien dépôt
+export async function sendNotifFournisseurLienFacture(
+  to: string,
+  supplierName: string,
+  orderRef: string,
+  depositLink: string,
+  email?: string
+): Promise<WhatsAppResult> {
+  return withMetaFallback(
+    to,
+    (phone) => sendTemplateViaMeta(phone, 'supplier_invoice_link', 'en', [
+      { type: 'body', parameters: [
+        { type: 'text', text: supplierName },
+        { type: 'text', text: orderRef },
+        { type: 'text', text: depositLink },
+      ]},
+    ]),
+    `Hello ${supplierName},\n\nPlease upload your invoice for order ${orderRef} via this secure link:\n${depositLink}\n\nLe Monde de l'Esthétique`,
+    email
+  );
+}
+
 // ── Campagnes marketing ────────────────────────────────────────────────────
 
 // template: campagne_boutique | FR | {{1}}=prénom {{2}}=message {{3}}=code promo {{4}}=date

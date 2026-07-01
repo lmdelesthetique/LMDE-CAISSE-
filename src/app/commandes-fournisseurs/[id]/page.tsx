@@ -178,6 +178,10 @@ export default function OrderDetailPage() {
   const [saveEditError, setSaveEditError] = useState<string | null>(null);
   const [uploadLink, setUploadLink] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [sendingInvoiceWA, setSendingInvoiceWA] = useState(false);
+  const [invoiceWASent, setInvoiceWASent] = useState(false);
+  const [invoiceWAError, setInvoiceWAError] = useState<string | null>(null);
+  const [invoiceWAManualLink, setInvoiceWAManualLink] = useState<string | null>(null);
   const [showAddLineModal, setShowAddLineModal] = useState(false);
   const [productSearch, setProductSearch] = useState('');
   const [productResults, setProductResults] = useState<any[]>([]);
@@ -762,6 +766,29 @@ export default function OrderDetailPage() {
     });
   };
 
+  const handleSendInvoiceLinkWA = async () => {
+    if (!order) return;
+    setSendingInvoiceWA(true);
+    setInvoiceWAError(null);
+    setInvoiceWAManualLink(null);
+    try {
+      const res = await fetch(`/api/fo-orders/${order.id}/send-invoice-link`, { method: 'POST' });
+      const json = await res.json().catch(() => ({}));
+      if (json.ok) {
+        setInvoiceWASent(true);
+        setTimeout(() => setInvoiceWASent(false), 4000);
+      } else {
+        // WhatsApp failed — offer manual wa.me link as fallback
+        setInvoiceWAError(json.error ?? 'Envoi échoué');
+        if (json.waLink) setInvoiceWAManualLink(json.waLink);
+      }
+    } catch {
+      setInvoiceWAError('Erreur réseau');
+    } finally {
+      setSendingInvoiceWA(false);
+    }
+  };
+
   const handleSaveInvoicePrices = async () => {
     if (!order) return;
     setSavingPrices(true);
@@ -1042,14 +1069,35 @@ export default function OrderDetailPage() {
             </button>
             {/* Lien dépôt facture */}
             {uploadLink ? (
-              <button
-                onClick={handleCopyLink}
-                className="flex items-center gap-2 px-3 py-2 border border-violet-300 text-violet-700 bg-violet-50 rounded-lg text-sm font-500 hover:bg-violet-100 transition-colors"
-                title={uploadLink}
-              >
-                <Icon name={copiedLink ? 'CheckIcon' : 'LinkIcon'} size={15} />
-                {copiedLink ? 'Lien copié !' : 'Copier lien facture'}
-              </button>
+              <>
+                <button
+                  onClick={handleCopyLink}
+                  className="flex items-center gap-2 px-3 py-2 border border-violet-300 text-violet-700 bg-violet-50 rounded-lg text-sm font-500 hover:bg-violet-100 transition-colors"
+                  title={uploadLink}
+                >
+                  <Icon name={copiedLink ? 'CheckIcon' : 'LinkIcon'} size={15} />
+                  {copiedLink ? 'Lien copié !' : 'Copier lien'}
+                </button>
+                <button
+                  onClick={handleSendInvoiceLinkWA}
+                  disabled={sendingInvoiceWA}
+                  title="Envoyer le lien de dépôt par WhatsApp au fournisseur"
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-500 border transition-colors disabled:opacity-50 ${
+                    invoiceWASent
+                      ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
+                      : 'bg-green-50 border-green-300 text-green-700 hover:bg-green-100'
+                  }`}
+                >
+                  {sendingInvoiceWA ? (
+                    <div className="w-4 h-4 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
+                  ) : invoiceWASent ? (
+                    <Icon name="CheckIcon" size={15} />
+                  ) : (
+                    <span className="text-base leading-none">📲</span>
+                  )}
+                  {invoiceWASent ? 'Envoyé !' : 'WhatsApp'}
+                </button>
+              </>
             ) : (
               <button
                 onClick={handleGenerateLink}
@@ -1068,6 +1116,32 @@ export default function OrderDetailPage() {
             </button>
           </div>
         </div>
+
+        {/* WhatsApp invoice link error / manual fallback */}
+        {invoiceWAError && (
+          <div className="mb-4 flex items-center gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl">
+            <span className="text-lg">⚠️</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-600 text-amber-800">WhatsApp non envoyé — {invoiceWAError}</p>
+              {invoiceWAManualLink && (
+                <p className="text-xs text-amber-700 mt-0.5">Utilisez le lien manuel ci-dessous pour envoyer directement depuis votre téléphone.</p>
+              )}
+            </div>
+            {invoiceWAManualLink && (
+              <a
+                href={invoiceWAManualLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-600 hover:bg-green-700 transition-colors"
+              >
+                📲 Ouvrir WhatsApp
+              </a>
+            )}
+            <button onClick={() => { setInvoiceWAError(null); setInvoiceWAManualLink(null); }} className="shrink-0 text-amber-500 hover:text-amber-700">
+              <Icon name="XMarkIcon" size={14} />
+            </button>
+          </div>
+        )}
 
         {/* Bannière facture reçue */}
         {order.invoiceReceivedAt && (
