@@ -30,7 +30,7 @@ async function getLocationId(): Promise<string> {
         const id = String(loc.id);
         _locationIdCache = id;
         // Persist so subsequent calls skip the API round-trip
-        await getSupabase().from('app_config').upsert({ key: 'shopify_location_id', value: id, updated_at: new Date().toISOString() }).catch(() => {});
+        try { await getSupabase().from('app_config').upsert({ key: 'shopify_location_id', value: id, updated_at: new Date().toISOString() }); } catch { }
         console.log('[shopify] auto-discovered location_id:', id);
         return id;
       }

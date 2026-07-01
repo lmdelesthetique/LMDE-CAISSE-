@@ -70,6 +70,12 @@ export default function CommandesFournisseursPage() {
   const [notifyDone, setNotifyDone] = useState<Set<string>>(new Set());
   const [notifyError, setNotifyError] = useState<string | null>(null);
 
+  // Invoice link sending
+  const [sendingLinkId, setSendingLinkId] = useState<string | null>(null);
+  const [linkSentIds, setLinkSentIds] = useState<Set<string>>(new Set());
+  const [linkErrorId, setLinkErrorId] = useState<string | null>(null);
+  const [linkManualUrl, setLinkManualUrl] = useState<string | null>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -156,6 +162,28 @@ export default function CommandesFournisseursPage() {
       setTimeout(() => setNotifyError(null), 5000);
     } finally {
       setNotifyingId(null);
+    }
+  };
+
+  const handleSendInvoiceLink = async (orderId: string) => {
+    setSendingLinkId(orderId);
+    setLinkErrorId(null);
+    setLinkManualUrl(null);
+    try {
+      const res = await fetch(`/api/fo-orders/${orderId}/send-invoice-link`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (data.ok) {
+        setLinkSentIds(prev => new Set([...prev, orderId]));
+      } else {
+        setLinkErrorId(orderId);
+        if (data.waLink) setLinkManualUrl(data.waLink);
+        setTimeout(() => setLinkErrorId(null), 6000);
+      }
+    } catch {
+      setLinkErrorId(orderId);
+      setTimeout(() => setLinkErrorId(null), 4000);
+    } finally {
+      setSendingLinkId(null);
     }
   };
 
@@ -427,6 +455,7 @@ export default function CommandesFournisseursPage() {
                     <th className="text-right px-4 py-3 font-600 text-muted-foreground text-xs uppercase tracking-wide">Montant</th>
                     <th className="text-left px-4 py-3 font-600 text-muted-foreground text-xs uppercase tracking-wide">Date</th>
                     <th className="text-left px-4 py-3 font-600 text-muted-foreground text-xs uppercase tracking-wide">Livraison</th>
+                    <th className="text-left px-4 py-3 font-600 text-muted-foreground text-xs uppercase tracking-wide">Facture</th>
                     <th className="px-4 py-3" />
                   </tr>
                 </thead>
@@ -485,6 +514,51 @@ export default function CommandesFournisseursPage() {
                       <td className="px-4 py-3 text-muted-foreground text-xs">
                         {order.expectedDeliveryAt ? new Date(order.expectedDeliveryAt).toLocaleDateString('fr-FR') : '—'}
                       </td>
+
+                      {/* ── Colonne Facture ── */}
+                      <td className="px-4 py-3">
+                        {!['draft', 'cancelled', 'suspended'].includes(order.orderStatus) && (
+                          order.invoiceReceivedAt ? (
+                            <Link
+                              href={`/commandes-fournisseurs/${order.id}`}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-700 bg-emerald-50 text-emerald-700 border border-emerald-300 hover:bg-emerald-100 transition-colors"
+                              title={`Facture reçue le ${new Date(order.invoiceReceivedAt).toLocaleDateString('fr-FR')}`}
+                            >
+                              <span>✅</span>
+                              Facture reçue
+                            </Link>
+                          ) : linkSentIds.has(order.id) ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-700 bg-blue-50 text-blue-700 border border-blue-200">
+                              <Icon name="CheckIcon" size={11} />
+                              Lien envoyé
+                            </span>
+                          ) : linkErrorId === order.id && linkManualUrl ? (
+                            <a
+                              href={linkManualUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-700 bg-orange-50 text-orange-700 border border-orange-300 hover:bg-orange-100 transition-colors"
+                            >
+                              📲 Ouvrir WA
+                            </a>
+                          ) : (
+                            <button
+                              onClick={() => handleSendInvoiceLink(order.id)}
+                              disabled={sendingLinkId === order.id}
+                              title="Envoyer le lien de dépôt de facture au fournisseur par WhatsApp"
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-700 bg-violet-50 text-violet-700 border border-violet-300 hover:bg-violet-100 transition-colors disabled:opacity-50"
+                            >
+                              {sendingLinkId === order.id ? (
+                                <div className="w-3 h-3 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+                              ) : (
+                                <span>📎</span>
+                              )}
+                              {sendingLinkId === order.id ? '...' : 'Lien facture'}
+                            </button>
+                          )
+                        )}
+                      </td>
+
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2 flex-wrap">
                           <Link
@@ -494,15 +568,6 @@ export default function CommandesFournisseursPage() {
                             Voir
                             <Icon name="ChevronRightIcon" size={12} />
                           </Link>
-                          {order.invoiceReceivedAt && (
-                            <Link
-                              href={`/commandes-fournisseurs/${order.id}`}
-                              className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-600 bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors"
-                              title={`Facture reçue le ${new Date(order.invoiceReceivedAt).toLocaleDateString('fr-FR')}`}
-                            >
-                              📥 Facture
-                            </Link>
-                          )}
                           {order.orderStatus === 'sent' && (
                             <button
                               onClick={() => handleNotifySupplier(order.id)}
