@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
 type Grade = 'debutante' | 'confirmee' | 'elite';
@@ -314,7 +314,6 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 export default function AmbassadricePortalPage() {
   const { lienUnique } = useParams<{ lienUnique: string }>();
-  const router = useRouter();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

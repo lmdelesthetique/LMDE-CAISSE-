@@ -8,7 +8,7 @@ const LIVREUR_COOKIE = 'livreur_session';
 const ADMIN_PUBLIC = ['/pin-login', '/api/auth/pin'];
 
 // These portals have their own auth — never redirect to admin PIN
-const CLIENT_PORTALS = ['/client-portal', '/supplier-portal', '/abonnement', '/client', '/ambassadrice'];
+const CLIENT_PORTALS = ['/client-portal', '/supplier-portal', '/abonnement', '/client', '/ambassadrice', '/espace-ambassadrice'];
 
 function isAdminSessionValid(cookieValue: string | undefined): boolean {
   if (!cookieValue) return false;
