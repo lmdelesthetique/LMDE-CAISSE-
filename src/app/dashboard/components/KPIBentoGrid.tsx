@@ -83,7 +83,7 @@ export default function KPIBentoGrid({ filters }: KPIBentoGridProps) {
       .then(setKpis)
       .catch(() => setKpis(null))
       .finally(() => setLoading(false));
-  }, [filters?.period, filters?.employeeId, filters?.categoryId]);
+  }, [filters?.period, filters?.customStart, filters?.customEnd, filters?.employeeId, filters?.categoryId]);
 
   useEffect(() => {
     load();

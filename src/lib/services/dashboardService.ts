@@ -64,15 +64,17 @@ export interface RecentSale {
   items: number;
 }
 
-export type DashboardPeriod = 'today' | 'week' | 'month' | 'year';
+export type DashboardPeriod = 'today' | 'week' | 'month' | 'year' | 'custom';
 
 export interface DashboardFiltersState {
   period: DashboardPeriod;
+  customStart?: string; // YYYY-MM-DD
+  customEnd?: string;   // YYYY-MM-DD
   employeeId?: string;
   categoryId?: string;
 }
 
-function getDateRangeForPeriod(period: DashboardPeriod): { start: string; end: string; prevStart: string; prevEnd: string } {
+function getDateRangeForPeriod(period: DashboardPeriod, customStart?: string, customEnd?: string): { start: string; end: string; prevStart: string; prevEnd: string } {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const tomorrow = new Date(today.getTime() + 86400000);
@@ -108,6 +110,25 @@ function getDateRangeForPeriod(period: DashboardPeriod): { start: string; end: s
         prevStart: prevYearStart.toISOString(),
         prevEnd: prevYearEnd.toISOString(),
       };
+    }
+    case 'custom': {
+      if (customStart && customEnd) {
+        const s = new Date(customStart + 'T00:00:00');
+        const e = new Date(customEnd + 'T23:59:59');
+        const rangeMs = e.getTime() - s.getTime();
+        const prevEnd = new Date(s.getTime());
+        const prevStart = new Date(s.getTime() - rangeMs);
+        return {
+          start: s.toISOString(),
+          end: e.toISOString(),
+          prevStart: prevStart.toISOString(),
+          prevEnd: prevEnd.toISOString(),
+        };
+      }
+      // Fallback to current month if no dates provided
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      return { start: monthStart.toISOString(), end: tomorrow.toISOString(), prevStart: prevMonthStart.toISOString(), prevEnd: monthStart.toISOString() };
     }
     case 'month':
     default: {
@@ -161,7 +182,7 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
   const supabase = createClient();
 
   const period = filters?.period ?? 'month';
-  const { start, end, prevStart, prevEnd } = getDateRangeForPeriod(period);
+  const { start, end, prevStart, prevEnd } = getDateRangeForPeriod(period, filters?.customStart, filters?.customEnd);
 
   // For "today" period we need day-specific ranges
   const dayRange = getDateRange('day');
@@ -285,18 +306,14 @@ export async function fetchRevenueChart(filters?: DashboardFiltersState): Promis
   const supabase = createClient();
 
   const period = filters?.period ?? 'month';
-  let days = 14;
-  if (period === 'today') days = 1;
-  else if (period === 'week') days = 7;
-  else if (period === 'year') days = 365;
-
-  const since = new Date(Date.now() - days * 86400000).toISOString();
+  const { start: rangeStart, end: rangeEnd } = getDateRangeForPeriod(period, filters?.customStart, filters?.customEnd);
 
   let query = supabase
     .from('receipts')
     .select('total_amount, created_at, is_demo, client_name')
     .eq('status', 'completed')
-    .gte('created_at', since)
+    .gte('created_at', rangeStart)
+    .lte('created_at', rangeEnd)
     .order('created_at', { ascending: true });
 
   if (filters?.employeeId) query = query.eq('employee_id', filters.employeeId);
@@ -326,13 +343,14 @@ export async function fetchPaymentMethods(filters?: DashboardFiltersState): Prom
   const supabase = createClient();
 
   const period = filters?.period ?? 'month';
-  const { start } = getDateRangeForPeriod(period);
+  const { start, end } = getDateRangeForPeriod(period, filters?.customStart, filters?.customEnd);
 
   let query = supabase
     .from('receipts')
     .select('payment_method, total_amount, is_demo, client_name')
     .eq('status', 'completed')
-    .gte('created_at', start);
+    .gte('created_at', start)
+    .lte('created_at', end);
 
   if (filters?.employeeId) query = query.eq('employee_id', filters.employeeId);
 
@@ -375,13 +393,14 @@ export async function fetchTopProducts(filters?: DashboardFiltersState): Promise
   const supabase = createClient();
 
   const period = filters?.period ?? 'month';
-  const { start } = getDateRangeForPeriod(period);
+  const { start, end } = getDateRangeForPeriod(period, filters?.customStart, filters?.customEnd);
 
   let receiptsQuery = supabase
     .from('receipts')
     .select('items, total_amount, is_demo, client_name')
     .eq('status', 'completed')
-    .gte('created_at', start);
+    .gte('created_at', start)
+    .lte('created_at', end);
 
   if (filters?.employeeId) receiptsQuery = receiptsQuery.eq('employee_id', filters.employeeId);
 
@@ -506,4 +525,77 @@ export async function fetchRecentSales(): Promise<RecentSale[]> {
       items: Number(r.items_count) || 0,
     };
   });
+}
+
+// ─── Accounting CSV export ────────────────────────────────────────────────────
+
+export async function exportAccountingCSV(filters: DashboardFiltersState): Promise<void> {
+  const supabase = createClient();
+  const { start, end } = getDateRangeForPeriod(filters.period, filters.customStart, filters.customEnd);
+
+  const isReal = (r: any) => {
+    if (r.is_demo === true) return false;
+    const cn = (r.client_name ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
+    return cn !== 'CHRISTY LHOMME';
+  };
+
+  const [receiptsRes, reservationsRes] = await Promise.all([
+    supabase.from('receipts')
+      .select('ticket_number, created_at, client_name, total_amount, payment_method, items_count, is_demo')
+      .eq('status', 'completed')
+      .gte('created_at', start)
+      .lte('created_at', end)
+      .order('created_at', { ascending: true }),
+    supabase.from('reservations')
+      .select('id, created_at, client_name, deposit_paid, balance_paid, deposit_accounting_date, balance_accounting_date, reservation_status')
+      .gte('created_at', start.split('T')[0])
+      .lte('created_at', end.split('T')[0])
+      .neq('reservation_status', 'cancelled')
+      .order('created_at', { ascending: true }),
+  ]);
+
+  const receipts = (receiptsRes.data ?? []).filter(isReal);
+  const reservations = reservationsRes.data ?? [];
+
+  const csvRows: string[][] = [
+    ['Date', 'Type', 'Référence', 'Client', 'Montant TTC (€)', 'Mode de paiement', 'Nb articles / info'],
+  ];
+
+  receipts.forEach((r) => {
+    const d = new Date(r.created_at).toLocaleDateString('fr-FR');
+    csvRows.push([d, 'Vente caisse', r.ticket_number ?? '', r.client_name ?? '', (Number(r.total_amount) || 0).toFixed(2), r.payment_method ?? '', String(r.items_count ?? '')]);
+  });
+
+  reservations.forEach((r) => {
+    const d = new Date(r.deposit_accounting_date || r.created_at).toLocaleDateString('fr-FR');
+    if (r.deposit_paid > 0) {
+      csvRows.push([d, 'Acompte réservation', r.id.slice(0, 8), r.client_name ?? '', (Number(r.deposit_paid) || 0).toFixed(2), 'Réservation', '']);
+    }
+    if (r.balance_paid > 0) {
+      const db = new Date(r.balance_accounting_date || r.created_at).toLocaleDateString('fr-FR');
+      csvRows.push([db, 'Solde réservation', r.id.slice(0, 8), r.client_name ?? '', (Number(r.balance_paid) || 0).toFixed(2), 'Réservation', '']);
+    }
+  });
+
+  // Totals row
+  const totalCaisse = receipts.reduce((s, r) => s + (Number(r.total_amount) || 0), 0);
+  const totalResa = reservations.reduce((s, r) => s + (Number(r.deposit_paid) || 0) + (Number(r.balance_paid) || 0), 0);
+  csvRows.push([]);
+  csvRows.push(['', 'TOTAL CAISSE', '', '', totalCaisse.toFixed(2), '', '']);
+  csvRows.push(['', 'TOTAL RÉSERVATIONS', '', '', totalResa.toFixed(2), '', '']);
+  csvRows.push(['', 'TOTAL GÉNÉRAL', '', '', (totalCaisse + totalResa).toFixed(2), '', '']);
+
+  const periodLabel = filters.period === 'custom' && filters.customStart && filters.customEnd
+    ? `${filters.customStart}_${filters.customEnd}`
+    : filters.period;
+
+  const csv = csvRows.map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(';')).join('\n');
+  const bom = '﻿'; // UTF-8 BOM for Excel
+  const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `export-compta-${periodLabel}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }

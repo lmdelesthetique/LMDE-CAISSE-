@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { createClient } from '@/lib/supabase/client';
 
 type Grade = 'debutante' | 'confirmee' | 'elite';
 type ContenuStatut = 'a_faire' | 'en_cours' | 'tourne' | 'poste' | 'realise';
@@ -201,39 +202,49 @@ function VideoUploadSection({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const sizeGb = file.size / 1073741824;
-    if (sizeGb > 1) {
-      const ok = window.confirm(
-        `Cette vidéo fait ${sizeGb.toFixed(1)} Go. L'upload peut prendre quelques minutes. Continuer ?`
-      );
-      if (!ok) return;
-    }
-
     setUploading(true);
     setError(null);
 
     try {
-      const formData = new FormData();
-      formData.append('video', file);
-      formData.append('contenuId', contenu.id);
-      formData.append('assignmentId', assignmentId);
-      formData.append('productId', productId);
-      formData.append('ambassadriceId', ambassadriceId);
-
-      const res = await fetch('/api/ambassadrice/upload-video', {
+      // Step 1: Get presigned upload URL from our API (small JSON request)
+      const presignRes = await fetch('/api/ambassadrice/upload-presigned', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contenuId: contenu.id,
+          ambassadriceId,
+          assignmentId,
+          productId,
+          filename: file.name,
+          contentType: file.type || 'video/mp4',
+        }),
       });
+      const presignData = await presignRes.json();
+      if (!presignRes.ok) throw new Error(presignData.error || 'Impossible de préparer l\'upload');
 
-      const data = await res.json();
-      if (!res.ok || !data.ok) throw new Error(data.error || 'Upload échoué');
+      const { token, path } = presignData;
+
+      // Step 2: Upload directly browser → Supabase (bypasses Next.js, works with any file size)
+      const supabase = createClient();
+      const { error: uploadError } = await supabase.storage
+        .from('ambassadrice-videos')
+        .uploadToSignedUrl(path, token, file, { contentType: file.type || 'video/mp4', upsert: true });
+      if (uploadError) throw new Error(uploadError.message);
+
+      // Step 3: Notify our API to update the DB record
+      const completeRes = await fetch('/api/ambassadrice/upload-video-complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contenuId: contenu.id, path, filename: file.name, sizeBytes: file.size }),
+      });
+      const completeData = await completeRes.json();
+      if (!completeRes.ok) throw new Error(completeData.error || 'Erreur mise à jour');
 
       onUploadComplete();
     } catch (err: any) {
       setError(err.message || 'Erreur lors de l\'upload');
     } finally {
       setUploading(false);
-      // Reset file input
       e.target.value = '';
     }
   }
@@ -310,18 +321,24 @@ export default function AmbassadricePortalPage() {
   const [scriptModal, setScriptModal] = useState<{ productId: string; productName: string } | null>(null);
   const [addingContenu, setAddingContenu] = useState<string | null>(null);
   const [updatingContenu, setUpdatingContenu] = useState<string | null>(null);
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
+  const [isIOS, setIsIOS] = useState(false);
 
-  // Guard: require PIN session — redirect to login if not authenticated
+  // PWA install prompt (Android/Chrome)
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem('ambassadrice_session');
-      if (!raw) { router.replace('/espace-ambassadrice/login'); return; }
-      const session = JSON.parse(raw);
-      if (session.lienUnique !== lienUnique) { router.replace('/espace-ambassadrice/login'); return; }
-    } catch {
-      router.replace('/espace-ambassadrice/login');
-    }
-  }, [lienUnique, router]);
+    const handler = (e: Event) => { e.preventDefault(); setInstallPrompt(e); setShowInstallBanner(true); };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  // Detect iOS for manual install instructions
+  useEffect(() => {
+    const ua = navigator.userAgent;
+    const isIOSDevice = /iPad|iPhone|iPod/.test(ua) && !(window as any).MSStream;
+    const isStandalone = (navigator as any).standalone === true;
+    setIsIOS(isIOSDevice && !isStandalone);
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -421,6 +438,32 @@ export default function AmbassadricePortalPage() {
           script={activeScript}
           onClose={() => setScriptModal(null)}
         />
+      )}
+
+      {/* PWA Install Banner */}
+      {showInstallBanner && installPrompt && (
+        <div className="fixed bottom-4 left-4 right-4 z-50 bg-white rounded-2xl shadow-xl border border-pink-200 p-4 flex items-center gap-3">
+          <div className="text-2xl shrink-0">📱</div>
+          <div className="flex-1">
+            <p className="text-sm font-bold text-gray-800">Installer sur mon téléphone</p>
+            <p className="text-xs text-gray-500">Accès rapide depuis l'écran d'accueil</p>
+          </div>
+          <button
+            onClick={async () => { installPrompt.prompt(); const { outcome } = await installPrompt.userChoice; if (outcome === 'accepted') setShowInstallBanner(false); }}
+            className="shrink-0 px-3 py-2 bg-pink-600 text-white text-xs font-bold rounded-xl"
+          >
+            Installer
+          </button>
+          <button onClick={() => setShowInstallBanner(false)} className="shrink-0 text-gray-400 text-lg leading-none">×</button>
+        </div>
+      )}
+
+      {/* iOS install instructions */}
+      {isIOS && (
+        <div className="bg-pink-600 text-white px-4 py-2.5 text-center text-xs font-medium flex items-center justify-center gap-2">
+          <span>📲</span>
+          <span>Pour installer : appuie sur <strong>Partager</strong> puis <strong>Sur l'écran d'accueil</strong></span>
+        </div>
       )}
 
       {/* Header */}
