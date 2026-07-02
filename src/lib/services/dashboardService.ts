@@ -20,6 +20,8 @@ export interface DashboardKPIs {
   productsAbove50Pct: number;
   caShopify: number;
   caShopifyDay: number;
+  reservationDeposits: number;
+  reservationBalances: number;
 }
 
 export interface RevenuePoint {
@@ -197,6 +199,8 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
     marginProductsResult,
     caShopify,
     caShopifyDay,
+    resDepositsResult,
+    resBalancesResult,
   ] = await Promise.all([
     buildReceiptsQuery(start, end),
     buildReceiptsQuery(prevStart, prevEnd),
@@ -211,6 +215,14 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
       .eq('product_status', 'active'),
     shopifyRevenuePromise,
     shopifyRevenueDayPromise,
+    supabase.from('reservations').select('deposit_paid')
+      .gte('deposit_accounting_date', start.split('T')[0])
+      .lte('deposit_accounting_date', end.split('T')[0])
+      .neq('reservation_status', 'cancelled'),
+    supabase.from('reservations').select('balance_paid')
+      .gte('balance_accounting_date', start.split('T')[0])
+      .lte('balance_accounting_date', end.split('T')[0])
+      .neq('reservation_status', 'cancelled'),
   ]);
 
   const stockAlertCount = (stockAlertResult.data ?? []).filter((p: any) =>
@@ -244,10 +256,12 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
   const salesDayPrev = (prevDayReceipts.data ?? []).filter(isReal).length;
   const avgBasket = salesDay > 0 ? caDay / salesDay : 0;
 
-  // Simpler: just use the filtered period values for the main KPI display
+  const reservationDeposits = (resDepositsResult.data ?? []).reduce((s, r) => s + (Number(r.deposit_paid) || 0), 0);
+  const reservationBalances = (resBalancesResult.data ?? []).reduce((s, r) => s + (Number(r.balance_paid) || 0), 0);
+
   return {
-    caMonth: caMain,
-    caWeek: caMain,
+    caMonth: caMain + reservationDeposits + reservationBalances,
+    caWeek: caMain + reservationDeposits + reservationBalances,
     caDay,
     salesDay,
     avgBasket,
@@ -262,6 +276,8 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
     productsAbove50Pct,
     caShopify,
     caShopifyDay,
+    reservationDeposits,
+    reservationBalances,
   };
 }
 

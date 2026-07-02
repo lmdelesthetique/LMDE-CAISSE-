@@ -40,14 +40,6 @@ export default function DashboardFilters({ filters, onChange }: DashboardFilters
           </button>
         ))}
       </div>
-      <button className="flex items-center gap-1.5 px-3 py-1.5 border border-border rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-        <Icon name="AdjustmentsHorizontalIcon" size={15} />
-        Filtres
-      </button>
-      <button className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity active:scale-95">
-        <Icon name="ArrowDownTrayIcon" size={15} />
-        Exporter
-      </button>
     </div>
   );
 }

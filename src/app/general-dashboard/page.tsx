@@ -400,10 +400,8 @@ export default function GeneralDashboardPage() {
                 <div className="lg:col-span-2">
                   <KPICard
                     label="Chiffre d'affaires"
-                    value={`${fmt(kpis.totalRevenue + shopifyCA)} €`}
-                    sub={shopifyCA > 0
-                      ? `🏪 Caisse : ${fmt(kpis.totalRevenue)} € · 🛍️ Shopify : ${fmt(shopifyCA)} € (${shopifyOrdersCount} cmd${shopifyOrdersCount > 1 ? 's' : ''}) · ${kpis.totalTickets} tickets`
-                      : `${kpis.totalTickets} tickets validés`}
+                    value={`${fmt(kpis.totalRevenue + shopifyCA + kpis.reservationDeposits + kpis.reservationBalances)} €`}
+                    sub={`🏪 Caisse : ${fmt(kpis.totalRevenue)} €${shopifyCA > 0 ? ` · 🛍️ Shopify : ${fmt(shopifyCA)} € (${shopifyOrdersCount} cmd${shopifyOrdersCount > 1 ? 's' : ''})` : ''}${(kpis.reservationDeposits + kpis.reservationBalances) > 0 ? ` · 📋 Résa : ${fmt(kpis.reservationDeposits + kpis.reservationBalances)} €` : ''} · ${kpis.totalTickets} tickets`}
                     icon="BanknotesIcon"
                     accent="success"
                   />
