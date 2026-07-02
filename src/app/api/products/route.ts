@@ -1,6 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 
+export async function GET(req: NextRequest) {
+  const ids = req.nextUrl.searchParams.get('ids');
+  if (!ids) return NextResponse.json([]);
+  const idList = ids.split(',').filter(Boolean).slice(0, 50);
+  const supabase = createAdminClient();
+  const { data } = await supabase
+    .from('products')
+    .select('id, image_url')
+    .in('id', idList);
+  return NextResponse.json(data ?? []);
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => null);

@@ -279,6 +279,26 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
     } catch { /* ignore */ }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // Auto-fetch missing images for lines that have a productId but no imageUrl
+  useEffect(() => {
+    const missing = lines.filter((l) => l.productId && !l.imageUrl);
+    if (missing.length === 0) return;
+    const ids = missing.map((l) => l.productId!);
+    fetch(`/api/products?ids=${ids.join(',')}`)
+      .then((r) => r.json())
+      .then((data: any[]) => {
+        if (!Array.isArray(data)) return;
+        const map: Record<string, string> = {};
+        data.forEach((p) => { if (p.id && p.image_url) map[p.id] = p.image_url; });
+        setLines((prev) => prev.map((l) =>
+          l.productId && map[l.productId] ? { ...l, imageUrl: map[l.productId] } : l
+        ));
+      })
+      .catch(() => {});
+  // Only run once on mount
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Legal mentions
   const [latePenaltyRate, setLatePenaltyRate] = useState('3');
   const [recoveryFee, setRecoveryFee] = useState('40');
