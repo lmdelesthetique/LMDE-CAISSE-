@@ -331,6 +331,7 @@ export interface FacturePrintData {
     price: number;
     discount?: number;
     discountType?: 'percent' | 'amount';
+    imageUrl?: string;
   }>;
   subtotalHT: number;
   totalTVA: number;
@@ -346,6 +347,7 @@ export interface FacturePrintData {
   companySiret?: string;
   companyPhone?: string;
   paperWidth?: string;
+  logoUrl?: string;
 }
 
 export function generateFactureHTML(d: FacturePrintData): string {
@@ -437,72 +439,97 @@ ${d.companyTva ? `<p class="tc">TVA Intracommunautaire</p><p class="tc">${esc(d.
 </body></html>`;
   }
 
-  // ── A4 format ──────────────────────────────────────────────────────────────
+  // ── A4 format — professional rose/pink branded ──────────────────────────────
+  const ROSE = '#c2185b';
+  const ROSE_LIGHT = '#fce4ec';
+  const ROSE_PALE = '#fdf6f9';
+  const ROSE_BORDER = '#f48fb1';
+
+  const hasImages = itemRows.some((i) => i.imageUrl);
+
   const itemsTableRows = itemRows.map((i, idx) => {
     const priceHT = i.price / (1 + d.tvaRate / 100);
-    return `<tr style="${idx % 2 === 1 ? 'background:#f9f9f9' : ''}">
-      <td style="padding:5px 8px;border-bottom:1px solid #eee;font-size:10pt">${esc(i.name)}</td>
-      <td style="padding:5px 8px;border-bottom:1px solid #eee;font-size:10pt;text-align:center">${i.qty}</td>
-      <td style="padding:5px 8px;border-bottom:1px solid #eee;font-size:10pt;text-align:right">${priceHT.toFixed(2)} €</td>
-      <td style="padding:5px 8px;border-bottom:1px solid #eee;font-size:10pt;text-align:right">${(i.lineTotal / (1 + d.tvaRate / 100)).toFixed(2)} €</td>
-      <td style="padding:5px 8px;border-bottom:1px solid #eee;font-size:10pt;font-weight:bold;text-align:right">${i.lineTotal.toFixed(2)} €</td>
+    const imgCell = hasImages
+      ? (i.imageUrl
+          ? `<td style="padding:5px 8px;border-bottom:1px solid ${ROSE_LIGHT};width:48px;text-align:center;vertical-align:middle"><img src="${i.imageUrl}" alt="" style="width:38px;height:38px;object-fit:cover;border-radius:5px;border:1px solid ${ROSE_BORDER};display:block;margin:0 auto"/></td>`
+          : `<td style="padding:5px 8px;border-bottom:1px solid ${ROSE_LIGHT};width:48px;text-align:center;vertical-align:middle"><div style="width:38px;height:38px;background:${ROSE_LIGHT};border-radius:5px;display:flex;align-items:center;justify-content:center;margin:0 auto;font-size:18px;line-height:38px;text-align:center">💄</div></td>`)
+      : '';
+    return `<tr style="background:${idx % 2 === 1 ? ROSE_PALE : '#fff'}">
+      ${imgCell}
+      <td style="padding:5px 8px;border-bottom:1px solid ${ROSE_LIGHT};font-size:10pt;vertical-align:middle">${esc(i.name)}${(i.discount ?? 0) > 0 ? `<br><span style="font-size:8pt;color:#c2185b;font-style:italic">Remise : -${i.discountType === 'percent' ? `${i.discount}%` : `${(i.discount ?? 0).toFixed(2)} €`}</span>` : ''}</td>
+      <td style="padding:5px 8px;border-bottom:1px solid ${ROSE_LIGHT};font-size:10pt;text-align:center;font-weight:bold;vertical-align:middle">${i.qty}</td>
+      <td style="padding:5px 8px;border-bottom:1px solid ${ROSE_LIGHT};font-size:10pt;text-align:right;vertical-align:middle">${priceHT.toFixed(2)} €</td>
+      <td style="padding:5px 8px;border-bottom:1px solid ${ROSE_LIGHT};font-size:10pt;text-align:right;vertical-align:middle">${(i.lineTotal / (1 + d.tvaRate / 100)).toFixed(2)} €</td>
+      <td style="padding:5px 8px;border-bottom:1px solid ${ROSE_LIGHT};font-size:10pt;font-weight:bold;text-align:right;vertical-align:middle">${i.lineTotal.toFixed(2)} €</td>
     </tr>`;
   }).join('');
 
   const badgeStyle = isFacture
-    ? 'background:#dcfce7;color:#15803d;padding:3px 10px;border-radius:4px;font-weight:bold;font-size:10pt;display:inline-block'
-    : 'background:#fef9c3;color:#a16207;padding:3px 10px;border-radius:4px;font-weight:bold;font-size:10pt;display:inline-block';
+    ? `background:#dcfce7;color:#15803d;padding:3px 12px;border-radius:20px;font-weight:bold;font-size:9pt;display:inline-block;letter-spacing:0.3px`
+    : `background:#fef9c3;color:#a16207;padding:3px 12px;border-radius:20px;font-weight:bold;font-size:9pt;display:inline-block;letter-spacing:0.3px`;
   const badgeLabel = isFacture ? '✅ PAYÉE' : '⏳ EN ATTENTE';
+
+  const logoHtml = d.logoUrl
+    ? `<img src="${d.logoUrl}" alt="logo" style="height:50px;width:50px;object-fit:contain;border-radius:8px;margin-bottom:6px;display:block"/>`
+    : '';
 
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>${title} ${esc(d.numero)}</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:Arial,Helvetica,sans-serif;font-size:11pt;color:#000;background:#fff;}
-.page{width:190mm;margin:0 auto;padding:12mm 0 15mm;}
+body{font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#1a0a1e;background:#fff;}
+.page{width:190mm;margin:0 auto;padding:0 0 15mm;}
 @media print{@page{size:A4;margin:10mm;}body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}.page{padding:0;}}
 </style></head><body>
 <div class="page">
 
-  <!-- Header -->
-  <table style="width:100%;border-collapse:collapse;margin-bottom:8mm;border-bottom:2px solid #1a0a2e;padding-bottom:6mm">
+  <!-- Brand header band -->
+  <div style="background:${ROSE};padding:6mm 8mm;margin-bottom:7mm;display:flex;justify-content:space-between;align-items:center">
+    <div style="color:#fff">
+      ${logoHtml}
+      <p style="font-size:15pt;font-weight:bold;color:#fff;letter-spacing:0.5px">${esc(d.companyName)}</p>
+      ${d.companyLine2 ? `<p style="font-size:8pt;color:rgba(255,255,255,0.85);margin-top:2px">${esc(d.companyLine2)}</p>` : ''}
+      ${d.companyCity ? `<p style="font-size:8pt;color:rgba(255,255,255,0.85)">${esc(d.companyCity)}</p>` : ''}
+      ${d.companyPhone ? `<p style="font-size:8pt;color:rgba(255,255,255,0.85)">Tél : ${esc(d.companyPhone)}</p>` : ''}
+    </div>
+    <div style="text-align:right">
+      <p style="font-size:28pt;font-weight:bold;color:#fff;letter-spacing:1px;line-height:1">${title}</p>
+      <p style="font-size:11pt;font-weight:bold;color:rgba(255,255,255,0.95);margin-top:4px">${esc(d.numero)}</p>
+      <p style="font-size:9pt;color:rgba(255,255,255,0.85);margin-top:3px">${esc(d.dateStr)}</p>
+      <div style="margin-top:8px"><span style="${badgeStyle}">${badgeLabel}</span></div>
+    </div>
+  </div>
+
+  <!-- Company legal + Client side by side -->
+  <table style="width:100%;border-collapse:collapse;margin-bottom:7mm">
     <tr>
-      <td style="vertical-align:top;width:60%">
-        <p style="font-size:15pt;font-weight:bold;color:#1a0a2e">${esc(d.companyName)}</p>
-        ${d.companyLine1 ? `<p style="font-size:9pt;color:#555;margin-top:3px">${esc(d.companyLine1)}</p>` : ''}
-        ${d.companyLine2 ? `<p style="font-size:9pt;color:#555">${esc(d.companyLine2)}</p>` : ''}
-        ${d.companyCity ? `<p style="font-size:9pt;color:#555">${esc(d.companyCity)}</p>` : ''}
-        ${d.companyPhone ? `<p style="font-size:9pt;color:#555">Tél : ${esc(d.companyPhone)}</p>` : ''}
-        ${d.companySiret ? `<p style="font-size:9pt;color:#555">SIRET : ${esc(d.companySiret)}</p>` : ''}
-        ${d.companyTva ? `<p style="font-size:9pt;color:#555">TVA : ${esc(d.companyTva)}</p>` : ''}
+      <td style="vertical-align:top;width:50%;padding-right:6mm">
+        <p style="font-size:7.5pt;font-weight:bold;text-transform:uppercase;color:${ROSE};letter-spacing:0.8px;margin-bottom:3px">ÉMETTEUR</p>
+        ${d.companySiret ? `<p style="font-size:8.5pt;color:#555">SIRET : ${esc(d.companySiret)}</p>` : ''}
+        ${d.companyTva ? `<p style="font-size:8.5pt;color:#555">TVA : ${esc(d.companyTva)}</p>` : ''}
+        ${d.companyLine1 ? `<p style="font-size:8.5pt;color:#555">${esc(d.companyLine1)}</p>` : ''}
       </td>
-      <td style="vertical-align:top;text-align:right">
-        <p style="font-size:24pt;font-weight:bold;color:#1a0a2e">${title}</p>
-        <p style="font-size:11pt;font-weight:bold;color:#333;margin-top:4px">${esc(d.numero)}</p>
-        <p style="font-size:10pt;color:#555;margin-top:2px">Date : ${esc(d.dateStr)}</p>
-        <div style="margin-top:6px"><span style="${badgeStyle}">${badgeLabel}</span></div>
-      </td>
+      ${d.clientName ? `<td style="vertical-align:top;width:50%">
+        <div style="background:${ROSE_LIGHT};border-left:3px solid ${ROSE};border-radius:0 6px 6px 0;padding:4mm 5mm">
+          <p style="font-size:7.5pt;font-weight:bold;text-transform:uppercase;color:${ROSE};letter-spacing:0.8px;margin-bottom:4px">CLIENT / DESTINATAIRE</p>
+          <p style="font-weight:bold;font-size:11pt;color:#1a0a1e">${esc(d.clientName.toUpperCase())}</p>
+          ${d.clientAddress ? `<p style="font-size:8.5pt;color:#555;margin-top:2px">${esc(d.clientAddress)}</p>` : ''}
+          ${d.clientEmail ? `<p style="font-size:8.5pt;color:#555">${esc(d.clientEmail)}</p>` : ''}
+        </div>
+      </td>` : '<td></td>'}
     </tr>
   </table>
 
-  <!-- Client block -->
-  ${d.clientName ? `
-  <div style="background:#f9f9f9;border:1px solid #ddd;border-radius:4px;padding:4mm 5mm;margin-bottom:6mm;display:inline-block;min-width:80mm">
-    <p style="font-size:8pt;font-weight:bold;text-transform:uppercase;color:#888;letter-spacing:0.5px;margin-bottom:3px">CLIENT</p>
-    <p style="font-weight:bold;font-size:11pt">${esc(d.clientName.toUpperCase())}</p>
-    ${d.clientAddress ? `<p style="font-size:9pt;color:#555;margin-top:1px">${esc(d.clientAddress)}</p>` : ''}
-    ${d.clientEmail ? `<p style="font-size:9pt;color:#555">${esc(d.clientEmail)}</p>` : ''}
-  </div>` : ''}
-
   <!-- Items table -->
-  <table style="width:100%;border-collapse:collapse;margin-bottom:4mm">
+  <table style="width:100%;border-collapse:collapse;margin-bottom:5mm">
     <thead>
-      <tr style="background:#1a0a2e;color:#fff">
-        <th style="padding:5px 8px;font-size:9pt;text-align:left;font-weight:bold">Désignation</th>
-        <th style="padding:5px 8px;font-size:9pt;text-align:center;font-weight:bold">Qté</th>
-        <th style="padding:5px 8px;font-size:9pt;text-align:right;font-weight:bold">P.U. HT</th>
-        <th style="padding:5px 8px;font-size:9pt;text-align:right;font-weight:bold">Total HT</th>
-        <th style="padding:5px 8px;font-size:9pt;text-align:right;font-weight:bold">Total TTC</th>
+      <tr style="background:${ROSE_LIGHT};border-bottom:2px solid ${ROSE}">
+        ${hasImages ? `<th style="padding:6px 8px;font-size:8.5pt;text-align:center;font-weight:bold;color:${ROSE};width:48px"></th>` : ''}
+        <th style="padding:6px 8px;font-size:8.5pt;text-align:left;font-weight:bold;color:${ROSE}">Désignation</th>
+        <th style="padding:6px 8px;font-size:8.5pt;text-align:center;font-weight:bold;color:${ROSE};width:40px">Qté</th>
+        <th style="padding:6px 8px;font-size:8.5pt;text-align:right;font-weight:bold;color:${ROSE};width:65px">P.U. HT</th>
+        <th style="padding:6px 8px;font-size:8.5pt;text-align:right;font-weight:bold;color:${ROSE};width:65px">Total HT</th>
+        <th style="padding:6px 8px;font-size:8.5pt;text-align:right;font-weight:bold;color:${ROSE};width:70px">Total TTC</th>
       </tr>
     </thead>
     <tbody>${itemsTableRows}</tbody>
@@ -510,38 +537,38 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:11pt;color:#000;background
 
   <!-- Totals -->
   <div style="display:flex;justify-content:flex-end;margin-bottom:6mm">
-    <table style="width:72mm;border-collapse:collapse">
+    <table style="width:75mm;border-collapse:collapse">
       <tr>
-        <td style="padding:3px 4px;font-size:10pt">Sous-total HT</td>
-        <td style="padding:3px 4px;font-size:10pt;text-align:right">${d.subtotalHT.toFixed(2)} €</td>
+        <td style="padding:4px 6px;font-size:10pt;color:#555">Sous-total HT</td>
+        <td style="padding:4px 6px;font-size:10pt;text-align:right">${d.subtotalHT.toFixed(2)} €</td>
       </tr>
       <tr>
-        <td style="padding:3px 4px;font-size:10pt">TVA ${d.tvaRate}%</td>
-        <td style="padding:3px 4px;font-size:10pt;text-align:right">${d.totalTVA.toFixed(2)} €</td>
+        <td style="padding:4px 6px;font-size:10pt;color:#555">TVA ${d.tvaRate}%</td>
+        <td style="padding:4px 6px;font-size:10pt;text-align:right">${d.totalTVA.toFixed(2)} €</td>
       </tr>
       ${(d.globalDiscount ?? 0) > 0 ? `<tr>
-        <td style="padding:3px 4px;font-size:10pt;color:#dc2626;font-weight:bold">Remise</td>
-        <td style="padding:3px 4px;font-size:10pt;text-align:right;color:#dc2626;font-weight:bold">-${d.globalDiscount!.toFixed(2)} €</td>
+        <td style="padding:4px 6px;font-size:10pt;color:#c2185b;font-weight:bold">Remise globale</td>
+        <td style="padding:4px 6px;font-size:10pt;text-align:right;color:#c2185b;font-weight:bold">-${d.globalDiscount!.toFixed(2)} €</td>
       </tr>` : ''}
       <tr>
-        <td style="padding:5px 4px;font-size:13pt;font-weight:bold;border-top:2px solid #000;border-bottom:2px solid #000">TOTAL TTC</td>
-        <td style="padding:5px 4px;font-size:13pt;font-weight:bold;text-align:right;border-top:2px solid #000;border-bottom:2px solid #000">${d.totalTTC.toFixed(2)} €</td>
+        <td style="padding:6px 8px;font-size:12pt;font-weight:bold;background:${ROSE};color:#fff;border-radius:4px 0 0 4px">TOTAL TTC</td>
+        <td style="padding:6px 8px;font-size:13pt;font-weight:bold;text-align:right;background:${ROSE};color:#fff;border-radius:0 4px 4px 0">${d.totalTTC.toFixed(2)} €</td>
       </tr>
     </table>
   </div>
 
   <!-- Payment / validity -->
   ${isFacture && d.paymentMethod ? `
-  <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:4px;padding:3mm 5mm;margin-bottom:8mm;font-size:10pt">
+  <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:6px;padding:3mm 5mm;margin-bottom:8mm;font-size:9.5pt">
     <strong>Paiement reçu :</strong> ${esc(d.paymentMethod)} — le ${esc(d.dateStr)}<br>
     <strong>Montant acquitté :</strong> ${d.totalTTC.toFixed(2)} €
   </div>` : !isFacture ? `
-  <div style="background:#fefce8;border:1px solid #fde047;border-radius:4px;padding:3mm 5mm;margin-bottom:8mm;font-size:10pt;font-style:italic">
+  <div style="background:#fefce8;border:1px solid #fde047;border-radius:6px;padding:3mm 5mm;margin-bottom:8mm;font-size:9.5pt;font-style:italic">
     Devis valable 30 jours à compter du ${esc(d.dateStr)}. Sans engagement de votre part.
   </div>` : ''}
 
   <!-- Legal footer -->
-  <div style="border-top:1px solid #ccc;padding-top:4mm;font-size:8pt;color:#666;line-height:1.6">
+  <div style="border-top:2px solid ${ROSE_LIGHT};padding-top:4mm;font-size:7.5pt;color:#888;line-height:1.7">
     ${d.companySiret ? `SIRET : ${esc(d.companySiret)} &nbsp;|&nbsp; ` : ''}
     ${d.companyTva ? `N° TVA Intracommunautaire : ${esc(d.companyTva)} &nbsp;|&nbsp; ` : ''}
     TVA applicable au taux de ${d.tvaRate}% (Art. 278 du CGI)

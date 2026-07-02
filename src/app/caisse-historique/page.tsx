@@ -616,7 +616,7 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
       dateStr,
       timeStr,
       clientName: receipt.clientName ?? undefined,
-      items: receipt.items.map((i) => ({ name: i.name, qty: i.qty, price: i.price, discount: i.discount, discountType: i.discountType })),
+      items: receipt.items.map((i) => ({ name: i.name, qty: i.qty, price: i.price, discount: i.discount, discountType: i.discountType, imageUrl: i.imageUrl })),
       subtotalHT,
       totalTVA,
       totalTTC: receipt.totalAmount,
@@ -630,6 +630,7 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
       companySiret: s.companySiret,
       companyTva: s.companyTva,
       globalDiscount: globalDiscount > 0 ? globalDiscount : undefined,
+      logoUrl: `${window.location.origin}/assets/images/app_logo.png`,
     }));
   };
 

@@ -869,6 +869,164 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
   );
 }
 
+// ─── Professional PDF print ───────────────────────────────────────────────────
+
+function esc(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function printB2BDocument(doc: B2BDocument) {
+  const cfg = DOC_TYPE_CONFIG[doc.type] ?? { label: doc.type, prefix: '?' };
+  const title = cfg.label.toUpperCase();
+  const isFacture = doc.type === 'invoice';
+  const isDevis = doc.type === 'estimate';
+
+  const ROSE = '#c2185b';
+  const ROSE_LIGHT = '#fce4ec';
+  const ROSE_PALE = '#fdf6f9';
+  const ROSE_BORDER = '#f48fb1';
+
+  const hasImages = doc.lines.some((l) => l.imageUrl);
+
+  const itemRows = doc.lines.map((l) => {
+    const disc = l.discount > 0 ? l.unitPrice * l.quantity * (l.discount / 100) : 0;
+    const htLine = Math.max(0, l.unitPrice * l.quantity - disc);
+    const tvaFactor = 1 + l.tvaRate / 100;
+    const ttcLine = htLine * tvaFactor;
+    const imgCell = hasImages
+      ? (l.imageUrl
+          ? `<td style="padding:5px 8px;border-bottom:1px solid ${ROSE_LIGHT};width:48px;text-align:center;vertical-align:middle"><img src="${l.imageUrl}" alt="" style="width:38px;height:38px;object-fit:cover;border-radius:5px;border:1px solid ${ROSE_BORDER};display:block;margin:0 auto"/></td>`
+          : `<td style="padding:5px 8px;border-bottom:1px solid ${ROSE_LIGHT};width:48px;text-align:center;vertical-align:middle"><div style="width:38px;height:38px;background:${ROSE_LIGHT};border-radius:5px;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:18px;line-height:38px;text-align:center">💄</div></td>`)
+      : '';
+    return `<tr>
+      ${imgCell}
+      <td style="padding:5px 8px;border-bottom:1px solid ${ROSE_LIGHT};font-size:10pt;vertical-align:middle">${esc(l.description)}${l.discount > 0 ? `<br><span style="font-size:8pt;color:${ROSE};font-style:italic">Remise : -${l.discount}%</span>` : ''}</td>
+      <td style="padding:5px 8px;border-bottom:1px solid ${ROSE_LIGHT};font-size:10pt;text-align:center;font-weight:bold;vertical-align:middle">${l.quantity}</td>
+      <td style="padding:5px 8px;border-bottom:1px solid ${ROSE_LIGHT};font-size:10pt;text-align:right;vertical-align:middle">${l.unitPrice.toFixed(2)} €</td>
+      <td style="padding:5px 8px;border-bottom:1px solid ${ROSE_LIGHT};font-size:10pt;text-align:center;vertical-align:middle">${l.tvaRate}%</td>
+      <td style="padding:5px 8px;border-bottom:1px solid ${ROSE_LIGHT};font-size:10pt;text-align:right;vertical-align:middle">${htLine.toFixed(2)} €</td>
+      <td style="padding:5px 8px;border-bottom:1px solid ${ROSE_LIGHT};font-size:10pt;font-weight:bold;text-align:right;vertical-align:middle">${ttcLine.toFixed(2)} €</td>
+    </tr>`;
+  });
+
+  const badgeStyle = isFacture
+    ? `background:#dcfce7;color:#15803d;padding:3px 12px;border-radius:20px;font-weight:bold;font-size:9pt;display:inline-block`
+    : `background:#fef9c3;color:#a16207;padding:3px 12px;border-radius:20px;font-weight:bold;font-size:9pt;display:inline-block`;
+  const badgeLabel = isFacture ? '✅ PAYÉE' : isDevis ? '⏳ DEVIS' : '📄 PROFORMA';
+
+  const logoUrl = `${window.location.origin}/assets/images/app_logo.png`;
+
+  const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>${title} ${esc(doc.number)}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#1a0a1e;background:#fff;}
+.page{width:190mm;margin:0 auto;padding:0 0 15mm;}
+@media print{@page{size:A4;margin:10mm;}body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}.page{padding:0;}}
+</style></head><body>
+<div class="page">
+  <!-- Brand header -->
+  <div style="background:${ROSE};padding:6mm 8mm;margin-bottom:7mm;display:flex;justify-content:space-between;align-items:center">
+    <div style="color:#fff;display:flex;align-items:center;gap:10px">
+      <img src="${logoUrl}" alt="logo" style="height:48px;width:48px;object-fit:contain;border-radius:8px;background:rgba(255,255,255,0.15);padding:2px" onerror="this.style.display='none'"/>
+      <div>
+        <p style="font-size:15pt;font-weight:bold;color:#fff;letter-spacing:0.5px">${esc(doc.sellerName || 'Le Monde de l\'Esthétique')}</p>
+        ${doc.sellerAddress ? `<p style="font-size:8pt;color:rgba(255,255,255,0.85);margin-top:2px">${esc(doc.sellerAddress)}</p>` : ''}
+        ${doc.sellerSiret ? `<p style="font-size:8pt;color:rgba(255,255,255,0.85)">SIRET : ${esc(doc.sellerSiret)}</p>` : ''}
+      </div>
+    </div>
+    <div style="text-align:right">
+      <p style="font-size:28pt;font-weight:bold;color:#fff;letter-spacing:1px;line-height:1">${title}</p>
+      <p style="font-size:11pt;font-weight:bold;color:rgba(255,255,255,0.95);margin-top:4px">${esc(doc.number)}</p>
+      <p style="font-size:9pt;color:rgba(255,255,255,0.85);margin-top:3px">Émis le : ${esc(formatDate(doc.issueDate))}</p>
+      ${doc.dueDate ? `<p style="font-size:9pt;color:rgba(255,255,255,0.85)">Échéance : ${esc(formatDate(doc.dueDate))}</p>` : ''}
+      <div style="margin-top:8px"><span style="${badgeStyle}">${badgeLabel}</span></div>
+    </div>
+  </div>
+
+  <!-- Emitter + Client -->
+  <table style="width:100%;border-collapse:collapse;margin-bottom:7mm">
+    <tr>
+      <td style="vertical-align:top;width:50%;padding-right:6mm">
+        <p style="font-size:7.5pt;font-weight:bold;text-transform:uppercase;color:${ROSE};letter-spacing:0.8px;margin-bottom:3px">ÉMETTEUR</p>
+        ${doc.sellerTva ? `<p style="font-size:8.5pt;color:#555">TVA : ${esc(doc.sellerTva)}</p>` : ''}
+        ${doc.sellerSiret ? `<p style="font-size:8.5pt;color:#555">SIRET : ${esc(doc.sellerSiret)}</p>` : ''}
+      </td>
+      <td style="vertical-align:top;width:50%">
+        <div style="background:${ROSE_LIGHT};border-left:3px solid ${ROSE};border-radius:0 6px 6px 0;padding:4mm 5mm">
+          <p style="font-size:7.5pt;font-weight:bold;text-transform:uppercase;color:${ROSE};letter-spacing:0.8px;margin-bottom:4px">CLIENT / DESTINATAIRE</p>
+          <p style="font-weight:bold;font-size:11pt;color:#1a0a1e">${esc(doc.clientName.toUpperCase())}</p>
+          ${doc.clientAddress ? `<p style="font-size:8.5pt;color:#555;margin-top:2px">${esc(doc.clientAddress)}</p>` : ''}
+          ${doc.clientEmail ? `<p style="font-size:8.5pt;color:#555">${esc(doc.clientEmail)}</p>` : ''}
+          ${doc.clientSiret ? `<p style="font-size:8.5pt;color:#555">SIRET : ${esc(doc.clientSiret)}</p>` : ''}
+          ${doc.clientTva ? `<p style="font-size:8.5pt;color:#555">TVA : ${esc(doc.clientTva)}</p>` : ''}
+        </div>
+      </td>
+    </tr>
+  </table>
+
+  <!-- Items table -->
+  <table style="width:100%;border-collapse:collapse;margin-bottom:5mm">
+    <thead>
+      <tr style="background:${ROSE_LIGHT};border-bottom:2px solid ${ROSE}">
+        ${hasImages ? `<th style="padding:6px 8px;font-size:8.5pt;text-align:center;font-weight:bold;color:${ROSE};width:48px"></th>` : ''}
+        <th style="padding:6px 8px;font-size:8.5pt;text-align:left;font-weight:bold;color:${ROSE}">Désignation</th>
+        <th style="padding:6px 8px;font-size:8.5pt;text-align:center;font-weight:bold;color:${ROSE};width:40px">Qté</th>
+        <th style="padding:6px 8px;font-size:8.5pt;text-align:right;font-weight:bold;color:${ROSE};width:65px">P.U.</th>
+        <th style="padding:6px 8px;font-size:8.5pt;text-align:center;font-weight:bold;color:${ROSE};width:40px">TVA</th>
+        <th style="padding:6px 8px;font-size:8.5pt;text-align:right;font-weight:bold;color:${ROSE};width:65px">Total HT</th>
+        <th style="padding:6px 8px;font-size:8.5pt;text-align:right;font-weight:bold;color:${ROSE};width:70px">Total TTC</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${itemRows.map((r, i) => r.replace('<tr>', `<tr style="background:${i % 2 === 1 ? ROSE_PALE : '#fff'}">`)).join('')}
+    </tbody>
+  </table>
+
+  <!-- Totals -->
+  <div style="display:flex;justify-content:flex-end;margin-bottom:6mm">
+    <table style="width:78mm;border-collapse:collapse">
+      <tr>
+        <td style="padding:4px 6px;font-size:10pt;color:#555">Total HT</td>
+        <td style="padding:4px 6px;font-size:10pt;text-align:right">${doc.totalHt.toFixed(2)} €</td>
+      </tr>
+      <tr>
+        <td style="padding:4px 6px;font-size:10pt;color:#555">Total TVA</td>
+        <td style="padding:4px 6px;font-size:10pt;text-align:right">${doc.totalTva.toFixed(2)} €</td>
+      </tr>
+      <tr>
+        <td style="padding:6px 8px;font-size:12pt;font-weight:bold;background:${ROSE};color:#fff;border-radius:4px 0 0 4px">TOTAL TTC</td>
+        <td style="padding:6px 8px;font-size:13pt;font-weight:bold;text-align:right;background:${ROSE};color:#fff;border-radius:0 4px 4px 0">${doc.totalTtc.toFixed(2)} €</td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- Payment terms / validity -->
+  ${doc.paymentTerms ? `<div style="background:${ROSE_LIGHT};border-radius:6px;padding:3mm 5mm;margin-bottom:4mm;font-size:9pt">
+    <strong style="color:${ROSE}">Conditions de paiement :</strong> ${esc(doc.paymentTerms)}
+  </div>` : ''}
+  ${doc.notes ? `<div style="background:#f9f9f9;border-radius:6px;padding:3mm 5mm;margin-bottom:6mm;font-size:9pt;font-style:italic;color:#555">
+    <strong style="color:#333;font-style:normal">Notes :</strong> ${esc(doc.notes)}
+  </div>` : ''}
+  ${isDevis ? `<div style="background:#fefce8;border:1px solid #fde047;border-radius:6px;padding:3mm 5mm;margin-bottom:6mm;font-size:9pt;font-style:italic">
+    Devis valable 30 jours à compter du ${esc(formatDate(doc.issueDate))}. Sans engagement de votre part.
+  </div>` : ''}
+
+  <!-- Legal footer -->
+  <div style="border-top:2px solid ${ROSE_LIGHT};padding-top:4mm;font-size:7.5pt;color:#888;line-height:1.7">
+    ${doc.sellerSiret ? `SIRET : ${esc(doc.sellerSiret)} &nbsp;|&nbsp; ` : ''}
+    ${doc.sellerTva ? `N° TVA Intracommunautaire : ${esc(doc.sellerTva)}` : ''}
+  </div>
+</div>
+<script>window.onload=function(){window.print();}</script>
+</body></html>`;
+
+  const win = window.open('', '_blank', 'width=850,height=1100');
+  if (!win) return;
+  win.document.write(html);
+  win.document.close();
+}
+
 // ─── Document Preview Modal ───────────────────────────────────────────────────
 
 function DocPreviewModal({ doc, onClose, onSendEmail }: { doc: B2BDocument; onClose: () => void; onSendEmail: (doc: B2BDocument) => void }) {
@@ -892,7 +1050,7 @@ function DocPreviewModal({ doc, onClose, onSendEmail }: { doc: B2BDocument; onCl
               Envoyer par email
             </button>
             <button
-              onClick={() => window.print()}
+              onClick={() => printB2BDocument(doc)}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
             >
               <Icon name="PrinterIcon" size={13} />
