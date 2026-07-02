@@ -19,6 +19,7 @@ interface LineItem {
   tvaRate: number;
   discount: number;
   productId?: string;
+  imageUrl?: string;
 }
 
 interface B2BDocument {
@@ -328,6 +329,7 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
       description: product.name + (product.ref ? ` (Réf: ${product.ref})` : ''),
       unitPrice: priceHt,
       tvaRate,
+      imageUrl: product.image_url ?? undefined,
     } : l));
     setProductSearches((prev) => { const { [lineId]: _, ...rest } = prev; return rest; });
     setActiveDropdownLine(null);
@@ -592,21 +594,30 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
                     return (
                       <tr key={line.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-muted/20'}>
                         <td className="px-3 py-2">
-                          <input
-                            ref={(el) => { inputRefs.current[line.id] = el; }}
-                            value={productSearches[line.id] ?? line.description}
-                            onChange={(e) => {
-                              updateLine(line.id, 'description', e.target.value);
-                              searchProducts(line.id, e.target.value);
-                            }}
-                            onFocus={() => {
-                              const q = productSearches[line.id] ?? line.description;
-                              if (q.trim().length >= 2) searchProducts(line.id, q);
-                            }}
-                            onBlur={() => setTimeout(() => setActiveDropdownLine(null), 300)}
-                            className="w-full bg-transparent border-0 focus:outline-none text-sm text-foreground placeholder:text-muted-foreground"
-                            placeholder="Rechercher par nom, référence ou code-barre…"
-                          />
+                          <div className="flex items-center gap-2">
+                            {line.imageUrl ? (
+                              <img src={line.imageUrl} alt="" className="w-8 h-8 rounded-md object-cover shrink-0 border border-border" />
+                            ) : line.productId ? (
+                              <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                                <Icon name="TagIcon" size={12} className="text-primary" />
+                              </div>
+                            ) : null}
+                            <input
+                              ref={(el) => { inputRefs.current[line.id] = el; }}
+                              value={productSearches[line.id] ?? line.description}
+                              onChange={(e) => {
+                                updateLine(line.id, 'description', e.target.value);
+                                searchProducts(line.id, e.target.value);
+                              }}
+                              onFocus={() => {
+                                const q = productSearches[line.id] ?? line.description;
+                                if (q.trim().length >= 2) searchProducts(line.id, q);
+                              }}
+                              onBlur={() => setTimeout(() => setActiveDropdownLine(null), 300)}
+                              className="w-full bg-transparent border-0 focus:outline-none text-sm text-foreground placeholder:text-muted-foreground"
+                              placeholder="Rechercher par nom, référence ou code-barre…"
+                            />
+                          </div>
                         </td>
                         <td className="px-2 py-2">
                           <input
@@ -927,7 +938,14 @@ function DocPreviewModal({ doc, onClose, onSendEmail }: { doc: B2BDocument; onCl
                 const { ht, ttc } = calcLine(line);
                 return (
                   <tr key={line.id} className={`border-b border-border ${i % 2 === 0 ? '' : 'bg-muted/20'}`}>
-                    <td className="py-2">{line.description}</td>
+                    <td className="py-2">
+                      <div className="flex items-center gap-2">
+                        {line.imageUrl && (
+                          <img src={line.imageUrl} alt="" className="w-8 h-8 rounded object-cover shrink-0 border border-border" />
+                        )}
+                        <span>{line.description}</span>
+                      </div>
+                    </td>
                     <td className="py-2 text-center">{line.quantity}</td>
                     <td className="py-2 text-right">{formatCurrency(line.unitPrice)}</td>
                     <td className="py-2 text-center">{line.tvaRate}%</td>
