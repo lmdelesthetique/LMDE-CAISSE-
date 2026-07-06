@@ -575,7 +575,7 @@ export default function AmbassadricePortalPage() {
             const videosUploaded = productContenus.filter((c) => c.video_path && !c.video_deleted_at).length;
 
             return (
-              <div key={product.id} className="bg-white rounded-2xl shadow-sm overflow-hidden">
+              <div key={product.id} className="bg-white rounded-2xl shadow-sm">
                 {/* Product header */}
                 <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-100">
                   {product.image_url ? (
@@ -711,7 +711,7 @@ function AddContenuDropdown({
         + Ajouter un contenu
       </button>
       {open && (
-        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-10">
+        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-30">
           {types.map((t) => (
             <button
               key={t}
