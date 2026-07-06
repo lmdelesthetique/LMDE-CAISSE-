@@ -51,12 +51,31 @@ export async function GET(
       .eq('assignment_id', activeAssignment.id)
       .order('created_at', { ascending: true });
 
+    // Enrich products with image_url from products table
+    const rawProducts: any[] = activeAssignment.products ?? [];
+    let enrichedProducts = rawProducts;
+    if (rawProducts.length > 0) {
+      const productIds = rawProducts.map((p: any) => p.id).filter(Boolean);
+      const { data: productRows } = await supabase
+        .from('products')
+        .select('id, image_url')
+        .in('id', productIds);
+      const imageMap: Record<string, string> = {};
+      for (const row of productRows ?? []) {
+        if (row.image_url) imageMap[row.id] = row.image_url;
+      }
+      enrichedProducts = rawProducts.map((p: any) => ({
+        ...p,
+        image_url: imageMap[p.id] ?? p.image_url ?? null,
+      }));
+    }
+
     return NextResponse.json({
       ambassadrice,
       campaign: activeAssignment.campagne,
       assignment: {
         id: activeAssignment.id,
-        products: activeAssignment.products,
+        products: enrichedProducts,
         notes: activeAssignment.notes,
         statut_reception: activeAssignment.statut_reception,
         cout_total: activeAssignment.cout_total,

@@ -15,55 +15,92 @@ interface ProductForScript {
   price: number;
 }
 
+const CREATIVE_ANGLES = [
+  { angle: 'avant/après transformation', tone: 'émotionnel et inspirant', hookStyle: 'question choc' },
+  { angle: 'routine quotidienne', tone: 'casual et amical', hookStyle: 'anecdote personnelle' },
+  { angle: 'conseil experte beauté', tone: 'professionnel et éducatif', hookStyle: 'tip surprenant' },
+  { angle: 'découverte coup de cœur', tone: 'enthousiaste et spontané', hookStyle: 'réaction authentique' },
+  { angle: 'comparaison produits', tone: 'honnête et direct', hookStyle: 'controverse douce' },
+  { angle: 'résultats en chiffres', tone: 'factuel et percutant', hookStyle: 'statistique ou durée' },
+  { angle: 'lifestyle antillais', tone: 'chaleureux et créole', hookStyle: 'référence culturelle locale' },
+  { angle: 'démonstration technique', tone: 'pédagogique et précis', hookStyle: 'étape surprenante' },
+];
+
+function pickAngle(productId: string) {
+  // Deterministic-ish per product but varied: hash productId chars
+  const seed = productId.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  return CREATIVE_ANGLES[seed % CREATIVE_ANGLES.length];
+}
+
 function generateMockScript(product: ProductForScript) {
+  const { angle, tone, hookStyle } = pickAngle(product.id);
+  const tag = `#${product.name.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
   return {
     hooks: [
-      `Vous cherchez ${product.name} ? J'ai testé pour vous !`,
-      `Ce produit a changé ma routine beauté : ${product.name}`,
-      `La vraie question : vaut-il ses ${product.price} € ? Je vous dis tout !`,
+      `Angle ${angle} : tu dois essayer ${product.name} !`,
+      `${product.name} à ${product.price} € — ça vaut vraiment le coup ?`,
+      `Le ${hookStyle} qui m'a convaincue d'essayer ${product.name}…`,
     ],
-    reel: `[INTRO] Bonjour beauties ! Aujourd'hui je vous présente ${product.name}.
-[DEMO] Voici comment l'utiliser : appliquez en petite quantité sur la zone ciblée.
-[RÉSULTAT] Le résultat après quelques utilisations est vraiment visible.
-[CALL TO ACTION] Lien en bio pour l'obtenir chez Le Monde de l'Esthétique !`,
-    story: `Story 1 : "Nouvelle découverte chez @lmdelesthetique 🌟"
-Story 2 : Montrer le produit en gros plan avec le nom visible
-Story 3 : "Je l'utilise depuis X jours et voici ce que j'observe..."
-Story 4 : Sondage — "Vous connaissez ${product.name} ?" OUI / NON
-Story 5 : "Lien en bio pour le commander !"`,
-    temoignage: `J'utilise ${product.name} depuis maintenant quelques semaines et les résultats sont bluffants ! Ma peau/cheveux/corps a vraiment changé. Je recommande à 100% à toutes celles qui cherchent un produit efficace et de qualité. Disponible chez Le Monde de l'Esthétique !`,
-    guide: `GUIDE D'UTILISATION — ${product.name}\n\n1. PRÉPARATION : Préparez votre zone d'application\n2. APPLICATION : Appliquez en petite quantité\n3. DURÉE : Laissez agir le temps recommandé\n4. RÉSULTAT : Profitez des bénéfices !\n\nCONSEIL PRO : Pour de meilleurs résultats, utilisez régulièrement.`,
-    demonstration: `Étape 1 : Préparez votre zone d'application\nÉtape 2 : Appliquez ${product.name} en petite quantité\nÉtape 3 : Laissez agir selon les instructions\nÉtape 4 : Admirez le résultat !`,
-    guide_tournage: `📹 GUIDE TOURNAGE\n• Lumière : naturelle face à une fenêtre\n• Angle : 45° légèrement en hauteur\n• Durée reel : 30-60 sec\n• Fond : propre et épuré\n💡 CONSEIL : Filmer en portrait 9:16 pour Reels & TikTok`,
+    reel: `[INTRO — ${angle}] Bonjour beauties ! Aujourd'hui je partage mon ${angle} avec ${product.name}.
+[DÉMO] Voici comment j'utilise ce produit dans ma routine — ton ${tone}.
+[RÉSULTAT] Après plusieurs utilisations, voici ce que j'observe concrètement.
+[CTA] Commandez chez Le Monde de l'Esthétique — lien en bio ! 🌸`,
+    story: `Story 1 : "${angle} avec @lmdelesthetique 🌟"
+Story 2 : Gros plan sur ${product.name} — montrer le packaging et la texture
+Story 3 : Application en live — ${tone}
+Story 4 : Sondage — "Vous avez déjà utilisé ${product.name} ?" OUI / NON
+Story 5 : "Prix : ${product.price} € — lien en bio pour commander !"`,
+    temoignage: `Depuis que j'ai intégré ${product.name} à ma routine (angle : ${angle}), la différence est vraiment visible. ${tone.charAt(0).toUpperCase() + tone.slice(1)}, je recommande sincèrement ce produit à toutes. Disponible exclusivement chez Le Monde de l'Esthétique !`,
+    guide: `GUIDE ${angle.toUpperCase()} — ${product.name}\n\n1. PRÉPARATION : Préparez votre espace et le produit\n2. APPLICATION : Suivez les étapes du ${angle}\n3. ASTUCE ${hookStyle.toUpperCase()} : Le détail qui fait la différence\n4. RÉSULTAT : Observez et partagez votre expérience !\n\n💡 CONSEIL PRO : Cohérence = résultats durables.`,
+    demonstration: `Étape 1 : Contextualiser l'angle "${angle}"\nÉtape 2 : Appliquer ${product.name} en montrant la texture\nÉtape 3 : Insister sur le ${hookStyle}\nÉtape 4 : Révéler le résultat avec émotion (ton : ${tone})`,
+    guide_tournage: `📹 GUIDE TOURNAGE — angle "${angle}"\n• Lumière : naturelle face à une fenêtre ou ring light\n• Angle caméra : 45° légèrement en hauteur\n• Durée reel : 30-60 sec\n• Fond : cohérent avec le ton ${tone}\n• Son : musique ${tone.includes('créole') ? 'antillaise' : 'tendance'} en fond\n💡 Format portrait 9:16 obligatoire pour Reels & TikTok`,
     hashtags: [
-      '#beauté', '#soin', '#skincare', '#lmdelesthetique',
-      '#beautyinfluencer', '#martinique', '#conseilbeauté',
-      `#${product.name.toLowerCase().replace(/\s+/g, '')}`,
+      '#beauté', '#soin', '#lmdelesthetique', '#martinique', '#antilles',
+      '#beautyinfluencer', '#conseilbeauté', tag,
     ].join(' '),
   };
 }
 
 async function generateScriptWithClaude(product: ProductForScript, apiKey: string) {
+  const { angle, tone, hookStyle } = pickAngle(product.id);
+  // Add extra randomness: pick a random creative variation seed each call
+  const variationSeeds = [
+    'Utilise des emojis expressifs et un style très spontané.',
+    'Écris de façon sobre et professionnelle, sans trop d\'emojis.',
+    'Intègre des expressions créoles antillaises naturellement.',
+    'Mise sur les émotions et la transformation personnelle.',
+    'Adopte un ton humoristique léger et complice.',
+    'Focus sur les résultats concrets et les preuves.',
+  ];
+  const variationHint = variationSeeds[Math.floor(Math.random() * variationSeeds.length)];
+
   const prompt = `Tu es une experte en marketing beauté pour une marque martiniquaise "Le Monde de l'Esthétique".
-Génère des scripts de contenu pour réseaux sociaux (Instagram/TikTok) pour ce produit beauté :
+Génère des scripts de contenu pour réseaux sociaux (Instagram/TikTok) pour ce produit beauté.
 
 Produit : ${product.name}
 Prix : ${product.price} €
 ${product.description ? `Description : ${product.description}` : ''}
 
+ANGLE CRÉATIF IMPOSÉ : ${angle}
+TON : ${tone}
+STYLE DE HOOK : ${hookStyle}
+VARIATION : ${variationHint}
+
+Ce script doit être UNIQUE et DIFFÉRENT de ce qu'on fait habituellement. Adapte vraiment le contenu à l'angle imposé — ne génère pas un script générique.
+
 Génère exactement ce JSON (sans markdown, juste le JSON pur) :
 {
-  "hooks": ["hook1 10 mots max", "hook2", "hook3"],
-  "reel": "script complet reel 60 secondes avec [INTRO] [DEMO] [RÉSULTAT] [CTA]",
-  "story": "séquence 5 stories numérotées avec texte",
-  "temoignage": "témoignage authentique 3-4 phrases",
-  "guide": "guide d'utilisation étape par étape",
-  "demonstration": "démonstration produit étape par étape numérotée",
-  "guide_tournage": "guide tournage : lumière, angle, durée, tips pro",
-  "hashtags": "#hashtag1 #hashtag2 #lmdelesthetique"
+  "hooks": ["hook1 10 mots max — style ${hookStyle}", "hook2 différent", "hook3 encore différent"],
+  "reel": "script reel 60 secondes avec [INTRO — ${angle}] [DÉMO] [RÉSULTAT] [CTA] — ton ${tone}",
+  "story": "séquence 5 stories numérotées cohérentes avec l'angle ${angle}",
+  "temoignage": "témoignage authentique 3-4 phrases — angle ${angle}, ton ${tone}",
+  "guide": "guide d'utilisation étape par étape adapté à l'angle ${angle}",
+  "demonstration": "démonstration produit numérotée avec l'angle ${angle}",
+  "guide_tournage": "guide tournage adapté au ton ${tone} : lumière, angle caméra, durée, ambiance, musique suggérée",
+  "hashtags": "#hashtags pertinents dont #lmdelesthetique #martinique"
 }
 
-Ton style : authentique, chaleureuse, créole si pertinent, orientée résultats. Parle aux femmes martiniquaises/antillaises.`;
+Parle aux femmes martiniquaises/antillaises. Sois créative et originale — chaque ambassadrice doit avoir un contenu qui lui ressemble.`;
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
