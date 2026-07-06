@@ -177,9 +177,16 @@ function ScriptModal({
   );
 }
 
-// ─── Video Upload Section ─────────────────────────────────────────────────────
+// ─── Media Upload Section (video + photo) ────────────────────────────────────
 
-function VideoUploadSection({
+const ACCEPTED_MEDIA = 'video/*,image/*,video/mp4,video/quicktime,video/x-m4v,image/jpeg,image/png,image/heic,image/heif,image/webp';
+
+function isImageType(mimeType: string, filename: string) {
+  if (mimeType.startsWith('image/')) return true;
+  return /\.(jpe?g|png|heic|heif|webp|gif)$/i.test(filename);
+}
+
+function MediaUploadSection({
   contenu,
   assignmentId,
   productId,
@@ -196,15 +203,20 @@ function VideoUploadSection({
   const [uploadStep, setUploadStep] = useState<'idle' | 'presign' | 'upload' | 'saving'>('idle');
   const [error, setError] = useState<string | null>(null);
 
-  const hasVideo = !!contenu.video_path && !contenu.video_deleted_at;
+  const hasMedia = !!contenu.video_path && !contenu.video_deleted_at;
+  const uploadedIsImage = hasMedia && contenu.video_filename
+    ? isImageType('', contenu.video_filename)
+    : false;
 
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Basic client-side check
-    if (!file.type.startsWith('video/') && !file.name.match(/\.(mp4|mov|avi|mkv|hevc|m4v|webm)$/i)) {
-      setError('Format non reconnu. Choisis un fichier vidéo (MP4, MOV…)');
+    const isImg = isImageType(file.type, file.name);
+    const isVid = file.type.startsWith('video/') || /\.(mp4|mov|avi|mkv|hevc|m4v|webm)$/i.test(file.name);
+
+    if (!isImg && !isVid) {
+      setError('Format non reconnu. Choisis une vidéo (MP4, MOV…) ou une photo (JPG, PNG, HEIC…)');
       e.target.value = '';
       return;
     }
@@ -214,7 +226,6 @@ function VideoUploadSection({
     setUploadStep('presign');
 
     try {
-      // Step 1: Get presigned upload URL from our API (small JSON request)
       const presignRes = await fetch('/api/ambassadrice/upload-presigned', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -224,26 +235,22 @@ function VideoUploadSection({
           assignmentId,
           productId,
           filename: file.name,
-          contentType: file.type || 'video/mp4',
+          contentType: file.type || (isImg ? 'image/jpeg' : 'video/mp4'),
         }),
       });
       const presignData = await presignRes.json().catch(() => ({}));
-      if (!presignRes.ok) throw new Error(presignData.error || 'Impossible de préparer l\'upload');
+      if (!presignRes.ok) throw new Error(presignData.error || "Impossible de préparer l'upload");
 
       const { signedUrl, path } = presignData;
       if (!signedUrl || !path) throw new Error('Réponse presign invalide du serveur');
 
       setUploadStep('upload');
 
-      // Step 2: Upload raw binary directly to Supabase signed URL.
-      // We deliberately bypass supabase.storage.uploadToSignedUrl() because it wraps
-      // the file in FormData with an empty-string key (''), which Safari/iOS WebKit
-      // rejects with "The string did not match the expected pattern".
       const uploadRes = await fetch(signedUrl, {
         method: 'PUT',
         body: file,
         headers: {
-          'Content-Type': file.type || 'video/mp4',
+          'Content-Type': file.type || (isImg ? 'image/jpeg' : 'video/mp4'),
           'cache-control': 'max-age=3600',
         },
       });
@@ -254,7 +261,6 @@ function VideoUploadSection({
 
       setUploadStep('saving');
 
-      // Step 3: Notify our API to update the DB record
       const completeRes = await fetch('/api/ambassadrice/upload-video-complete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -266,7 +272,7 @@ function VideoUploadSection({
       setUploadStep('idle');
       onUploadComplete();
     } catch (err: any) {
-      setError(err.message || 'Erreur lors de l\'upload');
+      setError(err.message || "Erreur lors de l'upload");
       setUploadStep('idle');
     } finally {
       setUploading(false);
@@ -280,19 +286,21 @@ function VideoUploadSection({
     saving: '💾 Enregistrement…',
   };
 
-  if (hasVideo) {
+  if (hasMedia) {
     return (
       <div className="flex items-center gap-2 bg-emerald-50 rounded-xl p-3 border border-emerald-200 mt-2">
-        <span className="text-emerald-600 text-base shrink-0">✅</span>
+        <span className="text-emerald-600 text-base shrink-0">{uploadedIsImage ? '🖼️' : '🎬'}</span>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-bold text-emerald-700 leading-tight">Vidéo déposée !</p>
+          <p className="text-sm font-bold text-emerald-700 leading-tight">
+            {uploadedIsImage ? 'Photo déposée !' : 'Vidéo déposée !'}
+          </p>
           {contenu.video_filename && (
             <p className="text-xs text-emerald-600 truncate">{contenu.video_filename}</p>
           )}
         </div>
         <label className="shrink-0 text-xs text-emerald-600 underline cursor-pointer">
           Remplacer
-          <input type="file" accept="video/*,video/mp4,video/quicktime,video/x-m4v" className="hidden" disabled={uploading} onChange={handleFileSelect} />
+          <input type="file" accept={ACCEPTED_MEDIA} className="hidden" disabled={uploading} onChange={handleFileSelect} />
         </label>
       </div>
     );
@@ -300,7 +308,7 @@ function VideoUploadSection({
 
   return (
     <div className="bg-pink-50 rounded-xl p-3 border border-pink-100 mt-2">
-      <p className="text-xs font-bold text-pink-800 mb-2">📤 Déposer ma vidéo</p>
+      <p className="text-xs font-bold text-pink-800 mb-2">📤 Déposer ma vidéo ou photo</p>
 
       {uploading && (
         <div className="mb-3">
@@ -322,16 +330,16 @@ function VideoUploadSection({
       <label className={`flex items-center justify-center gap-2 w-full py-2.5 rounded-xl font-bold text-sm transition-colors ${
         uploading ? 'bg-gray-200 text-gray-400 cursor-not-allowed pointer-events-none' : 'bg-pink-600 text-white hover:bg-pink-700 active:scale-[0.98] cursor-pointer'
       }`}>
-        {uploading ? stepLabel[uploadStep] ?? '⏳ En cours…' : '📱 Choisir ma vidéo'}
+        {uploading ? (stepLabel[uploadStep] ?? '⏳ En cours…') : '📱 Choisir une vidéo ou photo'}
         <input
           type="file"
-          accept="video/*,video/mp4,video/quicktime,video/x-m4v"
+          accept={ACCEPTED_MEDIA}
           className="hidden"
           disabled={uploading}
           onChange={handleFileSelect}
         />
       </label>
-      <p className="text-xs text-pink-400 text-center mt-1.5">MP4, MOV, HEVC acceptés · Toutes tailles</p>
+      <p className="text-xs text-pink-400 text-center mt-1.5">Vidéo : MP4, MOV · Photo : JPG, PNG, HEIC · Toutes tailles</p>
     </div>
   );
 }
@@ -646,7 +654,7 @@ export default function AmbassadricePortalPage() {
                             </select>
                           </div>
                           {/* Video upload per contenu */}
-                          <VideoUploadSection
+                          <MediaUploadSection
                             contenu={c}
                             assignmentId={assignment.id}
                             productId={product.id}
