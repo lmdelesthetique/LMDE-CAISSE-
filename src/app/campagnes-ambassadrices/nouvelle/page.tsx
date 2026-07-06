@@ -553,6 +553,7 @@ export default function NouvelleCampagnePage() {
                 price: p.sell_price_ttc,
                 cout_achat: p.cost_price ?? 0,
                 quantity: p.quantity,
+                image_url: p.image_url ?? null,
               })),
               notes: draft.notes,
             }),

@@ -155,8 +155,31 @@ export default function AmbassadriceDetailPage() {
             </button>
           </div>
 
+          {/* Direct portal link — always visible, no PIN needed */}
+          {data.lien_unique && (
+            <div className="mb-4 p-3 bg-white rounded-xl border border-pink-200">
+              <p className="text-xs text-pink-700 font-semibold mb-1.5">🔗 Lien personnel à envoyer à l'ambassadrice :</p>
+              <div className="flex items-center gap-2">
+                <p className="flex-1 text-xs text-pink-600 font-mono break-all">
+                  {typeof window !== 'undefined' ? window.location.origin : ''}/ambassadrice/{data.lien_unique}
+                </p>
+                <button
+                  onClick={() => {
+                    const url = `${window.location.origin}/ambassadrice/${data.lien_unique}`;
+                    navigator.clipboard?.writeText(url).catch(() => {});
+                  }}
+                  className="shrink-0 px-2 py-1 bg-pink-100 text-pink-600 rounded-lg text-xs font-bold hover:bg-pink-200 transition-colors"
+                >
+                  📋 Copier
+                </button>
+              </div>
+              <p className="text-xs text-pink-400 mt-1.5">Ce lien ouvre directement son espace — sans mot de passe</p>
+            </div>
+          )}
+
           {data.pin_code ? (
             <>
+              <p className="text-xs text-pink-500 font-medium mb-2">Code PIN (accès alternatif via /espace-ambassadrice) :</p>
               <div className="flex items-center gap-3">
                 <div className="flex-1 flex items-center gap-3 bg-white border-2 border-pink-200 rounded-xl px-5 py-4">
                   <span className="text-3xl font-mono font-black tracking-[0.35em] text-pink-700">
@@ -176,17 +199,11 @@ export default function AmbassadriceDetailPage() {
                   {pinCopied ? '✓' : '📋'}
                 </button>
               </div>
-              <div className="mt-3 p-3 bg-white/70 rounded-xl border border-pink-100">
-                <p className="text-xs text-pink-700 font-semibold mb-1">Lien à envoyer à l'ambassadrice :</p>
-                <p className="text-xs text-pink-600 font-mono break-all">
-                  {typeof window !== 'undefined' ? window.location.origin : ''}/espace-ambassadrice/login
-                </p>
-              </div>
             </>
           ) : (
             <div className="text-center py-4 bg-white/60 rounded-xl border border-dashed border-pink-300">
-              <p className="text-sm text-pink-400 font-medium">Aucun code généré</p>
-              <p className="text-xs text-pink-300 mt-1">Cliquez sur "Générer le code" pour créer un accès</p>
+              <p className="text-sm text-pink-400 font-medium">Aucun code PIN généré</p>
+              <p className="text-xs text-pink-300 mt-1">Optionnel — le lien ci-dessus suffit pour accéder à l'espace</p>
             </div>
           )}
         </div>

@@ -8,6 +8,8 @@ function makeAdminClient() {
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
+const BUCKET = 'ambassadrice-videos';
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => null);
@@ -15,7 +17,7 @@ export async function POST(request: NextRequest) {
 
     const { contenuId, ambassadriceId, assignmentId, productId, filename, contentType } = body;
     if (!contenuId || !ambassadriceId || !filename) {
-      return NextResponse.json({ error: 'Paramètres manquants' }, { status: 400 });
+      return NextResponse.json({ error: 'Paramètres manquants (contenuId, ambassadriceId, filename)' }, { status: 400 });
     }
 
     const supabase = makeAdminClient();
@@ -30,6 +32,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Contenu introuvable' }, { status: 404 });
     }
 
+    // Ensure bucket exists (create silently if not)
+    const { error: bucketErr } = await supabase.storage.createBucket(BUCKET, {
+      public: false,
+      fileSizeLimit: 524288000, // 500 MB
+    });
+    if (bucketErr && !bucketErr.message.toLowerCase().includes('already exists') && !bucketErr.message.toLowerCase().includes('duplicate')) {
+      console.warn('[upload-presigned] bucket create warning:', bucketErr.message);
+    }
+
     // Build storage path — only alphanumeric and hyphens
     const ext = (filename.split('.').pop() || 'mp4').toLowerCase().replace(/[^a-z0-9]/g, '');
     const timestamp = Date.now();
@@ -40,12 +51,12 @@ export async function POST(request: NextRequest) {
 
     // Delete previous video if any
     if (contenu.video_path) {
-      await supabase.storage.from('ambassadrice-videos').remove([contenu.video_path]);
+      await supabase.storage.from(BUCKET).remove([contenu.video_path]);
     }
 
     // Create signed upload URL (browser uploads directly to Supabase, bypassing Next.js)
     const { data, error } = await supabase.storage
-      .from('ambassadrice-videos')
+      .from(BUCKET)
       .createSignedUploadUrl(path);
 
     if (error || !data) {

@@ -22,6 +22,11 @@ export interface DashboardKPIs {
   caShopifyDay: number;
   reservationDeposits: number;
   reservationBalances: number;
+  // Always current calendar month (independent of period filter)
+  caCurrentMonthCaisse: number;
+  caShopifyCurrentMonth: number;
+  reservationCurrentMonth: number;
+  caCurrentMonthPrev: number;
 }
 
 export interface RevenuePoint {
@@ -202,6 +207,9 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
     return cn !== 'CHRISTY LHOMME';
   };
 
+  const curMonthRange = getDateRange('month');
+  const prevMonthRange = getDateRange('prevMonth');
+
   const shopifyRevenuePromise = fetch(
     `/api/shopify/revenue?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`
   ).then((r) => r.json()).then((j) => Number(j.revenue) || 0).catch(() => 0);
@@ -210,23 +218,36 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
     `/api/shopify/revenue?start=${encodeURIComponent(dayRange.start)}&end=${encodeURIComponent(dayRange.end)}`
   ).then((r) => r.json()).then((j) => Number(j.revenue) || 0).catch(() => 0);
 
+  const shopifyCurrentMonthPromise = fetch(
+    `/api/shopify/revenue?start=${encodeURIComponent(curMonthRange.start)}&end=${encodeURIComponent(curMonthRange.end)}`
+  ).then((r) => r.json()).then((j) => Number(j.revenue) || 0).catch(() => 0);
+
   const [
     currentReceipts,
     prevReceipts,
     dayReceipts,
     prevDayReceipts,
+    currentMonthReceipts,
+    prevMonthReceipts,
     stockAlertResult,
     activeProductsResult,
     marginProductsResult,
     caShopify,
     caShopifyDay,
+    caShopifyCurrentMonth,
     resDepositsResult,
     resBalancesResult,
+    resDepositsMonthResult,
+    resBalancesMonthResult,
+    resDepositsPrevMonthResult,
+    resBalancesPrevMonthResult,
   ] = await Promise.all([
     buildReceiptsQuery(start, end),
     buildReceiptsQuery(prevStart, prevEnd),
     buildReceiptsQuery(dayRange.start, dayRange.end),
     buildReceiptsQuery(prevDayRange.start, prevDayRange.end),
+    buildReceiptsQuery(curMonthRange.start, curMonthRange.end),
+    buildReceiptsQuery(prevMonthRange.start, prevMonthRange.end),
     supabase.from('products').select('id, stock, min_stock, product_status')
       .neq('product_status', 'inactive'),
     supabase.from('products').select('*', { count: 'exact', head: true })
@@ -236,6 +257,7 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
       .eq('product_status', 'active'),
     shopifyRevenuePromise,
     shopifyRevenueDayPromise,
+    shopifyCurrentMonthPromise,
     supabase.from('reservations').select('deposit_paid')
       .gte('deposit_accounting_date', start.split('T')[0])
       .lte('deposit_accounting_date', end.split('T')[0])
@@ -243,6 +265,22 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
     supabase.from('reservations').select('balance_paid')
       .gte('balance_accounting_date', start.split('T')[0])
       .lte('balance_accounting_date', end.split('T')[0])
+      .neq('reservation_status', 'cancelled'),
+    supabase.from('reservations').select('deposit_paid')
+      .gte('deposit_accounting_date', curMonthRange.start.split('T')[0])
+      .lte('deposit_accounting_date', curMonthRange.end.split('T')[0])
+      .neq('reservation_status', 'cancelled'),
+    supabase.from('reservations').select('balance_paid')
+      .gte('balance_accounting_date', curMonthRange.start.split('T')[0])
+      .lte('balance_accounting_date', curMonthRange.end.split('T')[0])
+      .neq('reservation_status', 'cancelled'),
+    supabase.from('reservations').select('deposit_paid')
+      .gte('deposit_accounting_date', prevMonthRange.start.split('T')[0])
+      .lte('deposit_accounting_date', prevMonthRange.end.split('T')[0])
+      .neq('reservation_status', 'cancelled'),
+    supabase.from('reservations').select('balance_paid')
+      .gte('balance_accounting_date', prevMonthRange.start.split('T')[0])
+      .lte('balance_accounting_date', prevMonthRange.end.split('T')[0])
       .neq('reservation_status', 'cancelled'),
   ]);
 
@@ -280,6 +318,16 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
   const reservationDeposits = (resDepositsResult.data ?? []).reduce((s, r) => s + (Number(r.deposit_paid) || 0), 0);
   const reservationBalances = (resBalancesResult.data ?? []).reduce((s, r) => s + (Number(r.balance_paid) || 0), 0);
 
+  const caCurrentMonthCaisse = sum(currentMonthReceipts);
+  const resCurrentMonthDeposits = (resDepositsMonthResult.data ?? []).reduce((s, r) => s + (Number(r.deposit_paid) || 0), 0);
+  const resCurrentMonthBalances = (resBalancesMonthResult.data ?? []).reduce((s, r) => s + (Number(r.balance_paid) || 0), 0);
+  const reservationCurrentMonth = resCurrentMonthDeposits + resCurrentMonthBalances;
+
+  const caCurrentMonthPrevCaisse = sum(prevMonthReceipts);
+  const resPrevMonthDeposits = (resDepositsPrevMonthResult.data ?? []).reduce((s, r) => s + (Number(r.deposit_paid) || 0), 0);
+  const resPrevMonthBalances = (resBalancesPrevMonthResult.data ?? []).reduce((s, r) => s + (Number(r.balance_paid) || 0), 0);
+  const caCurrentMonthPrev = caCurrentMonthPrevCaisse + resPrevMonthDeposits + resPrevMonthBalances;
+
   return {
     caMonth: caMain + reservationDeposits + reservationBalances,
     caWeek: caMain + reservationDeposits + reservationBalances,
@@ -299,6 +347,10 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
     caShopifyDay,
     reservationDeposits,
     reservationBalances,
+    caCurrentMonthCaisse,
+    caShopifyCurrentMonth,
+    reservationCurrentMonth,
+    caCurrentMonthPrev,
   };
 }
 

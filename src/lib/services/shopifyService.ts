@@ -315,6 +315,9 @@ export interface ShopifyOrderLineItem {
   quantity: number;
   price: string;
   sku: string | null;
+  product_id?: number | null;
+  variant_id?: number | null;
+  image_url?: string | null;
 }
 
 export interface ShopifyOrderSummary {
@@ -340,7 +343,39 @@ export async function getRecentOrders(limit = 10): Promise<ShopifyOrderSummary[]
     const res = await shopifyFetch(`/orders.json?status=any&limit=${limit}&order=created_at+desc`);
     if (!res.ok) return [];
     const json = await res.json();
-    return json.orders ?? [];
+    const orders: ShopifyOrderSummary[] = json.orders ?? [];
+
+    // Collect unique product IDs across all orders
+    const productIds = [...new Set(
+      orders.flatMap((o) => o.line_items.map((li) => (li as any).product_id).filter(Boolean))
+    )] as number[];
+
+    if (productIds.length > 0) {
+      // Batch-fetch product images (Shopify allows comma-separated IDs, max ~250)
+      const chunks: number[][] = [];
+      for (let i = 0; i < productIds.length; i += 50) chunks.push(productIds.slice(i, i + 50));
+      const imageMap: Record<number, string> = {};
+      await Promise.all(chunks.map(async (chunk) => {
+        try {
+          const r = await shopifyFetch(`/products.json?ids=${chunk.join(',')}&fields=id,image`);
+          if (!r.ok) return;
+          const pj = await r.json();
+          for (const p of pj.products ?? []) {
+            if (p.image?.src) imageMap[p.id] = p.image.src;
+          }
+        } catch { /* skip */ }
+      }));
+
+      // Enrich line items with image_url
+      for (const order of orders) {
+        for (const li of order.line_items) {
+          const pid = (li as any).product_id;
+          if (pid && imageMap[pid]) li.image_url = imageMap[pid];
+        }
+      }
+    }
+
+    return orders;
   } catch { return []; }
 }
 

@@ -102,9 +102,9 @@ export default function KPIBentoGrid({ filters }: KPIBentoGridProps) {
       <div className="md:col-span-2 lg:col-span-2">
         <KPICard
           label={`CA — ${monthLabel}`}
-          value={kpis ? fmt(kpis.caMonth + kpis.caShopify) : '—'}
-          sub={kpis ? `Caisse ${fmt(kpis.caMonth - kpis.reservationDeposits - kpis.reservationBalances)} · Shopify ${fmt(kpis.caShopify)}${(kpis.reservationDeposits + kpis.reservationBalances) > 0 ? ` · Résa ${fmt(kpis.reservationDeposits + kpis.reservationBalances)}` : ''} · Précédent : ${fmt(kpis.caMonthPrev)}` : undefined}
-          trend={kpis ? pct(kpis.caMonth + kpis.caShopify, kpis.caMonthPrev) : undefined}
+          value={kpis ? fmt(kpis.caCurrentMonthCaisse + kpis.reservationCurrentMonth + kpis.caShopifyCurrentMonth) : '—'}
+          sub={kpis ? `Caisse ${fmt(kpis.caCurrentMonthCaisse)} · Shopify ${fmt(kpis.caShopifyCurrentMonth)}${kpis.reservationCurrentMonth > 0 ? ` · Résa ${fmt(kpis.reservationCurrentMonth)}` : ''} · Précédent : ${fmt(kpis.caCurrentMonthPrev)}` : undefined}
+          trend={kpis ? pct(kpis.caCurrentMonthCaisse + kpis.reservationCurrentMonth + kpis.caShopifyCurrentMonth, kpis.caCurrentMonthPrev) : undefined}
           icon="BanknotesIcon"
           hero
           loading={loading}
@@ -112,9 +112,9 @@ export default function KPIBentoGrid({ filters }: KPIBentoGridProps) {
       </div>
       <KPICard
         label={`CA ${periodLabel}`}
-        value={kpis ? fmt(kpis.caWeek) : '—'}
-        sub={kpis ? `Période précédente : ${fmt(kpis.caWeekPrev)}` : undefined}
-        trend={kpis ? pct(kpis.caWeek, kpis.caWeekPrev) : undefined}
+        value={kpis ? fmt(kpis.caWeek + kpis.caShopify) : '—'}
+        sub={kpis ? `Caisse ${fmt(kpis.caWeek)} · Shopify ${fmt(kpis.caShopify)} · Précédent : ${fmt(kpis.caWeekPrev)}` : undefined}
+        trend={kpis ? pct(kpis.caWeek + kpis.caShopify, kpis.caWeekPrev) : undefined}
         icon="CalendarIcon"
         loading={loading}
       />

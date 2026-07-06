@@ -60,23 +60,33 @@ export async function POST(
 
     if (assignError) return NextResponse.json({ error: assignError.message }, { status: 500 });
 
-    // Insert default campagne_contenus for each product (reel + story)
-    const defaultTypes = ['reel', 'story'];
-    const contenusToInsert = products.flatMap((p) =>
-      defaultTypes.map((type) => ({
-        assignment_id: assignment.id,
-        product_id: p.id,
-        product_name: p.name,
-        type_contenu: type,
-        statut: 'a_faire',
-        drive_deposited: false,
-      }))
+    // Insert default contenus only for product/type combos that don't already exist
+    // NEVER delete existing contenus — they may have ambassador progress, statut, or uploaded videos
+    const { data: existingContenus } = await supabase
+      .from('campagne_contenus')
+      .select('product_id, type_contenu')
+      .eq('assignment_id', assignment.id);
+
+    const existingSet = new Set(
+      (existingContenus ?? []).map((c: any) => `${c.product_id}:${c.type_contenu}`)
     );
 
-    if (contenusToInsert.length > 0) {
-      // Delete existing contenus for this assignment first, then re-insert
-      await supabase.from('campagne_contenus').delete().eq('assignment_id', assignment.id);
-      const { error: contenusError } = await supabase.from('campagne_contenus').insert(contenusToInsert);
+    const defaultTypes = ['reel', 'story'];
+    const newContenus = products.flatMap((p) =>
+      defaultTypes
+        .filter((type) => !existingSet.has(`${p.id}:${type}`))
+        .map((type) => ({
+          assignment_id: assignment.id,
+          product_id: p.id,
+          product_name: p.name,
+          type_contenu: type,
+          statut: 'a_faire',
+          drive_deposited: false,
+        }))
+    );
+
+    if (newContenus.length > 0) {
+      const { error: contenusError } = await supabase.from('campagne_contenus').insert(newContenus);
       if (contenusError) console.error('[assign] contenus insert error:', contenusError.message);
     }
 

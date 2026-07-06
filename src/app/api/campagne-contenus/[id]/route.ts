@@ -18,7 +18,7 @@ export async function PATCH(
 
   try {
     const supabase = makeClient();
-    const allowed = ['statut', 'drive_deposited', 'drive_url', 'notes'];
+    const allowed = ['statut', 'drive_deposited', 'notes'];
     const update: any = { updated_at: new Date().toISOString() };
     for (const k of allowed) {
       if (k in body) update[k] = body[k];

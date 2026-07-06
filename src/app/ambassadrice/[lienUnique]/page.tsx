@@ -2,7 +2,6 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { createClient } from '@/lib/supabase/client';
 
 type Grade = 'debutante' | 'confirmee' | 'elite';
 type ContenuStatut = 'a_faire' | 'en_cours' | 'tourne' | 'poste' | 'realise';
@@ -194,6 +193,7 @@ function VideoUploadSection({
   onUploadComplete: () => void;
 }) {
   const [uploading, setUploading] = useState(false);
+  const [uploadStep, setUploadStep] = useState<'idle' | 'presign' | 'upload' | 'saving'>('idle');
   const [error, setError] = useState<string | null>(null);
 
   const hasVideo = !!contenu.video_path && !contenu.video_deleted_at;
@@ -202,8 +202,16 @@ function VideoUploadSection({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Basic client-side check
+    if (!file.type.startsWith('video/') && !file.name.match(/\.(mp4|mov|avi|mkv|hevc|m4v|webm)$/i)) {
+      setError('Format non reconnu. Choisis un fichier vidéo (MP4, MOV…)');
+      e.target.value = '';
+      return;
+    }
+
     setUploading(true);
     setError(null);
+    setUploadStep('presign');
 
     try {
       // Step 1: Get presigned upload URL from our API (small JSON request)
@@ -219,17 +227,32 @@ function VideoUploadSection({
           contentType: file.type || 'video/mp4',
         }),
       });
-      const presignData = await presignRes.json();
+      const presignData = await presignRes.json().catch(() => ({}));
       if (!presignRes.ok) throw new Error(presignData.error || 'Impossible de préparer l\'upload');
 
-      const { token, path } = presignData;
+      const { signedUrl, path } = presignData;
+      if (!signedUrl || !path) throw new Error('Réponse presign invalide du serveur');
 
-      // Step 2: Upload directly browser → Supabase (bypasses Next.js, works with any file size)
-      const supabase = createClient();
-      const { error: uploadError } = await supabase.storage
-        .from('ambassadrice-videos')
-        .uploadToSignedUrl(path, token, file, { contentType: file.type || 'video/mp4', upsert: true });
-      if (uploadError) throw new Error(uploadError.message);
+      setUploadStep('upload');
+
+      // Step 2: Upload raw binary directly to Supabase signed URL.
+      // We deliberately bypass supabase.storage.uploadToSignedUrl() because it wraps
+      // the file in FormData with an empty-string key (''), which Safari/iOS WebKit
+      // rejects with "The string did not match the expected pattern".
+      const uploadRes = await fetch(signedUrl, {
+        method: 'PUT',
+        body: file,
+        headers: {
+          'Content-Type': file.type || 'video/mp4',
+          'cache-control': 'max-age=3600',
+        },
+      });
+      if (!uploadRes.ok) {
+        const errText = await uploadRes.text().catch(() => `HTTP ${uploadRes.status}`);
+        throw new Error(`Upload échoué (${uploadRes.status}) : ${errText}`);
+      }
+
+      setUploadStep('saving');
 
       // Step 3: Notify our API to update the DB record
       const completeRes = await fetch('/api/ambassadrice/upload-video-complete', {
@@ -237,17 +260,25 @@ function VideoUploadSection({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ contenuId: contenu.id, path, filename: file.name, sizeBytes: file.size }),
       });
-      const completeData = await completeRes.json();
-      if (!completeRes.ok) throw new Error(completeData.error || 'Erreur mise à jour');
+      const completeData = await completeRes.json().catch(() => ({}));
+      if (!completeRes.ok) throw new Error(completeData.error || 'Erreur mise à jour base de données');
 
+      setUploadStep('idle');
       onUploadComplete();
     } catch (err: any) {
       setError(err.message || 'Erreur lors de l\'upload');
+      setUploadStep('idle');
     } finally {
       setUploading(false);
       e.target.value = '';
     }
   }
+
+  const stepLabel: Record<string, string> = {
+    presign: '⏳ Préparation…',
+    upload: '📤 Envoi en cours… patience 🙏',
+    saving: '💾 Enregistrement…',
+  };
 
   if (hasVideo) {
     return (
@@ -261,7 +292,7 @@ function VideoUploadSection({
         </div>
         <label className="shrink-0 text-xs text-emerald-600 underline cursor-pointer">
           Remplacer
-          <input type="file" accept="video/*" className="hidden" disabled={uploading} onChange={handleFileSelect} />
+          <input type="file" accept="video/*,video/mp4,video/quicktime,video/x-m4v" className="hidden" disabled={uploading} onChange={handleFileSelect} />
         </label>
       </div>
     );
@@ -274,23 +305,27 @@ function VideoUploadSection({
       {uploading && (
         <div className="mb-3">
           <div className="bg-pink-200 rounded-full h-2 overflow-hidden">
-            <div className="bg-pink-600 h-2 rounded-full animate-pulse" style={{ width: '60%' }} />
+            <div className="bg-pink-600 h-2 rounded-full animate-pulse w-full" />
           </div>
-          <p className="text-xs text-pink-600 mt-1">Upload en cours… patience 🙏</p>
+          <p className="text-xs text-pink-600 mt-1">{stepLabel[uploadStep] ?? '⏳ En cours…'}</p>
         </div>
       )}
 
       {error && (
-        <p className="text-xs text-red-600 mb-2 bg-red-50 rounded-lg px-2 py-1">❌ {error}</p>
+        <div className="mb-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+          <p className="text-xs text-red-700 font-semibold">❌ Erreur upload</p>
+          <p className="text-xs text-red-600 mt-0.5">{error}</p>
+          <button onClick={() => setError(null)} className="text-xs text-red-400 underline mt-1">Fermer</button>
+        </div>
       )}
 
-      <label className={`flex items-center justify-center gap-2 w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer transition-colors ${
-        uploading ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-pink-600 text-white hover:bg-pink-700 active:scale-[0.98]'
+      <label className={`flex items-center justify-center gap-2 w-full py-2.5 rounded-xl font-bold text-sm transition-colors ${
+        uploading ? 'bg-gray-200 text-gray-400 cursor-not-allowed pointer-events-none' : 'bg-pink-600 text-white hover:bg-pink-700 active:scale-[0.98] cursor-pointer'
       }`}>
-        {uploading ? '⏳ Upload en cours…' : '📱 Choisir ma vidéo'}
+        {uploading ? stepLabel[uploadStep] ?? '⏳ En cours…' : '📱 Choisir ma vidéo'}
         <input
           type="file"
-          accept="video/*"
+          accept="video/*,video/mp4,video/quicktime,video/x-m4v"
           className="hidden"
           disabled={uploading}
           onChange={handleFileSelect}
@@ -319,7 +354,9 @@ export default function AmbassadricePortalPage() {
   const [error, setError] = useState<string | null>(null);
   const [scriptModal, setScriptModal] = useState<{ productId: string; productName: string } | null>(null);
   const [addingContenu, setAddingContenu] = useState<string | null>(null);
+  const [addContenuError, setAddContenuError] = useState<string | null>(null);
   const [updatingContenu, setUpdatingContenu] = useState<string | null>(null);
+  const [updateContenuError, setUpdateContenuError] = useState<string | null>(null);
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
@@ -358,13 +395,21 @@ export default function AmbassadricePortalPage() {
 
   const handleAddContenu = async (assignmentId: string, productId: string, productName: string, type: ContenuType) => {
     setAddingContenu(productId + type);
+    setAddContenuError(null);
     try {
-      await fetch(`/api/campagne-contenus/${assignmentId}`, {
+      const res = await fetch(`/api/campagne-contenus/${assignmentId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ product_id: productId, product_name: productName, type_contenu: type }),
       });
-      load();
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setAddContenuError(json.error ?? 'Erreur lors de l\'ajout');
+        return;
+      }
+      await load();
+    } catch {
+      setAddContenuError('Erreur réseau, réessaie.');
     } finally {
       setAddingContenu(null);
     }
@@ -372,13 +417,21 @@ export default function AmbassadricePortalPage() {
 
   const handleUpdateContenu = async (contenuId: string, update: any) => {
     setUpdatingContenu(contenuId);
+    setUpdateContenuError(null);
     try {
-      await fetch(`/api/campagne-contenus/${contenuId}`, {
+      const res = await fetch(`/api/campagne-contenus/${contenuId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(update),
       });
-      load();
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setUpdateContenuError(json.error ?? 'Erreur lors de la mise à jour');
+        return;
+      }
+      await load();
+    } catch {
+      setUpdateContenuError('Erreur réseau, réessaie.');
     } finally {
       setUpdatingContenu(null);
     }
@@ -559,6 +612,14 @@ export default function AmbassadricePortalPage() {
                     </button>
                   )}
 
+                  {/* Status update error */}
+                  {updateContenuError && (
+                    <div className="flex items-center justify-between bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                      <p className="text-xs text-red-600">❌ {updateContenuError}</p>
+                      <button onClick={() => setUpdateContenuError(null)} className="text-xs text-red-400 underline ml-2">Fermer</button>
+                    </div>
+                  )}
+
                   {/* Contenus list with per-contenu video upload */}
                   {productContenus.length > 0 && (
                     <div className="space-y-4">
@@ -598,12 +659,15 @@ export default function AmbassadricePortalPage() {
                   )}
 
                   {/* Add contenu */}
+                  {addContenuError && (
+                    <p className="text-xs text-red-600 bg-red-50 rounded-lg px-2 py-1">❌ {addContenuError}</p>
+                  )}
                   <AddContenuDropdown
                     assignmentId={assignment.id}
                     productId={product.id}
                     productName={product.name}
                     adding={addingContenu}
-                    onAdd={handleAddContenu}
+                    onAdd={(aId, pId, pName, t) => { setAddContenuError(null); handleAddContenu(aId, pId, pName, t); }}
                   />
                 </div>
               </div>

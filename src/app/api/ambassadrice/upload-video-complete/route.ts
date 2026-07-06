@@ -20,6 +20,7 @@ export async function POST(request: NextRequest) {
 
     const supabase = makeAdminClient();
 
+    // First update video fields + try to set statut=realise
     const { error } = await supabase
       .from('campagne_contenus')
       .update({
@@ -34,6 +35,26 @@ export async function POST(request: NextRequest) {
       .eq('id', contenuId);
 
     if (error) {
+      // If 'realise' is not yet in the statut constraint, fall back to 'tourne'
+      if (error.message.includes('campagne_contenus_statut_check') || error.message.includes('violates check constraint')) {
+        const { error: fallbackErr } = await supabase
+          .from('campagne_contenus')
+          .update({
+            video_path: path,
+            video_filename: filename ?? null,
+            video_size_bytes: sizeBytes ?? null,
+            video_uploaded_at: new Date().toISOString(),
+            video_deleted_at: null,
+            statut: 'tourne',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', contenuId);
+        if (fallbackErr) {
+          console.error('[upload-video-complete] fallback db update error:', fallbackErr);
+          return NextResponse.json({ error: fallbackErr.message }, { status: 500 });
+        }
+        return NextResponse.json({ ok: true, warning: 'statut set to tourne — run migration to enable realise' });
+      }
       console.error('[upload-video-complete] db update error:', error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }

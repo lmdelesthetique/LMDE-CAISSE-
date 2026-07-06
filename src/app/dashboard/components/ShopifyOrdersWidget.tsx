@@ -243,8 +243,23 @@ function OrderDetailModal({ order, onClose }: DetailModalProps) {
                   {order.line_items.map((li) => (
                     <tr key={li.id}>
                       <td className="px-4 py-2.5">
-                        <p className="font-medium text-foreground leading-snug">{li.title}</p>
-                        {li.sku && <p className="text-[11px] text-muted-foreground font-mono">{li.sku}</p>}
+                        <div className="flex items-center gap-3">
+                          {li.image_url ? (
+                            <img
+                              src={li.image_url}
+                              alt={li.title}
+                              className="w-12 h-12 rounded-lg object-cover shrink-0 border border-border"
+                            />
+                          ) : (
+                            <div className="w-12 h-12 rounded-lg bg-muted/60 shrink-0 flex items-center justify-center text-lg border border-border">
+                              🛍️
+                            </div>
+                          )}
+                          <div>
+                            <p className="font-medium text-foreground leading-snug">{li.title}</p>
+                            {li.sku && <p className="text-[11px] text-muted-foreground font-mono">{li.sku}</p>}
+                          </div>
+                        </div>
                       </td>
                       <td className="px-3 py-2.5 text-center font-bold text-foreground">×{li.quantity}</td>
                       <td className="px-4 py-2.5 text-right text-muted-foreground">{fmtEur(li.price)}</td>

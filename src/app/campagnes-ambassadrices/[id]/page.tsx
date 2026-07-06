@@ -37,6 +37,7 @@ export default function CampagneDetailPage() {
   const [updatingStatut, setUpdatingStatut] = useState(false);
   const [downloadingVideo, setDownloadingVideo] = useState<string | null>(null);
   const [deletingVideo, setDeletingVideo] = useState<string | null>(null);
+  const [copiedLink, setCopiedLink] = useState<string | null>(null);
   const [toast, setToast] = useState<{ ok: boolean; msg: string } | null>(null);
 
   const load = useCallback(async () => {
@@ -269,9 +270,25 @@ export default function CampagneDetailPage() {
                   {/* Row header */}
                   <div className="px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-3">
                     <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-foreground">
-                        {amb?.prenom ?? '—'} {amb?.nom ?? ''}
-                      </p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-semibold text-foreground">
+                          {amb?.prenom ?? '—'} {amb?.nom ?? ''}
+                        </p>
+                        {amb?.lien_unique && (
+                          <button
+                            onClick={() => {
+                              const url = `${window.location.origin}/ambassadrice/${amb.lien_unique}`;
+                              navigator.clipboard?.writeText(url).catch(() => {});
+                              setCopiedLink(assignment.id);
+                              setTimeout(() => setCopiedLink(null), 2000);
+                            }}
+                            className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-pink-50 text-pink-600 border border-pink-200 rounded-full hover:bg-pink-100 transition-colors shrink-0"
+                            title={`Copier le lien portail de ${amb.prenom}`}
+                          >
+                            {copiedLink === assignment.id ? '✅ Copié' : '🔗 Lien portail'}
+                          </button>
+                        )}
+                      </div>
                       {amb?.email && <p className="text-xs text-muted-foreground">{amb.email}</p>}
                       <div className="flex gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
                         <span>📦 {products.length} produit{products.length > 1 ? 's' : ''}</span>
