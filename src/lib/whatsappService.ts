@@ -21,15 +21,21 @@ function cleanPhone(raw: string): string {
   // 10-digit local format starting with 0
   if (phone.startsWith('0') && phone.length === 10) {
     const local = phone.slice(1);
-    // Martinique/Guadeloupe mobiles: 0696, 0694, 0690-0693, 0692, 0693
-    if (/^069[0-9]/.test(phone) || /^059[0-9]/.test(phone)) {
-      phone = phone.startsWith('059') ? '590' + local : '596' + local;
+    if (phone.startsWith('0590') || phone.startsWith('0690') || phone.startsWith('0691')) {
+      // Guadeloupe (+590) : landlines 0590, mobiles 0690/0691
+      phone = '590' + local;
+    } else if (phone.startsWith('069') || phone.startsWith('0596')) {
+      // Martinique (+596) : mobiles 0696/0692/0693/0694, landlines 0596
+      phone = '596' + local;
+    } else if (phone.startsWith('0692') || phone.startsWith('0693')) {
+      // Réunion (+262)
+      phone = '262' + local;
     } else {
-      // French metropolitan (06, 07, landlines starting with 01-05, 08, 09)
+      // France métropolitaine : 06, 07, 01-05, 08, 09
       phone = '33' + local;
     }
   }
-  // 9-digit number without any country code prefix → assume Martinique local
+  // 9-digit number without country code → assume Martinique local mobile
   else if (phone.length === 9 && /^[67]/.test(phone)) {
     phone = '596' + phone;
   }
