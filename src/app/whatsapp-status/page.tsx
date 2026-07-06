@@ -89,6 +89,11 @@ export default function WhatsAppStatusPage() {
   const [testing, setTesting] = useState<string | null>(null);
   const [results, setResults] = useState<Record<string, TestResult>>({});
 
+  // Raw diagnostic test
+  const [rawPhone, setRawPhone] = useState('');
+  const [rawTesting, setRawTesting] = useState(false);
+  const [rawResult, setRawResult] = useState<any>(null);
+
   const loadStatus = useCallback(async () => {
     setLoadingStatus(true);
     try {
@@ -102,6 +107,24 @@ export default function WhatsAppStatusPage() {
   }, []);
 
   useEffect(() => { loadStatus(); }, [loadStatus]);
+
+  const sendRawTest = async () => {
+    if (!rawPhone.trim()) return;
+    setRawTesting(true);
+    setRawResult(null);
+    try {
+      const res = await fetch('/api/debug/whatsapp-raw-test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: rawPhone.trim(), templateName: 'hello_world', language: 'en' }),
+      });
+      setRawResult(await res.json());
+    } catch (e: any) {
+      setRawResult({ ok: false, diagnosis: `Erreur réseau : ${e.message}` });
+    } finally {
+      setRawTesting(false);
+    }
+  };
 
   const sendTest = async (flowKey: string) => {
     const phone = phones[flowKey]?.trim();
@@ -239,6 +262,46 @@ export default function WhatsAppStatusPage() {
             )}
           </div>
         )}
+
+        {/* ── DIAGNOSTIC RAPIDE ── */}
+        <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-5">
+          <p className="text-sm font-bold text-amber-800 mb-1">🔬 Diagnostic numéro — test brut hello_world</p>
+          <p className="text-xs text-amber-700 mb-3">Entre ton numéro WhatsApp personnel pour voir exactement ce que Meta reçoit et répond.</p>
+          <div className="flex gap-2 mb-2">
+            <input
+              type="tel"
+              value={rawPhone}
+              onChange={(e) => setRawPhone(e.target.value)}
+              placeholder="ex: 0696XXXXXX ou +596696XXXXXX"
+              className="flex-1 px-3 py-2 text-sm border border-amber-300 rounded-xl bg-white focus:outline-none"
+            />
+            <button
+              onClick={sendRawTest}
+              disabled={rawTesting || !rawPhone.trim()}
+              className="px-4 py-2 bg-amber-600 text-white text-sm font-bold rounded-xl hover:bg-amber-700 disabled:opacity-40"
+            >
+              {rawTesting ? <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : 'Tester'}
+            </button>
+          </div>
+          {rawResult && (
+            <div className={`rounded-xl p-3 text-xs font-mono space-y-1 ${rawResult.ok ? 'bg-emerald-50 border border-emerald-300' : 'bg-red-50 border border-red-300'}`}>
+              <p className="font-bold text-sm">{rawResult.diagnosis}</p>
+              {rawResult.input && (
+                <>
+                  <p>📱 Numéro saisi : <span className="text-gray-700">{rawResult.input.rawPhone}</span></p>
+                  <p>📤 Numéro envoyé à Meta : <span className="font-bold text-blue-700">+{rawResult.input.cleanedPhone}</span></p>
+                  <p>📋 Template : <span className="text-gray-700">{rawResult.input.templateName}</span></p>
+                </>
+              )}
+              {rawResult.metaResponse?.error && (
+                <p className="text-red-700 font-bold">❌ Erreur Meta : {rawResult.metaResponse.error.message} (code {rawResult.metaResponse.error.code})</p>
+              )}
+              {rawResult.metaResponse?.messages?.[0]?.id && (
+                <p className="text-emerald-700">✅ Message ID : {rawResult.metaResponse.messages[0].id}</p>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Flow tests */}
         <div>
