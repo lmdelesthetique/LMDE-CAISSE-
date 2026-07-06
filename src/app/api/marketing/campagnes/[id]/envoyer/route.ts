@@ -45,14 +45,16 @@ export async function POST(
       const messageAI = (campagne.message ?? '').replace(/\{prénom\}/gi, clientName);
       const isSite = campagne.type === 'site';
 
+      const codePromo = campagne.code_promo?.trim() || 'AUCUN';
+      const dateLimite = campagne.date_limite?.trim() || 'À venir';
       const result = isSite
         ? await sendNotifCampagneSite(client.phone, clientName, messageAI)
         : await sendNotifCampagneBoutique(
             client.phone,
             clientName,
             messageAI,
-            campagne.code_promo ?? '',
-            campagne.date_limite ?? ''
+            codePromo,
+            dateLimite
           );
 
       if (result.ok) envoyes++; else erreurs++;

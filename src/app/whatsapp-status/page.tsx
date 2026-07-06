@@ -7,11 +7,19 @@ interface ApiStatus {
   meta: {
     configured: boolean;
     phoneId: string | null;
+    wabaId?: string;
     phoneNumber?: string;
     verifiedName?: string;
     qualityRating?: string;
     phoneStatus?: string;
     phoneError?: string | null;
+  };
+  token?: {
+    valid: boolean;
+    expiresAt?: string;
+    isExpired?: boolean;
+    error?: string;
+    scopes?: string[];
   };
   brevo: { configured: boolean };
   resend: { configured: boolean };
@@ -104,7 +112,7 @@ export default function WhatsAppStatusPage() {
       const res = await fetch('/api/debug/whatsapp-check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, message: TEST_MESSAGES[flowKey] }),
+        body: JSON.stringify({ phone, flowKey }),
       });
       const data = await res.json();
       setResults(prev => ({ ...prev, [flowKey]: data }));
@@ -177,6 +185,27 @@ export default function WhatsAppStatusPage() {
               )}
               {apiStatus.meta.phoneError && (
                 <p className="text-xs text-red-600 font-mono">Erreur : {apiStatus.meta.phoneError}</p>
+              )}
+              {/* Token validity */}
+              {apiStatus.token && (
+                <div className={`mt-2 pt-2 border-t border-white/50 rounded-lg px-2 py-1.5 ${apiStatus.token.valid ? 'bg-emerald-50 border border-emerald-200' : 'bg-red-50 border border-red-200'}`}>
+                  <p className="text-xs font-bold">
+                    Token : {apiStatus.token.valid ? '✅ Valide' : '❌ INVALIDE / EXPIRÉ'}
+                  </p>
+                  {apiStatus.token.expiresAt && (
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Expiration : <span className={apiStatus.token.isExpired ? 'text-red-600 font-bold' : 'text-gray-700'}>{apiStatus.token.expiresAt}</span>
+                    </p>
+                  )}
+                  {apiStatus.token.error && (
+                    <p className="text-xs text-red-600 font-mono mt-0.5">{apiStatus.token.error}</p>
+                  )}
+                  {!apiStatus.token.valid && (
+                    <p className="text-xs text-red-700 font-bold mt-1">
+                      ⚠️ Régénère le token dans Meta Business Manager → Paramètres → Comptes système → Générer un token permanent
+                    </p>
+                  )}
+                </div>
               )}
             </div>
           )}
