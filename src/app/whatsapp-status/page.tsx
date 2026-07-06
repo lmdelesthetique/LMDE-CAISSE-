@@ -116,7 +116,12 @@ export default function WhatsAppStatusPage() {
       const res = await fetch('/api/debug/whatsapp-raw-test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: rawPhone.trim(), templateName: 'hello_world', language: 'en_US' }),
+        body: JSON.stringify({
+          phone: rawPhone.trim(),
+          templateName: 'campagne_site',
+          language: 'fr',
+          variables: ['Test', 'Ceci est un test WhatsApp depuis BeautyPOS 🌸'],
+        }),
       });
       setRawResult(await res.json());
     } catch (e: any) {
@@ -265,8 +270,8 @@ export default function WhatsAppStatusPage() {
 
         {/* ── DIAGNOSTIC RAPIDE ── */}
         <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-5">
-          <p className="text-sm font-bold text-amber-800 mb-1">🔬 Diagnostic numéro — test brut hello_world</p>
-          <p className="text-xs text-amber-700 mb-3">Entre ton numéro WhatsApp personnel pour voir exactement ce que Meta reçoit et répond.</p>
+          <p className="text-sm font-bold text-amber-800 mb-1">🔬 Diagnostic — test template campagne_site</p>
+          <p className="text-xs text-amber-700 mb-3">Entre ton numéro WhatsApp personnel. Tu dois recevoir un vrai message de test.</p>
           <div className="flex gap-2 mb-2">
             <input
               type="tel"
