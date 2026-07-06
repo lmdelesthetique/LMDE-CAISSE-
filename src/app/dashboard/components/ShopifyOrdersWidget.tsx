@@ -5,8 +5,7 @@ import { useRouter } from 'next/navigation';
 import { deliveryService } from '@/lib/services/deliveryService';
 import type { ShopifyOrderSummary } from '@/lib/services/shopifyService';
 
-const LAST_SEEN_KEY    = 'beautypos_shopify_last_seen_order_id';
-const TREATED_KEY      = 'beautypos_shopify_treated_orders';
+const LAST_SEEN_KEY = 'beautypos_shopify_last_seen_order_id';
 
 // ─── Fulfillment classification (mirrors webhook logic) ────────────────────────
 type FulfillmentType = 'local_delivery' | 'expedition' | 'pickup';
@@ -353,13 +352,6 @@ function OrderDetailModal({ order, onClose }: DetailModalProps) {
 
 // ─── Main widget ───────────────────────────────────────────────────────────────
 
-function getTreatedSet(): Set<string> {
-  try { return new Set(JSON.parse(localStorage.getItem(TREATED_KEY) ?? '[]')); } catch { return new Set(); }
-}
-function saveTreated(set: Set<string>) {
-  localStorage.setItem(TREATED_KEY, JSON.stringify([...set]));
-}
-
 export default function ShopifyOrdersWidget() {
   const [orders, setOrders] = useState<ShopifyOrderSummary[]>([]);
   const [connected, setConnected] = useState(false);
@@ -370,7 +362,17 @@ export default function ShopifyOrdersWidget() {
   const [treating, setTreating] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  useEffect(() => { setTreated(getTreatedSet()); }, []);
+  // Load treated set from server (synced across all devices)
+  const loadTreated = useCallback(async () => {
+    try {
+      const res = await fetch('/api/shopify/orders/treated');
+      if (!res.ok) return;
+      const { ids } = await res.json();
+      setTreated(new Set(ids as string[]));
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => { loadTreated(); }, [loadTreated]);
 
   const load = useCallback(async () => {
     try {
@@ -399,20 +401,26 @@ export default function ShopifyOrdersWidget() {
   const handleTreat = useCallback(async (e: React.MouseEvent, orderId: string) => {
     e.stopPropagation();
     setTreating(orderId);
+    // Optimistic update
+    setTreated((prev) => new Set([...prev, orderId]));
     try {
-      await fetch(`/api/shopify/orders/${orderId}/fulfill`, { method: 'POST' });
-      const next = new Set(getTreatedSet());
-      next.add(orderId);
-      saveTreated(next);
-      setTreated(next);
-    } catch { /* ignore — still mark locally */ } finally {
+      await Promise.all([
+        fetch(`/api/shopify/orders/${orderId}/fulfill`, { method: 'POST' }),
+        fetch('/api/shopify/orders/treated', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orderId }),
+        }),
+      ]);
+    } catch { /* optimistic update stays */ } finally {
       setTreating(null);
     }
   }, []);
 
   useEffect(() => {
     load();
-    timerRef.current = setInterval(load, 60_000);
+    loadTreated();
+    timerRef.current = setInterval(() => { load(); loadTreated(); }, 60_000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [load]);
 
