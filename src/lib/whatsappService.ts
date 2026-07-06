@@ -224,7 +224,7 @@ export async function sendNotifLivreurNouvelleLivraison(
 ): Promise<WhatsAppResult> {
   return withMetaFallback(
     to,
-    (phone) => sendTemplateViaMeta(phone, 'livreur_nouvelle_livraison', 'en', [
+    (phone) => sendTemplateViaMeta(phone, 'livreur_nouvelle_livraison', 'en_US', [
       { type: 'body', parameters: [
         { type: 'text', text: driverName },
         { type: 'text', text: clientName },
@@ -339,7 +339,7 @@ export async function sendNotifFournisseurNouvelleCommande(
 ): Promise<WhatsAppResult> {
   return withMetaFallback(
     to,
-    (phone) => sendTemplateViaMeta(phone, 'supplier_order_sent', 'en', [
+    (phone) => sendTemplateViaMeta(phone, 'supplier_order_sent', 'en_US', [
       { type: 'body', parameters: [
         { type: 'text', text: supplierName },
         { type: 'text', text: orderRef },
@@ -359,7 +359,7 @@ export async function sendNotifFournisseurRelance(
 ): Promise<WhatsAppResult> {
   return withMetaFallback(
     to,
-    (phone) => sendTemplateViaMeta(phone, 'supplier_order_reminder', 'en', [
+    (phone) => sendTemplateViaMeta(phone, 'supplier_order_reminder', 'en_US', [
       { type: 'body', parameters: [
         { type: 'text', text: supplierName },
         { type: 'text', text: orderRef },
@@ -380,7 +380,7 @@ export async function sendNotifFournisseurLienFacture(
 ): Promise<WhatsAppResult> {
   return withMetaFallback(
     to,
-    (phone) => sendTemplateViaMeta(phone, 'supplier_invoice_link', 'en', [
+    (phone) => sendTemplateViaMeta(phone, 'supplier_invoice_link', 'en_US', [
       { type: 'body', parameters: [
         { type: 'text', text: supplierName },
         { type: 'text', text: orderRef },

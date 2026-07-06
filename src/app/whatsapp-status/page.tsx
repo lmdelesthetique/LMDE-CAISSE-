@@ -116,7 +116,7 @@ export default function WhatsAppStatusPage() {
       const res = await fetch('/api/debug/whatsapp-raw-test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: rawPhone.trim(), templateName: 'hello_world', language: 'en' }),
+        body: JSON.stringify({ phone: rawPhone.trim(), templateName: 'hello_world', language: 'en_US' }),
       });
       setRawResult(await res.json());
     } catch (e: any) {

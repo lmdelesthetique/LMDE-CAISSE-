@@ -85,8 +85,8 @@ export async function GET() {
     resend: { configured: hasResend },
     templates: {
       count: templates.length,
-      approved: templates.filter((t: any) => t.status === 'APPROVED').map((t: any) => t.name),
-      pending: templates.filter((t: any) => t.status !== 'APPROVED').map((t: any) => `${t.name} (${t.status})`),
+      approved: templates.filter((t: any) => t.status === 'APPROVED').map((t: any) => `${t.name} [${t.language}]`),
+      pending: templates.filter((t: any) => t.status !== 'APPROVED').map((t: any) => `${t.name} [${t.language}] (${t.status})`),
     },
   });
 }
