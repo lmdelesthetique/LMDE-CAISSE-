@@ -211,6 +211,31 @@ export default function WhatsAppStatusPage() {
               {apiStatus.meta.phoneStatus && (
                 <p className="text-xs text-gray-500">Statut téléphone : <span className={`font-bold ${apiStatus.meta.phoneStatus === 'CONNECTED' ? 'text-emerald-600' : 'text-red-600'}`}>{apiStatus.meta.phoneStatus}</span></p>
               )}
+              {/* Quality rating — critical for delivery */}
+              {apiStatus.meta.qualityRating && apiStatus.meta.qualityRating !== 'N/A' && (
+                <div className={`mt-2 pt-2 border-t border-gray-100 rounded-lg px-2 py-1.5 ${
+                  apiStatus.meta.qualityRating === 'GREEN' ? 'bg-emerald-50 border border-emerald-200' :
+                  apiStatus.meta.qualityRating === 'YELLOW' ? 'bg-amber-50 border border-amber-300' :
+                  'bg-red-50 border border-red-300'
+                }`}>
+                  <p className="text-xs font-bold">
+                    Qualité livraison :{' '}
+                    {apiStatus.meta.qualityRating === 'GREEN' && <span className="text-emerald-700">🟢 VERTE — livraison normale</span>}
+                    {apiStatus.meta.qualityRating === 'YELLOW' && <span className="text-amber-700">🟡 JAUNE — livraison réduite</span>}
+                    {apiStatus.meta.qualityRating === 'RED' && <span className="text-red-700">🔴 ROUGE — messages BLOQUÉS silencieusement</span>}
+                  </p>
+                  {apiStatus.meta.qualityRating === 'RED' && (
+                    <p className="text-xs text-red-700 mt-1">
+                      ⚠️ Meta accepte les requêtes (retourne 200) mais ne livre PAS les messages. Ne pas tester avec de nouveaux numéros — attendre 7 à 30 jours que la qualité remonte.
+                    </p>
+                  )}
+                  {apiStatus.meta.qualityRating === 'YELLOW' && (
+                    <p className="text-xs text-amber-700 mt-1">
+                      Évite d'envoyer à des numéros qui n'ont pas WhatsApp pour récupérer la qualité.
+                    </p>
+                  )}
+                </div>
+              )}
               {apiStatus.meta.phoneError && (
                 <p className="text-xs text-red-600 font-mono">Erreur : {apiStatus.meta.phoneError}</p>
               )}
