@@ -12,7 +12,13 @@ export async function generateMetadata(
     appleWebApp: {
       capable: true,
       title: 'Mon Espace 💅',
-      statusBarStyle: 'default',
+      statusBarStyle: 'black-translucent',
+      startupImage: '/icons/icon-512.png',
+    },
+    other: {
+      // Force iOS to use ambassadrice manifest start_url, not the root admin app
+      'apple-mobile-web-app-capable': 'yes',
+      'apple-mobile-web-app-title': 'Mon Espace 💅',
     },
   };
 }
