@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
   const token     = searchParams.get('hub.verify_token');
   const challenge = searchParams.get('hub.challenge');
 
-  const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
+  const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN ?? 'lmde-webhook-2024';
 
   if (mode === 'subscribe' && token === verifyToken && challenge) {
     console.log('[WhatsApp Webhook] ✅ verified');
@@ -26,61 +26,91 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 }
 
-// POST — receive incoming messages and log to Supabase
+// POST — receive delivery statuses + incoming messages from Meta
 export async function POST(req: NextRequest) {
   let body: any;
-  try {
-    body = await req.json();
-  } catch {
+  try { body = await req.json(); } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  console.log('[WhatsApp Webhook] incoming:', JSON.stringify(body));
+  console.log('[WhatsApp Webhook] incoming:', JSON.stringify(body).slice(0, 500));
 
   try {
     const supabase = makeAdminClient();
-
-    // Extract relevant fields from Meta payload
     const entry   = body?.entry?.[0];
     const changes = entry?.changes?.[0];
     const value   = changes?.value;
-    const messages = value?.messages ?? [];
 
+    // ── Delivery status updates (sent/delivered/read/failed) ──────────────
+    const statuses: any[] = value?.statuses ?? [];
+    for (const status of statuses) {
+      const statusType = status.status; // sent | delivered | read | failed
+      const recipient  = status.recipient_id;
+      const msgId      = status.id;
+      const ts         = status.timestamp
+        ? new Date(Number(status.timestamp) * 1000).toISOString()
+        : new Date().toISOString();
+      const errorCode  = status.errors?.[0]?.code ?? null;
+      const errorMsg   = status.errors?.[0]?.message ?? null;
+
+      console.log(`[WhatsApp Webhook] status=${statusType} to=${recipient} wamid=${msgId} error=${errorCode ?? 'none'}`);
+
+      await supabase.from('notification_log').insert({
+        channel:      'whatsapp',
+        direction:    'outbound_status',
+        from_phone:   recipient,
+        message_id:   msgId,
+        message_type: statusType,
+        body:         errorMsg ?? statusType,
+        raw:          status,
+        created_at:   ts,
+      }).then(({ error }) => {
+        if (error) console.error('[WebhookDB] status insert:', error.message);
+      });
+    }
+
+    // ── Inbound messages ──────────────────────────────────────────────────
+    const messages: any[] = value?.messages ?? [];
     for (const msg of messages) {
       const from    = msg.from ?? null;
       const type    = msg.type ?? 'unknown';
       const text    = msg.text?.body ?? msg.caption ?? null;
       const msgId   = msg.id ?? null;
-      const timestamp = msg.timestamp
+      const ts      = msg.timestamp
         ? new Date(Number(msg.timestamp) * 1000).toISOString()
         : new Date().toISOString();
 
+      console.log(`[WhatsApp Webhook] inbound from=${from} type=${type}`);
+
       await supabase.from('notification_log').insert({
-        channel:    'whatsapp',
-        direction:  'inbound',
-        from_phone: from,
-        message_id: msgId,
+        channel:      'whatsapp',
+        direction:    'inbound',
+        from_phone:   from,
+        message_id:   msgId,
         message_type: type,
-        body:       text,
-        raw:        msg,
-        created_at: timestamp,
+        body:         text,
+        raw:          msg,
+        created_at:   ts,
+      }).then(({ error }) => {
+        if (error) console.error('[WebhookDB] message insert:', error.message);
       });
     }
 
-    // If no messages (status updates, read receipts, etc.), still log the raw event
-    if (messages.length === 0 && value) {
+    // ── Unknown events ────────────────────────────────────────────────────
+    if (statuses.length === 0 && messages.length === 0 && value) {
       await supabase.from('notification_log').insert({
-        channel:   'whatsapp',
-        direction: 'inbound',
-        message_type: 'event',
-        body:      null,
-        raw:       body,
-        created_at: new Date().toISOString(),
+        channel:      'whatsapp',
+        direction:    'event',
+        message_type: 'unknown',
+        body:         JSON.stringify(value).slice(0, 500),
+        raw:          body,
+        created_at:   new Date().toISOString(),
+      }).then(({ error }) => {
+        if (error) console.error('[WebhookDB] event insert:', error.message);
       });
     }
   } catch (err: any) {
-    console.error('[WhatsApp Webhook] Supabase error:', err.message);
-    // Still return 200 so Meta doesn't retry indefinitely
+    console.error('[WhatsApp Webhook] error:', err.message);
   }
 
   return NextResponse.json({ ok: true }, { status: 200 });

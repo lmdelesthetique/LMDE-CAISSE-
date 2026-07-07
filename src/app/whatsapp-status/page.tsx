@@ -94,6 +94,21 @@ export default function WhatsAppStatusPage() {
   const [rawTesting, setRawTesting] = useState(false);
   const [rawResult, setRawResult] = useState<any>(null);
 
+  // Delivery log
+  const [deliveryLog, setDeliveryLog] = useState<any[]>([]);
+  const [logTableExists, setLogTableExists] = useState<boolean | null>(null);
+
+  const loadDeliveryLog = useCallback(async () => {
+    try {
+      const res = await fetch('/api/debug/whatsapp-delivery-log');
+      const data = await res.json();
+      setDeliveryLog(data.events ?? []);
+      setLogTableExists(data.tableExists ?? false);
+    } catch { /* silent */ }
+  }, []);
+
+  useEffect(() => { loadDeliveryLog(); }, [loadDeliveryLog]);
+
   const loadStatus = useCallback(async () => {
     setLoadingStatus(true);
     try {
@@ -394,6 +409,81 @@ export default function WhatsAppStatusPage() {
               );
             })}
           </div>
+        </div>
+
+        {/* ── Delivery log from webhook ── */}
+        <div className="rounded-2xl border-2 border-indigo-200 bg-indigo-50 p-5">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <p className="text-sm font-bold text-indigo-800">📡 Journal de livraison (webhook Meta)</p>
+              <p className="text-xs text-indigo-600 mt-0.5">
+                {logTableExists === false
+                  ? '⚠️ Table notification_log absente — crée-la en Supabase (voir instructions ci-dessous)'
+                  : 'Statuts de livraison reçus par Meta en temps réel'}
+              </p>
+            </div>
+            <button onClick={loadDeliveryLog} className="text-xs text-indigo-600 underline">Rafraîchir</button>
+          </div>
+
+          {logTableExists === false && (
+            <div className="bg-white border border-indigo-200 rounded-xl p-3 mb-3 text-xs text-indigo-800 font-mono">
+              <p className="font-bold mb-1">SQL à exécuter dans Supabase (SQL Editor) :</p>
+              <pre className="whitespace-pre-wrap text-xs">{`CREATE TABLE IF NOT EXISTS notification_log (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  channel text,
+  direction text,
+  from_phone text,
+  message_id text,
+  message_type text,
+  body text,
+  raw jsonb,
+  created_at timestamptz DEFAULT now()
+);`}</pre>
+            </div>
+          )}
+
+          {logTableExists && deliveryLog.length === 0 && (
+            <div className="bg-white border border-indigo-100 rounded-xl p-4 text-center">
+              <p className="text-xs text-gray-500">Aucun événement reçu — le webhook doit être configuré dans Meta Business Manager</p>
+              <p className="text-xs text-gray-400 mt-1 font-mono">URL webhook : https://lmdecaisse.com/api/webhooks/whatsapp</p>
+              <p className="text-xs text-gray-400 font-mono">Token de vérification : <strong>lmde-webhook-2024</strong></p>
+            </div>
+          )}
+
+          {deliveryLog.length > 0 && (
+            <div className="space-y-2">
+              {deliveryLog.map((ev) => {
+                const isDelivered = ev.message_type === 'delivered';
+                const isRead = ev.message_type === 'read';
+                const isSent = ev.message_type === 'sent';
+                const isFailed = ev.message_type === 'failed';
+                const isInbound = ev.direction === 'inbound';
+                return (
+                  <div key={ev.id} className={`rounded-xl px-3 py-2 text-xs border ${
+                    isFailed ? 'bg-red-50 border-red-200' :
+                    isDelivered || isRead ? 'bg-emerald-50 border-emerald-200' :
+                    isSent ? 'bg-blue-50 border-blue-200' :
+                    isInbound ? 'bg-amber-50 border-amber-200' :
+                    'bg-white border-gray-200'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold">
+                        {isFailed && '❌ ÉCHEC'}
+                        {isDelivered && '✅ Livré'}
+                        {isRead && '👁️ Lu'}
+                        {isSent && '📤 Envoyé'}
+                        {isInbound && '📥 Reçu (entrant)'}
+                        {!isFailed && !isDelivered && !isRead && !isSent && !isInbound && `📋 ${ev.message_type}`}
+                      </span>
+                      <span className="text-gray-400">{new Date(ev.created_at).toLocaleTimeString('fr-FR')}</span>
+                    </div>
+                    <p className="text-gray-600 mt-0.5">Numéro : {ev.from_phone ?? '—'}</p>
+                    {ev.body && ev.body !== ev.message_type && <p className="text-gray-500 truncate">{ev.body}</p>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Ecosystem recap */}
