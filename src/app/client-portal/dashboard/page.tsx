@@ -252,9 +252,10 @@ export default function ClientDashboardPage() {
         setProducts((prev) =>
           prev.map((p) =>
             p.id === payload.new.id
+              // Update stock — keep product visible even if stock hits 0 (show RUPTURE badge)
               ? { ...p, stock: payload.new.stock, sell_price_ttc: payload.new.sell_price_ttc }
               : p
-          ).filter((p) => p.stock > 0)
+          )
         );
       })
       .subscribe();
@@ -263,21 +264,12 @@ export default function ClientDashboardPage() {
 
   // ── Add product ────────────────────────────────────────────────────────────
   const addProduct = useCallback(async (product: PortalProduct) => {
-    if (!clientUser) { console.warn('[addProduct] no clientUser'); return; }
-
-    console.log('[addProduct] called', {
-      subscriptionId: clientUser.subscriptionId,
-      productId: product.id,
-      productName: product.name,
-      price: product.sell_price_ttc,
-      quotaRemaining,
-      quotaAmount,
-      orderId: currentOrder?.id,
-      orderStatus: currentOrder?.status,
-      isPastDeadline,
-    });
+    if (!clientUser) return;
 
     if (isPastDeadline) { showToast('Date limite dépassée (après le 25).', 'error'); return; }
+
+    // Block out-of-stock products
+    if (product.stock <= 0) { showToast('Ce produit est en rupture de stock.', 'error'); return; }
 
     if (currentOrder?.status !== 'open' && currentOrder !== null) {
       showToast('La commande est déjà confirmée.', 'error'); return;
@@ -293,7 +285,6 @@ export default function ClientDashboardPage() {
 
     // Create order if not yet created this month
     if (!orderId) {
-      console.log('[addProduct] creating order for subscription', clientUser.subscriptionId);
       const sc = shippingFree ? 0 : shippingCost;
       const res = await fetch('/api/client-portal/subscription-order', {
         method: 'POST',
@@ -306,7 +297,6 @@ export default function ClientDashboardPage() {
         }),
       });
       const json = await res.json();
-      console.log('[addProduct] order creation result', json);
       if (!res.ok || !json.order) {
         showToast(`Erreur création commande: ${json.error ?? 'inconnue'}.`, 'error');
         return;
@@ -319,7 +309,6 @@ export default function ClientDashboardPage() {
     if (existing) {
       const newQty = existing.quantity + 1;
       const newTotal = product.sell_price_ttc * newQty;
-      console.log('[addProduct] updating existing item', { itemId: existing.id, newQty });
       const { error } = await supabase
         .from('subscription_order_items')
         .update({ quantity: newQty, total_sell_price: newTotal })
@@ -327,7 +316,6 @@ export default function ClientDashboardPage() {
       if (error) { showToast(`Erreur mise à jour: ${error.message}.`, 'error'); return; }
       setOrderItems((prev) => prev.map((i) => i.id === existing.id ? { ...i, quantity: newQty, total_sell_price: newTotal } : i));
     } else {
-      console.log('[addProduct] inserting new item', { orderId, productId: product.id });
       const { data: newItem, error } = await supabase
         .from('subscription_order_items')
         .insert({
@@ -340,7 +328,6 @@ export default function ClientDashboardPage() {
         })
         .select('*, product:products(id, name, image_url, sell_price_ttc, description)')
         .single();
-      console.log('[addProduct] insert result', { newItem, error });
       if (error || !newItem) {
         showToast(`Erreur ajout: ${error?.message ?? 'inconnue'}.`, 'error');
         return;
@@ -757,7 +744,7 @@ export default function ClientDashboardPage() {
                             key={p.id}
                             product={p}
                             inCart={orderItems.find((i) => i.product_id === p.id)}
-                            canAdd={canEdit && p.sell_price_ttc <= quotaRemaining}
+                            canAdd={canEdit && p.sell_price_ttc <= quotaRemaining && p.stock > 0}
                             canEdit={canEdit}
                             onAdd={() => addProduct(p)}
                             onRemove={(id) => removeProduct(id)}
@@ -800,7 +787,7 @@ export default function ClientDashboardPage() {
                         key={p.id}
                         product={p}
                         inCart={orderItems.find((i) => i.product_id === p.id)}
-                        canAdd={canEdit && p.sell_price_ttc <= quotaRemaining}
+                        canAdd={canEdit && p.sell_price_ttc <= quotaRemaining && p.stock > 0}
                         canEdit={canEdit}
                         onAdd={() => addProduct(p)}
                         onRemove={(id) => removeProduct(id)}
@@ -1057,12 +1044,14 @@ interface ProductCardProps {
 }
 
 function ProductCard({ product, inCart, canAdd, canEdit, onAdd, onRemove, onDetail }: ProductCardProps) {
+  const isOutOfStock = product.stock <= 0;
+
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
+    <div className={`bg-white rounded-xl shadow-sm border overflow-hidden flex flex-col ${isOutOfStock ? 'border-red-200 opacity-80' : 'border-gray-100'}`}>
       {/* Image */}
       <div className="relative cursor-pointer" onClick={onDetail}>
         {product.image_url ? (
-          <img src={product.image_url} alt={product.name} className="w-full h-24 object-cover" loading="lazy" />
+          <img src={product.image_url} alt={product.name} className={`w-full h-24 object-cover ${isOutOfStock ? 'grayscale' : ''}`} loading="lazy" />
         ) : (
           <div className="w-full h-24 bg-rose-50 flex items-center justify-center">
             <svg className="w-7 h-7 text-rose-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -1070,12 +1059,21 @@ function ProductCard({ product, inCart, canAdd, canEdit, onAdd, onRemove, onDeta
             </svg>
           </div>
         )}
-        {product.stock > 0 && product.stock <= 4 && (
+        {/* RUPTURE badge */}
+        {isOutOfStock && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+            <span className="text-[10px] font-black bg-red-600 text-white px-2 py-0.5 rounded tracking-widest uppercase shadow">
+              RUPTURE
+            </span>
+          </div>
+        )}
+        {/* Low stock warning */}
+        {!isOutOfStock && product.stock <= 4 && (
           <span className="absolute top-1 left-1 text-[8px] font-bold bg-amber-400 text-white px-1 py-0.5 rounded leading-none">
-            {product.stock} left
+            {product.stock} restant{product.stock > 1 ? 's' : ''}
           </span>
         )}
-        {inCart && (
+        {inCart && !isOutOfStock && (
           <span className="absolute top-1 right-1 w-4 h-4 bg-rose-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
             {inCart.quantity}
           </span>
@@ -1089,19 +1087,23 @@ function ProductCard({ product, inCart, canAdd, canEdit, onAdd, onRemove, onDeta
           <p className="text-[10px] text-gray-400 line-clamp-1 mt-0.5">{product.description}</p>
         )}
         <div className="flex items-center justify-between mt-1.5">
-          <span className="text-xs font-bold text-rose-600 tabular-nums">{product.sell_price_ttc.toFixed(2)} €</span>
-          {inCart ? (
+          <span className={`text-xs font-bold tabular-nums ${isOutOfStock ? 'text-gray-400' : 'text-rose-600'}`}>
+            {product.sell_price_ttc.toFixed(2)} €
+          </span>
+          {isOutOfStock ? (
+            <span className="text-[9px] font-bold text-red-500 uppercase tracking-wide">Indisponible</span>
+          ) : inCart ? (
             <div className="flex items-center gap-1">
               <button onClick={() => onRemove(inCart.id)} className="w-5 h-5 rounded-full border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-gray-50">
                 <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 12h-15" /></svg>
               </button>
               <span className="text-[10px] font-bold text-gray-700">{inCart.quantity}</span>
-              <button onClick={onAdd} className="w-5 h-5 rounded-full bg-rose-500 flex items-center justify-center text-white hover:bg-rose-600">
+              <button onClick={onAdd} disabled={!canAdd} className="w-5 h-5 rounded-full bg-rose-500 flex items-center justify-center text-white hover:bg-rose-600 disabled:opacity-30">
                 <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
               </button>
             </div>
           ) : (
-            <button onClick={onAdd} className="w-6 h-6 rounded-full bg-rose-500 flex items-center justify-center text-white hover:bg-rose-600 transition-colors">
+            <button onClick={onAdd} disabled={!canAdd} className="w-6 h-6 rounded-full bg-rose-500 flex items-center justify-center text-white hover:bg-rose-600 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
             </button>
           )}
