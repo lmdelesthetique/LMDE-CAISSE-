@@ -16,27 +16,27 @@ function buildContent(type: NotifType, firstName: string, planName: string, quot
   switch (type) {
     case 'selection_reminder':
       return {
-        subject: `📋 Complétez votre box du mois — ${planName}`,
+        subject: `Abonnement ${planName} — Personnalisez votre box du mois`,
         headline: `Votre box vous attend ! 🎁`,
         body: `Bonjour ${firstName} 💅<br/><br/>
 Le moment est venu de personnaliser votre box beauté du mois !<br/><br/>
 Vous disposez encore de <strong>${quota.toFixed(0)} €</strong> de quota pour choisir vos produits préférés.<br/><br/>
 ⏰ <strong>Date limite : avant le 25 du mois</strong><br/><br/>
 Connectez-vous à votre espace personnel pour faire votre sélection :`,
-        cta: { href: portalUrl, label: '✨ Faire ma sélection →' },
+        cta: { href: portalUrl, label: '✨ Faire ma sélection' },
       };
     case 'box_ready':
       return {
-        subject: `🎁 Votre box beauté est prête — ${planName}`,
+        subject: `Abonnement ${planName} — Votre box est prête`,
         headline: `Votre box est prête ! 🎉`,
         body: `Bonjour ${firstName} 💅<br/><br/>
 Bonne nouvelle ! Votre box beauté du mois est prête et attend votre confirmation.<br/><br/>
 Connectez-vous à votre espace pour valider votre commande :`,
-        cta: { href: portalUrl, label: '📦 Voir ma box →' },
+        cta: { href: portalUrl, label: '📦 Voir ma box' },
       };
     case 'box_preparing':
       return {
-        subject: `🔧 On prépare votre box — ${planName}`,
+        subject: `Abonnement ${planName} — Preparation de votre box en cours`,
         headline: `Votre box est en préparation ✨`,
         body: `Bonjour ${firstName} 💅<br/><br/>
 Notre équipe s'occupe en ce moment de préparer votre box beauté du mois avec soin.<br/><br/>
@@ -45,7 +45,7 @@ Restez à l'affût, de belles surprises vous attendent ! 🌸`,
       };
     case 'box_shipped':
       return {
-        subject: `🚚 Votre box beauté est en route — ${planName}`,
+        subject: `Abonnement ${planName} — Votre box a ete expediee`,
         headline: `Votre box est expédiée ! 🚀`,
         body: `Bonjour ${firstName} 💅<br/><br/>
 Votre box beauté du mois a été expédiée et est en route vers vous !<br/><br/>
@@ -54,26 +54,26 @@ Merci de votre fidélité et à très vite 💖`,
       };
     case 'box_delivered':
       return {
-        subject: `✅ Votre box beauté est livrée — ${planName}`,
+        subject: `Abonnement ${planName} — Votre box a ete livree`,
         headline: `Votre box est livrée ! ✅`,
         body: `Bonjour ${firstName} 💅<br/><br/>
 Votre box beauté du mois a bien été livrée. Nous espérons qu'elle vous fait plaisir !<br/><br/>
 N'hésitez pas à nous partager votre avis ou à passer nous voir en boutique.<br/><br/>
-À le mois prochain 🌸`,
+A le mois prochain 🌸`,
       };
     case 'payment_reminder':
       return {
-        subject: `💳 Rappel : votre prélèvement mensuel — ${planName}`,
+        subject: `Abonnement ${planName} — Rappel prelevement mensuel`,
         headline: `Rappel paiement mensuel 💳`,
         body: `Bonjour ${firstName} 💅<br/><br/>
 Ceci est un rappel concernant votre abonnement <strong>${planName}</strong>.<br/><br/>
 Votre prélèvement mensuel est prévu prochainement. Veuillez vous assurer que votre moyen de paiement est à jour.<br/><br/>
 En cas de question, n'hésitez pas à contacter votre conseillère.`,
-        cta: { href: portalUrl, label: '💳 Mon espace →' },
+        cta: { href: portalUrl, label: '💳 Mon espace' },
       };
     case 'welcome':
       return {
-        subject: `👋 Bienvenue dans votre abonnement beauté — ${planName}`,
+        subject: `Bienvenue dans votre abonnement ${planName}`,
         headline: `Bienvenue chez nous ! 🌸`,
         body: `Bonjour ${firstName} 💅<br/><br/>
 Nous sommes ravies de vous accueillir dans la famille Le Monde de l'Esthétique !<br/><br/>
@@ -110,7 +110,7 @@ function buildHtml(content: EmailContent, planName: string): string {
     </p>
   </div>
   <div style="background:#fdf2f8;padding:16px 36px;text-align:center;">
-    <p style="margin:0;font-size:12px;color:#c084fc;">Le Monde de l'Esthétique 💅 — Votre salon beauté en Martinique</p>
+    <p style="margin:0;font-size:12px;color:#c084fc;">Le Monde de l'Esthetique 💅 — Votre salon beaute en Martinique</p>
   </div>
 </div>
 </body></html>`;
