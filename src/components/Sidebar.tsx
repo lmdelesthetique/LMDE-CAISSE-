@@ -106,6 +106,23 @@ interface SidebarProps {
   onToggle: () => void;
 }
 
+function playNotifSound() {
+  try {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.12);
+    gain.gain.setValueAtTime(0.25, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.35);
+  } catch {}
+}
+
 export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -118,6 +135,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
   const [userInitials, setUserInitials] = useState('');
+  const [unreadSupplierMsgs, setUnreadSupplierMsgs] = useState(0);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -172,6 +190,39 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Unread supplier messages badge + realtime
+  useEffect(() => {
+    const loadCount = () =>
+      fetch('/api/supplier-messages/unread-count')
+        .then(r => r.json())
+        .then(d => setUnreadSupplierMsgs(d.count ?? 0))
+        .catch(() => {});
+
+    loadCount();
+
+    const ch = supabase
+      .channel('sidebar_supplier_msgs')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'supplier_messages' }, (payload: any) => {
+        if (payload.new?.sender === 'supplier') {
+          setUnreadSupplierMsgs(prev => prev + 1);
+          playNotifSound();
+        }
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(ch); };
+  }, []);
+
+  // Reset badge when user opens messaging
+  useEffect(() => {
+    if (pathname.startsWith('/commandes-fournisseurs')) {
+      fetch('/api/supplier-messages/unread-count')
+        .then(r => r.json())
+        .then(d => setUnreadSupplierMsgs(d.count ?? 0))
+        .catch(() => {});
+    }
+  }, [pathname]);
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     router.replace('/login');
@@ -225,6 +276,9 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                 const isActive = pathname === item.href || (item.children && pathname.startsWith(item.href));
                 const isExpanded = expandedItems[item.id];
                 const hasChildren = item.children && item.children.length > 0;
+                const dynamicBadge = item.id === 'nav-commandes-fo' && unreadSupplierMsgs > 0
+                  ? unreadSupplierMsgs
+                  : item.badge;
 
                 return (
                   <div key={item.id}>
@@ -278,15 +332,23 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                         {!collapsed && (
                           <>
                             <span className="flex-1 truncate">{item.label}</span>
-                            {item.badge !== undefined && (
-                              <span className="ml-auto bg-primary text-primary-foreground text-[10px] font-600 rounded-full px-1.5 py-0.5 min-w-[18px] text-center tabular-nums">
-                                {item.badge}
+                            {dynamicBadge !== undefined && (
+                              <span className={`ml-auto text-[10px] font-600 rounded-full px-1.5 py-0.5 min-w-[18px] text-center tabular-nums ${
+                                item.id === 'nav-commandes-fo' && unreadSupplierMsgs > 0
+                                  ? 'bg-red-500 text-white'
+                                  : 'bg-primary text-primary-foreground'
+                              }`}>
+                                {dynamicBadge}
                               </span>
                             )}
                           </>
                         )}
-                        {collapsed && item.badge !== undefined && (
-                          <span className="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full" />
+                        {collapsed && dynamicBadge !== undefined && (
+                          <span className={`absolute top-1 right-1 w-2 h-2 rounded-full ${
+                            item.id === 'nav-commandes-fo' && unreadSupplierMsgs > 0
+                              ? 'bg-red-500'
+                              : 'bg-primary'
+                          }`} />
                         )}
                       </Link>
                     )}
