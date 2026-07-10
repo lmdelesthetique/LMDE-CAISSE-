@@ -79,6 +79,8 @@ export default function SupplierTokenPortal() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [msgsLoading, setMsgsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const prevAdminMsgCount = useRef(0);
+  const [newMsgToast, setNewMsgToast] = useState(false);
 
   // Orders
   const [orders, setOrders] = useState<Order[]>([]);
@@ -107,18 +109,41 @@ export default function SupplierTokenPortal() {
 
   // ─── Load messages ──────────────────────────────────────────────────────────
 
+  const playNotif = () => {
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(660, ctx.currentTime);
+      osc.frequency.setValueAtTime(880, ctx.currentTime + 0.15);
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.4);
+    } catch {}
+  };
+
   // Use API route (admin client) to bypass RLS for anon users
-  const loadMessages = useCallback(async () => {
+  const loadMessages = useCallback(async (isRefresh = false) => {
     if (!token) return;
-    setMsgsLoading(true);
+    if (!isRefresh) setMsgsLoading(true);
     try {
       const res = await fetch(`/api/supplier-portal/${token}/messages`);
       const json = await res.json();
-      setMessages((json.messages ?? []) as ChatMessage[]);
+      const msgs = (json.messages ?? []) as ChatMessage[];
+      const adminCount = msgs.filter(m => m.sender_type === 'admin').length;
+      if (isRefresh && adminCount > prevAdminMsgCount.current) {
+        playNotif();
+        setNewMsgToast(true);
+        setTimeout(() => setNewMsgToast(false), 4000);
+      }
+      prevAdminMsgCount.current = adminCount;
+      setMessages(msgs);
     } catch {
-      setMessages([]);
+      if (!isRefresh) setMessages([]);
     } finally {
-      setMsgsLoading(false);
+      if (!isRefresh) setMsgsLoading(false);
     }
   }, [token]);
 
@@ -156,16 +181,18 @@ export default function SupplierTokenPortal() {
     }
   }, [messages, tab]);
 
-  // ─── Real-time (polling fallback — real-time requires anon RLS) ────────────
+  // ─── Realtime + polling fallback ───────────────────────────────────────────
 
   useEffect(() => {
     if (!info) return;
-    // Try real-time; if RLS blocks it, polling every 5s as fallback
+    // Realtime (fires if RLS allows anon)
     const ch = supabase
       .channel(`portal_token_${info.supplierId}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'supplier_messages', filter: `supplier_id=eq.${info.supplierId}` }, () => loadMessages())
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'supplier_messages', filter: `supplier_id=eq.${info.supplierId}` }, () => loadMessages(true))
       .subscribe();
-    return () => { supabase.removeChannel(ch); };
+    // Polling every 20s as guaranteed fallback
+    const poll = setInterval(() => loadMessages(true), 20000);
+    return () => { supabase.removeChannel(ch); clearInterval(poll); };
   }, [info, supabase, loadMessages]);
 
   // ─── Send text message ──────────────────────────────────────────────────────
@@ -264,6 +291,19 @@ export default function SupplierTokenPortal() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: '#f0f2f5', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif', maxWidth: 680, margin: '0 auto', position: 'relative' }}>
+
+      {/* New message toast */}
+      {newMsgToast && (
+        <div style={{
+          position: 'fixed', top: 16, left: '50%', transform: 'translateX(-50%)',
+          background: '#075e54', color: '#fff', borderRadius: 20,
+          padding: '10px 20px', fontSize: 13, fontWeight: 600,
+          boxShadow: '0 4px 20px rgba(0,0,0,0.3)', zIndex: 100,
+          display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap',
+        }}>
+          💬 Nouveau message reçu
+        </div>
+      )}
 
       {/* Header */}
       <div style={{ background: '#075e54', color: '#fff', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
@@ -405,10 +445,12 @@ export default function SupplierTokenPortal() {
 function MessageBubble({ msg, formatTime }: { msg: ChatMessage; formatTime: (s: string) => string }) {
   const isSupplier = msg.sender_type === 'supplier';
   const isOrderCard = msg.message_type === 'order_card';
+  const [showPreview, setShowPreview] = useState(false);
+  const isPdf = msg.attachment_url ? IS_PDF(msg.attachment_url) : false;
 
   return (
     <div style={{ display: 'flex', justifyContent: isSupplier ? 'flex-end' : 'flex-start', marginBottom: 2 }}>
-      <div style={{ maxWidth: '78%', display: 'flex', flexDirection: 'column', alignItems: isSupplier ? 'flex-end' : 'flex-start', gap: 2 }}>
+      <div style={{ maxWidth: '82%', display: 'flex', flexDirection: 'column', alignItems: isSupplier ? 'flex-end' : 'flex-start', gap: 2 }}>
 
         {/* Order card badge */}
         {isOrderCard && (
@@ -423,10 +465,8 @@ function MessageBubble({ msg, formatTime }: { msg: ChatMessage; formatTime: (s: 
           background: isOrderCard ? '#f0fdf4' : isSupplier ? '#dcf8c6' : '#fff',
           border: isOrderCard ? '1px solid #bbf7d0' : '1px solid transparent',
           boxShadow: '0 1px 2px rgba(0,0,0,.1)',
-          fontSize: 14,
-          color: '#111',
-          wordBreak: 'break-word',
-          whiteSpace: 'pre-wrap',
+          fontSize: 14, color: '#111', wordBreak: 'break-word', whiteSpace: 'pre-wrap',
+          width: showPreview ? 300 : undefined,
         }}>
           {msg.content && <p style={{ margin: 0, lineHeight: 1.5 }}>{msg.content}</p>}
 
@@ -435,21 +475,39 @@ function MessageBubble({ msg, formatTime }: { msg: ChatMessage; formatTime: (s: 
             <div style={{ marginTop: msg.content ? 8 : 0 }}>
               {IS_IMG(msg.attachment_url, msg.attachment_type) ? (
                 <a href={msg.attachment_url} target="_blank" rel="noopener noreferrer">
-                  <img src={msg.attachment_url} alt={msg.attachment_name ?? 'Image'} style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8, objectFit: 'cover', display: 'block' }} />
+                  <img src={msg.attachment_url} alt={msg.attachment_name ?? 'Image'} style={{ maxWidth: '100%', maxHeight: 220, borderRadius: 8, objectFit: 'cover', display: 'block' }} />
                 </a>
               ) : (
-                <a href={msg.attachment_url} target="_blank" rel="noopener noreferrer" download={msg.attachment_name ?? undefined}
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: '#f8fafc', borderRadius: 8, textDecoration: 'none', border: '1px solid #e2e8f0' }}>
-                  <span style={{ fontSize: 24 }}>
-                    {IS_PDF(msg.attachment_url) ? '📄' : IS_XLS(msg.attachment_name) ? '📊' : '📎'}
-                  </span>
-                  <div style={{ minWidth: 0 }}>
-                    <p style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {msg.attachment_name ?? 'Fichier'}
-                    </p>
-                    <p style={{ fontSize: 11, color: '#64748b', margin: 0 }}>Appuyer pour télécharger</p>
-                  </div>
-                </a>
+                <>
+                  <a href={msg.attachment_url} target="_blank" rel="noopener noreferrer" download={msg.attachment_name ?? undefined}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: '#f8fafc', borderRadius: 8, textDecoration: 'none', border: '1px solid #e2e8f0' }}>
+                    <span style={{ fontSize: 24 }}>
+                      {isPdf ? '📄' : IS_XLS(msg.attachment_name) ? '📊' : '📎'}
+                    </span>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <p style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {msg.attachment_name ?? 'Fichier'}
+                      </p>
+                      <p style={{ fontSize: 11, color: '#64748b', margin: 0 }}>Appuyer pour télécharger</p>
+                    </div>
+                  </a>
+                  {/* PDF inline preview toggle */}
+                  {isPdf && (
+                    <button
+                      onClick={() => setShowPreview(p => !p)}
+                      style={{ marginTop: 6, fontSize: 12, color: '#075e54', fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer', padding: '2px 0', textDecoration: 'underline' }}
+                    >
+                      {showPreview ? '▲ Masquer l\'aperçu' : '👁 Voir l\'aperçu'}
+                    </button>
+                  )}
+                  {isPdf && showPreview && (
+                    <iframe
+                      src={`${msg.attachment_url}#toolbar=0`}
+                      style={{ marginTop: 8, width: '100%', height: 400, borderRadius: 8, border: '1px solid #e2e8f0', display: 'block' }}
+                      title={msg.attachment_name ?? 'Aperçu PDF'}
+                    />
+                  )}
+                </>
               )}
             </div>
           )}

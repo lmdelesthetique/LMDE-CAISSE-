@@ -53,6 +53,11 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
   // File upload state
   const [uploadingFile, setUploadingFile] = useState(false);
 
+  // PDF preview toggled per message id
+  const [pdfPreviews, setPdfPreviews] = useState<Set<string>>(new Set());
+  const togglePdfPreview = (id: string) =>
+    setPdfPreviews(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+
   // "Use as final invoice" state
   const [usingInvoice, setUsingInvoice] = useState<string | null>(null);
   const [usedInvoice, setUsedInvoice] = useState<string | null>(null);
@@ -273,6 +278,7 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
             const ref = orderRef(msg.orderId);
             const canUseAsInvoice = canUseMsg(msg);
             const alreadyUsed = usedInvoice === msg.id;
+            const isPdfMsg = msg.attachmentUrl ? IS_PDF(msg.attachmentUrl) : false;
 
             return (
               <div key={msg.id} className={`flex ${isStore ? 'justify-end' : 'justify-start'}`}>
@@ -321,20 +327,38 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
                             />
                           </a>
                         ) : (
-                          <a
-                            href={msg.attachmentUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-500 hover:opacity-80 transition-opacity ${isStore ? 'bg-white/15 text-white' : 'bg-white border border-border text-foreground'}`}
-                          >
-                            <span className="text-lg">
-                              {IS_PDF(msg.attachmentUrl) ? '📄' : IS_XLS(msg.attachmentName) ? '📊' : '📎'}
-                            </span>
-                            <div className="min-w-0">
-                              <p className="truncate font-600">{msg.attachmentName ?? 'Fichier'}</p>
-                              <p className="opacity-70">Cliquer pour ouvrir</p>
-                            </div>
-                          </a>
+                          <>
+                            <a
+                              href={msg.attachmentUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-500 hover:opacity-80 transition-opacity ${isStore ? 'bg-white/15 text-white' : 'bg-white border border-border text-foreground'}`}
+                            >
+                              <span className="text-lg">
+                                {isPdfMsg ? '📄' : IS_XLS(msg.attachmentName) ? '📊' : '📎'}
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate font-600">{msg.attachmentName ?? 'Fichier'}</p>
+                                <p className="opacity-70">Cliquer pour ouvrir</p>
+                              </div>
+                            </a>
+                            {isPdfMsg && (
+                              <button
+                                onClick={() => togglePdfPreview(msg.id)}
+                                className="mt-1.5 text-[11px] font-600 text-primary hover:underline bg-transparent border-none cursor-pointer p-0 block"
+                              >
+                                {pdfPreviews.has(msg.id) ? '▲ Masquer l\'aperçu' : '👁 Aperçu de la facture'}
+                              </button>
+                            )}
+                            {isPdfMsg && pdfPreviews.has(msg.id) && (
+                              <iframe
+                                src={`${msg.attachmentUrl}#toolbar=0`}
+                                className="mt-2 w-full rounded-lg border border-border"
+                                style={{ height: 420 }}
+                                title={msg.attachmentName ?? 'Aperçu PDF'}
+                              />
+                            )}
+                          </>
                         )}
                       </div>
                     )}
