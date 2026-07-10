@@ -463,14 +463,29 @@ export default function LivraisonsPage() {
                             </button>
                           )}
                           {driverWaPhone && driverWaMsg && d.status !== 'delivered' && d.status !== 'cancelled' && (
-                            <a
-                              href={`https://wa.me/${driverWaPhone}?text=${driverWaMsg}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center gap-1 text-xs bg-green-100 text-green-700 px-3 py-1.5 rounded-lg border border-green-300 hover:bg-green-200 transition-colors font-bold whitespace-nowrap"
-                            >
-                              📲 Notifier le livreur
-                            </a>
+                            <div className="flex flex-col gap-1">
+                              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Notifier le livreur</p>
+                              <div className="flex gap-1">
+                                <a
+                                  href={`https://wa.me/${driverWaPhone}?text=${driverWaMsg}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title="Envoyer depuis WhatsApp Business (n° magasin 0696682802)"
+                                  className="text-[11px] bg-green-100 text-green-700 px-2 py-1.5 rounded-lg border border-green-300 hover:bg-green-200 transition-colors font-bold whitespace-nowrap"
+                                >
+                                  🏪 Magasin
+                                </a>
+                                <a
+                                  href={`https://wa.me/${driverWaPhone}?text=${driverWaMsg}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title="Envoyer depuis votre WhatsApp personnel (0696016998)"
+                                  className="text-[11px] bg-purple-100 text-purple-700 px-2 py-1.5 rounded-lg border border-purple-300 hover:bg-purple-200 transition-colors font-bold whitespace-nowrap"
+                                >
+                                  📱 Perso
+                                </a>
+                              </div>
+                            </div>
                           )}
                           {d.status !== 'delivered' && d.status !== 'cancelled' && (
                             <button
