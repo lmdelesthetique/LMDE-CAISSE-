@@ -331,6 +331,23 @@ export default function LivraisonsPage() {
                   const cfg = DELIVERY_STATUS_CONFIG[d.status] ?? { label: d.status, color: 'text-gray-800', bg: 'bg-gray-100 border-gray-300', dot: 'bg-gray-400' };
                   const products = d.products ?? [];
                   const isNewShopify = newShopifyIds.has(d.id);
+                  const assignedDriver = d.assignedTo ? drivers.find((dr) => dr.id === d.assignedTo) : null;
+                  const driverWaPhone = assignedDriver?.phone ? assignedDriver.phone.replace(/[^\d]/g, '') : null;
+                  const driverWaMsg = driverWaPhone ? encodeURIComponent(
+                    [
+                      `🚚 Livraison à effectuer`,
+                      ``,
+                      `Client : ${d.clientName}`,
+                      d.clientPhone ? `Tél : ${d.clientPhone}` : null,
+                      `Adresse : ${d.deliveryAddress}`,
+                      d.totalAmount != null ? `Montant : ${d.totalAmount.toFixed(2)} €` : null,
+                      d.deliveryNotes ? `Notes : ${d.deliveryNotes}` : null,
+                      ``,
+                      `Portail livreur : lmdecaisse.com/livreur/login`,
+                      ``,
+                      `Le Monde de l'Esthétique 💅`,
+                    ].filter(Boolean).join('\n')
+                  ) : null;
                   const { country } = parseLivraisonAddress(d.deliveryAddress);
                   const countryBadge = country.toLowerCase().includes('martinique')
                     ? 'bg-teal-100 text-teal-700 border-teal-200'
@@ -444,6 +461,16 @@ export default function LivraisonsPage() {
                             >
                               📦 Créer étiquette
                             </button>
+                          )}
+                          {driverWaPhone && driverWaMsg && d.status !== 'delivered' && d.status !== 'cancelled' && (
+                            <a
+                              href={`https://wa.me/${driverWaPhone}?text=${driverWaMsg}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1 text-xs bg-green-100 text-green-700 px-3 py-1.5 rounded-lg border border-green-300 hover:bg-green-200 transition-colors font-bold whitespace-nowrap"
+                            >
+                              📲 Notifier le livreur
+                            </a>
                           )}
                           {d.status !== 'delivered' && d.status !== 'cancelled' && (
                             <button

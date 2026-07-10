@@ -229,8 +229,6 @@ export default function LivreursPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState('');
-  const [testingWaId, setTestingWaId] = useState<string | null>(null);
-  const [waResults, setWaResults] = useState<Record<string, { ok: boolean; msg: string }>>({});
 
   const load = useCallback(async () => {
     try {
@@ -269,35 +267,6 @@ export default function LivreursPage() {
       await load();
     } catch { /* ignore */ } finally {
       setDeletingId(null);
-    }
-  };
-
-  const handleTestWhatsApp = async (driver: Driver) => {
-    if (!driver.phone) {
-      setWaResults((prev) => ({ ...prev, [driver.id]: { ok: false, msg: '❌ Pas de numéro' } }));
-      return;
-    }
-    setTestingWaId(driver.id);
-    try {
-      const res = await fetch('/api/whatsapp/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          to: driver.phone,
-          message: `🔔 Test BeautyPOS\n\nBonjour ${driver.firstName} ! Ceci est un test de notification WhatsApp.\n\nLe Monde de l'Esthétique 💅`,
-        }),
-      });
-      const data = await res.json();
-      setWaResults((prev) => ({
-        ...prev,
-        [driver.id]: data.ok
-          ? { ok: true, msg: '✅ WhatsApp envoyé !' }
-          : { ok: false, msg: `❌ ${data.error || 'Erreur'}` },
-      }));
-    } catch {
-      setWaResults((prev) => ({ ...prev, [driver.id]: { ok: false, msg: '❌ Erreur réseau' } }));
-    } finally {
-      setTestingWaId(null);
     }
   };
 
@@ -456,17 +425,17 @@ export default function LivreursPage() {
                             >
                               {deletingId === driver.id ? '…' : 'Supprimer'}
                             </button>
-                            <button
-                              onClick={() => handleTestWhatsApp(driver)}
-                              disabled={testingWaId === driver.id}
-                              className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded border border-green-300 hover:bg-green-200 disabled:opacity-50 transition-colors"
-                            >
-                              {testingWaId === driver.id ? '…' : '📱 Tester WA'}
-                            </button>
-                            {waResults[driver.id] && (
-                              <span className={`text-xs font-semibold ${waResults[driver.id].ok ? 'text-green-600' : 'text-red-600'}`}>
-                                {waResults[driver.id].msg}
-                              </span>
+                            {driver.phone && (
+                              <a
+                                href={`https://wa.me/${driver.phone.replace(/[^\d]/g, '')}?text=${encodeURIComponent(
+                                  `Bonjour ${driver.firstName} 👋\n\nVoici vos accès au portail livreur :\n🌐 lmdecaisse.com/livreur/login\n\nConnectez-vous avec votre numéro de téléphone et votre code PIN.\n\nLe Monde de l'Esthétique 💅`
+                                )}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded border border-green-300 hover:bg-green-200 transition-colors"
+                              >
+                                📲 WhatsApp
+                              </a>
                             )}
                           </div>
                         </td>
