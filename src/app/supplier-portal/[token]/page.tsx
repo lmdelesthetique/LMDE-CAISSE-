@@ -87,6 +87,7 @@ export default function SupplierTokenPortal() {
   // Compose
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   const [uploadingFile, setUploadingFile] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -173,15 +174,26 @@ export default function SupplierTokenPortal() {
     e.preventDefault();
     if (!text.trim() || sending || !info) return;
     setSending(true);
+    setSendError(null);
     const content = text.trim();
     setText('');
-    await fetch('/api/supplier-messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ supplierId: info.supplierId, content, messageType: 'text' }),
-    });
-    await loadMessages();
-    setSending(false);
+    try {
+      const res = await fetch('/api/supplier-messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ supplierId: info.supplierId, content, messageType: 'text' }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Erreur ${res.status}`);
+      }
+      await loadMessages();
+    } catch (err: any) {
+      setSendError(err.message || 'Erreur envoi');
+      setText(content); // restore text so user can retry
+    } finally {
+      setSending(false);
+    }
   };
 
   // ─── Upload file ────────────────────────────────────────────────────────────
@@ -209,12 +221,11 @@ export default function SupplierTokenPortal() {
     const isPdf = IS_PDF(json.url);
     const msgType = isImg ? 'photo' : isPdf ? 'pdf' : 'other';
 
-    await fetch('/api/supplier-messages', {
+    const msgRes = await fetch('/api/supplier-messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         supplierId: info.supplierId,
-        content: null,
         messageType: msgType,
         attachmentUrl: json.url,
         attachmentName: json.name,
@@ -222,7 +233,12 @@ export default function SupplierTokenPortal() {
       }),
     });
 
-    await loadMessages();
+    if (!msgRes.ok) {
+      const err = await msgRes.json().catch(() => ({}));
+      setSendError(err.error || 'Erreur enregistrement fichier');
+    } else {
+      await loadMessages();
+    }
     setUploadingFile(false);
   };
 
@@ -292,6 +308,15 @@ export default function SupplierTokenPortal() {
             )}
             <div ref={messagesEndRef} style={{ height: 8 }} />
           </div>
+
+          {/* Error banner */}
+          {sendError && (
+            <div style={{ background: '#fef2f2', borderTop: '1px solid #fecaca', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+              <span style={{ fontSize: 14 }}>⚠️</span>
+              <span style={{ fontSize: 13, color: '#dc2626', flex: 1 }}>{sendError}</span>
+              <button onClick={() => setSendError(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: 16 }}>×</button>
+            </div>
+          )}
 
           {/* Compose */}
           <form onSubmit={sendText} style={{ background: '#f0f2f5', padding: '8px 12px', display: 'flex', alignItems: 'flex-end', gap: 8, flexShrink: 0, borderTop: '1px solid #e5e7eb' }}>
