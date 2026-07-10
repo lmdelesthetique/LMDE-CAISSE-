@@ -8,13 +8,12 @@ interface Message {
   id: string;
   supplierId: string;
   orderId?: string | null;
-  productId?: string | null;
   sender: 'store' | 'supplier';
   content?: string | null;
   attachmentUrl?: string | null;
   attachmentType?: string | null;
   attachmentName?: string | null;
-  messageType: 'text' | 'photo' | 'pdf' | 'payment_proof' | 'claim' | 'order_modification' | 'other';
+  messageType: 'text' | 'photo' | 'pdf' | 'payment_proof' | 'claim' | 'order_modification' | 'order_card' | 'other';
   isRead: boolean;
   createdAt: string;
 }
@@ -31,15 +30,10 @@ interface Props {
   onRefresh?: () => void;
 }
 
-const MESSAGE_TYPE_LABELS: Record<string, { label: string; icon: string; color: string }> = {
-  text: { label: 'Message', icon: 'ChatBubbleLeftIcon', color: 'text-blue-600' },
-  photo: { label: 'Photo', icon: 'PhotoIcon', color: 'text-emerald-600' },
-  pdf: { label: 'PDF', icon: 'DocumentIcon', color: 'text-red-600' },
-  payment_proof: { label: 'Preuve paiement', icon: 'CreditCardIcon', color: 'text-teal-600' },
-  claim: { label: 'Réclamation', icon: 'ExclamationCircleIcon', color: 'text-orange-600' },
-  order_modification: { label: 'Modification commande', icon: 'PencilSquareIcon', color: 'text-purple-600' },
-  other: { label: 'Autre', icon: 'PaperClipIcon', color: 'text-gray-600' },
-};
+const IS_IMG = (url: string, type?: string | null) =>
+  /\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(url) || (type ?? '').startsWith('image/');
+const IS_PDF = (url: string) => url.toLowerCase().includes('.pdf') || url.toLowerCase().includes('/pdf');
+const IS_XLS = (name?: string | null) => /\.(xls|xlsx|csv)$/i.test(name ?? '');
 
 export default function MessagingPanel({ supplierId, supplierName, orders = [], onRefresh }: Props) {
   const supabase = createClient();
@@ -47,12 +41,16 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
   const [loading, setLoading] = useState(true);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
-  const [messageType, setMessageType] = useState<Message['messageType']>('text');
-  const [attachmentUrl, setAttachmentUrl] = useState('');
-  const [attachmentName, setAttachmentName] = useState('');
   const [selectedOrderId, setSelectedOrderId] = useState('');
-  const [showAttachPanel, setShowAttachPanel] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // File upload state
+  const [uploadingFile, setUploadingFile] = useState(false);
+
+  // "Use as final invoice" state
+  const [usingInvoice, setUsingInvoice] = useState<string | null>(null);
+  const [usedInvoice, setUsedInvoice] = useState<string | null>(null);
 
   const loadMessages = async () => {
     setLoading(true);
@@ -62,13 +60,12 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
         .select('*')
         .eq('supplier_id', supplierId)
         .order('created_at', { ascending: true });
-      
+
       if (data) {
         setMessages(data.map((row: any) => ({
           id: row.id,
           supplierId: row.supplier_id,
           orderId: row.order_id,
-          productId: row.product_id,
           sender: row.sender,
           content: row.content,
           attachmentUrl: row.attachment_url,
@@ -79,13 +76,15 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
           createdAt: row.created_at,
         })));
         // Mark supplier messages as read
-        const unreadIds = data.filter((m: any) => m.sender === 'supplier' && !m.is_read).map((m: any) => m.id);
+        const unreadIds = data
+          .filter((m: any) => m.sender === 'supplier' && !m.is_read)
+          .map((m: any) => m.id);
         if (unreadIds.length > 0) {
           await supabase.from('supplier_messages').update({ is_read: true }).in('id', unreadIds);
         }
       }
     } catch (err) {
-      console.error('Error loading messages:', err);
+      console.error('[MessagingPanel] loadMessages error:', err);
     } finally {
       setLoading(false);
     }
@@ -93,15 +92,9 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
 
   useEffect(() => {
     loadMessages();
-    // Real-time subscription
     const channel = supabase
       .channel(`supplier_messages_${supplierId}`)
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'supplier_messages',
-        filter: `supplier_id=eq.${supplierId}`,
-      }, () => { loadMessages(); })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'supplier_messages', filter: `supplier_id=eq.${supplierId}` }, () => loadMessages())
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [supplierId]);
@@ -110,40 +103,93 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // ─── Send text message ──────────────────────────────────────────────────────
+
   const handleSend = async () => {
     const text = input.trim();
-    const hasAttachment = attachmentUrl.trim() !== '';
-    if (!text && !hasAttachment) return;
-    if (sending) return;
+    if (!text || sending) return;
     setSending(true);
     try {
-      const payload: any = {
+      await supabase.from('supplier_messages').insert({
         supplier_id: supplierId,
         sender: 'store',
         sender_type: 'admin',
-        content: text || null,
-        message_type: messageType,
+        content: text,
+        message_type: 'text',
         is_read: false,
         order_id: selectedOrderId || null,
-      };
-      if (hasAttachment) {
-        payload.attachment_url = attachmentUrl.trim();
-        payload.attachment_type = messageType === 'photo' ? 'image' : messageType === 'pdf' ? 'pdf' : 'file';
-        payload.attachment_name = attachmentName.trim() || 'Pièce jointe';
-      }
-      await supabase.from('supplier_messages').insert(payload);
+      });
       setInput('');
-      setAttachmentUrl('');
-      setAttachmentName('');
-      setMessageType('text');
       setSelectedOrderId('');
-      setShowAttachPanel(false);
       await loadMessages();
       onRefresh?.();
     } catch (err) {
-      console.error('Error sending message:', err);
+      console.error('[MessagingPanel] send error:', err);
     } finally {
       setSending(false);
+    }
+  };
+
+  // ─── Upload file ────────────────────────────────────────────────────────────
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setUploadingFile(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('supplierId', supplierId);
+
+      const res = await fetch('/api/supplier-messages/upload', { method: 'POST', body: fd });
+      const json = await res.json();
+      if (!res.ok || !json.url) throw new Error(json.error || 'Erreur upload');
+
+      const isImg = IS_IMG(json.url, json.type);
+      const isPdf = IS_PDF(json.url);
+      const msgType = isImg ? 'photo' : isPdf ? 'pdf' : 'other';
+
+      await supabase.from('supplier_messages').insert({
+        supplier_id: supplierId,
+        sender: 'store',
+        sender_type: 'admin',
+        content: null,
+        message_type: msgType,
+        is_read: false,
+        order_id: selectedOrderId || null,
+        attachment_url: json.url,
+        attachment_name: json.name,
+        attachment_type: json.type,
+      });
+
+      setSelectedOrderId('');
+      await loadMessages();
+      onRefresh?.();
+    } catch (err: any) {
+      alert(`Erreur : ${err.message}`);
+    } finally {
+      setUploadingFile(false);
+    }
+  };
+
+  // ─── Use as final invoice ───────────────────────────────────────────────────
+
+  const handleUseAsInvoice = async (msg: Message) => {
+    if (!msg.attachmentUrl || !msg.orderId) return;
+    setUsingInvoice(msg.id);
+    try {
+      const res = await fetch(`/api/fo-orders/${msg.orderId}/use-invoice`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoiceUrl: msg.attachmentUrl, invoiceName: msg.attachmentName }),
+      });
+      if (res.ok) {
+        setUsedInvoice(msg.id);
+        onRefresh?.();
+      }
+    } catch { /* non-blocking */ } finally {
+      setUsingInvoice(null);
     }
   };
 
@@ -151,22 +197,19 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   };
 
-  const formatTime = (iso: string) => {
-    const d = new Date(iso);
-    return d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-  };
+  const formatTime = (iso: string) =>
+    new Date(iso).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
-  const isImageUrl = (url: string) => /\.(jpg|jpeg|png|gif|webp|svg)(\?|$)/i.test(url);
-
-  const unreadCount = messages.filter((m) => m.sender === 'supplier' && !m.isRead).length;
+  const unreadCount = messages.filter(m => m.sender === 'supplier' && !m.isRead).length;
+  const orderRef = (orderId: string | null | undefined) => orders.find(o => o.id === orderId);
 
   return (
-    <div className="bg-white border border-border rounded-xl shadow-card flex flex-col" style={{ height: '680px' }}>
+    <div className="bg-white border border-border rounded-xl shadow-card flex flex-col" style={{ height: 680 }}>
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-3.5 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
           <Icon name="ChatBubbleLeftRightIcon" size={18} className="text-primary" />
-          <h3 className="font-600 text-foreground">Messagerie {supplierName ? `— ${supplierName}` : 'fournisseur'}</h3>
+          <h3 className="font-600 text-foreground">Messagerie {supplierName ? `— ${supplierName}` : ''}</h3>
           {unreadCount > 0 && (
             <span className="text-[10px] font-700 px-1.5 py-0.5 rounded-full bg-primary text-primary-foreground">{unreadCount}</span>
           )}
@@ -187,13 +230,16 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
           <div className="flex flex-col items-center justify-center h-full text-center">
             <Icon name="ChatBubbleLeftRightIcon" size={40} className="text-muted-foreground mb-3" />
             <p className="text-muted-foreground text-sm">Aucun message pour l'instant</p>
-            <p className="text-muted-foreground text-xs mt-1">Envoyez votre premier message ci-dessous</p>
           </div>
         ) : (
           messages.map((msg) => {
             const isStore = msg.sender === 'store';
-            const typeInfo = MESSAGE_TYPE_LABELS[msg.messageType] || MESSAGE_TYPE_LABELS.text;
-            const orderRef = orders.find((o) => o.id === msg.orderId);
+            const isOrderCard = msg.messageType === 'order_card';
+            const ref = orderRef(msg.orderId);
+            const hasAttachment = !!msg.attachmentUrl;
+            const canUseAsInvoice = hasAttachment && msg.sender === 'supplier' && !!msg.orderId;
+            const alreadyUsed = usedInvoice === msg.id;
+
             return (
               <div key={msg.id} className={`flex ${isStore ? 'justify-end' : 'justify-start'}`}>
                 <div className={`max-w-[78%] ${isStore ? 'items-end' : 'items-start'} flex flex-col gap-1`}>
@@ -205,29 +251,38 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
                       <span className="text-xs text-muted-foreground font-medium">Fournisseur</span>
                     </div>
                   )}
+
+                  {/* Order card badge */}
+                  {isOrderCard && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-600 self-start mb-0.5">
+                      📦 Commande envoyée
+                    </span>
+                  )}
+
                   {/* Order link badge */}
-                  {orderRef && (
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-500 self-end">
-                      📦 {orderRef.order_number}
+                  {ref && !isOrderCard && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-500">
+                      📦 {ref.order_number}
                     </span>
                   )}
-                  {/* Message type badge (non-text) */}
-                  {msg.messageType !== 'text' && (
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full bg-muted font-500 ${typeInfo.color} self-${isStore ? 'end' : 'start'}`}>
-                      {typeInfo.label}
-                    </span>
-                  )}
+
                   <div className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
-                    isStore ? 'bg-primary text-primary-foreground rounded-br-sm' : 'bg-muted text-foreground rounded-bl-sm'
+                    isOrderCard
+                      ? 'bg-emerald-50 border border-emerald-200 text-emerald-900'
+                      : isStore
+                        ? 'bg-primary text-primary-foreground rounded-br-sm'
+                        : 'bg-muted text-foreground rounded-bl-sm'
                   }`}>
-                    {msg.content && <p>{msg.content}</p>}
+                    {msg.content && <p className="whitespace-pre-wrap">{msg.content}</p>}
+
+                    {/* File attachment */}
                     {msg.attachmentUrl && (
-                      <div className="mt-2">
-                        {isImageUrl(msg.attachmentUrl) ? (
+                      <div className={msg.content ? 'mt-2' : ''}>
+                        {IS_IMG(msg.attachmentUrl, msg.attachmentType) ? (
                           <a href={msg.attachmentUrl} target="_blank" rel="noopener noreferrer">
                             <img
                               src={msg.attachmentUrl}
-                              alt={msg.attachmentName || 'Image'}
+                              alt={msg.attachmentName ?? 'Image'}
                               className="max-w-full rounded-lg max-h-40 object-cover border border-white/20"
                             />
                           </a>
@@ -236,15 +291,36 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
                             href={msg.attachmentUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className={`flex items-center gap-2 text-xs underline opacity-90 mt-1 ${isStore ? 'text-primary-foreground' : 'text-primary'}`}
+                            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-500 hover:opacity-80 transition-opacity ${isStore ? 'bg-white/15 text-white' : 'bg-white border border-border text-foreground'}`}
                           >
-                            <Icon name="PaperClipIcon" size={13} />
-                            {msg.attachmentName || 'Pièce jointe'}
+                            <span className="text-lg">
+                              {IS_PDF(msg.attachmentUrl) ? '📄' : IS_XLS(msg.attachmentName) ? '📊' : '📎'}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="truncate font-600">{msg.attachmentName ?? 'Fichier'}</p>
+                              <p className="opacity-70">Cliquer pour ouvrir</p>
+                            </div>
                           </a>
                         )}
                       </div>
                     )}
                   </div>
+
+                  {/* "Use as final invoice" button — only on supplier file messages linked to an order */}
+                  {canUseAsInvoice && (
+                    <button
+                      onClick={() => handleUseAsInvoice(msg)}
+                      disabled={!!usingInvoice || alreadyUsed}
+                      className={`text-[10px] font-600 px-2 py-0.5 rounded-full border transition-colors ${
+                        alreadyUsed
+                          ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                          : 'border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100'
+                      } disabled:opacity-60`}
+                    >
+                      {alreadyUsed ? '✅ Facture finale enregistrée' : usingInvoice === msg.id ? '…' : '✅ Utiliser comme facture finale'}
+                    </button>
+                  )}
+
                   <span className="text-[11px] text-muted-foreground px-1">{formatTime(msg.createdAt)}</span>
                 </div>
               </div>
@@ -254,77 +330,60 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
         <div ref={bottomRef} />
       </div>
 
-      {/* Attachment panel */}
-      {showAttachPanel && (
-        <div className="px-5 py-3 border-t border-border bg-muted/20 shrink-0 space-y-2">
-          <div className="flex items-center gap-2 flex-wrap">
-            <p className="text-xs font-600 text-muted-foreground">Type :</p>
-            {(['photo', 'pdf', 'payment_proof', 'claim', 'order_modification', 'other'] as const).map((t) => (
-              <button
-                key={t}
-                onClick={() => setMessageType(t)}
-                className={`text-[10px] px-2 py-0.5 rounded-full border font-500 transition-colors ${
-                  messageType === t ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted'
-                }`}
-              >
-                {MESSAGE_TYPE_LABELS[t].label}
-              </button>
-            ))}
-          </div>
-          <input
-            type="url"
-            value={attachmentUrl}
-            onChange={(e) => setAttachmentUrl(e.target.value)}
-            placeholder="URL de la pièce jointe (image, PDF…)"
-            className="w-full px-3 py-1.5 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20"
-          />
-          <input
-            type="text"
-            value={attachmentName}
-            onChange={(e) => setAttachmentName(e.target.value)}
-            placeholder="Nom du fichier (optionnel)"
-            className="w-full px-3 py-1.5 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20"
-          />
-          {orders.length > 0 && (
+      {/* Compose area */}
+      <div className="px-5 py-3.5 border-t border-border shrink-0">
+        {/* Order link (optional) */}
+        {orders.length > 0 && (
+          <div className="mb-2">
             <select
               value={selectedOrderId}
-              onChange={(e) => setSelectedOrderId(e.target.value)}
-              className="w-full px-3 py-1.5 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 bg-white"
+              onChange={e => setSelectedOrderId(e.target.value)}
+              className="w-full px-3 py-1.5 text-xs border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 text-muted-foreground"
             >
               <option value="">— Lier à une commande (optionnel) —</option>
-              {orders.map((o) => (
-                <option key={o.id} value={o.id}>{o.order_number}</option>
-              ))}
+              {orders.map(o => <option key={o.id} value={o.id}>{o.order_number}</option>)}
             </select>
-          )}
-        </div>
-      )}
+          </div>
+        )}
 
-      {/* Input */}
-      <div className="px-5 py-3.5 border-t border-border shrink-0">
         <div className="flex items-end gap-2">
+          {/* File upload button */}
           <button
-            onClick={() => setShowAttachPanel(!showAttachPanel)}
-            className={`flex items-center justify-center w-9 h-9 rounded-xl border transition-colors shrink-0 ${
-              showAttachPanel ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted'
-            }`}
-            title="Pièce jointe"
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploadingFile}
+            title="Joindre un fichier (PDF, image, Excel…)"
+            className={`flex items-center justify-center w-9 h-9 rounded-xl border transition-colors shrink-0 ${uploadingFile ? 'border-primary/40 bg-primary/10' : 'border-border text-muted-foreground hover:bg-muted'}`}
           >
-            <Icon name="PaperClipIcon" size={16} />
+            {uploadingFile
+              ? <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              : <Icon name="PaperClipIcon" size={16} />
+            }
           </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,.jpg,.jpeg,.png,.xls,.xlsx,.csv,image/*"
+            onChange={handleFileChange}
+            className="hidden"
+          />
+
+          {/* Text input */}
           <div className="flex-1 relative">
             <textarea
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={e => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Écrivez votre message… (Entrée pour envoyer)"
               rows={2}
               className="w-full px-4 py-2.5 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
             />
           </div>
+
+          {/* Send button */}
           <button
             onClick={handleSend}
-            disabled={(!input.trim() && !attachmentUrl.trim()) || sending}
+            disabled={!input.trim() || sending}
             className="flex items-center justify-center w-10 h-10 bg-primary text-primary-foreground rounded-xl hover:bg-primary/90 transition-colors disabled:opacity-50 shrink-0"
           >
             {sending
@@ -333,7 +392,9 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
             }
           </button>
         </div>
-        <p className="text-[11px] text-muted-foreground mt-1.5">Shift+Entrée pour un saut de ligne · 📎 pour joindre un fichier/photo/PDF</p>
+        <p className="text-[11px] text-muted-foreground mt-1.5">
+          📎 PDF · Image · Excel/CSV (max 20 Mo) · Shift+Entrée saut de ligne
+        </p>
       </div>
     </div>
   );

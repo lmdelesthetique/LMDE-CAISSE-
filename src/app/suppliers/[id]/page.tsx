@@ -805,10 +805,6 @@ export default function SupplierDetailPage() {
 
 // ─── Supplier Access Modal ────────────────────────────────────────────────────
 
-function generatePin(): string {
-  return String(Math.floor(100000 + Math.random() * 900000));
-}
-
 interface SupplierAccessModalProps {
   supplier: Supplier;
   onClose: () => void;
@@ -817,45 +813,53 @@ interface SupplierAccessModalProps {
 
 function SupplierAccessModal({ supplier, onClose, onSaved }: SupplierAccessModalProps) {
   const [step, setStep] = useState<'generate' | 'generated'>('generate');
-  const [pin, setPin] = useState(generatePin());
+  const [generatedToken, setGeneratedToken] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState('');
 
-  const portalUrl = `${process.env.NEXT_PUBLIC_SITE_URL || ''}/supplier-portal/login`;
-  const credentialsText = `Accès portail fournisseur — ${supplier.companyName}\n\nURL: ${portalUrl}\nCode PIN: ${pin}`;
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || (typeof window !== 'undefined' ? window.location.origin : '');
+  const portalLink = generatedToken ? `${siteUrl}/supplier-portal/${generatedToken}` : '';
+
+  // Detect if existing token (UUID format) or old PIN
+  const hasExistingToken = !!supplier.portalLogin;
+  const isOldPin = hasExistingToken && /^\d{4,8}$/.test(supplier.portalLogin ?? '');
+  const existingLink = hasExistingToken && !isOldPin
+    ? `${siteUrl}/supplier-portal/${supplier.portalLogin}`
+    : null;
 
   async function handleGenerate() {
     setLoading(true);
     setError('');
     try {
-      // SECURITY DEFINER RPC bypasses RLS on supplier_portal_users
-      // (direct INSERT/UPDATE is blocked for authenticated admin users by RLS)
-      const { error: rpcError } = await supabase.rpc('upsert_supplier_portal_pin', {
-        p_supplier_id: supplier.id,
-        p_pin: pin,
-      });
-      if (rpcError) throw new Error(`Erreur : ${rpcError.message}`);
-
+      const res = await fetch(`/api/suppliers/${supplier.id}/portal-token`, { method: 'POST' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Erreur serveur');
+      setGeneratedToken(json.token);
       setStep('generated');
     } catch (err: any) {
-      setError(err.message || 'Erreur lors de la sauvegarde');
+      setError(err.message || 'Erreur lors de la génération');
     } finally {
       setLoading(false);
     }
   }
 
-  function handleCopy() {
-    navigator.clipboard.writeText(credentialsText).catch(() => {});
-    setCopied('copy');
+  function handleCopyLink(link: string) {
+    navigator.clipboard.writeText(link).catch(() => {});
+    setCopied('link');
     setTimeout(() => setCopied(''), 2000);
   }
 
-  function handleWhatsApp() {
-    const msg = encodeURIComponent(credentialsText);
-    const wa = supplier.whatsapp?.replace(/\D/g, '') || '';
-    window.open(`https://wa.me/${wa}?text=${msg}`, '_blank');
+  function handleWhatsApp(link: string) {
+    const phone = (supplier.whatsapp || supplier.phone || '').replace(/\D/g, '');
+    if (!phone) { alert('Aucun numéro WhatsApp enregistré pour ce fournisseur'); return; }
+    const msg = encodeURIComponent(
+      `Bonjour ${supplier.companyName} 👋\n\nVoici votre espace commandes LMDE (lien unique permanent) :\n👉 ${link}\n\nAjoutez-le à votre écran d'accueil pour ne rien manquer.\n\nLe Monde de l'Esthétique 💅`
+    );
+    window.open(`https://wa.me/${phone}?text=${msg}`, '_blank');
   }
+
+  const displayLink = portalLink || existingLink || '';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
@@ -863,10 +867,10 @@ function SupplierAccessModal({ supplier, onClose, onSaved }: SupplierAccessModal
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
-              <Icon name="KeyIcon" size={18} className="text-primary" />
+              <Icon name="LinkIcon" size={18} className="text-primary" />
             </div>
             <div>
-              <h2 className="text-base font-700 text-foreground">Accès portail fournisseur</h2>
+              <h2 className="text-base font-700 text-foreground">Espace fournisseur</h2>
               <p className="text-xs text-muted-foreground">{supplier.companyName}</p>
             </div>
           </div>
@@ -878,35 +882,30 @@ function SupplierAccessModal({ supplier, onClose, onSaved }: SupplierAccessModal
         <div className="p-6 space-y-4">
           {step === 'generate' ? (
             <>
-              {supplier.portalLogin && (
-                <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-700">
-                  <Icon name="ExclamationTriangleIcon" size={14} className="shrink-0 mt-0.5" />
-                  Un accès existe déjà (PIN : {supplier.portalLogin}). Générer un nouveau PIN remplacera l'ancien.
+              <div className="flex items-start gap-3 p-4 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-800">
+                <Icon name="InformationCircleIcon" size={16} className="shrink-0 mt-0.5 text-blue-600" />
+                <p>Un lien unique et permanent est généré pour ce fournisseur. Il n'a pas besoin de mot de passe — il clique sur le lien et accède directement à son espace.</p>
+              </div>
+
+              {existingLink && (
+                <div className="space-y-2">
+                  <p className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Lien actuel</p>
+                  <div className="flex items-center gap-2 p-3 bg-muted/30 rounded-xl border border-border">
+                    <p className="text-xs text-primary flex-1 font-mono truncate">{existingLink}</p>
+                    <button onClick={() => handleCopyLink(existingLink)} className="shrink-0 text-xs px-2 py-1 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors">
+                      Copier
+                    </button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Générer un nouveau lien révoquera l'accès via l'ancien.</p>
                 </div>
               )}
 
-              <div>
-                <label className="block text-xs font-600 text-muted-foreground uppercase tracking-wide mb-1.5">Code PIN à 6 chiffres</label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={pin}
-                    onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                    className="flex-1 px-3.5 py-2.5 rounded-lg border border-border text-sm font-mono tracking-widest text-center focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-                    maxLength={6}
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setPin(generatePin())}
-                    className="px-3 py-2 border border-border rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                    title="Générer un nouveau PIN aléatoire"
-                  >
-                    <Icon name="ArrowPathIcon" size={14} />
-                  </button>
+              {isOldPin && (
+                <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-700">
+                  <Icon name="ExclamationTriangleIcon" size={14} className="shrink-0 mt-0.5" />
+                  Ancien accès par PIN détecté ({supplier.portalLogin}). Générez un lien permanent pour remplacer.
                 </div>
-              </div>
+              )}
 
               {error && (
                 <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
@@ -917,45 +916,41 @@ function SupplierAccessModal({ supplier, onClose, onSaved }: SupplierAccessModal
 
               <button
                 onClick={handleGenerate}
-                disabled={loading || pin.length !== 6}
+                disabled={loading}
                 className="w-full flex items-center justify-center gap-2 py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-600 hover:bg-primary/90 disabled:opacity-60 transition-colors"
               >
-                {loading ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Icon name="KeyIcon" size={15} />}
-                {loading ? 'Sauvegarde…' : 'Enregistrer le code PIN'}
+                {loading ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Icon name="LinkIcon" size={15} />}
+                {loading ? 'Génération…' : existingLink ? 'Générer un nouveau lien' : 'Générer le lien d\'accès'}
               </button>
             </>
           ) : (
             <>
               <div className="flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700">
                 <Icon name="CheckCircleIcon" size={16} />
-                Code PIN enregistré avec succès !
+                Lien généré avec succès !
               </div>
 
-              <div className="bg-muted/30 rounded-xl p-4 space-y-3 border border-border">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">URL portail</span>
-                  <span className="text-xs text-primary truncate max-w-[200px]">{portalUrl}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">Code PIN</span>
-                  <span className="text-lg font-700 font-mono tracking-widest text-foreground">{pin}</span>
+              <div className="space-y-2">
+                <p className="text-xs font-600 text-muted-foreground uppercase tracking-wide">Lien permanent</p>
+                <div className="p-3 bg-muted/30 rounded-xl border border-border">
+                  <p className="text-xs text-primary font-mono break-all">{displayLink}</p>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <button
-                  onClick={handleCopy}
-                  className={`flex flex-col items-center gap-1.5 py-3 rounded-xl border text-xs font-600 transition-colors ${copied === 'copy' ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-border text-muted-foreground hover:text-foreground hover:bg-muted'}`}
+                  onClick={() => handleCopyLink(displayLink)}
+                  className={`flex flex-col items-center gap-1.5 py-3 rounded-xl border text-xs font-600 transition-colors ${copied === 'link' ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-border text-muted-foreground hover:text-foreground hover:bg-muted'}`}
                 >
-                  <Icon name={copied === 'copy' ? 'CheckIcon' : 'ClipboardDocumentIcon'} size={18} />
-                  {copied === 'copy' ? 'Copié !' : 'Copier'}
+                  <Icon name={copied === 'link' ? 'CheckIcon' : 'ClipboardDocumentIcon'} size={18} />
+                  {copied === 'link' ? 'Copié !' : 'Copier le lien'}
                 </button>
                 <button
-                  onClick={handleWhatsApp}
-                  className="flex flex-col items-center gap-1.5 py-3 rounded-xl border border-border text-xs font-600 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  onClick={() => handleWhatsApp(displayLink)}
+                  className="flex flex-col items-center gap-1.5 py-3 rounded-xl border border-green-300 text-xs font-600 text-green-700 hover:bg-green-50 transition-colors"
                 >
                   <Icon name="ChatBubbleLeftEllipsisIcon" size={18} />
-                  WhatsApp
+                  📲 WhatsApp
                 </button>
               </div>
 

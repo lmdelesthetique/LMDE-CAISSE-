@@ -182,6 +182,9 @@ export default function OrderDetailPage() {
   const [invoiceWASent, setInvoiceWASent] = useState(false);
   const [invoiceWAError, setInvoiceWAError] = useState<string | null>(null);
   const [invoiceWAManualLink, setInvoiceWAManualLink] = useState<string | null>(null);
+  // Notify supplier wa.me link (from new notify-supplier route)
+  const [notifyWaLink, setNotifyWaLink] = useState<string | null>(null);
+  const [notifyPortalLink, setNotifyPortalLink] = useState<string | null>(null);
   const [showAddLineModal, setShowAddLineModal] = useState(false);
   const [productSearch, setProductSearch] = useState('');
   const [productResults, setProductResults] = useState<any[]>([]);
@@ -734,16 +737,17 @@ export default function OrderDetailPage() {
   const handleSendOrder = async () => {
     if (!order) return;
     setSendingOrder(true);
-    // Generate upload token if not already done
     try {
-      const res = await fetch(`/api/fo-orders/${order.id}/generate-upload-token`, { method: 'POST' });
+      // Post message in supplier chat + update status + get wa.me link
+      const res = await fetch(`/api/fo-orders/${order.id}/notify-supplier`, { method: 'POST' });
       const json = await res.json().catch(() => ({}));
-      if (json.token) {
-        const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://lmdecaisse.com';
-        setUploadLink(`${siteUrl}/depot-facture/${json.token}`);
-      }
+      if (json.waLink) setNotifyWaLink(json.waLink);
+      if (json.portalLink) setNotifyPortalLink(json.portalLink);
     } catch { /* non-blocking */ }
-    await supplierOrderService.changeStatus(order.id, 'sent', 'Admin', 'Commande envoyée au fournisseur');
+    // Also ensure status is 'sent' (route handles it but keep as fallback)
+    if (order.orderStatus === 'draft') {
+      await supplierOrderService.changeStatus(order.id, 'sent', 'Admin', 'Commande envoyée au fournisseur');
+    }
     setSendingOrder(false);
     load();
   };
@@ -1116,6 +1120,28 @@ export default function OrderDetailPage() {
             </button>
           </div>
         </div>
+
+        {/* wa.me link after "Envoyer au fournisseur" — permanent portal link */}
+        {notifyWaLink && (
+          <div className="mb-4 flex items-center gap-3 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+            <span className="text-lg">✅</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-600 text-emerald-800">Message posté dans le fil du fournisseur</p>
+              <p className="text-xs text-emerald-700 mt-0.5">Envoyez la notification WhatsApp depuis votre téléphone perso.</p>
+            </div>
+            <a
+              href={notifyWaLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-600 hover:bg-green-700 transition-colors"
+            >
+              📲 Notifier WhatsApp
+            </a>
+            <button onClick={() => setNotifyWaLink(null)} className="shrink-0 text-emerald-500 hover:text-emerald-700">
+              <Icon name="XMarkIcon" size={14} />
+            </button>
+          </div>
+        )}
 
         {/* WhatsApp invoice link error / manual fallback */}
         {invoiceWAError && (
