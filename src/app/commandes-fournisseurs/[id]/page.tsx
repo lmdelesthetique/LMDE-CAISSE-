@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
@@ -85,10 +85,11 @@ type Tab = 'overview' | 'lines' | 'reception' | 'costs' | 'margins' | 'history' 
 export default function OrderDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [order, setOrder] = useState<FoOrder | null>(null);
   const [history, setHistory] = useState<FoStatusHistory[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<Tab>('overview');
+  const [tab, setTab] = useState<Tab>((searchParams.get('tab') as Tab) ?? 'overview');
   const [statusComment, setStatusComment] = useState('');
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [targetStatus, setTargetStatus] = useState<FoOrderStatus | null>(null);

@@ -70,11 +70,8 @@ export default function CommandesFournisseursPage() {
   const [notifyDone, setNotifyDone] = useState<Set<string>>(new Set());
   const [notifyError, setNotifyError] = useState<string | null>(null);
 
-  // Invoice link sending
-  const [sendingLinkId, setSendingLinkId] = useState<string | null>(null);
-  const [linkSentIds, setLinkSentIds] = useState<Set<string>>(new Set());
-  const [linkErrorId, setLinkErrorId] = useState<string | null>(null);
-  const [linkManualUrl, setLinkManualUrl] = useState<string | null>(null);
+  // wa.me links returned by notify-supplier
+  const [waLinks, setWaLinks] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -152,38 +149,20 @@ export default function CommandesFournisseursPage() {
       const res = await fetch(`/api/fo-orders/${orderId}/notify-supplier`, { method: 'POST' });
       const data = await res.json();
       if (!res.ok) {
-        setNotifyError(data.error || 'Échec envoi WhatsApp');
+        setNotifyError(data.error || 'Échec notification fournisseur');
         setTimeout(() => setNotifyError(null), 5000);
       } else {
         setNotifyDone(prev => new Set([...prev, orderId]));
+        if (data.waLink) {
+          setWaLinks(prev => ({ ...prev, [orderId]: data.waLink }));
+          window.open(data.waLink, '_blank');
+        }
       }
     } catch {
       setNotifyError('Erreur réseau');
       setTimeout(() => setNotifyError(null), 5000);
     } finally {
       setNotifyingId(null);
-    }
-  };
-
-  const handleSendInvoiceLink = async (orderId: string) => {
-    setSendingLinkId(orderId);
-    setLinkErrorId(null);
-    setLinkManualUrl(null);
-    try {
-      const res = await fetch(`/api/fo-orders/${orderId}/send-invoice-link`, { method: 'POST' });
-      const data = await res.json().catch(() => ({}));
-      if (data.ok) {
-        setLinkSentIds(prev => new Set([...prev, orderId]));
-      } else {
-        setLinkErrorId(orderId);
-        if (data.waLink) setLinkManualUrl(data.waLink);
-        setTimeout(() => setLinkErrorId(null), 6000);
-      }
-    } catch {
-      setLinkErrorId(orderId);
-      setTimeout(() => setLinkErrorId(null), 4000);
-    } finally {
-      setSendingLinkId(null);
     }
   };
 
@@ -527,34 +506,14 @@ export default function CommandesFournisseursPage() {
                               <span>✅</span>
                               Facture reçue
                             </Link>
-                          ) : linkSentIds.has(order.id) ? (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-700 bg-blue-50 text-blue-700 border border-blue-200">
-                              <Icon name="CheckIcon" size={11} />
-                              Lien envoyé
-                            </span>
-                          ) : linkErrorId === order.id && linkManualUrl ? (
-                            <a
-                              href={linkManualUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-700 bg-orange-50 text-orange-700 border border-orange-300 hover:bg-orange-100 transition-colors"
-                            >
-                              📲 Ouvrir WA
-                            </a>
                           ) : (
-                            <button
-                              onClick={() => handleSendInvoiceLink(order.id)}
-                              disabled={sendingLinkId === order.id}
-                              title="Envoyer le lien de dépôt de facture au fournisseur par WhatsApp"
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-700 bg-violet-50 text-violet-700 border border-violet-300 hover:bg-violet-100 transition-colors disabled:opacity-50"
+                            <Link
+                              href={`/commandes-fournisseurs/${order.id}?tab=messaging`}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-700 bg-violet-50 text-violet-700 border border-violet-300 hover:bg-violet-100 transition-colors"
+                              title="Accéder à la messagerie fournisseur"
                             >
-                              {sendingLinkId === order.id ? (
-                                <div className="w-3 h-3 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
-                              ) : (
-                                <span>📎</span>
-                              )}
-                              {sendingLinkId === order.id ? '...' : 'Lien facture'}
-                            </button>
+                              💬 Messagerie
+                            </Link>
                           )
                         )}
                       </td>
@@ -569,25 +528,37 @@ export default function CommandesFournisseursPage() {
                             <Icon name="ChevronRightIcon" size={12} />
                           </Link>
                           {order.orderStatus === 'sent' && (
-                            <button
-                              onClick={() => handleNotifySupplier(order.id)}
-                              disabled={notifyingId === order.id}
-                              title="Prévenir le fournisseur par WhatsApp"
-                              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-600 transition-colors ${
-                                notifyDone.has(order.id)
-                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                  : 'bg-green-50 text-green-700 border border-green-200 hover:bg-green-100'
-                              } disabled:opacity-50`}
-                            >
-                              {notifyingId === order.id ? (
-                                <div className="w-3 h-3 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
-                              ) : notifyDone.has(order.id) ? (
-                                <Icon name="CheckIcon" size={11} />
-                              ) : (
-                                <Icon name="ChatBubbleLeftEllipsisIcon" size={11} />
-                              )}
-                              {notifyDone.has(order.id) ? 'Envoyé' : 'WhatsApp'}
-                            </button>
+                            notifyDone.has(order.id) && waLinks[order.id] ? (
+                              <a
+                                href={waLinks[order.id]}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-600 bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 transition-colors"
+                                title="Ouvrir WhatsApp pour relancer le fournisseur"
+                              >
+                                📲 Relance
+                              </a>
+                            ) : (
+                              <button
+                                onClick={() => handleNotifySupplier(order.id)}
+                                disabled={notifyingId === order.id || notifyDone.has(order.id)}
+                                title="Notifier le fournisseur et ouvrir WhatsApp"
+                                className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-600 transition-colors ${
+                                  notifyDone.has(order.id)
+                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                    : 'bg-green-50 text-green-700 border border-green-200 hover:bg-green-100'
+                                } disabled:opacity-50`}
+                              >
+                                {notifyingId === order.id ? (
+                                  <div className="w-3 h-3 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
+                                ) : notifyDone.has(order.id) ? (
+                                  <Icon name="CheckIcon" size={11} />
+                                ) : (
+                                  <span>📲</span>
+                                )}
+                                {notifyDone.has(order.id) ? 'Notifié' : 'Relance'}
+                              </button>
+                            )
                           )}
                         </div>
                       </td>
