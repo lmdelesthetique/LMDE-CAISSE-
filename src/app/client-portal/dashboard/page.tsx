@@ -232,8 +232,6 @@ export default function ClientDashboardPage() {
         .order('name')
         .limit(1000),
     ]);
-    console.log('[loadProducts] cats:', cats?.length, 'prods:', prods?.length, 'error check — first prod:', prods?.[0]);
-
     const visibleNames = new Set((cats ?? []).map((c: any) => c.name));
     setVisibleCategories(cats ?? []);
     setProducts(((prods ?? []) as PortalProduct[]).filter((p) => visibleNames.has(p.category ?? '')));
@@ -360,13 +358,15 @@ export default function ClientDashboardPage() {
     if (item.quantity > 1) {
       const newQty = item.quantity - 1;
       const newTotal = item.unit_sell_price * newQty;
-      await supabase.from('subscription_order_items').update({ quantity: newQty, total_sell_price: newTotal }).eq('id', itemId);
+      const { error } = await supabase.from('subscription_order_items').update({ quantity: newQty, total_sell_price: newTotal }).eq('id', itemId);
+      if (error) { showToast(`Erreur suppression: ${error.message}`, 'error'); return; }
       setOrderItems((prev) => prev.map((i) => i.id === itemId ? { ...i, quantity: newQty, total_sell_price: newTotal } : i));
     } else {
-      await supabase.from('subscription_order_items').delete().eq('id', itemId);
+      const { error } = await supabase.from('subscription_order_items').delete().eq('id', itemId);
+      if (error) { showToast(`Erreur suppression: ${error.message}`, 'error'); return; }
       setOrderItems((prev) => prev.filter((i) => i.id !== itemId));
     }
-  }, [orderItems, currentOrder]);
+  }, [orderItems, currentOrder, showToast]);
 
   // ── Confirm order ──────────────────────────────────────────────────────────
   const confirmOrder = async () => {
@@ -376,10 +376,15 @@ export default function ClientDashboardPage() {
     const sc = shippingFree ? 0 : shippingCost;
     const totalBuy = orderItems.reduce((s, i) => s + i.unit_buy_price * i.quantity, 0);
     const benefit = Math.max(0, (clientUser?.planPrice ?? 0) - totalBuy - sc);
-    await supabase
+    const { error } = await supabase
       .from('subscription_orders')
       .update({ status: 'confirmed', total_products_cost: totalBuy, total_sell_price: quotaUsed, benefit_amount: benefit, shipping_cost: sc })
       .eq('id', currentOrder.id);
+    if (error) {
+      showToast(`Erreur confirmation: ${error.message}`, 'error');
+      setConfirming(false);
+      return;
+    }
     setCurrentOrder((prev) => prev ? { ...prev, status: 'confirmed' } : prev);
     showToast('Box confirmée ! 🎉');
     setConfirming(false);
@@ -437,13 +442,21 @@ export default function ClientDashboardPage() {
               <p className="text-sm text-gray-500 mt-2">
                 Pour changer de formule, contactez votre conseillère sur WhatsApp. Elle s'occupe de tout !
               </p>
-              <p className="text-xs text-gray-400 mt-1">
-                Le changement de prélèvement nécessite une validation manuelle.
-              </p>
+              {(() => {
+                const targetPlan = allPlans.find((p) => p.name === upgradeTarget);
+                return targetPlan ? (
+                  <div className="mt-2 bg-rose-50 rounded-xl p-3 text-left space-y-1">
+                    <p className="text-xs font-bold text-rose-700">Formule {targetPlan.name}</p>
+                    <p className="text-xs text-gray-600">{targetPlan.quota_amount} € de produits/mois</p>
+                    <p className="text-xs text-gray-600">{targetPlan.shipping_free ? 'Livraison offerte' : `Livraison ${targetPlan.shipping_cost} €`}</p>
+                    <p className="text-sm font-bold text-rose-600">{targetPlan.price} €/mois</p>
+                  </div>
+                ) : null;
+              })()}
             </div>
             <div className="space-y-2">
               <a
-                href={WA_LINK}
+                href={`${WA_LINK}?text=${encodeURIComponent(`Bonjour 💅\n\nJe suis actuellement abonnée formule ${clientUser.planName} et je souhaite passer à la formule ${upgradeTarget}.\n\nPouvez-vous me contacter pour organiser le changement ? Merci !`)}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-center gap-2 w-full py-3 bg-green-500 text-white rounded-xl text-sm font-semibold hover:bg-green-600 transition-colors"
@@ -572,6 +585,14 @@ export default function ClientDashboardPage() {
         {/* ══ MA BOX (commande) ══════════════════════════════════════════════ */}
         {tab === 'commande' && (
           <>
+            {/* Offers banner */}
+            {upgradePlans.length > 0 && (
+              <OffersCarousel
+                upgradePlans={upgradePlans}
+                onSelect={(plan) => { setUpgradeTarget(plan.name); setShowUpgradeModal(true); }}
+              />
+            )}
+
             {/* Deadline */}
             <div className="flex items-center justify-between px-1">
               <span className="text-xs text-gray-400">
@@ -1084,6 +1105,73 @@ function ProductCard({ product, inCart, canAdd, canEdit, onAdd, onRemove, onDeta
               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
             </button>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OffersCarousel({
+  upgradePlans,
+  onSelect,
+}: {
+  upgradePlans: SubscriptionPlan[];
+  onSelect: (plan: SubscriptionPlan) => void;
+}) {
+  const [idx, setIdx] = useState(0);
+
+  useEffect(() => {
+    if (upgradePlans.length <= 1) return;
+    const t = setInterval(() => setIdx((i) => (i + 1) % upgradePlans.length), 4500);
+    return () => clearInterval(t);
+  }, [upgradePlans.length]);
+
+  const plan = upgradePlans[idx];
+  if (!plan) return null;
+
+  return (
+    <div className="relative overflow-hidden rounded-2xl shadow-md" style={{ background: 'linear-gradient(135deg, #ec4899 0%, #a855f7 100%)' }}>
+      {/* Animated shimmer line */}
+      <div className="absolute top-0 left-0 right-0 h-0.5 bg-white/30 animate-pulse" />
+
+      <div className="p-4 text-white">
+        {/* Badge + dots */}
+        <div className="flex items-center justify-between mb-3">
+          <span className="animate-pulse inline-flex items-center gap-1.5 text-[10px] font-bold bg-white/20 border border-white/30 px-2.5 py-1 rounded-full tracking-wide">
+            <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping inline-block" />
+            OFFRE DU MOMENT
+          </span>
+          {upgradePlans.length > 1 && (
+            <div className="flex gap-1.5">
+              {upgradePlans.map((_, i) => (
+                <button
+                  key={i}
+                  onClick={() => setIdx(i)}
+                  className={`rounded-full transition-all ${i === idx ? 'w-4 h-1.5 bg-white' : 'w-1.5 h-1.5 bg-white/40'}`}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Content */}
+        <div className="flex items-end justify-between gap-3">
+          <div>
+            <p className="text-lg font-bold leading-tight">Formule {plan.name}</p>
+            <p className="text-xs text-white/80 mt-0.5">
+              {plan.quota_amount} € de produits · {plan.shipping_free ? 'Livraison offerte ✓' : `Livraison ${plan.shipping_cost} €`}
+            </p>
+            <div className="mt-2 flex items-baseline gap-1">
+              <span className="text-2xl font-black tabular-nums">{plan.price} €</span>
+              <span className="text-xs text-white/70">/mois</span>
+            </div>
+          </div>
+          <button
+            onClick={() => onSelect(plan)}
+            className="shrink-0 px-4 py-2.5 bg-white text-rose-600 rounded-xl text-xs font-bold hover:bg-rose-50 transition-colors whitespace-nowrap shadow-sm"
+          >
+            Passer à {plan.name} →
+          </button>
         </div>
       </div>
     </div>
