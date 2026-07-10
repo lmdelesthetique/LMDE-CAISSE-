@@ -106,37 +106,39 @@ export default function SupplierTokenPortal() {
 
   // ─── Load messages ──────────────────────────────────────────────────────────
 
+  // Use API route (admin client) to bypass RLS for anon users
   const loadMessages = useCallback(async () => {
-    if (!info) return;
+    if (!token) return;
     setMsgsLoading(true);
-    const { data } = await supabase
-      .from('supplier_messages')
-      .select('id, created_at, content, sender, sender_type, message_type, is_read, order_id, attachment_url, attachment_name, attachment_type')
-      .eq('supplier_id', info.supplierId)
-      .order('created_at', { ascending: true });
-    setMessages((data ?? []) as ChatMessage[]);
-    setMsgsLoading(false);
-
-    // Mark admin messages as read
-    const unread = (data ?? []).filter((m: any) => m.sender === 'store' && !m.is_read).map((m: any) => m.id);
-    if (unread.length > 0) {
-      await supabase.from('supplier_messages').update({ is_read: true }).in('id', unread);
+    try {
+      const res = await fetch(`/api/supplier-portal/${token}/messages`);
+      const json = await res.json();
+      setMessages((json.messages ?? []) as ChatMessage[]);
+    } catch {
+      setMessages([]);
+    } finally {
+      setMsgsLoading(false);
     }
-  }, [info, supabase]);
+  }, [token]);
 
   // ─── Load orders ────────────────────────────────────────────────────────────
 
   const loadOrders = useCallback(async () => {
     if (!info) return;
     setOrdersLoading(true);
-    const { data } = await supabase
-      .from('fo_orders')
-      .select('id, order_number, created_at, order_status, total_real_cost, subtotal, currency, supplier_response')
-      .eq('supplier_id', info.supplierId)
-      .not('order_status', 'eq', 'cancelled')
-      .order('created_at', { ascending: false });
-    setOrders((data ?? []) as Order[]);
-    setOrdersLoading(false);
+    try {
+      const { data } = await supabase
+        .from('fo_orders')
+        .select('id, order_number, created_at, order_status, total_real_cost, subtotal, currency, supplier_response')
+        .eq('supplier_id', info.supplierId)
+        .not('order_status', 'eq', 'cancelled')
+        .order('created_at', { ascending: false });
+      setOrders((data ?? []) as Order[]);
+    } catch {
+      setOrders([]);
+    } finally {
+      setOrdersLoading(false);
+    }
   }, [info, supabase]);
 
   useEffect(() => {
@@ -153,10 +155,11 @@ export default function SupplierTokenPortal() {
     }
   }, [messages, tab]);
 
-  // ─── Real-time ──────────────────────────────────────────────────────────────
+  // ─── Real-time (polling fallback — real-time requires anon RLS) ────────────
 
   useEffect(() => {
     if (!info) return;
+    // Try real-time; if RLS blocks it, polling every 5s as fallback
     const ch = supabase
       .channel(`portal_token_${info.supplierId}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'supplier_messages', filter: `supplier_id=eq.${info.supplierId}` }, () => loadMessages())

@@ -10,6 +10,7 @@ import { supplierOrderService, FoOrder, FoOrderLine, FoOrderStatus, FoStatusHist
 import { exportPurchaseOrderPDF } from '@/lib/utils/purchaseOrderPDF';
 import BarcodeLabelModal from '@/app/product-management/components/BarcodeLabelModal';
 import { type ProductRecord } from '@/app/product-management/components/mockProducts';
+import MessagingPanel from '@/app/suppliers/components/MessagingPanel';
 
 const STATUS_LABELS: Record<FoOrderStatus, string> = {
   draft: 'Brouillon', sent: 'Envoyée', awaiting_validation: 'Attente validation',
@@ -79,7 +80,7 @@ interface SupplierPaymentIncludes {
   other: boolean;
 }
 
-type Tab = 'overview' | 'lines' | 'reception' | 'costs' | 'margins' | 'history' | 'payment';
+type Tab = 'overview' | 'lines' | 'reception' | 'costs' | 'margins' | 'history' | 'payment' | 'messaging';
 
 export default function OrderDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -1001,6 +1002,7 @@ export default function OrderDetailPage() {
   const TABS: { id: Tab; label: string; icon: string }[] = [
     { id: 'overview', label: 'Aperçu', icon: 'EyeIcon' },
     { id: 'lines', label: 'Produits', icon: 'ShoppingBagIcon' },
+    { id: 'messaging', label: 'Messagerie', icon: 'ChatBubbleLeftRightIcon' },
     { id: 'reception', label: 'Réception', icon: 'ArchiveBoxIcon' },
     { id: 'costs', label: 'Frais réels', icon: 'BanknotesIcon' },
     { id: 'margins', label: 'Marges', icon: 'ChartBarIcon' },
@@ -1934,6 +1936,24 @@ export default function OrderDetailPage() {
                 )}
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Messagerie */}
+        {tab === 'messaging' && (
+          <div>
+            {order.supplierId ? (
+              <MessagingPanel
+                supplierId={order.supplierId}
+                supplierName={order.supplierName}
+                orders={[{ id: order.id, order_number: order.orderNumber }]}
+                onRefresh={load}
+              />
+            ) : (
+              <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
+                Aucun fournisseur associé à cette commande.
+              </div>
+            )}
           </div>
         )}
 
