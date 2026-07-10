@@ -427,7 +427,7 @@ export default function LivreursPage() {
                             </button>
                             {driver.phone && (
                               <a
-                                href={`https://wa.me/${driver.phone.replace(/[^\d]/g, '')}?text=${encodeURIComponent(
+                                href={`https://wa.me/${driver.phone.replace(/[^\d]/g, '').replace(/^0/, '596')}?text=${encodeURIComponent(
                                   `Bonjour ${driver.firstName} 👋\n\nVoici vos accès au portail livreur :\n🌐 lmdecaisse.com/livreur/login\n\nConnectez-vous avec votre numéro de téléphone et votre code PIN.\n\nLe Monde de l'Esthétique 💅`
                                 )}`}
                                 target="_blank"

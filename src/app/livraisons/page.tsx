@@ -332,7 +332,7 @@ export default function LivraisonsPage() {
                   const products = d.products ?? [];
                   const isNewShopify = newShopifyIds.has(d.id);
                   const assignedDriver = d.assignedTo ? drivers.find((dr) => dr.id === d.assignedTo) : null;
-                  const driverWaPhone = assignedDriver?.phone ? assignedDriver.phone.replace(/[^\d]/g, '') : null;
+                  const driverWaPhone = assignedDriver?.phone ? assignedDriver.phone.replace(/[^\d]/g, '').replace(/^0/, '596') : null;
                   const driverWaMsg = driverWaPhone ? encodeURIComponent(
                     [
                       `🚚 Livraison à effectuer`,
