@@ -17,6 +17,7 @@ import DeliveryWidget from './components/DeliveryWidget';
 import AIMonthlyReport from './components/AIMonthlyReport';
 import MDLEStrategiePanel from './components/MDLEStrategiePanel';
 import SubscriptionBoxAlert from './components/SubscriptionBoxAlert';
+import SubscriptionBoxesWidget from './components/SubscriptionBoxesWidget';
 import { type DashboardFiltersState } from '@/lib/services/dashboardService';
 
 const DAYS_FR = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
@@ -76,15 +77,14 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Shopify + Delivery Row */}
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-5">
-            <div className="lg:col-span-1">
-              <ShopifyStatusCard />
-            </div>
-            <div className="lg:col-span-3">
-              <ShopifyOrdersWidget />
-            </div>
+          {/* Shopify + Boxes Row */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            <ShopifyOrdersWidget />
+            <SubscriptionBoxesWidget />
           </div>
+
+          {/* Shopify status */}
+          <ShopifyStatusCard />
 
           {/* Delivery Widget Row */}
           <DeliveryWidget />
