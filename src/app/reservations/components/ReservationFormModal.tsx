@@ -692,7 +692,32 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
                   </div>
                 ))}
               </div>
-              <div className="mt-3 flex justify-end">
+              <div className="mt-3 flex items-center justify-between">
+                <div>
+                  {totalAmount > 0 && (
+                    items.some(it => it.sku === 'ALAMA') ? (
+                      <button
+                        type="button"
+                        onClick={() => setItems(prev => prev.filter(it => it.sku !== 'ALAMA'))}
+                        className="text-xs px-3 py-1.5 bg-red-50 border border-red-200 text-red-600 rounded-lg font-600 hover:bg-red-100 transition-colors"
+                      >
+                        ✕ Retirer Frais Alama
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const base = items.filter(it => it.sku !== 'ALAMA').reduce((sum, it) => sum + it.qty * it.price, 0);
+                          const alama = Math.round(base * 0.062 * 100) / 100;
+                          setItems(prev => [...prev, { name: 'Frais Alama (6,2%)', qty: 1, price: alama, sku: 'ALAMA' }]);
+                        }}
+                        className="text-xs px-3 py-1.5 bg-orange-50 border border-orange-300 text-orange-700 rounded-lg font-600 hover:bg-orange-100 transition-colors"
+                      >
+                        + Frais Alama (6,2%)
+                      </button>
+                    )
+                  )}
+                </div>
                 <span className="text-sm font-600 text-foreground">Total : {totalAmount.toFixed(2)} €</span>
               </div>
             </section>
