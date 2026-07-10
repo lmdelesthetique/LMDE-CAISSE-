@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import AppLayout from '@/components/AppLayout';
+import { createClient } from '@/lib/supabase/client';
 import Icon from '@/components/ui/AppIcon';
 import {
   clientService,
@@ -59,11 +60,20 @@ export default function ClientsPage() {
     notes: ClientInternalNote[];
   } | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [activeSubClientIds, setActiveSubClientIds] = useState<Set<string>>(new Set());
 
   const loadClients = useCallback(async () => {
     setLoading(true);
-    const data = await clientService.getAll();
+    const supabase = createClient();
+    const [data, { data: activeSubs }] = await Promise.all([
+      clientService.getAll(),
+      supabase
+        .from('client_subscriptions')
+        .select('client_id')
+        .eq('status', 'active'),
+    ]);
     setClients(data);
+    setActiveSubClientIds(new Set((activeSubs ?? []).map((s: any) => s.client_id)));
     setLoading(false);
   }, []);
 
@@ -229,7 +239,7 @@ export default function ClientsPage() {
             </div>
           ) : viewMode === 'grid' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {filtered.map((client) => <ClientCard key={client.id} client={client} onClick={() => openDetail(client)} />)}
+              {filtered.map((client) => <ClientCard key={client.id} client={client} hasActiveSub={activeSubClientIds.has(client.id)} onClick={() => openDetail(client)} />)}
             </div>
           ) : (
             <div className="bg-white border border-border rounded-xl overflow-hidden">
@@ -331,7 +341,7 @@ export default function ClientsPage() {
 
 // ── Client Card Component ──────────────────────────────────────────────────────
 
-function ClientCard({ client, onClick }: { client: Client; onClick: () => void }) {
+function ClientCard({ client, hasActiveSub, onClick }: { client: Client; hasActiveSub: boolean; onClick: () => void }) {
   const tier = TIER_CONFIG[client.loyaltyTier as keyof typeof TIER_CONFIG] ?? TIER_CONFIG.bronze;
   const typeCfg = CLIENT_TYPE_CONFIG[client.clientType] ?? CLIENT_TYPE_CONFIG.particulier;
   const hasDiscount = client.loyaltyDiscountType !== null;
@@ -391,7 +401,7 @@ function ClientCard({ client, onClick }: { client: Client; onClick: () => void }
         )}
       </div>
 
-      {client.clientType === 'abonne' && (
+      {hasActiveSub && (
         <div className="mt-2 flex items-center gap-1.5 text-[11px] text-emerald-700 font-500 bg-emerald-50 rounded-lg px-2 py-1">
           <Icon name="CheckBadgeIcon" size={11} />
           Abonnement actif
