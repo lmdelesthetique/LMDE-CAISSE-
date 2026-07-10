@@ -178,13 +178,9 @@ export default function OrderDetailPage() {
   const [savingEdit, setSavingEdit] = useState(false);
   const [sendingOrder, setSendingOrder] = useState(false);
   const [saveEditError, setSaveEditError] = useState<string | null>(null);
-  const [uploadLink, setUploadLink] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
-  const [sendingInvoiceWA, setSendingInvoiceWA] = useState(false);
-  const [invoiceWASent, setInvoiceWASent] = useState(false);
-  const [invoiceWAError, setInvoiceWAError] = useState<string | null>(null);
-  const [invoiceWAManualLink, setInvoiceWAManualLink] = useState<string | null>(null);
-  // Notify supplier wa.me link (from new notify-supplier route)
+  const [relancingWA, setRelancingWA] = useState(false);
+  // Notify supplier wa.me link (from notify-supplier route)
   const [notifyWaLink, setNotifyWaLink] = useState<string | null>(null);
   const [notifyPortalLink, setNotifyPortalLink] = useState<string | null>(null);
   const [showAddLineModal, setShowAddLineModal] = useState(false);
@@ -243,22 +239,7 @@ export default function OrderDetailPage() {
           local: o.localDelivery, other: o.otherCosts,
         });
         setCostMethod(o.costMethod);
-        // Generate upload link (token is always available via API)
-        if (o.invoiceUploadToken) {
-          const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://lmdecaisse.com';
-          setUploadLink(`${siteUrl}/depot-facture/${o.invoiceUploadToken}`);
-        } else if (id) {
-          // Auto-fetch token (deterministic, no DB column required)
-          fetch(`/api/fo-orders/${id}/generate-upload-token`, { method: 'POST' })
-            .then(r => r.ok ? r.json() : null)
-            .then(json => {
-              if (json?.token) {
-                const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://lmdecaisse.com';
-                setUploadLink(`${siteUrl}/depot-facture/${json.token}`);
-              }
-            })
-            .catch(() => {});
-        }
+        // Nothing to do — portal link is computed from order.supplierPortalToken
         // Load saved structure pct for this order if exists
         const savedPct = localStorage.getItem(`beautypos_structure_pct_${id}`);
         if (savedPct !== null) setStructurePct(parseFloat(savedPct));
@@ -754,44 +735,30 @@ export default function OrderDetailPage() {
     load();
   };
 
-  const handleGenerateLink = async () => {
-    if (!order) return;
-    const res = await fetch(`/api/fo-orders/${order.id}/generate-upload-token`, { method: 'POST' });
-    const json = await res.json().catch(() => ({}));
-    if (json.token) {
-      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://lmdecaisse.com';
-      setUploadLink(`${siteUrl}/depot-facture/${json.token}`);
-    }
-  };
 
-  const handleCopyLink = () => {
-    if (!uploadLink) return;
-    navigator.clipboard.writeText(uploadLink).then(() => {
+  const handleCopyPortalLink = () => {
+    if (!order?.supplierPortalToken) return;
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://lmdecaisse.com';
+    const link = `${siteUrl}/supplier-portal/${order.supplierPortalToken}`;
+    navigator.clipboard.writeText(link).then(() => {
       setCopiedLink(true);
       setTimeout(() => setCopiedLink(false), 2500);
     });
   };
 
-  const handleSendInvoiceLinkWA = async () => {
+  const handleRelanceWA = async () => {
     if (!order) return;
-    setSendingInvoiceWA(true);
-    setInvoiceWAError(null);
-    setInvoiceWAManualLink(null);
+    setRelancingWA(true);
     try {
-      const res = await fetch(`/api/fo-orders/${order.id}/send-invoice-link`, { method: 'POST' });
-      const json = await res.json().catch(() => ({}));
-      if (json.ok) {
-        setInvoiceWASent(true);
-        setTimeout(() => setInvoiceWASent(false), 4000);
-      } else {
-        // WhatsApp failed — offer manual wa.me link as fallback
-        setInvoiceWAError(json.error ?? 'Envoi échoué');
-        if (json.waLink) setInvoiceWAManualLink(json.waLink);
+      const res = await fetch(`/api/fo-orders/${order.id}/notify-supplier`, { method: 'POST' });
+      const json = await res.json();
+      if (json.waLink) {
+        setNotifyWaLink(json.waLink);
+        if (json.portalLink) setNotifyPortalLink(json.portalLink);
+        window.open(json.waLink, '_blank');
       }
-    } catch {
-      setInvoiceWAError('Erreur réseau');
-    } finally {
-      setSendingInvoiceWA(false);
+    } catch { /* non-blocking */ } finally {
+      setRelancingWA(false);
     }
   };
 
@@ -1074,44 +1041,30 @@ export default function OrderDetailPage() {
               )}
               PDF
             </button>
-            {/* Lien dépôt facture */}
-            {uploadLink ? (
-              <>
-                <button
-                  onClick={handleCopyLink}
-                  className="flex items-center gap-2 px-3 py-2 border border-violet-300 text-violet-700 bg-violet-50 rounded-lg text-sm font-500 hover:bg-violet-100 transition-colors"
-                  title={uploadLink}
-                >
-                  <Icon name={copiedLink ? 'CheckIcon' : 'LinkIcon'} size={15} />
-                  {copiedLink ? 'Lien copié !' : 'Copier lien'}
-                </button>
-                <button
-                  onClick={handleSendInvoiceLinkWA}
-                  disabled={sendingInvoiceWA}
-                  title="Envoyer le lien de dépôt par WhatsApp au fournisseur"
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-500 border transition-colors disabled:opacity-50 ${
-                    invoiceWASent
-                      ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
-                      : 'bg-green-50 border-green-300 text-green-700 hover:bg-green-100'
-                  }`}
-                >
-                  {sendingInvoiceWA ? (
-                    <div className="w-4 h-4 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
-                  ) : invoiceWASent ? (
-                    <Icon name="CheckIcon" size={15} />
-                  ) : (
-                    <span className="text-base leading-none">📲</span>
-                  )}
-                  {invoiceWASent ? 'Envoyé !' : 'WhatsApp'}
-                </button>
-              </>
-            ) : (
+            {/* Lien portail fournisseur + Relance WA */}
+            {order.supplierPortalToken && (
               <button
-                onClick={handleGenerateLink}
-                className="flex items-center gap-2 px-3 py-2 border border-dashed border-violet-300 text-violet-600 rounded-lg text-sm font-500 hover:bg-violet-50 transition-colors"
+                onClick={handleCopyPortalLink}
+                className="flex items-center gap-2 px-3 py-2 border border-violet-300 text-violet-700 bg-violet-50 rounded-lg text-sm font-500 hover:bg-violet-100 transition-colors"
+                title="Copier le lien portail fournisseur"
               >
-                <Icon name="LinkIcon" size={15} />
-                Générer lien dépôt
+                <Icon name={copiedLink ? 'CheckIcon' : 'LinkIcon'} size={15} />
+                {copiedLink ? 'Lien copié !' : 'Lien portail'}
+              </button>
+            )}
+            {order.supplierId && (
+              <button
+                onClick={handleRelanceWA}
+                disabled={relancingWA}
+                title="Relancer le fournisseur par WhatsApp (ouvre wa.me)"
+                className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-500 border border-green-300 bg-green-50 text-green-700 hover:bg-green-100 transition-colors disabled:opacity-50"
+              >
+                {relancingWA ? (
+                  <div className="w-4 h-4 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <span className="text-base leading-none">📲</span>
+                )}
+                Relance WA
               </button>
             )}
             <button
@@ -1146,31 +1099,6 @@ export default function OrderDetailPage() {
           </div>
         )}
 
-        {/* WhatsApp invoice link error / manual fallback */}
-        {invoiceWAError && (
-          <div className="mb-4 flex items-center gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl">
-            <span className="text-lg">⚠️</span>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-600 text-amber-800">WhatsApp non envoyé — {invoiceWAError}</p>
-              {invoiceWAManualLink && (
-                <p className="text-xs text-amber-700 mt-0.5">Utilisez le lien manuel ci-dessous pour envoyer directement depuis votre téléphone.</p>
-              )}
-            </div>
-            {invoiceWAManualLink && (
-              <a
-                href={invoiceWAManualLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-600 hover:bg-green-700 transition-colors"
-              >
-                📲 Ouvrir WhatsApp
-              </a>
-            )}
-            <button onClick={() => { setInvoiceWAError(null); setInvoiceWAManualLink(null); }} className="shrink-0 text-amber-500 hover:text-amber-700">
-              <Icon name="XMarkIcon" size={14} />
-            </button>
-          </div>
-        )}
 
         {/* Bannière facture reçue */}
         {order.invoiceReceivedAt && (
@@ -2047,19 +1975,19 @@ export default function OrderDetailPage() {
                   </div>
                 )}
               </div>
-            ) : uploadLink ? (
+            ) : order.supplierPortalToken ? (
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center gap-3">
                 <span className="text-lg">⏳</span>
                 <div className="flex-1">
                   <p className="text-sm font-600 text-amber-800">En attente de la facture</p>
-                  <p className="text-xs text-amber-600">Le lien de dépôt a été généré. En attente de l'envoi par le fournisseur.</p>
+                  <p className="text-xs text-amber-600">Le fournisseur peut déposer sa facture via son portail.</p>
                 </div>
                 <button
-                  onClick={handleCopyLink}
+                  onClick={handleCopyPortalLink}
                   className="flex items-center gap-1.5 px-3 py-1.5 border border-amber-300 text-amber-700 bg-white rounded-lg text-xs font-500 hover:bg-amber-50 transition-colors"
                 >
                   <Icon name={copiedLink ? 'CheckIcon' : 'LinkIcon'} size={13} />
-                  {copiedLink ? 'Copié !' : 'Copier le lien'}
+                  {copiedLink ? 'Copié !' : 'Lien portail'}
                 </button>
               </div>
             ) : null}

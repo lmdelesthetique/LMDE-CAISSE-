@@ -1,0 +1,40 @@
+{
+  "name": "Portail Fournisseur — LM de l'Esthétique",
+  "short_name": "Portail Fournisseur",
+  "description": "Portail fournisseur pour déposer vos factures et communiquer avec la boutique",
+  "start_url": "/supplier-portal/login",
+  "scope": "/supplier-portal/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#22c55e",
+  "orientation": "portrait",
+  "lang": "fr",
+  "prefer_related_applications": false,
+  "categories": ["business"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

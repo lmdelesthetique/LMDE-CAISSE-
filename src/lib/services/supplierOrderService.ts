@@ -55,6 +55,8 @@ export interface FoOrder {
   id: string;
   supplierId?: string;
   supplierName?: string;
+  supplierPortalToken?: string;
+  supplierPhone?: string;
   orderNumber: string;
   orderStatus: FoOrderStatus;
   currency: string;
@@ -155,6 +157,8 @@ function mapOrder(row: any): FoOrder {
     id: row.id,
     supplierId: row.supplier_id,
     supplierName: row.suppliers?.company_name,
+    supplierPortalToken: row.suppliers?.portal_login,
+    supplierPhone: row.suppliers?.whatsapp || row.suppliers?.phone,
     orderNumber: row.order_number,
     orderStatus: row.order_status,
     currency: row.currency,
@@ -301,7 +305,7 @@ export const supplierOrderService = {
     try {
       const { data, error } = await supabase
         .from('fo_orders')
-        .select('*, suppliers(company_name)')
+        .select('*, suppliers(company_name, portal_login, phone, whatsapp)')
         .eq('id', id)
         .maybeSingle();
       if (error || !data) return null;
