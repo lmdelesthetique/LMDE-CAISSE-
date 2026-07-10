@@ -395,6 +395,106 @@ function DeliveryModal({
   );
 }
 
+// ─── Notification email modal ─────────────────────────────────────────────────
+
+const NOTIFICATION_TYPES = [
+  { id: 'selection_reminder', label: '📋 Préparer votre box', desc: 'Rappel pour compléter la sélection avant le 25' },
+  { id: 'box_ready',          label: '🎁 Box prête',           desc: 'La box est prête, en attente de confirmation' },
+  { id: 'box_preparing',      label: '🔧 Box en préparation',  desc: 'On prépare sa box ce mois-ci' },
+  { id: 'box_shipped',        label: '🚚 Box expédiée',        desc: 'La box est en route vers la cliente' },
+  { id: 'box_delivered',      label: '✅ Box livrée',          desc: 'La box a bien été remise' },
+  { id: 'payment_reminder',   label: '💳 Rappel paiement',     desc: 'Rappel pour le règlement mensuel' },
+  { id: 'welcome',            label: '👋 Bienvenue !',         desc: 'Message de bienvenue pour une nouvelle abonnée' },
+] as const;
+
+type NotifType = typeof NOTIFICATION_TYPES[number]['id'];
+
+function NotifyEmailModal({ sub, onClose, onSent }: { sub: SubscriptionRow; onClose: () => void; onSent: (email: string) => void }) {
+  const [type, setType] = useState<NotifType>('selection_reminder');
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+
+  const email = sub.client?.email;
+  const clientName = sub.client ? `${sub.client.first_name} ${sub.client.last_name}` : '—';
+
+  async function send() {
+    setSending(true);
+    setError('');
+    try {
+      const res = await fetch('/api/subscriptions/send-notification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscriptionId: sub.id, notificationType: type }),
+      });
+      const d = await res.json();
+      if (!res.ok) { setError(d.error ?? 'Erreur envoi'); setSending(false); return; }
+      onSent(email!);
+    } catch {
+      setError('Erreur réseau');
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-0 sm:px-4">
+      <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl shadow-2xl">
+        <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-gray-100">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">📧 Notifier par email</h2>
+            <p className="text-sm text-gray-500">{clientName} — <span className="font-semibold text-violet-600">{email ?? 'pas d\'email'}</span></p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors text-lg">×</button>
+        </div>
+
+        <div className="px-5 py-4 space-y-3 max-h-[60vh] overflow-y-auto">
+          {!email ? (
+            <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">
+              Aucun email enregistré pour cette cliente. Ajoutez-en un dans sa fiche client.
+            </div>
+          ) : (
+            <>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Type de notification</p>
+              <div className="space-y-2">
+                {NOTIFICATION_TYPES.map((nt) => (
+                  <button
+                    key={nt.id}
+                    onClick={() => setType(nt.id)}
+                    className={`w-full text-left px-4 py-3 rounded-xl border-2 transition-all ${
+                      type === nt.id ? 'border-violet-500 bg-violet-50' : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <p className="text-sm font-semibold text-gray-900">{nt.label}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">{nt.desc}</p>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+          {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{error}</p>}
+        </div>
+
+        <div className="px-5 pb-5 pt-3 flex gap-3">
+          {email && (
+            <button
+              onClick={send}
+              disabled={sending}
+              className="flex-1 py-3.5 bg-violet-600 text-white font-bold rounded-xl text-sm hover:bg-violet-700 active:scale-95 transition-all disabled:opacity-50"
+            >
+              {sending ? 'Envoi en cours…' : '📧 Envoyer l\'email'}
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className={`${email ? 'px-5' : 'flex-1'} py-3.5 border-2 border-gray-200 text-gray-600 font-bold rounded-xl text-sm hover:bg-gray-50 transition-colors`}
+          >
+            Annuler
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AbonnementsPage() {
@@ -407,8 +507,8 @@ export default function AbonnementsPage() {
   // Modals
   const [boxModalSub, setBoxModalSub] = useState<SubscriptionRow | null>(null);
   const [deliveryModalSub, setDeliveryModalSub] = useState<SubscriptionRow | null>(null);
-  // Notify state
-  const [notifyingId, setNotifyingId] = useState<string | null>(null);
+  // Notify modal state
+  const [notifyEmailSub, setNotifyEmailSub] = useState<SubscriptionRow | null>(null);
   // Email state
   const [emailSendingId, setEmailSendingId] = useState<string | null>(null);
   const [emailToast, setEmailToast] = useState<{ ok: boolean; msg: string } | null>(null);
@@ -505,68 +605,28 @@ export default function AbonnementsPage() {
     setGeneratingAuto(false);
   };
 
-  // WhatsApp notification for a single subscriber
-  const handleNotify = async (sub: SubscriptionRow) => {
-    const rawPhone = (sub.portal_phone ?? '').replace(/[\s+\-()]/g, '');
-    if (!rawPhone) { alert('Numéro de téléphone manquant pour ce client.'); return; }
-
-    const firstName = sub.client?.first_name ?? 'Client';
-    const order = sub.currentOrder;
-    const remainingQuota = order
-      ? Math.max(0, (sub.plan?.quota_amount ?? 0) - (order.total_sell_price ?? 0))
-      : (sub.plan?.quota_amount ?? 0);
-
-    const message =
-      `Bonjour ${firstName} ! 👋\n\n` +
-      `🎁 Votre box beauté du mois est prête à être personnalisée !\n\n` +
-      `💰 Quota restant : ${remainingQuota.toFixed(0)} €\n\n` +
-      `Complétez votre sélection ici :\n` +
-      `${process.env.NEXT_PUBLIC_SITE_URL ?? 'https://lmdecaisse.com'}/client-portal/login\n\n` +
-      `📅 Date limite : le 25 du mois\n\n` +
-      `Le Monde de l'Esthétique 💅`;
-
-    // Try Brevo API first; fall back to wa.me if not configured
-    try {
-      const res = await fetch('/api/whatsapp/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to: rawPhone, message }),
-      });
-      const d = await res.json();
-      if (!d.ok) {
-        window.open(`https://wa.me/${rawPhone}?text=${encodeURIComponent(message)}`, '_blank');
-      }
-    } catch {
-      window.open(`https://wa.me/${rawPhone}?text=${encodeURIComponent(message)}`, '_blank');
+  // Send selection_reminder email to all not-completed subscribers
+  const handleEmailNotifyAll = async () => {
+    const withEmail = notCompleted.filter((s) => s.client?.email);
+    const noEmail = notCompleted.filter((s) => !s.client?.email);
+    if (withEmail.length === 0) {
+      showEmailToast(false, 'Aucune abonnée avec email enregistré');
+      return;
     }
-
-    // Record notification time
-    setNotifyingId(sub.id);
-    const supabase = createClient();
-    if (order) {
-      await supabase
-        .from('subscription_orders')
-        .update({ notified_at: new Date().toISOString() })
-        .eq('id', order.id);
-    } else {
-      // Create an open order to record the notification
-      await supabase.from('subscription_orders').insert({
-        subscription_id: sub.id,
-        order_month: currentMonth,
-        status: 'open',
-        shipping_cost: sub.plan?.shipping_free ? 0 : (sub.plan?.shipping_cost ?? 0),
-        notified_at: new Date().toISOString(),
-      });
+    let successCount = 0;
+    for (const sub of withEmail) {
+      try {
+        const res = await fetch('/api/subscriptions/send-notification', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subscriptionId: sub.id, notificationType: 'selection_reminder' }),
+        });
+        if (res.ok) successCount++;
+      } catch { /* continue */ }
     }
-    setNotifyingId(null);
+    const msg = `${successCount} email${successCount > 1 ? 's' : ''} envoyé${successCount > 1 ? 's' : ''}${noEmail.length > 0 ? ` — ${noEmail.length} sans email ignoré${noEmail.length > 1 ? 's' : ''}` : ''}`;
+    showEmailToast(successCount > 0, msg);
     await load();
-  };
-
-  // Notify all not-completed
-  const handleNotifyAll = () => {
-    for (const sub of notCompleted) {
-      handleNotify(sub);
-    }
   };
 
   const showEmailToast = (ok: boolean, msg: string) => {
@@ -673,10 +733,10 @@ export default function AbonnementsPage() {
               📱 {notCompleted.length} abonné{notCompleted.length > 1 ? 's' : ''} n&apos;{notCompleted.length > 1 ? 'ont' : 'a'} pas encore complété {notCompleted.length > 1 ? 'leur' : 'sa'} box ce mois-ci
             </p>
             <button
-              onClick={handleNotifyAll}
+              onClick={handleEmailNotifyAll}
               className="shrink-0 px-3 py-1.5 bg-amber-500 text-white text-xs font-bold rounded-lg hover:bg-amber-600 transition-colors"
             >
-              Envoyer rappel à tous
+              📧 Envoyer rappel à tous
             </button>
           </div>
         )}
@@ -768,16 +828,13 @@ export default function AbonnementsPage() {
 
                     {/* Quick actions in row (no propagation) */}
                     <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                      {noOrder && (
-                        <button
-                          onClick={() => handleNotify(sub)}
-                          disabled={notifyingId === sub.id}
-                          className="px-2.5 py-1 bg-amber-100 text-amber-700 border border-amber-300 rounded-lg text-[11px] font-bold hover:bg-amber-200 transition-colors disabled:opacity-50"
-                          title="Envoyer rappel WhatsApp"
+                      <button
+                          onClick={() => setNotifyEmailSub(sub)}
+                          className="px-2.5 py-1 bg-violet-100 text-violet-700 border border-violet-300 rounded-lg text-[11px] font-bold hover:bg-violet-200 transition-colors"
+                          title="Notifier par email"
                         >
-                          📱 Notifier
+                          📧 Notifier
                         </button>
-                      )}
                       {isConfirmed && !isEnLivraison && (
                         <>
                           <button
@@ -900,11 +957,10 @@ export default function AbonnementsPage() {
                           </button>
                         )}
                         <button
-                          onClick={() => handleNotify(sub)}
-                          disabled={notifyingId === sub.id}
-                          className="flex-1 min-w-[120px] py-2 text-center bg-amber-50 border border-amber-200 text-amber-700 rounded-xl text-xs font-semibold hover:bg-amber-100 transition-colors disabled:opacity-50"
+                          onClick={() => setNotifyEmailSub(sub)}
+                          className="flex-1 min-w-[120px] py-2 text-center bg-violet-50 border border-violet-200 text-violet-700 rounded-xl text-xs font-semibold hover:bg-violet-100 transition-colors"
                         >
-                          🔔 Notifier le client
+                          📧 Notifier par email
                         </button>
                         {sub.client?.email && (
                           <>
@@ -946,6 +1002,19 @@ export default function AbonnementsPage() {
           currentMonth={currentMonth}
           onClose={() => setBoxModalSub(null)}
           onDeliver={() => setDeliveryModalSub(boxModalSub)}
+        />
+      )}
+
+      {/* NotifyEmailModal */}
+      {notifyEmailSub && (
+        <NotifyEmailModal
+          sub={notifyEmailSub}
+          onClose={() => setNotifyEmailSub(null)}
+          onSent={(email) => {
+            setNotifyEmailSub(null);
+            showEmailToast(true, `Email envoyé à ${email}`);
+            load();
+          }}
         />
       )}
 
