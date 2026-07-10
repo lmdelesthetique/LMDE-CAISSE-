@@ -1947,7 +1947,9 @@ export default function OrderDetailPage() {
                 supplierId={order.supplierId}
                 supplierName={order.supplierName}
                 orders={[{ id: order.id, order_number: order.orderNumber }]}
+                currentOrderId={order.id}
                 onRefresh={load}
+                onInvoiceSelected={() => setTab('reception')}
               />
             ) : (
               <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">

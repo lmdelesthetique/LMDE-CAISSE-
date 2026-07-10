@@ -28,6 +28,11 @@ interface Props {
   supplierName?: string;
   orders?: Order[];
   onRefresh?: () => void;
+  /** When set (inside an order detail), enables "Utiliser comme facture finale"
+   *  on ALL supplier attachments — even those without order_id on the message. */
+  currentOrderId?: string;
+  /** Called after a final invoice is selected so the parent can navigate to Réception */
+  onInvoiceSelected?: () => void;
 }
 
 const IS_IMG = (url: string, type?: string | null) =>
@@ -35,13 +40,13 @@ const IS_IMG = (url: string, type?: string | null) =>
 const IS_PDF = (url: string) => url.toLowerCase().includes('.pdf') || url.toLowerCase().includes('/pdf');
 const IS_XLS = (name?: string | null) => /\.(xls|xlsx|csv)$/i.test(name ?? '');
 
-export default function MessagingPanel({ supplierId, supplierName, orders = [], onRefresh }: Props) {
+export default function MessagingPanel({ supplierId, supplierName, orders = [], onRefresh, currentOrderId, onInvoiceSelected }: Props) {
   const supabase = createClient();
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
-  const [selectedOrderId, setSelectedOrderId] = useState('');
+  const [selectedOrderId, setSelectedOrderId] = useState(currentOrderId ?? '');
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -51,6 +56,7 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
   // "Use as final invoice" state
   const [usingInvoice, setUsingInvoice] = useState<string | null>(null);
   const [usedInvoice, setUsedInvoice] = useState<string | null>(null);
+  const [invoiceJustSelected, setInvoiceJustSelected] = useState(false);
 
   const loadMessages = async () => {
     setLoading(true);
@@ -176,17 +182,23 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
   // ─── Use as final invoice ───────────────────────────────────────────────────
 
   const handleUseAsInvoice = async (msg: Message) => {
-    if (!msg.attachmentUrl || !msg.orderId) return;
+    if (!msg.attachmentUrl) return;
+    // Use message's own order_id, or fall back to the currentOrderId context
+    const targetOrderId = msg.orderId || currentOrderId;
+    if (!targetOrderId) return;
+
     setUsingInvoice(msg.id);
     try {
-      const res = await fetch(`/api/fo-orders/${msg.orderId}/use-invoice`, {
+      const res = await fetch(`/api/fo-orders/${targetOrderId}/use-invoice`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ invoiceUrl: msg.attachmentUrl, invoiceName: msg.attachmentName }),
       });
       if (res.ok) {
         setUsedInvoice(msg.id);
+        setInvoiceJustSelected(true);
         onRefresh?.();
+        onInvoiceSelected?.();
       }
     } catch { /* non-blocking */ } finally {
       setUsingInvoice(null);
@@ -202,9 +214,34 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
 
   const unreadCount = messages.filter(m => m.sender === 'supplier' && !m.isRead).length;
   const orderRef = (orderId: string | null | undefined) => orders.find(o => o.id === orderId);
+  // A supplier attachment can become the final invoice if:
+  // - it has its own order_id, OR
+  // - we're already inside a specific order context (currentOrderId)
+  const canUseMsg = (msg: Message) =>
+    !!msg.attachmentUrl &&
+    msg.sender === 'supplier' &&
+    !!(msg.orderId || currentOrderId);
 
   return (
     <div className="bg-white border border-border rounded-xl shadow-card flex flex-col" style={{ height: 680 }}>
+
+      {/* ── Bannière "Facture finale sélectionnée → aller à Réception" ── */}
+      {invoiceJustSelected && (
+        <div className="flex items-center gap-3 px-4 py-3 bg-violet-50 border-b border-violet-200 shrink-0">
+          <span className="text-lg">✅</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-600 text-violet-800">Facture finale enregistrée</p>
+            <p className="text-xs text-violet-600">Allez dans l'onglet <strong>Réception</strong> pour saisir les prix réels et valider la commande.</p>
+          </div>
+          <button
+            onClick={() => setInvoiceJustSelected(false)}
+            className="shrink-0 text-violet-400 hover:text-violet-600 transition-colors"
+          >
+            <Icon name="XMarkIcon" size={14} />
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-3.5 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
@@ -236,8 +273,7 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
             const isStore = msg.sender === 'store';
             const isOrderCard = msg.messageType === 'order_card';
             const ref = orderRef(msg.orderId);
-            const hasAttachment = !!msg.attachmentUrl;
-            const canUseAsInvoice = hasAttachment && msg.sender === 'supplier' && !!msg.orderId;
+            const canUseAsInvoice = canUseMsg(msg);
             const alreadyUsed = usedInvoice === msg.id;
 
             return (
