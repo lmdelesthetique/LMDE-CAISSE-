@@ -40,6 +40,14 @@ interface PortalProduct {
   category: string | null;
   stock: number;
   product_status: string;
+  has_color_variants?: boolean;
+}
+
+interface ColorVariant {
+  id: string;
+  color_name: string;
+  color_hex: string;
+  quantity: number;
 }
 
 interface VisibleCategory {
@@ -112,6 +120,11 @@ export default function ClientDashboardPage() {
 
   // Product detail modal
   const [detailProduct, setDetailProduct] = useState<PortalProduct | null>(null);
+
+  // Variant picker
+  const [variantPickerProduct, setVariantPickerProduct] = useState<PortalProduct | null>(null);
+  const [variantPickerVariants, setVariantPickerVariants] = useState<ColorVariant[]>([]);
+  const [variantPickerLoading, setVariantPickerLoading] = useState(false);
 
   const showToast = useCallback((msg: string, type: 'success' | 'error' = 'success') => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -226,7 +239,7 @@ export default function ClientDashboardPage() {
         .order('sort_order'),
       supabase
         .from('products')
-        .select('id, name, image_url, sell_price_ttc, description, category, stock, product_status')
+        .select('id, name, image_url, sell_price_ttc, description, category, stock, product_status, has_color_variants')
         .or('product_status.eq.active,product_status.eq.Active')
         .gt('stock', 0)
         .order('name')
@@ -262,8 +275,26 @@ export default function ClientDashboardPage() {
     return () => { supabase.removeChannel(channel); };
   }, [clientUser, tab]);
 
+  // ── Handle add click — open variant picker if needed ──────────────────────
+  const handleAddProductClick = useCallback(async (product: PortalProduct) => {
+    if (!product.has_color_variants) {
+      return; // will call addProduct directly via onAdd prop
+    }
+    setVariantPickerLoading(true);
+    setVariantPickerProduct(product);
+    const supabase = createClient();
+    const { data } = await supabase
+      .from('product_color_variants')
+      .select('id, color_name, color_hex, quantity')
+      .eq('product_id', product.id)
+      .gt('quantity', 0)
+      .order('color_name');
+    setVariantPickerVariants(data ?? []);
+    setVariantPickerLoading(false);
+  }, []);
+
   // ── Add product ────────────────────────────────────────────────────────────
-  const addProduct = useCallback(async (product: PortalProduct) => {
+  const addProduct = useCallback(async (product: PortalProduct, colorVariant?: string) => {
     if (!clientUser) return;
 
     if (isPastDeadline) { showToast('Date limite dépassée (après le 25).', 'error'); return; }
@@ -305,7 +336,7 @@ export default function ClientDashboardPage() {
       orderId = json.order.id;
     }
 
-    const existing = orderItems.find((i) => i.product_id === product.id && !i.color_variant);
+    const existing = orderItems.find((i) => i.product_id === product.id && (i.color_variant ?? null) === (colorVariant ?? null));
     if (existing) {
       const newQty = existing.quantity + 1;
       const newTotal = product.sell_price_ttc * newQty;
@@ -325,6 +356,7 @@ export default function ClientDashboardPage() {
           unit_buy_price: 0,
           unit_sell_price: product.sell_price_ttc,
           total_sell_price: product.sell_price_ttc,
+          ...(colorVariant ? { color_variant: colorVariant } : {}),
         })
         .select('*, product:products(id, name, image_url, sell_price_ttc, description)')
         .single();
@@ -491,14 +523,68 @@ export default function ClientDashboardPage() {
                 </button>
                 {canEdit && (
                   <button
-                    onClick={() => { addProduct(detailProduct); setDetailProduct(null); }}
+                    onClick={() => {
+                      if (detailProduct.has_color_variants) {
+                        setDetailProduct(null);
+                        handleAddProductClick(detailProduct);
+                      } else {
+                        addProduct(detailProduct);
+                        setDetailProduct(null);
+                      }
+                    }}
                     disabled={detailProduct.sell_price_ttc > quotaRemaining}
                     className="flex-1 py-2.5 bg-rose-500 text-white rounded-xl text-sm font-semibold hover:bg-rose-600 disabled:opacity-30"
                   >
-                    {detailProduct.sell_price_ttc > quotaRemaining ? 'Quota insuffisant' : 'Ajouter à la box'}
+                    {detailProduct.sell_price_ttc > quotaRemaining ? 'Quota insuffisant' : detailProduct.has_color_variants ? 'Choisir une couleur' : 'Ajouter à la box'}
                   </button>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Variant picker modal */}
+      {variantPickerProduct && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4" onClick={() => setVariantPickerProduct(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 pt-5 pb-4 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <h2 className="text-base font-bold text-gray-900">Choisir une couleur</h2>
+                <p className="text-xs text-gray-400 mt-0.5 truncate max-w-[220px]">{variantPickerProduct.name}</p>
+              </div>
+              <button onClick={() => setVariantPickerProduct(null)} className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors text-lg">×</button>
+            </div>
+            <div className="px-5 py-4">
+              {variantPickerLoading ? (
+                <div className="flex justify-center py-6">
+                  <div className="w-6 h-6 border-2 border-rose-400 border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : variantPickerVariants.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-4">Aucune couleur disponible</p>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  {variantPickerVariants.map((v) => (
+                    <button
+                      key={v.id}
+                      onClick={() => {
+                        addProduct(variantPickerProduct, v.color_name);
+                        setVariantPickerProduct(null);
+                      }}
+                      className="flex items-center gap-3 px-3 py-3 rounded-xl border-2 border-gray-100 hover:border-rose-300 hover:bg-rose-50 transition-all text-left"
+                    >
+                      <span
+                        className="w-8 h-8 rounded-full shrink-0 border-2 border-white shadow"
+                        style={{ backgroundColor: v.color_hex || '#ccc' }}
+                      />
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-gray-800 truncate">{v.color_name}</p>
+                        <p className="text-[10px] text-gray-400">{v.quantity} dispo</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -624,6 +710,9 @@ export default function ClientDashboardPage() {
                     )}
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-gray-800 truncate">{item.product?.name ?? 'Produit'}</p>
+                      {item.color_variant && (
+                        <p className="text-[11px] text-gray-500 truncate">{item.color_variant}</p>
+                      )}
                       <p className="text-xs text-rose-600 font-semibold tabular-nums">{item.unit_sell_price.toFixed(2)} € TTC</p>
                     </div>
                     {canEdit ? (
@@ -746,7 +835,7 @@ export default function ClientDashboardPage() {
                             inCart={orderItems.find((i) => i.product_id === p.id)}
                             canAdd={canEdit && p.sell_price_ttc <= quotaRemaining && p.stock > 0}
                             canEdit={canEdit}
-                            onAdd={() => addProduct(p)}
+                            onAdd={() => p.has_color_variants ? handleAddProductClick(p) : addProduct(p)}
                             onRemove={(id) => removeProduct(id)}
                             onDetail={() => setDetailProduct(p)}
                           />

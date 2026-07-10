@@ -512,6 +512,8 @@ export default function AbonnementsPage() {
   // Email state
   const [emailSendingId, setEmailSendingId] = useState<string | null>(null);
   const [emailToast, setEmailToast] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [traitingId, setTraitingId] = useState<string | null>(null);
+  const [expandedItems, setExpandedItems] = useState<Record<string, OrderItem[]>>({});
 
   const currentMonth = new Date().toISOString().slice(0, 7);
   const today = new Date();
@@ -670,6 +672,41 @@ export default function AbonnementsPage() {
     }
   };
 
+  const handleTraiter = async (sub: SubscriptionRow) => {
+    if (!sub.currentOrder) return;
+    setTraitingId(sub.id);
+    try {
+      const res = await fetch(`/api/subscriptions/orders/${sub.currentOrder.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'preparing' }),
+      });
+      if (!res.ok) { showEmailToast(false, 'Erreur mise à jour commande'); return; }
+      showEmailToast(true, '✅ Box marquée en préparation');
+      await load();
+    } catch {
+      showEmailToast(false, 'Erreur réseau');
+    } finally {
+      setTraitingId(null);
+    }
+  };
+
+  const loadExpandedItems = async (orderId: string) => {
+    if (expandedItems[orderId]) return;
+    const supabase = createClient();
+    const { data } = await supabase
+      .from('subscription_order_items')
+      .select('*, product:products(id, name, image_url, ref)')
+      .eq('order_id', orderId);
+    setExpandedItems((prev) => ({ ...prev, [orderId]: data ?? [] }));
+  };
+
+  const handleExpand = (subId: string, orderId?: string) => {
+    const next = expandedId === subId ? null : subId;
+    setExpandedId(next);
+    if (next && orderId) loadExpandedItems(orderId);
+  };
+
   const filtered = filterStatus === 'all' ? subscriptions : subscriptions.filter((s) => s.status === filterStatus);
 
   return (
@@ -791,7 +828,7 @@ export default function AbonnementsPage() {
                 <div key={sub.id} className="bg-card border border-border rounded-2xl overflow-hidden">
                   {/* Row */}
                   <button
-                    onClick={() => setExpandedId(isExpanded ? null : sub.id)}
+                    onClick={() => handleExpand(sub.id, order?.id)}
                     className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/40 transition-colors text-left"
                   >
                     <div className="flex-1 min-w-0">
@@ -829,12 +866,22 @@ export default function AbonnementsPage() {
                     {/* Quick actions in row (no propagation) */}
                     <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
                       <button
-                          onClick={() => setNotifyEmailSub(sub)}
-                          className="px-2.5 py-1 bg-violet-100 text-violet-700 border border-violet-300 rounded-lg text-[11px] font-bold hover:bg-violet-200 transition-colors"
-                          title="Notifier par email"
+                        onClick={() => setNotifyEmailSub(sub)}
+                        className="px-2.5 py-1 bg-violet-100 text-violet-700 border border-violet-300 rounded-lg text-[11px] font-bold hover:bg-violet-200 transition-colors"
+                        title="Notifier par email"
+                      >
+                        📧 Notifier
+                      </button>
+                      {order?.status === 'confirmed' && !isEnLivraison && (
+                        <button
+                          onClick={() => handleTraiter(sub)}
+                          disabled={traitingId === sub.id}
+                          className="px-2.5 py-1 bg-pink-500 text-white border border-pink-600 rounded-lg text-[11px] font-bold hover:bg-pink-600 transition-colors disabled:opacity-50"
+                          title="Marquer en préparation"
                         >
-                          📧 Notifier
+                          {traitingId === sub.id ? '…' : '✅ Traiter'}
                         </button>
+                      )}
                       {isConfirmed && !isEnLivraison && (
                         <>
                           <button
@@ -903,10 +950,10 @@ export default function AbonnementsPage() {
                         </div>
                       )}
 
-                      {/* Order financials */}
+                      {/* Order financials + products */}
                       {order && (
-                        <div className="border border-border rounded-xl p-3 bg-card">
-                          <p className="text-xs font-semibold text-muted-foreground mb-2">Commande {currentMonth}</p>
+                        <div className="border border-border rounded-xl p-3 bg-card space-y-3">
+                          <p className="text-xs font-semibold text-muted-foreground">Commande {currentMonth}</p>
                           <div className="grid grid-cols-3 gap-2 text-xs text-center">
                             <div>
                               <p className="text-muted-foreground">Coût achat</p>
@@ -921,13 +968,34 @@ export default function AbonnementsPage() {
                               <p className="font-bold text-emerald-600 tabular-nums">{(order.benefit_amount ?? 0).toFixed(2)} €</p>
                             </div>
                           </div>
+                          {/* Products list */}
+                          {(() => {
+                            const items = expandedItems[order.id];
+                            if (!items) return <p className="text-xs text-muted-foreground text-center py-1">Chargement des produits…</p>;
+                            if (items.length === 0) return <p className="text-xs text-muted-foreground text-center py-1">Aucun produit sélectionné</p>;
+                            return (
+                              <div className="border-t border-border pt-2 space-y-1.5">
+                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">Produits ({items.length})</p>
+                                {items.map((item) => (
+                                  <div key={item.id} className="flex items-center justify-between gap-2 text-xs">
+                                    <div className="flex-1 min-w-0">
+                                      <span className="font-medium text-foreground truncate block">{item.product?.name ?? '—'}</span>
+                                      {item.product?.ref && <span className="text-muted-foreground">Réf: {item.product.ref}</span>}
+                                    </div>
+                                    <span className="shrink-0 font-bold text-gray-700">x{item.quantity}</span>
+                                    <span className="shrink-0 tabular-nums text-gray-600">{(item.unit_sell_price * item.quantity).toFixed(2)} €</span>
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          })()}
                         </div>
                       )}
 
                       {/* Action buttons */}
                       <div className="flex flex-wrap gap-2">
                         <a
-                          href={`/clients?id=${sub.client?.id}`}
+                          href={`/clients/${sub.client?.id}`}
                           className="flex-1 min-w-[120px] py-2 text-center border border-border rounded-xl text-xs font-semibold text-muted-foreground hover:bg-muted transition-colors"
                         >
                           Voir la fiche client
@@ -940,6 +1008,15 @@ export default function AbonnementsPage() {
                         >
                           Ouvrir le portail
                         </a>
+                        {order?.status === 'confirmed' && !isEnLivraison && (
+                          <button
+                            onClick={() => handleTraiter(sub)}
+                            disabled={traitingId === sub.id}
+                            className="flex-1 min-w-[120px] py-2 text-center bg-pink-500 text-white border border-pink-600 rounded-xl text-xs font-bold hover:bg-pink-600 transition-colors disabled:opacity-50"
+                          >
+                            {traitingId === sub.id ? '…' : '✅ Traiter la box'}
+                          </button>
+                        )}
                         {isConfirmed && !isEnLivraison && (
                           <button
                             onClick={() => setBoxModalSub(sub)}

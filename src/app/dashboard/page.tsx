@@ -16,6 +16,7 @@ import ShopifyOrdersWidget from './components/ShopifyOrdersWidget';
 import DeliveryWidget from './components/DeliveryWidget';
 import AIMonthlyReport from './components/AIMonthlyReport';
 import MDLEStrategiePanel from './components/MDLEStrategiePanel';
+import SubscriptionBoxAlert from './components/SubscriptionBoxAlert';
 import { type DashboardFiltersState } from '@/lib/services/dashboardService';
 
 const DAYS_FR = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
@@ -49,6 +50,9 @@ export default function DashboardPage() {
 
         {/* Content */}
         <div className="max-w-screen-2xl mx-auto px-6 lg:px-8 xl:px-10 2xl:px-16 py-6 space-y-6">
+          {/* Subscription box alert banner */}
+          <SubscriptionBoxAlert />
+
           {/* KPI Bento Grid */}
           <KPIBentoGrid filters={filters} />
 
