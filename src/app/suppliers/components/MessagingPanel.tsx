@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import Icon from '@/components/ui/AppIcon';
-import { createClient } from '@/lib/supabase/client';
+import { createClient } from '@/lib/supabase/client'; // used only for realtime subscription
 
 interface Message {
   id: string;
@@ -61,14 +61,10 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
   const loadMessages = async () => {
     setLoading(true);
     try {
-      const { data } = await supabase
-        .from('supplier_messages')
-        .select('*')
-        .eq('supplier_id', supplierId)
-        .order('created_at', { ascending: true });
-
-      if (data) {
-        setMessages(data.map((row: any) => ({
+      const res = await fetch(`/api/supplier-messages?supplierId=${supplierId}`);
+      const json = await res.json();
+      if (json.messages) {
+        setMessages(json.messages.map((row: any) => ({
           id: row.id,
           supplierId: row.supplier_id,
           orderId: row.order_id,
@@ -81,13 +77,6 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
           isRead: row.is_read,
           createdAt: row.created_at,
         })));
-        // Mark supplier messages as read
-        const unreadIds = data
-          .filter((m: any) => m.sender === 'supplier' && !m.is_read)
-          .map((m: any) => m.id);
-        if (unreadIds.length > 0) {
-          await supabase.from('supplier_messages').update({ is_read: true }).in('id', unreadIds);
-        }
       }
     } catch (err) {
       console.error('[MessagingPanel] loadMessages error:', err);
@@ -116,21 +105,28 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
     if (!text || sending) return;
     setSending(true);
     try {
-      await supabase.from('supplier_messages').insert({
-        supplier_id: supplierId,
-        sender: 'store',
-        sender_type: 'admin',
-        content: text,
-        message_type: 'text',
-        is_read: false,
-        order_id: selectedOrderId || null,
+      const res = await fetch('/api/supplier-messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          supplierId,
+          content: text,
+          messageType: 'text',
+          orderId: selectedOrderId || null,
+          sender: 'store',
+        }),
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Erreur envoi');
+      }
       setInput('');
       setSelectedOrderId('');
       await loadMessages();
       onRefresh?.();
-    } catch (err) {
+    } catch (err: any) {
       console.error('[MessagingPanel] send error:', err);
+      alert(`Erreur : ${err.message}`);
     } finally {
       setSending(false);
     }
@@ -156,18 +152,20 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
       const isPdf = IS_PDF(json.url);
       const msgType = isImg ? 'photo' : isPdf ? 'pdf' : 'other';
 
-      await supabase.from('supplier_messages').insert({
-        supplier_id: supplierId,
-        sender: 'store',
-        sender_type: 'admin',
-        content: null,
-        message_type: msgType,
-        is_read: false,
-        order_id: selectedOrderId || null,
-        attachment_url: json.url,
-        attachment_name: json.name,
-        attachment_type: json.type,
+      const msgRes = await fetch('/api/supplier-messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          supplierId,
+          messageType: msgType,
+          orderId: selectedOrderId || null,
+          sender: 'store',
+          attachmentUrl: json.url,
+          attachmentName: json.name,
+          attachmentType: json.type,
+        }),
       });
+      if (!msgRes.ok) throw new Error('Erreur enregistrement pièce jointe');
 
       setSelectedOrderId('');
       await loadMessages();
