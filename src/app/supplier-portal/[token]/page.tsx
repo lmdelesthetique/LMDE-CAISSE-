@@ -124,6 +124,8 @@ export default function SupplierTokenPortal() {
       setPushStatus('unsupported');
       return;
     }
+    // Register the service worker if not already registered
+    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
     setPushStatus(Notification.permission as 'default' | 'granted' | 'denied');
   }, []);
 
