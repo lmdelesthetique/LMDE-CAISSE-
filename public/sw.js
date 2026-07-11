@@ -21,14 +21,14 @@ self.addEventListener('push', (event) => {
 
   event.waitUntil(
     self.registration.showNotification(
-      data.title || 'BeautyPOS Livreur',
+      data.title || 'BeautyPOS',
       {
         body: data.body || '',
-        icon: '/icons/icon-192.png',
-        badge: '/icons/icon-192.png',
+        icon: data.icon || '/icons/icon-192.png',
+        badge: data.badge || '/icons/icon-192.png',
         vibrate: [200, 100, 200],
-        tag: 'livraison-' + Date.now(),
-        data: { url: data.url || '/livreur/dashboard' },
+        tag: data.tag || ('push-' + Date.now()),
+        data: { url: data.url || '/' },
       }
     )
   );
@@ -37,7 +37,7 @@ self.addEventListener('push', (event) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
-  const url = event.notification.data?.url || '/livreur/dashboard';
+  const url = event.notification.data?.url || '/';
 
   event.waitUntil(
     clients.matchAll({ type: 'window' }).then((clientList) => {

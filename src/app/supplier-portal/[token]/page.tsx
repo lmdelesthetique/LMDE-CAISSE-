@@ -4,6 +4,13 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
+}
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface SupplierInfo {
@@ -86,6 +93,9 @@ export default function SupplierTokenPortal() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
 
+  // Push notifications
+  const [pushStatus, setPushStatus] = useState<'default' | 'granted' | 'denied' | 'unsupported'>('default');
+
   // Compose
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
@@ -106,6 +116,60 @@ export default function SupplierTokenPortal() {
       })
       .catch(() => setState('invalid'));
   }, [token]);
+
+  // ─── Push notification subscription ────────────────────────────────────────
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('Notification' in window) || !('serviceWorker' in navigator)) {
+      setPushStatus('unsupported');
+      return;
+    }
+    setPushStatus(Notification.permission as 'default' | 'granted' | 'denied');
+  }, []);
+
+  const subscribeToPush = async () => {
+    if (!token) return;
+    try {
+      const permission = await Notification.requestPermission();
+      setPushStatus(permission as 'default' | 'granted' | 'denied');
+      if (permission !== 'granted') return;
+
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(
+          process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!
+        ),
+      });
+
+      await fetch(`/api/supplier-portal/${token}/push-subscribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sub.toJSON()),
+      });
+    } catch {
+      // permission denied or push not supported
+    }
+  };
+
+  // Auto-subscribe if permission already granted
+  useEffect(() => {
+    if (state !== 'ready' || !token || pushStatus !== 'granted') return;
+    (async () => {
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const existing = await reg.pushManager.getSubscription();
+        if (existing) {
+          // Re-save subscription in case it changed
+          await fetch(`/api/supplier-portal/${token}/push-subscribe`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(existing.toJSON()),
+          });
+        }
+      } catch {}
+    })();
+  }, [state, token, pushStatus]);
 
   // ─── Load messages ──────────────────────────────────────────────────────────
 
@@ -314,6 +378,18 @@ export default function SupplierTokenPortal() {
           <p style={{ fontWeight: 700, fontSize: 16, margin: 0, lineHeight: 1.2 }}>Le Monde de l'Esthétique</p>
           <p style={{ fontSize: 12, opacity: 0.8, margin: 0 }}>{info?.supplierName}</p>
         </div>
+        {pushStatus === 'default' && (
+          <button
+            onClick={subscribeToPush}
+            title="Activer les notifications"
+            style={{ background: '#25d366', border: 'none', borderRadius: 20, padding: '6px 10px', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' }}
+          >
+            🔔 Notifs
+          </button>
+        )}
+        {pushStatus === 'granted' && (
+          <span title="Notifications activées" style={{ fontSize: 18, flexShrink: 0 }}>🔔</span>
+        )}
       </div>
 
       {/* Tabs */}
