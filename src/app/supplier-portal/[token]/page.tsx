@@ -378,19 +378,35 @@ export default function SupplierTokenPortal() {
           <p style={{ fontWeight: 700, fontSize: 16, margin: 0, lineHeight: 1.2 }}>Le Monde de l'Esthétique</p>
           <p style={{ fontSize: 12, opacity: 0.8, margin: 0 }}>{info?.supplierName}</p>
         </div>
-        {pushStatus === 'default' && (
+      </div>
+
+      {/* Push notification banner */}
+      {pushStatus === 'default' && (
+        <div style={{ background: '#dcfce7', borderBottom: '1px solid #86efac', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          <span style={{ fontSize: 20 }}>🔔</span>
+          <p style={{ flex: 1, margin: 0, fontSize: 13, color: '#166534', fontWeight: 500 }}>
+            Recevez les messages même quand l'appli est fermée
+          </p>
           <button
             onClick={subscribeToPush}
-            title="Activer les notifications"
-            style={{ background: '#25d366', border: 'none', borderRadius: 20, padding: '6px 10px', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' }}
+            style={{ background: '#16a34a', border: 'none', borderRadius: 16, padding: '7px 14px', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' }}
           >
-            🔔 Notifs
+            Activer
           </button>
-        )}
-        {pushStatus === 'granted' && (
-          <span title="Notifications activées" style={{ fontSize: 18, flexShrink: 0 }}>🔔</span>
-        )}
-      </div>
+        </div>
+      )}
+      {pushStatus === 'granted' && (
+        <div style={{ background: '#f0fdf4', borderBottom: '1px solid #bbf7d0', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          <span style={{ fontSize: 14 }}>🔔</span>
+          <p style={{ margin: 0, fontSize: 12, color: '#15803d' }}>Notifications activées</p>
+        </div>
+      )}
+      {pushStatus === 'denied' && (
+        <div style={{ background: '#fef9c3', borderBottom: '1px solid #fde047', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          <span style={{ fontSize: 14 }}>⚠️</span>
+          <p style={{ margin: 0, fontSize: 12, color: '#92400e' }}>Notifications bloquées — activez-les dans les réglages de votre navigateur</p>
+        </div>
+      )}
 
       {/* Tabs */}
       <div style={{ background: '#fff', borderBottom: '1px solid #e5e7eb', display: 'flex', flexShrink: 0 }}>
