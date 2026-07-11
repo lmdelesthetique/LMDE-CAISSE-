@@ -2,12 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import webpush from 'web-push';
 
-webpush.setVapidDetails(
-  process.env.VAPID_SUBJECT!,
-  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
-  process.env.VAPID_PRIVATE_KEY!
-);
-
 // GET — read all messages for a supplier (admin side, bypasses RLS)
 export async function GET(req: NextRequest) {
   const supplierId = req.nextUrl.searchParams.get('supplierId');
@@ -58,6 +52,13 @@ export async function POST(req: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   // Send push notification to supplier when admin sends a message
+  if (isAdmin && process.env.VAPID_PRIVATE_KEY) {
+    webpush.setVapidDetails(
+      process.env.VAPID_SUBJECT!,
+      process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
+      process.env.VAPID_PRIVATE_KEY!
+    );
+  }
   if (isAdmin) {
     const { data: subs } = await supabase
       .from('push_subscriptions')
