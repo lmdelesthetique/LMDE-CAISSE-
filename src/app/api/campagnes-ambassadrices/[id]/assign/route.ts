@@ -127,6 +127,27 @@ export async function POST(
       });
     }
 
+    // Push notification to ambassadrice (fire-and-forget)
+    const { data: amb } = await supabase
+      .from('ambassadrices')
+      .select('prenom, lien_unique')
+      .eq('id', ambassadriceId)
+      .maybeSingle();
+
+    if (amb) {
+      const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+      fetch(`${baseUrl}/api/push/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ambassadriceId,
+          title: '🌟 Nouvelle campagne !',
+          pushBody: `Tu as une nouvelle mission dans ta campagne`,
+          url: `${baseUrl}/ambassadrice/${amb.lien_unique}`,
+        }),
+      }).catch(() => {});
+    }
+
     return NextResponse.json(assignment, { status: 201 });
   } catch (e: any) {
     console.error('[assign] exception:', e.message);

@@ -3,6 +3,13 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
+}
+
 type Grade = 'debutante' | 'confirmee' | 'elite';
 type ContenuStatut = 'a_faire' | 'en_cours' | 'tourne' | 'poste' | 'realise';
 type ContenuType = 'reel' | 'story' | 'demo' | 'temoignage' | 'guide';
@@ -369,6 +376,52 @@ export default function AmbassadricePortalPage() {
   const [showInstallBanner, setShowInstallBanner] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
 
+  // ─── Push notifications ───────────────────────────────────────────────────────
+  const [pushStatus, setPushStatus] = useState<'default' | 'granted' | 'denied' | 'unsupported'>('default');
+
+  useEffect(() => {
+    if (!('Notification' in window) || !('serviceWorker' in navigator)) {
+      setPushStatus('unsupported'); return;
+    }
+    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
+    setPushStatus(Notification.permission as 'default' | 'granted' | 'denied');
+  }, []);
+
+  useEffect(() => {
+    if (!lienUnique || pushStatus !== 'granted') return;
+    (async () => {
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) {
+          await fetch('/api/ambassadrice/push-subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...sub.toJSON(), lienUnique }),
+          });
+        }
+      } catch {}
+    })();
+  }, [lienUnique, pushStatus]);
+
+  const subscribeToPush = async () => {
+    try {
+      const permission = await Notification.requestPermission();
+      setPushStatus(permission as 'default' | 'granted' | 'denied');
+      if (permission !== 'granted') return;
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!),
+      });
+      await fetch('/api/ambassadrice/push-subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...sub.toJSON(), lienUnique }),
+      });
+    } catch {}
+  };
+
   // PWA install prompt (Android/Chrome)
   useEffect(() => {
     const handler = (e: Event) => { e.preventDefault(); setInstallPrompt(e); setShowInstallBanner(true); };
@@ -523,6 +576,26 @@ export default function AmbassadricePortalPage() {
         <div className="bg-pink-600 text-white px-4 py-2.5 text-center text-xs font-medium flex items-center justify-center gap-2">
           <span>📲</span>
           <span>Pour installer : appuie sur <strong>Partager</strong> puis <strong>Sur l'écran d'accueil</strong></span>
+        </div>
+      )}
+
+      {/* Push notification banner */}
+      {pushStatus === 'default' && (
+        <div className="bg-violet-50 border-b border-violet-200 px-4 py-3 flex items-center gap-3">
+          <span className="text-xl">🔔</span>
+          <p className="flex-1 text-sm text-violet-800 font-medium">Recevez les nouvelles missions même écran verrouillé</p>
+          <button
+            onClick={subscribeToPush}
+            className="bg-violet-600 text-white text-sm font-bold px-4 py-2 rounded-full shrink-0"
+          >
+            Activer
+          </button>
+        </div>
+      )}
+      {pushStatus === 'granted' && (
+        <div className="bg-violet-50 border-b border-violet-100 px-4 py-1.5 flex items-center gap-2">
+          <span className="text-sm">🔔</span>
+          <p className="text-xs text-violet-700">Notifications activées</p>
         </div>
       )}
 

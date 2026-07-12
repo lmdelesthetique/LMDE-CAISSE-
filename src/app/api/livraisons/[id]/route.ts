@@ -40,6 +40,21 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const delivery = data as any;
     const driver = delivery.drivers;
 
+    // Push notification to driver on assignment (non-blocking)
+    if (body.assigned_to_driver) {
+      const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+      fetch(`${baseUrl}/api/push/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          driverId: body.assigned_to_driver,
+          title: '🚚 Nouvelle livraison !',
+          pushBody: `${delivery.client_name ?? ''} — ${delivery.delivery_address ?? ''}`,
+          url: '/livreur/dashboard',
+        }),
+      }).catch(() => {});
+    }
+
     // WhatsApp to driver on assignment (non-blocking)
     if (body.assigned_to_driver && driver?.phone) {
       sendNotifLivreurNouvelleLivraison(

@@ -5,6 +5,13 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { deliveryService, type Delivery, DELIVERY_STATUS_CONFIG } from '@/lib/services/deliveryService';
 
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
+}
+
 // ─── Portal header ─────────────────────────────────────────────────────────────
 
 function PortalHeader({ name, onLogout }: { name: string; onLogout: () => void }) {
@@ -151,6 +158,55 @@ export default function DriverDashboard() {
   const [tab, setTab] = useState<'dashboard' | 'livraisons'>('dashboard');
   const [deliveryFilter, setDeliveryFilter] = useState<'all' | 'active' | 'delivered' | 'problem'>('all');
 
+  // ─── Push notifications ───────────────────────────────────────────────────────
+  const [pushStatus, setPushStatus] = useState<'default' | 'granted' | 'denied' | 'unsupported'>('default');
+
+  useEffect(() => {
+    if (!('Notification' in window) || !('serviceWorker' in navigator)) {
+      setPushStatus('unsupported');
+      return;
+    }
+    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
+    setPushStatus(Notification.permission as 'default' | 'granted' | 'denied');
+  }, []);
+
+  // Auto-resave subscription if already granted
+  useEffect(() => {
+    if (!session || pushStatus !== 'granted') return;
+    (async () => {
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) {
+          await fetch('/api/push/subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...sub.toJSON(), driverId: session.driverId }),
+          });
+        }
+      } catch {}
+    })();
+  }, [session, pushStatus]);
+
+  const subscribeToPush = async () => {
+    if (!session) return;
+    try {
+      const permission = await Notification.requestPermission();
+      setPushStatus(permission as 'default' | 'granted' | 'denied');
+      if (permission !== 'granted') return;
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!),
+      });
+      await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...sub.toJSON(), driverId: session.driverId }),
+      });
+    } catch {}
+  };
+
   if (!session) return null;
 
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -172,6 +228,32 @@ export default function DriverDashboard() {
   return (
     <div className="min-h-screen bg-gray-50 pb-24">
       <PortalHeader name={session.name} onLogout={handleLogout} />
+
+      {/* Push notification banner */}
+      {pushStatus === 'default' && (
+        <div className="bg-green-50 border-b border-green-200 px-4 py-3 flex items-center gap-3">
+          <span className="text-xl">🔔</span>
+          <p className="flex-1 text-sm text-green-800 font-medium">Recevez les nouvelles livraisons même écran verrouillé</p>
+          <button
+            onClick={subscribeToPush}
+            className="bg-green-600 text-white text-sm font-bold px-4 py-2 rounded-full shrink-0"
+          >
+            Activer
+          </button>
+        </div>
+      )}
+      {pushStatus === 'granted' && (
+        <div className="bg-green-50 border-b border-green-100 px-4 py-1.5 flex items-center gap-2">
+          <span className="text-sm">🔔</span>
+          <p className="text-xs text-green-700">Notifications activées</p>
+        </div>
+      )}
+      {pushStatus === 'denied' && (
+        <div className="bg-yellow-50 border-b border-yellow-200 px-4 py-2 flex items-center gap-2">
+          <span className="text-sm">⚠️</span>
+          <p className="text-xs text-yellow-800">Notifications bloquées — activez-les dans les réglages</p>
+        </div>
+      )}
 
       {tab === 'dashboard' && (
         <>
