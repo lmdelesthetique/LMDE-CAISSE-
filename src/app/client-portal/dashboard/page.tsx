@@ -67,7 +67,23 @@ interface SubscriptionPlan {
   description: string | null;
 }
 
-type Tab = 'commande' | 'catalogue' | 'abonnement' | 'historique';
+type Tab = 'commande' | 'catalogue' | 'abonnement' | 'historique' | 'messages' | 'faq';
+
+interface ClientNotification {
+  id: string;
+  created_at: string;
+  title: string;
+  message: string;
+  type: string;
+  is_read: boolean;
+}
+
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
+}
 
 const STATUS_LABEL: Record<OrderStatus, string> = {
   open: 'En cours', confirmed: 'Confirmée', preparing: 'Préparation', shipped: 'Expédiée', auto: 'Générée auto',
@@ -112,6 +128,14 @@ export default function ClientDashboardPage() {
 
   // Toast
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+
+  // Notifications
+  const [notifications, setNotifications] = useState<ClientNotification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [loadingNotifs, setLoadingNotifs] = useState(false);
+
+  // Push notifications
+  const [pushStatus, setPushStatus] = useState<'default' | 'granted' | 'denied' | 'unsupported'>('default');
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Upgrade modal
@@ -131,6 +155,75 @@ export default function ClientDashboardPage() {
     setToast({ msg, type });
     toastTimerRef.current = setTimeout(() => setToast(null), 2500);
   }, []);
+
+  // ─── Notifications ────────────────────────────────────────────────────────────
+
+  const loadNotifications = useCallback(async (markRead = false) => {
+    if (!clientUser) return;
+    setLoadingNotifs(true);
+    try {
+      const res = await fetch(`/api/client-portal/notifications?clientId=${clientUser.clientId}${markRead ? '' : '&countOnly=true'}`);
+      const json = await res.json();
+      if (markRead) {
+        setNotifications(json.notifications ?? []);
+        setUnreadCount(0);
+      } else {
+        setUnreadCount(json.unreadCount ?? 0);
+      }
+    } catch {} finally { setLoadingNotifs(false); }
+  }, [clientUser]);
+
+  useEffect(() => { if (clientUser) loadNotifications(false); }, [clientUser, loadNotifications]);
+
+  useEffect(() => {
+    if (tab === 'messages') loadNotifications(true);
+  }, [tab, loadNotifications]);
+
+  // ─── Push notifications ────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!('Notification' in window) || !('serviceWorker' in navigator)) {
+      setPushStatus('unsupported'); return;
+    }
+    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
+    setPushStatus(Notification.permission as 'default' | 'granted' | 'denied');
+  }, []);
+
+  useEffect(() => {
+    if (!clientUser || pushStatus !== 'granted') return;
+    (async () => {
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) {
+          await fetch('/api/client-portal/push-subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...sub.toJSON(), clientId: clientUser.clientId }),
+          });
+        }
+      } catch {}
+    })();
+  }, [clientUser, pushStatus]);
+
+  const subscribeToPush = async () => {
+    if (!clientUser) return;
+    try {
+      const permission = await Notification.requestPermission();
+      setPushStatus(permission as 'default' | 'granted' | 'denied');
+      if (permission !== 'granted') return;
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!),
+      });
+      await fetch('/api/client-portal/push-subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...sub.toJSON(), clientId: clientUser.clientId }),
+      });
+    } catch {}
+  };
 
   const currentMonth = new Date().toISOString().slice(0, 7);
   const today = new Date();
@@ -628,14 +721,24 @@ export default function ClientDashboardPage() {
         </div>
       </div>
 
+      {/* Push notification banner */}
+      {pushStatus === 'default' && (
+        <div className="bg-rose-50 border-b border-rose-200 px-4 py-2.5 flex items-center gap-3 max-w-lg mx-auto w-full">
+          <span className="text-lg">🔔</span>
+          <p className="flex-1 text-xs text-rose-800 font-medium">Recevez vos notifications même app fermée</p>
+          <button onClick={subscribeToPush} className="bg-rose-500 text-white text-xs font-bold px-3 py-1.5 rounded-full shrink-0">Activer</button>
+        </div>
+      )}
+
       {/* ── Tab bar ── */}
-      <div className="sticky top-[97px] z-10 bg-white border-b border-gray-100 px-4">
+      <div className="sticky top-[97px] z-10 bg-white border-b border-gray-100 px-2">
         <div className="max-w-lg mx-auto flex">
           {([
             { id: 'commande', label: 'Ma box' },
             { id: 'catalogue', label: 'Catalogue' },
-            { id: 'abonnement', label: 'Formule' },
+            { id: 'messages', label: '🔔' },
             { id: 'historique', label: 'Historique' },
+            { id: 'faq', label: 'FAQ' },
           ] as { id: Tab; label: string }[]).map((t) => (
             <button
               key={t.id}
@@ -646,6 +749,11 @@ export default function ClientDashboardPage() {
               {t.id === 'commande' && totalCartQty > 0 && (
                 <span className="absolute top-2 right-1 w-4 h-4 bg-rose-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
                   {totalCartQty > 9 ? '9+' : totalCartQty}
+                </span>
+              )}
+              {t.id === 'messages' && unreadCount > 0 && (
+                <span className="absolute top-2 right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+                  {unreadCount > 9 ? '9+' : unreadCount}
                 </span>
               )}
             </button>
@@ -1077,6 +1185,67 @@ export default function ClientDashboardPage() {
         )}
 
         {/* ══ HISTORIQUE ════════════════════════════════════════════════════ */}
+        {/* ══ MESSAGES ══════════════════════════════════════════════════════════ */}
+        {tab === 'messages' && (
+          <div className="space-y-3">
+            <h2 className="text-sm font-bold text-gray-700 px-1">🔔 Mes notifications</h2>
+            {loadingNotifs ? (
+              <div className="flex justify-center py-10">
+                <div className="w-6 h-6 border-2 border-rose-400 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : notifications.length === 0 ? (
+              <div className="bg-white rounded-2xl p-10 shadow-sm border border-gray-100 text-center">
+                <p className="text-3xl mb-3">📭</p>
+                <p className="text-sm text-gray-400">Aucune notification pour le moment</p>
+              </div>
+            ) : notifications.map((n) => (
+              <div key={n.id} className={`bg-white rounded-2xl p-4 shadow-sm border flex gap-3 ${!n.is_read ? 'border-rose-200 bg-rose-50' : 'border-gray-100'}`}>
+                <div className="text-xl shrink-0 mt-0.5">
+                  {n.type === 'success' ? '✅' : n.type === 'warning' ? '⚠️' : n.type === 'reminder' ? '⏰' : '💬'}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-800">{n.title}</p>
+                  <p className="text-sm text-gray-600 mt-0.5 whitespace-pre-wrap">{n.message}</p>
+                  <p className="text-[10px] text-gray-400 mt-1.5">
+                    {new Date(n.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ══ FAQ ══════════════════════════════════════════════════════════════ */}
+        {tab === 'faq' && (
+          <div className="space-y-3">
+            <h2 className="text-sm font-bold text-gray-700 px-1">❓ Questions fréquentes</h2>
+            {[
+              {
+                q: 'Quand puis-je composer ma box ?',
+                a: 'Du 1er au 28 de chaque mois.',
+              },
+              {
+                q: "Que se passe-t-il si je ne compose pas avant le 28 ?",
+                a: "Nous composons automatiquement votre box selon vos préférences et votre historique. Vous recevrez une notification avant.",
+              },
+              {
+                q: "Mon quota non utilisé est-il reporté au mois suivant ?",
+                a: "Non. Le quota est valable uniquement pour le mois en cours.",
+              },
+              {
+                q: "Puis-je dépasser mon quota ?",
+                a: "Oui. Le dépassement est facturé au prix normal des produits.",
+              },
+              {
+                q: "Puis-je modifier ma sélection après confirmation ?",
+                a: "Vous pouvez modifier jusqu'au 25 du mois. Après le 25, la commande est en préparation.",
+              },
+            ].map((item, i) => (
+              <FaqItem key={i} question={item.q} answer={item.a} />
+            ))}
+          </div>
+        )}
+
         {tab === 'historique' && (
           <div className="space-y-3">
             {pastOrders.length === 0 ? (
@@ -1121,6 +1290,26 @@ export default function ClientDashboardPage() {
 }
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
+
+function FaqItem({ question, answer }: { question: string; answer: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full px-4 py-4 flex items-center justify-between gap-3 text-left"
+      >
+        <span className="text-sm font-semibold text-gray-800">{question}</span>
+        <span className={`text-gray-400 text-lg shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}>▾</span>
+      </button>
+      {open && (
+        <div className="px-4 pb-4 text-sm text-gray-600 leading-relaxed border-t border-gray-50 pt-3">
+          {answer}
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface ProductCardProps {
   product: PortalProduct;

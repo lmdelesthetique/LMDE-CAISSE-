@@ -3,10 +3,10 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import webpush from 'web-push';
 
 export async function POST(req: NextRequest) {
-  const { driverId, supplierId, ambassadriceId, title, pushBody, url } = await req.json();
+  const { driverId, supplierId, ambassadriceId, clientId, title, pushBody, url } = await req.json();
 
-  if (!driverId && !supplierId && !ambassadriceId) {
-    return NextResponse.json({ error: 'driverId, supplierId ou ambassadriceId requis' }, { status: 400 });
+  if (!driverId && !supplierId && !ambassadriceId && !clientId) {
+    return NextResponse.json({ error: 'driverId, supplierId, ambassadriceId ou clientId requis' }, { status: 400 });
   }
   if (!process.env.VAPID_PRIVATE_KEY) {
     return NextResponse.json({ error: 'VAPID non configuré' }, { status: 500 });
@@ -26,6 +26,7 @@ export async function POST(req: NextRequest) {
 
   if (driverId) query.eq('driver_id', driverId);
   else if (ambassadriceId) query.eq('ambassadrice_id', ambassadriceId);
+  else if (clientId) query.eq('client_id', clientId);
   else query.eq('supplier_id', supplierId);
 
   const { data: subs } = await query;
