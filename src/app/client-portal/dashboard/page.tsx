@@ -1219,29 +1219,115 @@ export default function ClientDashboardPage() {
         {tab === 'faq' && (
           <div className="space-y-3">
             <h2 className="text-sm font-bold text-gray-700 px-1">❓ Questions fréquentes</h2>
+
+            <p className="text-xs font-bold text-rose-500 px-1 pt-1">📦 MA BOX</p>
             {[
               {
                 q: 'Quand puis-je composer ma box ?',
                 a: 'Du 1er au 28 de chaque mois.',
               },
               {
-                q: "Que se passe-t-il si je ne compose pas avant le 28 ?",
-                a: "Nous composons automatiquement votre box selon vos préférences et votre historique. Vous recevrez une notification avant.",
+                q: 'Que se passe-t-il si je ne compose pas avant le 28 ?',
+                a: "Nous composons automatiquement votre box selon vos préférences et votre historique d'achats. Vous recevez une notification de rappel avant le 28.",
               },
               {
-                q: "Mon quota non utilisé est-il reporté au mois suivant ?",
-                a: "Non. Le quota est valable uniquement pour le mois en cours.",
+                q: "Puis-je modifier ma sélection après l'avoir envoyée ?",
+                a: "Non. Une fois votre sélection envoyée, la commande est immédiatement prise en charge et mise en préparation. Aucune modification n'est possible en ligne. Si vous avez une urgence, contactez directement le service client LMDE par téléphone.",
               },
               {
-                q: "Puis-je dépasser mon quota ?",
-                a: "Oui. Le dépassement est facturé au prix normal des produits.",
+                q: 'Puis-je dépasser mon quota dans l\'application ?',
+                a: "Non. Le quota est limité à votre formule dans l'application. Si vous souhaitez commander des produits supplémentaires au-delà de votre quota, cela se fait uniquement en boutique ou via la boutique en ligne, et sera facturé séparément.",
               },
               {
-                q: "Puis-je modifier ma sélection après confirmation ?",
-                a: "Vous pouvez modifier jusqu'au 25 du mois. Après le 25, la commande est en préparation.",
+                q: 'Mon quota non utilisé est-il reporté au mois suivant ?',
+                a: 'Non. Le quota est valable uniquement pour le mois en cours. Il ne se reporte pas.',
               },
             ].map((item, i) => (
-              <FaqItem key={i} question={item.q} answer={item.a} />
+              <FaqItem key={`box-${i}`} question={item.q} answer={item.a} />
+            ))}
+
+            <p className="text-xs font-bold text-rose-500 px-1 pt-2">🚚 LIVRAISON & EXPÉDITION</p>
+            {[
+              {
+                q: 'La livraison est-elle incluse dans mon abonnement ?',
+                a: "Cela dépend de votre formule :\n\n• Starter (89€) → livraison en option, +8€\n• Pro (149€) → livraison offerte\n• Elite (229€) → expédition offerte (Martinique, Guadeloupe, Guyane, France)",
+              },
+              {
+                q: "Quel est le tarif de livraison ou d'expédition ?",
+                a: 'Le tarif est de 8€ quelle que soit la destination : Martinique, Guadeloupe, Guyane ou France métropolitaine. Ce tarif est identique pour toutes les zones.',
+              },
+              {
+                q: 'Comment activer l\'option livraison sur le Starter ?',
+                a: 'Dans votre espace abonnement, cliquez sur "Activer la livraison (+8€)". Le paiement est prélevé automatiquement sur votre carte enregistrée.',
+              },
+              {
+                q: 'Puis-je choisir le retrait en boutique ?',
+                a: "Oui, le retrait en boutique est toujours disponible et gratuit pour toutes les formules. Si vous venez récupérer votre box sur place, elle est disponible immédiatement dès confirmation de votre sélection.",
+              },
+              {
+                q: 'Dans quel délai vais-je recevoir ma box ?',
+                a: "• Retrait en boutique → disponible immédiatement\n• Livraison ou expédition → 2 à 5 jours ouvrés après confirmation de votre sélection",
+              },
+            ].map((item, i) => (
+              <FaqItem key={`livraison-${i}`} question={item.q} answer={item.a} />
+            ))}
+
+            <p className="text-xs font-bold text-rose-500 px-1 pt-2">💳 PAIEMENT & ABONNEMENT</p>
+            {[
+              {
+                q: 'Quand est prélevé mon abonnement ?',
+                a: "Votre abonnement est prélevé chaque mois à la date anniversaire de votre souscription. Par exemple, si vous avez souscrit le 10 juin, vous serez prélevée le 10 de chaque mois.",
+              },
+              {
+                q: 'Que se passe-t-il si le paiement échoue ?',
+                a: "Vous recevez une notification immédiatement. Votre box est mise en attente jusqu'à régularisation du paiement. Pensez à vérifier que votre carte est à jour.",
+              },
+              {
+                q: 'Puis-je changer de formule ?',
+                a: "Oui, à tout moment. Le changement prend effet le mois suivant. Contactez le service client LMDE pour toute modification.",
+              },
+              {
+                q: 'Puis-je suspendre ou annuler mon abonnement ?',
+                a: "Oui. Contactez le service client LMDE directement. Aucun prélèvement ne sera effectué le mois suivant si la demande est faite dans les délais.",
+              },
+            ].map((item, i) => (
+              <FaqItem key={`paiement-${i}`} question={item.q} answer={item.a} />
+            ))}
+
+            <p className="text-xs font-bold text-rose-500 px-1 pt-2">🏆 POINTS FIDÉLITÉ & QUOTA</p>
+            {[
+              {
+                q: 'Puis-je utiliser mes points fidélité dans ma box ?',
+                a: "Non. Les points de fidélité ne s'appliquent pas sur le quota de votre box. Votre quota reste toujours le même selon votre formule.",
+              },
+              {
+                q: 'À quoi servent mes points fidélité alors ?',
+                a: "Vos achats d'abonnement vous rapportent des points, mais ces points sont utilisables uniquement sur vos achats hors abonnement, c'est-à-dire en boutique ou sur la boutique en ligne. Ils ne réduisent pas votre quota mensuel.",
+              },
+              {
+                q: 'Les produits en rupture de stock sont-ils remplacés ?',
+                a: "Oui. Si un produit de votre sélection est en rupture, nous vous proposons une alternative de valeur équivalente et vous en informons.",
+              },
+            ].map((item, i) => (
+              <FaqItem key={`fidelite-${i}`} question={item.q} answer={item.a} />
+            ))}
+
+            <p className="text-xs font-bold text-rose-500 px-1 pt-2">📱 MON APPLICATION</p>
+            {[
+              {
+                q: 'Comment installer l\'application sur mon téléphone ?',
+                a: "• iPhone → Ouvrez Safari, allez sur lmdecaisse.com/abonnement, appuyez sur le bouton Partager ↑ puis \"Sur l'écran d'accueil\"\n• Android → Ouvrez Chrome, allez sur lmdecaisse.com/abonnement, appuyez sur le menu ⋮ puis \"Installer l'application\"",
+              },
+              {
+                q: 'Comment voir mes notifications ?',
+                a: "Dans votre espace, allez sur l'onglet \"🔔 Mes messages\". Un badge rouge indique les messages non lus.",
+              },
+              {
+                q: "J'ai oublié mon code PIN, que faire ?",
+                a: "Contactez directement le service client LMDE. Nous vous générons un nouveau code immédiatement.",
+              },
+            ].map((item, i) => (
+              <FaqItem key={`app-${i}`} question={item.q} answer={item.a} />
             ))}
           </div>
         )}
