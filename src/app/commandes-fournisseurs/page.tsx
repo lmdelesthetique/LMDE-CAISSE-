@@ -527,6 +527,15 @@ export default function CommandesFournisseursPage() {
                             Voir
                             <Icon name="ChevronRightIcon" size={12} />
                           </Link>
+                          {order.supplierId && (
+                            <Link
+                              href={`/suppliers/${order.supplierId}`}
+                              className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-600 bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-colors"
+                              title="Voir la fiche fournisseur"
+                            >
+                              🏭 Fiche fournisseur
+                            </Link>
+                          )}
                           {order.orderStatus === 'sent' && (
                             notifyDone.has(order.id) && waLinks[order.id] ? (
                               <a
