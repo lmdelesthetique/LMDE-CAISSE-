@@ -398,7 +398,7 @@ function DeliveryModal({
 // ─── Notification email modal ─────────────────────────────────────────────────
 
 const NOTIFICATION_TYPES = [
-  { id: 'selection_reminder', label: '📋 Préparer votre box', desc: 'Rappel pour compléter la sélection avant le 25' },
+  { id: 'selection_reminder', label: '📋 Préparer votre box', desc: 'Rappel pour compléter la sélection avant le 28' },
   { id: 'box_ready',          label: '🎁 Box prête',           desc: 'La box est prête, en attente de confirmation' },
   { id: 'box_preparing',      label: '🔧 Box en préparation',  desc: 'On prépare sa box ce mois-ci' },
   { id: 'box_shipped',        label: '🚚 Box expédiée',        desc: 'La box est en route vers la cliente' },
@@ -407,28 +407,58 @@ const NOTIFICATION_TYPES = [
   { id: 'welcome',            label: '👋 Bienvenue !',         desc: 'Message de bienvenue pour une nouvelle abonnée' },
 ] as const;
 
+const PORTAL_MESSAGES: Record<string, { title: string; message: string; type: string }> = {
+  selection_reminder: { title: '⏰ Composez votre box !',       message: "N'oubliez pas de composer votre box avant le 28 du mois 💅",          type: 'reminder' },
+  box_ready:          { title: '🎁 Votre box est prête !',      message: 'Connectez-vous pour finaliser votre sélection du mois 🌸',             type: 'success'  },
+  box_preparing:      { title: '🔧 Votre box est en préparation', message: 'Nous préparons votre box avec soin. Livraison bientôt 🎀',            type: 'info'     },
+  box_shipped:        { title: '🚚 Votre box est en route !',   message: 'Votre box a été expédiée. Livraison sous 2 à 5 jours ouvrés 📦',       type: 'success'  },
+  box_delivered:      { title: '✅ Votre box est livrée !',     message: 'Merci pour votre confiance. À très bientôt 💖',                        type: 'success'  },
+  payment_reminder:   { title: '💳 Rappel paiement',            message: 'Un règlement est en attente. Pensez à vérifier votre carte enregistrée.', type: 'warning'},
+  welcome:            { title: '👋 Bienvenue !',                message: 'Bienvenue dans votre espace abonnée. Composez votre première box dès maintenant 🌟', type: 'info' },
+};
+
 type NotifType = typeof NOTIFICATION_TYPES[number]['id'];
 
 function NotifyEmailModal({ sub, onClose, onSent }: { sub: SubscriptionRow; onClose: () => void; onSent: (email: string) => void }) {
   const [type, setType] = useState<NotifType>('selection_reminder');
+  const [customMsg, setCustomMsg] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
+  const [portalSent, setPortalSent] = useState(false);
 
   const email = sub.client?.email;
+  const clientId = sub.client?.id;
   const clientName = sub.client ? `${sub.client.first_name} ${sub.client.last_name}` : '—';
 
   async function send() {
     setSending(true);
     setError('');
     try {
-      const res = await fetch('/api/subscriptions/send-notification', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subscriptionId: sub.id, notificationType: type }),
-      });
-      const d = await res.json();
-      if (!res.ok) { setError(d.error ?? 'Erreur envoi'); setSending(false); return; }
-      onSent(email!);
+      const portalNotif = PORTAL_MESSAGES[type];
+      const finalMsg = customMsg.trim() || portalNotif.message;
+
+      // 1. Toujours notifier l'espace portail (push inclus)
+      if (clientId) {
+        await fetch('/api/client-portal/notifications', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ clientId, title: portalNotif.title, message: finalMsg, type: portalNotif.type }),
+        });
+        setPortalSent(true);
+      }
+
+      // 2. Envoyer l'email si disponible
+      if (email) {
+        const res = await fetch('/api/subscriptions/send-notification', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subscriptionId: sub.id, notificationType: type }),
+        });
+        const d = await res.json();
+        if (!res.ok) { setError(d.error ?? 'Erreur email'); setSending(false); return; }
+      }
+
+      onSent(email ?? clientName);
     } catch {
       setError('Erreur réseau');
       setSending(false);
@@ -440,52 +470,68 @@ function NotifyEmailModal({ sub, onClose, onSent }: { sub: SubscriptionRow; onCl
       <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl shadow-2xl">
         <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-gray-100">
           <div>
-            <h2 className="text-lg font-bold text-gray-900">📧 Notifier par email</h2>
-            <p className="text-sm text-gray-500">{clientName} — <span className="font-semibold text-violet-600">{email ?? 'pas d\'email'}</span></p>
+            <h2 className="text-lg font-bold text-gray-900">📬 Notifier la cliente</h2>
+            <p className="text-sm text-gray-500">{clientName}</p>
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-xs px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 font-medium">🔔 Espace portail</span>
+              {email && <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">📧 Email</span>}
+              {!email && <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">Pas d'email</span>}
+            </div>
           </div>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors text-lg">×</button>
         </div>
 
-        <div className="px-5 py-4 space-y-3 max-h-[60vh] overflow-y-auto">
-          {!email ? (
-            <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">
-              Aucun email enregistré pour cette cliente. Ajoutez-en un dans sa fiche client.
-            </div>
-          ) : (
-            <>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Type de notification</p>
-              <div className="space-y-2">
-                {NOTIFICATION_TYPES.map((nt) => (
-                  <button
-                    key={nt.id}
-                    onClick={() => setType(nt.id)}
-                    className={`w-full text-left px-4 py-3 rounded-xl border-2 transition-all ${
-                      type === nt.id ? 'border-violet-500 bg-violet-50' : 'border-gray-200 hover:border-gray-300'
-                    }`}
-                  >
-                    <p className="text-sm font-semibold text-gray-900">{nt.label}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">{nt.desc}</p>
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
+        <div className="px-5 py-4 space-y-3 max-h-[65vh] overflow-y-auto">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Type de notification</p>
+          <div className="space-y-2">
+            {NOTIFICATION_TYPES.map((nt) => (
+              <button
+                key={nt.id}
+                onClick={() => { setType(nt.id); setCustomMsg(''); }}
+                className={`w-full text-left px-4 py-3 rounded-xl border-2 transition-all ${
+                  type === nt.id ? 'border-violet-500 bg-violet-50' : 'border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <p className="text-sm font-semibold text-gray-900">{nt.label}</p>
+                <p className="text-xs text-gray-500 mt-0.5">{nt.desc}</p>
+              </button>
+            ))}
+          </div>
+
+          {/* Aperçu message portail */}
+          <div className="bg-violet-50 border border-violet-200 rounded-xl px-4 py-3">
+            <p className="text-xs font-semibold text-violet-700 mb-1">Message dans l'espace portail :</p>
+            <p className="text-xs font-bold text-gray-800">{PORTAL_MESSAGES[type]?.title}</p>
+            <p className="text-xs text-gray-600 mt-0.5">{customMsg.trim() || PORTAL_MESSAGES[type]?.message}</p>
+          </div>
+
+          {/* Message personnalisé */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 mb-1">Message personnalisé (optionnel)</p>
+            <textarea
+              value={customMsg}
+              onChange={e => setCustomMsg(e.target.value)}
+              placeholder="Laissez vide pour utiliser le message par défaut…"
+              rows={2}
+              className="w-full text-sm border-2 border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:border-violet-400 resize-none"
+            />
+          </div>
+
+          {portalSent && <p className="text-xs text-violet-600 bg-violet-50 border border-violet-200 rounded-xl px-3 py-2">✅ Espace portail notifié</p>}
           {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{error}</p>}
         </div>
 
         <div className="px-5 pb-5 pt-3 flex gap-3">
-          {email && (
-            <button
-              onClick={send}
-              disabled={sending}
-              className="flex-1 py-3.5 bg-violet-600 text-white font-bold rounded-xl text-sm hover:bg-violet-700 active:scale-95 transition-all disabled:opacity-50"
-            >
-              {sending ? 'Envoi en cours…' : '📧 Envoyer l\'email'}
-            </button>
-          )}
+          <button
+            onClick={send}
+            disabled={sending || !clientId}
+            className="flex-1 py-3.5 bg-violet-600 text-white font-bold rounded-xl text-sm hover:bg-violet-700 active:scale-95 transition-all disabled:opacity-50"
+          >
+            {sending ? 'Envoi…' : email ? '📬 Notifier (portail + email)' : '📬 Notifier (portail)'}
+          </button>
           <button
             onClick={onClose}
-            className={`${email ? 'px-5' : 'flex-1'} py-3.5 border-2 border-gray-200 text-gray-600 font-bold rounded-xl text-sm hover:bg-gray-50 transition-colors`}
+            className="px-5 py-3.5 border-2 border-gray-200 text-gray-600 font-bold rounded-xl text-sm hover:bg-gray-50 transition-colors"
           >
             Annuler
           </button>
