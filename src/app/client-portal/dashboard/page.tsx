@@ -227,7 +227,7 @@ export default function ClientDashboardPage() {
 
   const currentMonth = new Date().toISOString().slice(0, 7);
   const today = new Date();
-  const deadlineDay = 25;
+  const deadlineDay = 28;
   const deadlineDate = new Date(today.getFullYear(), today.getMonth(), deadlineDay);
   const isPastDeadline = today.getDate() > deadlineDay;
   const daysLeft = isPastDeadline ? 0 : deadlineDay - today.getDate();
@@ -390,7 +390,7 @@ export default function ClientDashboardPage() {
   const addProduct = useCallback(async (product: PortalProduct, colorVariant?: string) => {
     if (!clientUser) return;
 
-    if (isPastDeadline) { showToast('Date limite dépassée (après le 25).', 'error'); return; }
+    if (isPastDeadline) { showToast('Date limite dépassée (après le 28).', 'error'); return; }
 
     // Block out-of-stock products
     if (product.stock <= 0) { showToast('Ce produit est en rupture de stock.', 'error'); return; }
@@ -417,7 +417,7 @@ export default function ClientDashboardPage() {
           subscriptionId: clientUser.subscriptionId,
           month: currentMonth,
           shippingCost: sc,
-          deadlineDate: new Date(new Date().getFullYear(), new Date().getMonth(), 25).toISOString().slice(0, 10),
+          deadlineDate: new Date(new Date().getFullYear(), new Date().getMonth(), 28).toISOString().slice(0, 10),
         }),
       });
       const json = await res.json();
