@@ -232,9 +232,9 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
     if (invoices.length > 0) return;
     setLoadingInvoices(true);
     try {
-      const res = await fetch('/api/factures?limit=200');
+      const res = await fetch('/api/factures');
       const json = await res.json();
-      setInvoices(json.factures ?? json.data ?? []);
+      setInvoices(Array.isArray(json) ? json : (json.factures ?? json.data ?? []));
     } catch {
       setInvoices([]);
     } finally {
