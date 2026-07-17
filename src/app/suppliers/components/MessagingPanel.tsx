@@ -13,9 +13,19 @@ interface Message {
   attachmentUrl?: string | null;
   attachmentType?: string | null;
   attachmentName?: string | null;
-  messageType: 'text' | 'photo' | 'pdf' | 'payment_proof' | 'claim' | 'order_modification' | 'order_card' | 'other';
+  messageType: 'text' | 'photo' | 'pdf' | 'payment_proof' | 'claim' | 'order_modification' | 'order_card' | 'invoice' | 'other';
   isRead: boolean;
   createdAt: string;
+}
+
+interface Facture {
+  id: string;
+  numero: string;
+  doc_type: string;
+  client_name: string | null;
+  total_ttc: number;
+  status: string;
+  created_at: string;
 }
 
 interface Order {
@@ -62,6 +72,13 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
   const [usingInvoice, setUsingInvoice] = useState<string | null>(null);
   const [usedInvoice, setUsedInvoice] = useState<string | null>(null);
   const [invoiceJustSelected, setInvoiceJustSelected] = useState(false);
+
+  // Invoice picker state
+  const [showInvoicePicker, setShowInvoicePicker] = useState(false);
+  const [invoices, setInvoices] = useState<Facture[]>([]);
+  const [invoiceSearch, setInvoiceSearch] = useState('');
+  const [loadingInvoices, setLoadingInvoices] = useState(false);
+  const [sendingInvoice, setSendingInvoice] = useState(false);
 
   const loadMessages = async () => {
     setLoading(true);
@@ -208,6 +225,60 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
     }
   };
 
+  // ─── Invoice picker ─────────────────────────────────────────────────────────
+
+  const handleOpenInvoicePicker = async () => {
+    setShowInvoicePicker(true);
+    if (invoices.length > 0) return;
+    setLoadingInvoices(true);
+    try {
+      const res = await fetch('/api/factures?limit=200');
+      const json = await res.json();
+      setInvoices(json.factures ?? json.data ?? []);
+    } catch {
+      setInvoices([]);
+    } finally {
+      setLoadingInvoices(false);
+    }
+  };
+
+  const handleSendInvoice = async (facture: Facture) => {
+    setSendingInvoice(true);
+    try {
+      const content = JSON.stringify({
+        type: 'invoice',
+        id: facture.id,
+        numero: facture.numero,
+        docType: facture.doc_type,
+        clientName: facture.client_name,
+        totalTTC: facture.total_ttc,
+        status: facture.status,
+        date: facture.created_at,
+      });
+      const res = await fetch('/api/supplier-messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          supplierId,
+          content,
+          messageType: 'invoice',
+          orderId: selectedOrderId || null,
+          sender: 'store',
+        }),
+      });
+      if (!res.ok) throw new Error('Erreur envoi facture');
+      setShowInvoicePicker(false);
+      setInvoiceSearch('');
+      setSelectedOrderId('');
+      await loadMessages();
+      onRefresh?.();
+    } catch (err: any) {
+      alert(`Erreur : ${err.message}`);
+    } finally {
+      setSendingInvoice(false);
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   };
@@ -313,7 +384,43 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
                         ? 'bg-primary text-primary-foreground rounded-br-sm'
                         : 'bg-muted text-foreground rounded-bl-sm'
                   }`}>
-                    {msg.content && <p className="whitespace-pre-wrap">{msg.content}</p>}
+                    {/* Invoice card */}
+                    {msg.messageType === 'invoice' && (() => {
+                      try {
+                        const inv = JSON.parse(msg.content ?? '{}');
+                        const statusColor = inv.status === 'paid' ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                          : inv.status === 'draft' ? 'text-gray-600 bg-gray-50 border-gray-200'
+                          : 'text-amber-700 bg-amber-50 border-amber-200';
+                        const statusLabel = inv.status === 'paid' ? '✅ Payée' : inv.status === 'draft' ? '📝 Brouillon' : '⏳ En attente';
+                        return (
+                          <div className="rounded-xl border border-border bg-white shadow-sm overflow-hidden min-w-[220px]">
+                            <div className="px-3 py-2 bg-gradient-to-r from-violet-600 to-violet-500 flex items-center gap-2">
+                              <span className="text-white text-base">🧾</span>
+                              <span className="text-white font-700 text-sm">{inv.numero || 'Facture'}</span>
+                              <span className={`ml-auto text-[10px] font-600 px-2 py-0.5 rounded-full border ${statusColor}`}>{statusLabel}</span>
+                            </div>
+                            <div className="px-3 py-2.5 space-y-1">
+                              {inv.docType && (
+                                <p className="text-[11px] text-muted-foreground font-500 uppercase tracking-wide">{inv.docType}</p>
+                              )}
+                              {inv.clientName && (
+                                <p className="text-xs font-600 text-foreground truncate">👤 {inv.clientName}</p>
+                              )}
+                              <p className="text-xs text-muted-foreground">
+                                📅 {inv.date ? new Date(inv.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }) : '—'}
+                              </p>
+                              <p className="text-base font-700 text-violet-700 mt-1">
+                                {typeof inv.totalTTC === 'number' ? inv.totalTTC.toFixed(2) : '—'} €
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      } catch {
+                        return <p className="whitespace-pre-wrap">{msg.content}</p>;
+                      }
+                    })()}
+
+                    {msg.messageType !== 'invoice' && msg.content && <p className="whitespace-pre-wrap">{msg.content}</p>}
 
                     {/* File attachment */}
                     {msg.attachmentUrl && (
@@ -426,6 +533,17 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
             className="hidden"
           />
 
+          {/* Invoice picker button */}
+          <button
+            type="button"
+            onClick={handleOpenInvoicePicker}
+            disabled={sendingInvoice}
+            title="Envoyer une facture dans la conversation"
+            className="flex items-center justify-center w-9 h-9 rounded-xl border border-border text-muted-foreground hover:bg-violet-50 hover:border-violet-300 hover:text-violet-600 transition-colors shrink-0"
+          >
+            <span className="text-base leading-none">🧾</span>
+          </button>
+
           {/* Text input */}
           <div className="flex-1 relative">
             <textarea
@@ -451,9 +569,98 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
           </button>
         </div>
         <p className="text-[11px] text-muted-foreground mt-1.5">
-          📎 PDF · Image · Excel/CSV (max 20 Mo) · Shift+Entrée saut de ligne
+          📎 Fichier (PDF · Image · Excel, max 20 Mo) · 🧾 Envoyer une facture · Shift+Entrée saut de ligne
         </p>
       </div>
+
+      {/* ── Invoice picker modal ── */}
+      {showInvoicePicker && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          onClick={() => setShowInvoicePicker(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4 flex flex-col"
+            style={{ maxHeight: '80vh' }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Modal header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">🧾</span>
+                <h3 className="font-700 text-foreground">Envoyer une facture</h3>
+              </div>
+              <button
+                onClick={() => setShowInvoicePicker(false)}
+                className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground transition-colors"
+              >
+                <Icon name="XMarkIcon" size={16} />
+              </button>
+            </div>
+
+            {/* Search */}
+            <div className="px-5 py-3 border-b border-border">
+              <input
+                type="text"
+                placeholder="Rechercher par numéro, client…"
+                value={invoiceSearch}
+                onChange={e => setInvoiceSearch(e.target.value)}
+                autoFocus
+                className="w-full px-3 py-2 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
+              />
+            </div>
+
+            {/* List */}
+            <div className="flex-1 overflow-y-auto px-5 py-3 space-y-2">
+              {loadingInvoices ? (
+                <div className="flex justify-center py-8">
+                  <div className="w-6 h-6 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : (() => {
+                const q = invoiceSearch.toLowerCase();
+                const filtered = invoices.filter(f =>
+                  !q ||
+                  f.numero.toLowerCase().includes(q) ||
+                  (f.client_name ?? '').toLowerCase().includes(q)
+                );
+                if (filtered.length === 0) {
+                  return <p className="text-center text-muted-foreground text-sm py-8">Aucune facture trouvée</p>;
+                }
+                return filtered.map(f => (
+                  <button
+                    key={f.id}
+                    onClick={() => handleSendInvoice(f)}
+                    disabled={sendingInvoice}
+                    className="w-full text-left flex items-center gap-3 px-4 py-3 rounded-xl border border-border hover:border-violet-300 hover:bg-violet-50 transition-colors disabled:opacity-50"
+                  >
+                    <span className="text-2xl shrink-0">🧾</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-600 text-sm text-foreground truncate">{f.numero}</p>
+                      {f.client_name && <p className="text-xs text-muted-foreground truncate">👤 {f.client_name}</p>}
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(f.created_at).toLocaleDateString('fr-FR')}
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="font-700 text-violet-700 text-sm">{f.total_ttc?.toFixed(2)} €</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {f.status === 'paid' ? '✅ Payée' : f.status === 'draft' ? '📝 Brouillon' : '⏳ En attente'}
+                      </p>
+                    </div>
+                  </button>
+                ));
+              })()}
+            </div>
+
+            {sendingInvoice && (
+              <div className="flex items-center justify-center gap-2 px-5 py-3 border-t border-border text-sm text-violet-600">
+                <div className="w-4 h-4 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+                Envoi en cours…
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
