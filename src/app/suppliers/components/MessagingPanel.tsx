@@ -391,11 +391,26 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
                       try {
                         const inv = JSON.parse(msg.content ?? '{}');
                         const statusMap: Record<string, { label: string; cls: string }> = {
-                          validated: { label: '✅ Validée', cls: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
-                          received: { label: '📦 Reçue', cls: 'text-blue-700 bg-blue-50 border-blue-200' },
-                          paid: { label: '💳 Payée', cls: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
-                          pending_validation: { label: '⏳ En attente', cls: 'text-amber-700 bg-amber-50 border-amber-200' },
-                          draft: { label: '📝 Brouillon', cls: 'text-gray-600 bg-gray-50 border-gray-200' },
+                          draft:                      { label: '📝 Brouillon',               cls: 'text-gray-600 bg-gray-50 border-gray-200' },
+                          sent:                       { label: '📤 Envoyée',                 cls: 'text-blue-600 bg-blue-50 border-blue-200' },
+                          awaiting_validation:        { label: '⏳ En attente validation',   cls: 'text-amber-700 bg-amber-50 border-amber-200' },
+                          validated:                  { label: '✅ Validée',                 cls: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
+                          modification_requested:     { label: '🔄 Modif. demandée',         cls: 'text-orange-700 bg-orange-50 border-orange-200' },
+                          payment_pending:            { label: '💳 Paiement en attente',     cls: 'text-amber-700 bg-amber-50 border-amber-200' },
+                          payment_in_progress:        { label: '💳 Paiement en cours',       cls: 'text-blue-700 bg-blue-50 border-blue-200' },
+                          paid:                       { label: '💰 Payée',                   cls: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
+                          payment_received_by_supplier: { label: '✅ Paiement reçu',         cls: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
+                          in_preparation:             { label: '📋 En préparation',          cls: 'text-indigo-700 bg-indigo-50 border-indigo-200' },
+                          in_production:              { label: '🏭 En production',           cls: 'text-indigo-700 bg-indigo-50 border-indigo-200' },
+                          ready_to_ship:              { label: '📦 Prête à expédier',        cls: 'text-violet-700 bg-violet-50 border-violet-200' },
+                          shipped:                    { label: '🚢 En chemin',               cls: 'text-cyan-700 bg-cyan-50 border-cyan-200' },
+                          partially_received:         { label: '📦 Partiellement reçue',     cls: 'text-teal-700 bg-teal-50 border-teal-200' },
+                          fully_received:             { label: '✅ Reçue',                   cls: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
+                          costs_recorded:             { label: '📊 Coûts enregistrés',       cls: 'text-slate-700 bg-slate-50 border-slate-200' },
+                          stock_integrated:           { label: '🏪 Stock intégré',           cls: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
+                          closed:                     { label: '🔒 Clôturée',                cls: 'text-gray-600 bg-gray-50 border-gray-200' },
+                          suspended:                  { label: '⏸️ Suspendue',              cls: 'text-orange-700 bg-orange-50 border-orange-200' },
+                          cancelled:                  { label: '❌ Annulée',                 cls: 'text-red-700 bg-red-50 border-red-200' },
                         };
                         const s = statusMap[inv.status] ?? { label: inv.status ?? '—', cls: 'text-gray-600 bg-gray-50 border-gray-200' };
                         return (
@@ -624,8 +639,18 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
                 if (filtered.length === 0) {
                   return <p className="text-center text-muted-foreground text-sm py-8">Aucune commande trouvée</p>;
                 }
-                const statusLabel = (s: string) =>
-                  s === 'validated' ? '✅ Validée' : s === 'received' ? '📦 Reçue' : s === 'paid' ? '💳 Payée' : s === 'pending_validation' ? '⏳ En attente' : s;
+                const STATUS_LABELS: Record<string, string> = {
+                  draft: '📝 Brouillon', sent: '📤 Envoyée', awaiting_validation: '⏳ En attente validation',
+                  validated: '✅ Validée', modification_requested: '🔄 Modif. demandée',
+                  payment_pending: '💳 Paiement en attente', payment_in_progress: '💳 Paiement en cours',
+                  paid: '💰 Payée', payment_received_by_supplier: '✅ Paiement reçu',
+                  in_preparation: '📋 En préparation', in_production: '🏭 En production',
+                  ready_to_ship: '📦 Prête à expédier', shipped: '🚢 En chemin',
+                  partially_received: '📦 Partiellement reçue', fully_received: '✅ Reçue',
+                  costs_recorded: '📊 Coûts enregistrés', stock_integrated: '🏪 Stock intégré',
+                  closed: '🔒 Clôturée', suspended: '⏸️ Suspendue', cancelled: '❌ Annulée',
+                };
+                const statusLabel = (s: string) => STATUS_LABELS[s] ?? s;
                 return filtered.map(f => (
                   <button
                     key={f.id}

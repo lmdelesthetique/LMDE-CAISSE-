@@ -558,11 +558,26 @@ function MessageBubble({ msg, formatTime }: { msg: ChatMessage; formatTime: (s: 
           try {
             const inv = JSON.parse(msg.content ?? '{}');
             const statusMap: Record<string, { label: string; bg: string; color: string }> = {
-              validated: { label: '✅ Validée', bg: '#d1fae5', color: '#065f46' },
-              received: { label: '📦 Reçue', bg: '#dbeafe', color: '#1e40af' },
-              paid: { label: '💳 Payée', bg: '#d1fae5', color: '#065f46' },
-              pending_validation: { label: '⏳ En attente', bg: '#fef3c7', color: '#92400e' },
-              draft: { label: '📝 Brouillon', bg: '#f1f5f9', color: '#475569' },
+              draft:                        { label: '📝 Brouillon',               bg: '#f1f5f9', color: '#475569' },
+              sent:                         { label: '📤 Envoyée',                 bg: '#dbeafe', color: '#1e40af' },
+              awaiting_validation:          { label: '⏳ En attente validation',   bg: '#fef3c7', color: '#92400e' },
+              validated:                    { label: '✅ Validée',                 bg: '#d1fae5', color: '#065f46' },
+              modification_requested:       { label: '🔄 Modif. demandée',         bg: '#ffedd5', color: '#9a3412' },
+              payment_pending:              { label: '💳 Paiement en attente',     bg: '#fef3c7', color: '#92400e' },
+              payment_in_progress:          { label: '💳 Paiement en cours',       bg: '#dbeafe', color: '#1e40af' },
+              paid:                         { label: '💰 Payée',                   bg: '#d1fae5', color: '#065f46' },
+              payment_received_by_supplier: { label: '✅ Paiement reçu',           bg: '#d1fae5', color: '#065f46' },
+              in_preparation:               { label: '📋 En préparation',          bg: '#e0e7ff', color: '#3730a3' },
+              in_production:                { label: '🏭 En production',           bg: '#e0e7ff', color: '#3730a3' },
+              ready_to_ship:                { label: '📦 Prête à expédier',        bg: '#ede9fe', color: '#5b21b6' },
+              shipped:                      { label: '🚢 En chemin',               bg: '#cffafe', color: '#164e63' },
+              partially_received:           { label: '📦 Partiellement reçue',     bg: '#ccfbf1', color: '#134e4a' },
+              fully_received:               { label: '✅ Reçue',                   bg: '#d1fae5', color: '#065f46' },
+              costs_recorded:               { label: '📊 Coûts enregistrés',       bg: '#f1f5f9', color: '#334155' },
+              stock_integrated:             { label: '🏪 Stock intégré',           bg: '#d1fae5', color: '#065f46' },
+              closed:                       { label: '🔒 Clôturée',                bg: '#f1f5f9', color: '#475569' },
+              suspended:                    { label: '⏸️ Suspendue',              bg: '#ffedd5', color: '#9a3412' },
+              cancelled:                    { label: '❌ Annulée',                 bg: '#fee2e2', color: '#991b1b' },
             };
             const s = statusMap[inv.status] ?? { label: inv.status ?? '—', bg: '#f1f5f9', color: '#475569' };
             return (
