@@ -553,23 +553,26 @@ function MessageBubble({ msg, formatTime }: { msg: ChatMessage; formatTime: (s: 
           </span>
         )}
 
-        {/* Invoice card — rendered outside the bubble */}
+        {/* Order card — rendered outside the bubble */}
         {msg.message_type === 'invoice' && (() => {
           try {
             const inv = JSON.parse(msg.content ?? '{}');
-            const statusLabel = inv.status === 'paid' ? '✅ Payée' : inv.status === 'draft' ? '📝 Brouillon' : '⏳ En attente';
-            const statusBg = inv.status === 'paid' ? '#d1fae5' : inv.status === 'draft' ? '#f1f5f9' : '#fef3c7';
-            const statusColor = inv.status === 'paid' ? '#065f46' : inv.status === 'draft' ? '#475569' : '#92400e';
+            const statusMap: Record<string, { label: string; bg: string; color: string }> = {
+              validated: { label: '✅ Validée', bg: '#d1fae5', color: '#065f46' },
+              received: { label: '📦 Reçue', bg: '#dbeafe', color: '#1e40af' },
+              paid: { label: '💳 Payée', bg: '#d1fae5', color: '#065f46' },
+              pending_validation: { label: '⏳ En attente', bg: '#fef3c7', color: '#92400e' },
+              draft: { label: '📝 Brouillon', bg: '#f1f5f9', color: '#475569' },
+            };
+            const s = statusMap[inv.status] ?? { label: inv.status ?? '—', bg: '#f1f5f9', color: '#475569' };
             return (
               <div style={{ borderRadius: 12, border: '1px solid #e2e8f0', background: '#fff', overflow: 'hidden', minWidth: 220, boxShadow: '0 2px 8px rgba(0,0,0,.08)' }}>
                 <div style={{ padding: '8px 12px', background: 'linear-gradient(135deg, #7c3aed, #6d28d9)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 18 }}>🧾</span>
-                  <span style={{ color: '#fff', fontWeight: 700, fontSize: 14, flex: 1 }}>{inv.numero || 'Facture'}</span>
-                  <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 10, background: statusBg, color: statusColor }}>{statusLabel}</span>
+                  <span style={{ fontSize: 18 }}>📦</span>
+                  <span style={{ color: '#fff', fontWeight: 700, fontSize: 14, flex: 1 }}>{inv.numero || 'Commande'}</span>
+                  <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 10, background: s.bg, color: s.color }}>{s.label}</span>
                 </div>
                 <div style={{ padding: '10px 12px' }}>
-                  {inv.docType && <p style={{ margin: '0 0 4px', fontSize: 10, color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1 }}>{inv.docType}</p>}
-                  {inv.clientName && <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 600, color: '#1e293b' }}>👤 {inv.clientName}</p>}
                   <p style={{ margin: '0 0 6px', fontSize: 12, color: '#64748b' }}>📅 {inv.date ? new Date(inv.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }) : '—'}</p>
                   <p style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#7c3aed' }}>{typeof inv.totalTTC === 'number' ? inv.totalTTC.toFixed(2) : '—'} €</p>
                 </div>

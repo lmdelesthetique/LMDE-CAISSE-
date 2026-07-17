@@ -18,13 +18,12 @@ interface Message {
   createdAt: string;
 }
 
-interface Facture {
+interface FoOrderRef {
   id: string;
-  numero: string;
-  doc_type: string;
-  client_name: string | null;
-  total_ttc: number;
-  status: string;
+  order_number: string;
+  order_status: string;
+  subtotal: number;
+  total_real_cost: number | null;
   created_at: string;
 }
 
@@ -75,7 +74,7 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
 
   // Invoice picker state
   const [showInvoicePicker, setShowInvoicePicker] = useState(false);
-  const [invoices, setInvoices] = useState<Facture[]>([]);
+  const [invoices, setInvoices] = useState<FoOrderRef[]>([]);
   const [invoiceSearch, setInvoiceSearch] = useState('');
   const [loadingInvoices, setLoadingInvoices] = useState(false);
   const [sendingInvoice, setSendingInvoice] = useState(false);
@@ -232,9 +231,13 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
     if (invoices.length > 0) return;
     setLoadingInvoices(true);
     try {
-      const res = await fetch('/api/factures');
-      const json = await res.json();
-      setInvoices(Array.isArray(json) ? json : (json.factures ?? json.data ?? []));
+      const { data } = await supabase
+        .from('fo_orders')
+        .select('id, order_number, order_status, subtotal, total_real_cost, created_at')
+        .eq('supplier_id', supplierId)
+        .order('created_at', { ascending: false })
+        .limit(100);
+      setInvoices(data ?? []);
     } catch {
       setInvoices([]);
     } finally {
@@ -242,18 +245,17 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
     }
   };
 
-  const handleSendInvoice = async (facture: Facture) => {
+  const handleSendInvoice = async (order: FoOrderRef) => {
     setSendingInvoice(true);
     try {
+      const total = order.total_real_cost ?? order.subtotal;
       const content = JSON.stringify({
         type: 'invoice',
-        id: facture.id,
-        numero: facture.numero,
-        docType: facture.doc_type,
-        clientName: facture.client_name,
-        totalTTC: facture.total_ttc,
-        status: facture.status,
-        date: facture.created_at,
+        id: order.id,
+        numero: order.order_number,
+        status: order.order_status,
+        totalTTC: total,
+        date: order.created_at,
       });
       const res = await fetch('/api/supplier-messages', {
         method: 'POST',
@@ -388,24 +390,22 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
                     {msg.messageType === 'invoice' && (() => {
                       try {
                         const inv = JSON.parse(msg.content ?? '{}');
-                        const statusColor = inv.status === 'paid' ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
-                          : inv.status === 'draft' ? 'text-gray-600 bg-gray-50 border-gray-200'
-                          : 'text-amber-700 bg-amber-50 border-amber-200';
-                        const statusLabel = inv.status === 'paid' ? '✅ Payée' : inv.status === 'draft' ? '📝 Brouillon' : '⏳ En attente';
+                        const statusMap: Record<string, { label: string; cls: string }> = {
+                          validated: { label: '✅ Validée', cls: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
+                          received: { label: '📦 Reçue', cls: 'text-blue-700 bg-blue-50 border-blue-200' },
+                          paid: { label: '💳 Payée', cls: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
+                          pending_validation: { label: '⏳ En attente', cls: 'text-amber-700 bg-amber-50 border-amber-200' },
+                          draft: { label: '📝 Brouillon', cls: 'text-gray-600 bg-gray-50 border-gray-200' },
+                        };
+                        const s = statusMap[inv.status] ?? { label: inv.status ?? '—', cls: 'text-gray-600 bg-gray-50 border-gray-200' };
                         return (
                           <div className="rounded-xl border border-border bg-white shadow-sm overflow-hidden min-w-[220px]">
                             <div className="px-3 py-2 bg-gradient-to-r from-violet-600 to-violet-500 flex items-center gap-2">
-                              <span className="text-white text-base">🧾</span>
-                              <span className="text-white font-700 text-sm">{inv.numero || 'Facture'}</span>
-                              <span className={`ml-auto text-[10px] font-600 px-2 py-0.5 rounded-full border ${statusColor}`}>{statusLabel}</span>
+                              <span className="text-white text-base">📦</span>
+                              <span className="text-white font-700 text-sm">{inv.numero || 'Commande'}</span>
+                              <span className={`ml-auto text-[10px] font-600 px-2 py-0.5 rounded-full border ${s.cls}`}>{s.label}</span>
                             </div>
                             <div className="px-3 py-2.5 space-y-1">
-                              {inv.docType && (
-                                <p className="text-[11px] text-muted-foreground font-500 uppercase tracking-wide">{inv.docType}</p>
-                              )}
-                              {inv.clientName && (
-                                <p className="text-xs font-600 text-foreground truncate">👤 {inv.clientName}</p>
-                              )}
                               <p className="text-xs text-muted-foreground">
                                 📅 {inv.date ? new Date(inv.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }) : '—'}
                               </p>
@@ -587,8 +587,8 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
             {/* Modal header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
               <div className="flex items-center gap-2">
-                <span className="text-xl">🧾</span>
-                <h3 className="font-700 text-foreground">Envoyer une facture</h3>
+                <span className="text-xl">📦</span>
+                <h3 className="font-700 text-foreground">Envoyer une commande fournisseur</h3>
               </div>
               <button
                 onClick={() => setShowInvoicePicker(false)}
@@ -602,7 +602,7 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
             <div className="px-5 py-3 border-b border-border">
               <input
                 type="text"
-                placeholder="Rechercher par numéro, client…"
+                placeholder="Rechercher par numéro de commande…"
                 value={invoiceSearch}
                 onChange={e => setInvoiceSearch(e.target.value)}
                 autoFocus
@@ -619,13 +619,13 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
               ) : (() => {
                 const q = invoiceSearch.toLowerCase();
                 const filtered = invoices.filter(f =>
-                  !q ||
-                  f.numero.toLowerCase().includes(q) ||
-                  (f.client_name ?? '').toLowerCase().includes(q)
+                  !q || f.order_number.toLowerCase().includes(q)
                 );
                 if (filtered.length === 0) {
-                  return <p className="text-center text-muted-foreground text-sm py-8">Aucune facture trouvée</p>;
+                  return <p className="text-center text-muted-foreground text-sm py-8">Aucune commande trouvée</p>;
                 }
+                const statusLabel = (s: string) =>
+                  s === 'validated' ? '✅ Validée' : s === 'received' ? '📦 Reçue' : s === 'paid' ? '💳 Payée' : s === 'pending_validation' ? '⏳ En attente' : s;
                 return filtered.map(f => (
                   <button
                     key={f.id}
@@ -633,19 +633,16 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
                     disabled={sendingInvoice}
                     className="w-full text-left flex items-center gap-3 px-4 py-3 rounded-xl border border-border hover:border-violet-300 hover:bg-violet-50 transition-colors disabled:opacity-50"
                   >
-                    <span className="text-2xl shrink-0">🧾</span>
+                    <span className="text-2xl shrink-0">📦</span>
                     <div className="flex-1 min-w-0">
-                      <p className="font-600 text-sm text-foreground truncate">{f.numero}</p>
-                      {f.client_name && <p className="text-xs text-muted-foreground truncate">👤 {f.client_name}</p>}
+                      <p className="font-600 text-sm text-foreground truncate">{f.order_number}</p>
                       <p className="text-xs text-muted-foreground">
                         {new Date(f.created_at).toLocaleDateString('fr-FR')}
                       </p>
                     </div>
                     <div className="text-right shrink-0">
-                      <p className="font-700 text-violet-700 text-sm">{f.total_ttc?.toFixed(2)} €</p>
-                      <p className="text-[10px] text-muted-foreground">
-                        {f.status === 'paid' ? '✅ Payée' : f.status === 'draft' ? '📝 Brouillon' : '⏳ En attente'}
-                      </p>
+                      <p className="font-700 text-violet-700 text-sm">{(f.total_real_cost ?? f.subtotal).toFixed(2)} €</p>
+                      <p className="text-[10px] text-muted-foreground">{statusLabel(f.order_status)}</p>
                     </div>
                   </button>
                 ));
