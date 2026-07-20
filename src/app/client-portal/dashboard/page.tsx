@@ -7,7 +7,7 @@ import { useClientAuth } from '@/contexts/ClientAuthContext';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type OrderStatus = 'open' | 'confirmed' | 'preparing' | 'shipped' | 'auto' | 'en_livraison';
+type OrderStatus = 'open' | 'confirmed' | 'preparing' | 'shipped' | 'auto' | 'en_livraison' | 'cancelled';
 
 interface OrderItem {
   id: string;
@@ -88,7 +88,7 @@ function urlBase64ToUint8Array(base64String: string) {
 }
 
 const STATUS_LABEL: Record<OrderStatus, string> = {
-  open: 'En cours', confirmed: 'Confirmée', preparing: 'Préparation', shipped: 'Expédiée', auto: 'Générée auto', en_livraison: '🚚 En livraison',
+  open: 'En cours', confirmed: 'Confirmée', preparing: 'Préparation', shipped: 'Expédiée', auto: 'Générée auto', en_livraison: '🚚 En livraison', cancelled: '❌ Annulée',
 };
 const STATUS_COLOR: Record<OrderStatus, string> = {
   open: 'bg-amber-50 text-amber-700 border-amber-200',
@@ -96,6 +96,7 @@ const STATUS_COLOR: Record<OrderStatus, string> = {
   preparing: 'bg-blue-50 text-blue-700 border-blue-200',
   shipped: 'bg-purple-50 text-purple-700 border-purple-200',
   en_livraison: 'bg-pink-50 text-pink-700 border-pink-200',
+  cancelled: 'bg-red-50 text-red-600 border-red-200',
   auto: 'bg-gray-50 text-gray-600 border-gray-200',
 };
 
@@ -515,22 +516,62 @@ export default function ClientDashboardPage() {
   const confirmOrder = async () => {
     if (!currentOrder || currentOrder.status !== 'open') return;
     setConfirming(true);
-    const supabase = createClient();
     const sc = shippingFree ? 0 : shippingCost;
     const totalBuy = orderItems.reduce((s, i) => s + i.unit_buy_price * i.quantity, 0);
     const benefit = Math.max(0, (clientUser?.planPrice ?? 0) - totalBuy - sc);
-    const { error } = await supabase
-      .from('subscription_orders')
-      .update({ status: 'confirmed', total_products_cost: totalBuy, total_sell_price: quotaUsed, benefit_amount: benefit, shipping_cost: sc })
-      .eq('id', currentOrder.id);
-    if (error) {
-      showToast(`Erreur confirmation: ${error.message}`, 'error');
+    const res = await fetch('/api/client-portal/subscription-order/status', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        orderId: currentOrder.id,
+        status: 'confirmed',
+        total_products_cost: totalBuy,
+        total_sell_price: quotaUsed,
+        benefit_amount: benefit,
+        shipping_cost: sc,
+      }),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      showToast(`Erreur confirmation: ${j.error ?? 'inconnue'}`, 'error');
       setConfirming(false);
       return;
     }
     setCurrentOrder((prev) => prev ? { ...prev, status: 'confirmed' } : prev);
     showToast('Box confirmée ! 🎉');
     setConfirming(false);
+  };
+
+  // ── Annuler / Recommencer la box du mois ──────────────────────────────────
+  const [cancelling, setCancelling] = useState(false);
+  const [restarting, setRestarting] = useState(false);
+
+  const cancelOrder = async () => {
+    if (!currentOrder || currentOrder.status !== 'confirmed') return;
+    setCancelling(true);
+    const res = await fetch('/api/client-portal/subscription-order/status', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderId: currentOrder.id, status: 'cancelled' }),
+    });
+    if (!res.ok) { const j = await res.json().catch(() => ({})); showToast(`Erreur: ${j.error ?? 'inconnue'}`, 'error'); setCancelling(false); return; }
+    setCurrentOrder((prev) => prev ? { ...prev, status: 'cancelled', total_products_cost: null, total_sell_price: null, benefit_amount: null } : prev);
+    showToast('Box annulée. Vous pouvez refaire votre sélection.');
+    setCancelling(false);
+  };
+
+  const restartOrder = async () => {
+    if (!currentOrder || currentOrder.status !== 'cancelled') return;
+    setRestarting(true);
+    const res = await fetch('/api/client-portal/subscription-order/status', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderId: currentOrder.id, status: 'open' }),
+    });
+    if (!res.ok) { const j = await res.json().catch(() => ({})); showToast(`Erreur: ${j.error ?? 'inconnue'}`, 'error'); setRestarting(false); return; }
+    setCurrentOrder((prev) => prev ? { ...prev, status: 'open' } : prev);
+    showToast('Vous pouvez modifier votre box 🎀');
+    setRestarting(false);
   };
 
   // ── Reprendre une commande passée ─────────────────────────────────────────
@@ -614,7 +655,7 @@ export default function ClientDashboardPage() {
     })).filter((g) => g.products.length > 0);
   }, [visibleCategories, products, searchQuery]);
 
-  const canEdit = (!currentOrder || currentOrder.status === 'open') && !isPastDeadline && currentOrder?.statut_livraison !== 'en_livraison';
+  const canEdit = (!currentOrder || currentOrder.status === 'open' || currentOrder.status === 'cancelled') && !isPastDeadline && currentOrder?.statut_livraison !== 'en_livraison';
   const totalCartQty = orderItems.reduce((s, i) => s + i.quantity, 0);
 
   // ── Upgrade section ────────────────────────────────────────────────────────
@@ -985,6 +1026,7 @@ export default function ClientDashboardPage() {
                   <span className="text-gray-500">Produits ({totalCartQty})</span>
                   <span className="font-semibold tabular-nums">{quotaUsed.toFixed(2)} €</span>
                 </div>
+
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500">Livraison</span>
                   <span className={shippingFree ? 'text-emerald-600 font-semibold' : 'font-semibold tabular-nums'}>
@@ -995,22 +1037,57 @@ export default function ClientDashboardPage() {
                   <span>Forfait abonnement</span>
                   <span className="tabular-nums">{(clientUser.planPrice).toFixed(2)} €</span>
                 </div>
+              </div>
+            )}
 
+            {/* Action buttons — always visible regardless of item count */}
+            {!loadingOrder && (
+              <div>
                 {canEdit ? (
                   <button
                     onClick={confirmOrder}
                     disabled={confirming || orderItems.length === 0}
-                    className="w-full mt-2 py-3 bg-rose-500 text-white rounded-xl text-sm font-bold hover:bg-rose-600 transition-colors disabled:opacity-40 flex items-center justify-center gap-2"
+                    className="w-full py-3 bg-rose-500 text-white rounded-xl text-sm font-bold hover:bg-rose-600 transition-colors disabled:opacity-40 flex items-center justify-center gap-2"
                   >
                     {confirming
                       ? <><SmallSpinner />Confirmation…</>
                       : <><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>Confirmer ma box</>
                     }
                   </button>
+                ) : currentOrder?.status === 'confirmed' && !isPastDeadline && currentOrder?.statut_livraison !== 'en_livraison' ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 p-3 bg-emerald-50 rounded-xl border border-emerald-100">
+                      <svg className="w-4 h-4 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                      <p className="text-xs text-emerald-700 font-semibold flex-1">Box confirmée ! Votre conseillère prépare votre commande.</p>
+                    </div>
+                    <button
+                      onClick={cancelOrder}
+                      disabled={cancelling}
+                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-red-200 bg-red-50 text-red-600 text-xs font-semibold hover:bg-red-100 transition-colors disabled:opacity-50"
+                    >
+                      {cancelling ? '…' : '🚫 J\'ai fait une erreur — annuler ma box'}
+                    </button>
+                  </div>
                 ) : currentOrder?.status === 'confirmed' ? (
-                  <div className="flex items-center gap-2 p-3 bg-emerald-50 rounded-xl border border-emerald-100 mt-2">
+                  <div className="flex items-center gap-2 p-3 bg-emerald-50 rounded-xl border border-emerald-100">
                     <svg className="w-4 h-4 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
                     <p className="text-xs text-emerald-700 font-semibold">Box confirmée ! Votre conseillère prépare votre commande.</p>
+                  </div>
+                ) : currentOrder?.status === 'cancelled' ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 p-3 bg-red-50 rounded-xl border border-red-100">
+                      <span className="text-base shrink-0">❌</span>
+                      <p className="text-xs text-red-700 font-semibold flex-1">Box annulée. Modifiez votre sélection et confirmez à nouveau.</p>
+                    </div>
+                    {!isPastDeadline && (
+                      <button
+                        onClick={restartOrder}
+                        disabled={restarting}
+                        className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-rose-500 text-white text-sm font-bold hover:bg-rose-600 transition-colors disabled:opacity-50"
+                      >
+                        {restarting ? '…' : '✏️ Modifier ma sélection'}
+                      </button>
+                    )}
                   </div>
                 ) : null}
               </div>
