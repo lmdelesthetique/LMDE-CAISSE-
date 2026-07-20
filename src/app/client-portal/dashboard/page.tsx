@@ -1095,18 +1095,25 @@ export default function ClientDashboardPage() {
             {/* Action buttons — always visible regardless of item count */}
             {!loadingOrder && (
               <div>
-                {canEdit ? (
-                  <button
-                    onClick={confirmOrder}
-                    disabled={confirming || orderItems.length === 0}
-                    className="w-full py-3 bg-rose-500 text-white rounded-xl text-sm font-bold hover:bg-rose-600 transition-colors disabled:opacity-40 flex items-center justify-center gap-2"
-                  >
-                    {confirming
-                      ? <><SmallSpinner />Confirmation…</>
-                      : <><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>Confirmer ma box</>
-                    }
-                  </button>
+                {currentOrder?.status === 'cancelled' ? (
+                  /* ── Annulée : toujours prioritaire ── */
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 p-3 bg-red-50 rounded-xl border border-red-100">
+                      <span className="text-base shrink-0">❌</span>
+                      <p className="text-xs text-red-700 font-semibold flex-1">Box annulée. Modifiez votre sélection puis confirmez à nouveau.</p>
+                    </div>
+                    {!isPastDeadline && (
+                      <button
+                        onClick={restartOrder}
+                        disabled={restarting}
+                        className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-rose-500 text-white text-sm font-bold hover:bg-rose-600 transition-colors disabled:opacity-50"
+                      >
+                        {restarting ? '…' : '✏️ Modifier ma sélection'}
+                      </button>
+                    )}
+                  </div>
                 ) : currentOrder?.status === 'confirmed' && !isPastDeadline && currentOrder?.statut_livraison !== 'en_livraison' ? (
+                  /* ── Confirmée + annulable ── */
                   <div className="space-y-2">
                     <div className="flex items-center gap-2 p-3 bg-emerald-50 rounded-xl border border-emerald-100">
                       <svg className="w-4 h-4 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
@@ -1121,26 +1128,23 @@ export default function ClientDashboardPage() {
                     </button>
                   </div>
                 ) : currentOrder?.status === 'confirmed' ? (
+                  /* ── Confirmée + verrouillée ── */
                   <div className="flex items-center gap-2 p-3 bg-emerald-50 rounded-xl border border-emerald-100">
                     <svg className="w-4 h-4 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
                     <p className="text-xs text-emerald-700 font-semibold">Box confirmée ! Votre conseillère prépare votre commande.</p>
                   </div>
-                ) : currentOrder?.status === 'cancelled' ? (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 p-3 bg-red-50 rounded-xl border border-red-100">
-                      <span className="text-base shrink-0">❌</span>
-                      <p className="text-xs text-red-700 font-semibold flex-1">Box annulée. Modifiez votre sélection et confirmez à nouveau.</p>
-                    </div>
-                    {!isPastDeadline && (
-                      <button
-                        onClick={restartOrder}
-                        disabled={restarting}
-                        className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-rose-500 text-white text-sm font-bold hover:bg-rose-600 transition-colors disabled:opacity-50"
-                      >
-                        {restarting ? '…' : '✏️ Modifier ma sélection'}
-                      </button>
-                    )}
-                  </div>
+                ) : canEdit ? (
+                  /* ── En cours (open) : bouton confirmer ── */
+                  <button
+                    onClick={confirmOrder}
+                    disabled={confirming || orderItems.length === 0}
+                    className="w-full py-3 bg-rose-500 text-white rounded-xl text-sm font-bold hover:bg-rose-600 transition-colors disabled:opacity-40 flex items-center justify-center gap-2"
+                  >
+                    {confirming
+                      ? <><SmallSpinner />Confirmation…</>
+                      : <><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>Confirmer ma box</>
+                    }
+                  </button>
                 ) : null}
               </div>
             )}
