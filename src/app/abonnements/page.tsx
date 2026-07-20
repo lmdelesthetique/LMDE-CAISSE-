@@ -25,6 +25,7 @@ interface SubscriptionRow {
   portal_phone: string | null;
   pin_code: string | null;
   next_billing_date: string | null;
+  launch_offer: boolean;
   client: { id: string; first_name: string; last_name: string; email: string | null } | null;
   plan: { id: string; name: string; price: number; quota_amount: number; shipping_free: boolean; shipping_cost: number } | null;
   currentOrder?: {
@@ -574,7 +575,7 @@ export default function AbonnementsPage() {
     const { data: subs } = await supabase
       .from('client_subscriptions')
       .select(`
-        id, status, portal_phone, pin_code, next_billing_date,
+        id, status, portal_phone, pin_code, next_billing_date, launch_offer,
         client:clients(id, first_name, last_name, email),
         plan:subscription_plans(id, name, price, quota_amount, shipping_free, shipping_cost)
       `)
@@ -598,6 +599,7 @@ export default function AbonnementsPage() {
       portal_phone: s.portal_phone,
       pin_code: s.pin_code,
       next_billing_date: s.next_billing_date,
+      launch_offer: s.launch_offer ?? false,
       client: Array.isArray(s.client) ? s.client[0] : s.client,
       plan: Array.isArray(s.plan) ? s.plan[0] : s.plan,
       currentOrder: orderMap.get(s.id) ?? null,
@@ -906,6 +908,13 @@ export default function AbonnementsPage() {
                       </span>
                     )}
 
+                    {/* Launch offer badge */}
+                    {sub.launch_offer && (
+                      <span className="text-xs font-bold text-violet-700 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-full shrink-0 hidden sm:inline">
+                        🎁 Lancement
+                      </span>
+                    )}
+
                     {/* Benefit */}
                     {benefit !== null && benefit > 0 && (
                       <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full shrink-0 tabular-nums hidden sm:inline">
@@ -982,6 +991,26 @@ export default function AbonnementsPage() {
                             {sub.plan?.shipping_free ? 'Offerte' : `${sub.plan?.shipping_cost ?? '—'} €`}
                           </p>
                         </div>
+                      </div>
+
+                      {/* Launch offer toggle */}
+                      <div className="flex items-center justify-between p-3 bg-violet-50 border border-violet-200 rounded-xl">
+                        <div>
+                          <p className="text-xs font-bold text-violet-800">🎁 Offre de lancement — Livraison offerte</p>
+                          <p className="text-[11px] text-violet-600 mt-0.5">
+                            {sub.launch_offer ? 'Active — cette cliente bénéficie de la livraison gratuite' : 'Inactive'}
+                          </p>
+                        </div>
+                        <button
+                          onClick={async () => {
+                            const supabase = createClient();
+                            await supabase.from('client_subscriptions').update({ launch_offer: !sub.launch_offer }).eq('id', sub.id);
+                            load();
+                          }}
+                          className={`ml-3 shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${sub.launch_offer ? 'bg-violet-600 text-white border-violet-600 hover:bg-violet-700' : 'bg-white text-violet-700 border-violet-300 hover:bg-violet-50'}`}
+                        >
+                          {sub.launch_offer ? '✓ Activée' : 'Activer'}
+                        </button>
                       </div>
 
                       {/* Notification badge */}

@@ -30,6 +30,7 @@ interface SubscriptionOrder {
   shipping_cost: number | null;
   deadline_date: string | null;
   statut_livraison: string | null;
+  shipping_mode: 'delivery' | 'pickup';
 }
 
 interface PortalProduct {
@@ -248,6 +249,10 @@ export default function ClientDashboardPage() {
   const quotaRemaining = quotaAmount - quotaUsed;
   const shippingFree = planData?.shipping_free ?? clientUser?.shippingFree ?? false;
   const shippingCost = planData?.shipping_cost ?? clientUser?.shippingCost ?? 0;
+  const launchOffer = clientUser?.launchOffer ?? false;
+  const shippingMode = (currentOrder?.shipping_mode ?? 'delivery') as 'delivery' | 'pickup';
+  // Effective shipping: free if plan includes it, if launch offer, or if client picks up in store
+  const effectiveShippingCost = (shippingFree || launchOffer || shippingMode === 'pickup') ? 0 : shippingCost;
 
   // ── Auth redirect ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -288,14 +293,14 @@ export default function ClientDashboardPage() {
     let order: SubscriptionOrder | null = null;
 
     if (!isPastDeadline) {
-      const sc = planData?.shipping_free ? 0 : (planData?.shipping_cost ?? clientUser.shippingCost ?? 0);
+      const planShippingCost = planData?.shipping_cost ?? clientUser.shippingCost ?? 0;
       const res = await fetch('/api/client-portal/subscription-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           subscriptionId: clientUser.subscriptionId,
           month: currentMonth,
-          shippingCost: sc,
+          shippingCost: planShippingCost,
           deadlineDate: deadlineDate.toISOString().slice(0, 10),
         }),
       });
@@ -441,14 +446,13 @@ export default function ClientDashboardPage() {
 
     // Create order if not yet created this month
     if (!orderId) {
-      const sc = shippingFree ? 0 : shippingCost;
       const res = await fetch('/api/client-portal/subscription-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           subscriptionId: clientUser.subscriptionId,
           month: currentMonth,
-          shippingCost: sc,
+          shippingCost: shippingCost,
           deadlineDate: new Date(new Date().getFullYear(), new Date().getMonth(), 28).toISOString().slice(0, 10),
         }),
       });
@@ -516,9 +520,8 @@ export default function ClientDashboardPage() {
   const confirmOrder = async () => {
     if (!currentOrder || currentOrder.status !== 'open') return;
     setConfirming(true);
-    const sc = shippingFree ? 0 : shippingCost;
     const totalBuy = orderItems.reduce((s, i) => s + i.unit_buy_price * i.quantity, 0);
-    const benefit = Math.max(0, (clientUser?.planPrice ?? 0) - totalBuy - sc);
+    const benefit = Math.max(0, (clientUser?.planPrice ?? 0) - totalBuy - effectiveShippingCost);
     const res = await fetch('/api/client-portal/subscription-order/status', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -528,7 +531,7 @@ export default function ClientDashboardPage() {
         total_products_cost: totalBuy,
         total_sell_price: quotaUsed,
         benefit_amount: benefit,
-        shipping_cost: sc,
+        shipping_cost: effectiveShippingCost,
       }),
     });
     if (!res.ok) {
@@ -574,6 +577,21 @@ export default function ClientDashboardPage() {
     setRestarting(false);
   };
 
+  // ── Mode de livraison ─────────────────────────────────────────────────────
+  const [updatingShipping, setUpdatingShipping] = useState(false);
+  const updateShippingMode = async (mode: 'delivery' | 'pickup') => {
+    if (!currentOrder || currentOrder.status === 'confirmed') return;
+    setUpdatingShipping(true);
+    const res = await fetch('/api/client-portal/subscription-order/status', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderId: currentOrder.id, shipping_mode: mode }),
+    });
+    if (!res.ok) { showToast('Erreur mise à jour livraison', 'error'); setUpdatingShipping(false); return; }
+    setCurrentOrder((prev) => prev ? { ...prev, shipping_mode: mode } : prev);
+    setUpdatingShipping(false);
+  };
+
   // ── Reprendre une commande passée ─────────────────────────────────────────
   const reorderFromPast = async (pastOrderId: string) => {
     if (!clientUser || !canEdit) return;
@@ -582,7 +600,6 @@ export default function ClientDashboardPage() {
     setReordering(pastOrderId);
     try {
       const supabase = createClient();
-      const sc = shippingFree ? 0 : shippingCost;
 
       // Get or create current order
       let orderId = currentOrder?.id;
@@ -590,7 +607,7 @@ export default function ClientDashboardPage() {
         const res = await fetch('/api/client-portal/subscription-order', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ subscriptionId: clientUser.subscriptionId, month: currentMonth, shippingCost: sc, deadlineDate: deadlineDate.toISOString().slice(0, 10) }),
+          body: JSON.stringify({ subscriptionId: clientUser.subscriptionId, month: currentMonth, shippingCost: shippingCost, deadlineDate: deadlineDate.toISOString().slice(0, 10) }),
         });
         if (!res.ok) { showToast('Erreur création commande.', 'error'); return; }
         const json = await res.json();
@@ -1020,6 +1037,37 @@ export default function ClientDashboardPage() {
             )}
 
             {/* Summary */}
+            {/* Shipping mode toggle — always visible when order is editable */}
+            {!loadingOrder && currentOrder && canEdit && (
+              <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 space-y-3">
+                <p className="text-xs font-bold text-gray-700 uppercase tracking-wide">Mode de réception</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => updateShippingMode('delivery')}
+                    disabled={updatingShipping}
+                    className={`flex flex-col items-center gap-1.5 py-3 px-2 rounded-xl border-2 text-xs font-semibold transition-all ${shippingMode === 'delivery' ? 'border-rose-500 bg-rose-50 text-rose-700' : 'border-gray-200 text-gray-500 hover:border-gray-300'}`}
+                  >
+                    <span className="text-xl">🚚</span>
+                    <span>Livraison</span>
+                    {launchOffer ? (
+                      <span className="text-[10px] text-emerald-600 font-bold">Offerte 🎁</span>
+                    ) : (
+                      <span className="text-[10px] text-gray-400">{shippingCost.toFixed(0)} € (unique)</span>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => updateShippingMode('pickup')}
+                    disabled={updatingShipping}
+                    className={`flex flex-col items-center gap-1.5 py-3 px-2 rounded-xl border-2 text-xs font-semibold transition-all ${shippingMode === 'pickup' ? 'border-rose-500 bg-rose-50 text-rose-700' : 'border-gray-200 text-gray-500 hover:border-gray-300'}`}
+                  >
+                    <span className="text-xl">🏪</span>
+                    <span>Retrait magasin</span>
+                    <span className="text-[10px] text-emerald-600 font-bold">Gratuit</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
             {orderItems.length > 0 && (
               <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 space-y-2">
                 <div className="flex justify-between text-sm">
@@ -1028,9 +1076,13 @@ export default function ClientDashboardPage() {
                 </div>
 
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Livraison</span>
-                  <span className={shippingFree ? 'text-emerald-600 font-semibold' : 'font-semibold tabular-nums'}>
-                    {shippingFree ? 'Offerte ✓' : `${shippingCost.toFixed(2)} €`}
+                  <span className="text-gray-500">
+                    {shippingMode === 'pickup' ? 'Retrait magasin' : 'Livraison'}
+                  </span>
+                  <span className={effectiveShippingCost === 0 ? 'text-emerald-600 font-semibold' : 'font-semibold tabular-nums'}>
+                    {effectiveShippingCost === 0
+                      ? (launchOffer && shippingMode === 'delivery' ? 'Offerte 🎁' : 'Gratuit ✓')
+                      : `${effectiveShippingCost.toFixed(2)} €`}
                   </span>
                 </div>
                 <div className="pt-2 border-t border-gray-100 flex justify-between text-sm font-bold">

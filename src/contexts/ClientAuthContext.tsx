@@ -12,6 +12,7 @@ export interface ClientPortalUser {
   quotaAmount: number;
   shippingFree: boolean;
   shippingCost: number;
+  launchOffer: boolean;
 }
 
 interface ClientAuthContextType {
@@ -71,6 +72,7 @@ export function ClientAuthProvider({ children }: { children: React.ReactNode }) 
       quota_amount: number;
       shipping_free: boolean;
       shipping_cost: number;
+      launch_offer: boolean;
     }> | null;
 
     if (!rows || rows.length === 0) {
@@ -87,6 +89,7 @@ export function ClientAuthProvider({ children }: { children: React.ReactNode }) 
       quotaAmount: row.quota_amount,
       shippingFree: row.shipping_free,
       shippingCost: row.shipping_cost,
+      launchOffer: row.launch_offer ?? false,
     };
 
     localStorage.setItem(SESSION_KEY, JSON.stringify(user));
