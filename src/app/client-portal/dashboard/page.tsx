@@ -137,6 +137,13 @@ export default function ClientDashboardPage() {
   // Next billing date (refreshed from DB)
   const [nextBillingDate, setNextBillingDate] = useState<string | null>(null);
 
+  // App review
+  const [review, setReview] = useState<{ rating: number; comment: string | null } | null>(null);
+  const [reviewRating, setReviewRating] = useState(0);
+  const [reviewComment, setReviewComment] = useState('');
+  const [reviewHover, setReviewHover] = useState(0);
+  const [submittingReview, setSubmittingReview] = useState(false);
+
   // Toast
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
@@ -190,6 +197,21 @@ export default function ClientDashboardPage() {
   useEffect(() => {
     if (tab === 'messages') loadNotifications(true);
   }, [tab, loadNotifications]);
+
+  // ── Charger l'avis existant ────────────────────────────────────────────────
+  useEffect(() => {
+    if (!clientUser) return;
+    fetch(`/api/client-portal/review?subscriptionId=${encodeURIComponent(clientUser.subscriptionId)}`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (j.review) {
+          setReview(j.review);
+          setReviewRating(j.review.rating);
+          setReviewComment(j.review.comment ?? '');
+        }
+      })
+      .catch(() => {});
+  }, [clientUser]);
 
   // ─── Push notifications ────────────────────────────────────────────────────────
 
@@ -548,6 +570,24 @@ export default function ClientDashboardPage() {
   // ── Annuler / Recommencer la box du mois ──────────────────────────────────
   const [cancelling, setCancelling] = useState(false);
   const [restarting, setRestarting] = useState(false);
+
+  // ── Soumettre un avis ──────────────────────────────────────────────────────
+  const submitReview = async () => {
+    if (!clientUser || reviewRating === 0) return;
+    setSubmittingReview(true);
+    const res = await fetch('/api/client-portal/review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subscriptionId: clientUser.subscriptionId, rating: reviewRating, comment: reviewComment || null }),
+    });
+    if (res.ok) {
+      setReview({ rating: reviewRating, comment: reviewComment || null });
+      showToast('Merci pour votre avis ! 🙏');
+    } else {
+      showToast('Erreur lors de l\'envoi', 'error');
+    }
+    setSubmittingReview(false);
+  };
 
   const cancelOrder = async () => {
     if (!currentOrder || currentOrder.status !== 'confirmed') return;
@@ -1148,6 +1188,17 @@ export default function ClientDashboardPage() {
                 ) : null}
               </div>
             )}
+
+            {/* Bénéfice du mois */}
+            {!loadingOrder && currentOrder && (currentOrder.status === 'confirmed' || currentOrder.status === 'preparing' || currentOrder.status === 'shipped' || currentOrder.status === 'en_livraison') && (currentOrder.benefit_amount ?? 0) > 0 && (
+              <div className="bg-gradient-to-r from-amber-400 to-yellow-300 rounded-2xl p-4 shadow-sm flex items-center gap-3">
+                <span className="text-3xl shrink-0">💰</span>
+                <div className="flex-1">
+                  <p className="text-sm font-bold text-amber-900">Vous économisez {(currentOrder.benefit_amount!).toFixed(0)} € ce mois-ci !</p>
+                  <p className="text-xs text-amber-800 mt-0.5">Grâce à votre abonnement {clientUser.planName}</p>
+                </div>
+              </div>
+            )}
           </>
         )}
 
@@ -1414,6 +1465,54 @@ export default function ClientDashboardPage() {
                 </div>
               </div>
             )}
+
+            {/* Avis sur l'application */}
+            <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">⭐</span>
+                <h3 className="text-sm font-bold text-gray-800">
+                  {review ? 'Votre avis' : 'Donnez votre avis sur l\'application'}
+                </h3>
+              </div>
+              {review && (
+                <p className="text-[11px] text-gray-400">Votre avis a été enregistré. Vous pouvez le modifier ci-dessous.</p>
+              )}
+              {/* Étoiles */}
+              <div className="flex items-center gap-1">
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <button
+                    key={star}
+                    type="button"
+                    onClick={() => setReviewRating(star)}
+                    onMouseEnter={() => setReviewHover(star)}
+                    onMouseLeave={() => setReviewHover(0)}
+                    className="text-2xl transition-transform hover:scale-110 focus:outline-none"
+                  >
+                    <span className={(reviewHover || reviewRating) >= star ? 'text-amber-400' : 'text-gray-200'}>★</span>
+                  </button>
+                ))}
+                {reviewRating > 0 && (
+                  <span className="ml-2 text-xs text-gray-500">
+                    {['', 'Mauvais', 'Passable', 'Bien', 'Très bien', 'Excellent !'][reviewRating]}
+                  </span>
+                )}
+              </div>
+              {/* Commentaire */}
+              <textarea
+                value={reviewComment}
+                onChange={(e) => setReviewComment(e.target.value)}
+                placeholder="Laissez un commentaire (optionnel)…"
+                rows={3}
+                className="w-full text-xs rounded-xl border border-gray-200 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-rose-300 resize-none text-gray-700 placeholder-gray-300"
+              />
+              <button
+                onClick={submitReview}
+                disabled={submittingReview || reviewRating === 0}
+                className="w-full py-2.5 bg-rose-500 text-white rounded-xl text-xs font-bold hover:bg-rose-600 transition-colors disabled:opacity-40"
+              >
+                {submittingReview ? '…' : review ? '✏️ Mettre à jour mon avis' : '📩 Envoyer mon avis'}
+              </button>
+            </div>
 
             {/* How it works */}
             <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
