@@ -945,6 +945,7 @@ export default function ClientDashboardPage() {
             { id: 'catalogue', label: 'Catalogue' },
             { id: 'messages', label: '🔔' },
             { id: 'historique', label: 'Historique' },
+            { id: 'abonnement', label: 'Formule' },
             { id: 'faq', label: 'FAQ' },
           ] as { id: Tab; label: string }[]).map((t) => (
             <button
