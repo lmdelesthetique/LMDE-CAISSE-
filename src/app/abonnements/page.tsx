@@ -563,7 +563,7 @@ export default function AbonnementsPage() {
 
   const currentMonth = new Date().toISOString().slice(0, 7);
   const today = new Date();
-  const isPastDeadline = today.getDate() > 25;
+  const isPastDeadline = today.getDate() > 28;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -635,7 +635,7 @@ export default function AbonnementsPage() {
   const notCompleted = active.filter((s) => !s.currentOrder || s.currentOrder.status === 'open');
 
   const handleGenerateAuto = async () => {
-    if (!isPastDeadline) { alert('La génération automatique n\'est disponible qu\'après le 25 du mois.'); return; }
+    if (!isPastDeadline) { alert('La génération automatique n\'est disponible qu\'après le 28 du mois.'); return; }
     setGeneratingAuto(true);
     const supabase = createClient();
     const toAuto = active.filter((s) => !s.currentOrder || s.currentOrder.status === 'open');

@@ -7,7 +7,7 @@ import { useClientAuth } from '@/contexts/ClientAuthContext';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type OrderStatus = 'open' | 'confirmed' | 'preparing' | 'shipped' | 'auto';
+type OrderStatus = 'open' | 'confirmed' | 'preparing' | 'shipped' | 'auto' | 'en_livraison';
 
 interface OrderItem {
   id: string;
@@ -24,11 +24,12 @@ interface SubscriptionOrder {
   id: string;
   order_month: string;
   status: OrderStatus;
-  total_products_cost: number;
-  total_sell_price: number;
-  benefit_amount: number;
-  shipping_cost: number;
+  total_products_cost: number | null;
+  total_sell_price: number | null;
+  benefit_amount: number | null;
+  shipping_cost: number | null;
   deadline_date: string | null;
+  statut_livraison: string | null;
 }
 
 interface PortalProduct {
@@ -36,6 +37,7 @@ interface PortalProduct {
   name: string;
   image_url: string | null;
   sell_price_ttc: number;
+  buy_price: number | null;
   description: string | null;
   category: string | null;
   stock: number;
@@ -86,13 +88,14 @@ function urlBase64ToUint8Array(base64String: string) {
 }
 
 const STATUS_LABEL: Record<OrderStatus, string> = {
-  open: 'En cours', confirmed: 'Confirmée', preparing: 'Préparation', shipped: 'Expédiée', auto: 'Générée auto',
+  open: 'En cours', confirmed: 'Confirmée', preparing: 'Préparation', shipped: 'Expédiée', auto: 'Générée auto', en_livraison: '🚚 En livraison',
 };
 const STATUS_COLOR: Record<OrderStatus, string> = {
   open: 'bg-amber-50 text-amber-700 border-amber-200',
   confirmed: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   preparing: 'bg-blue-50 text-blue-700 border-blue-200',
   shipped: 'bg-purple-50 text-purple-700 border-purple-200',
+  en_livraison: 'bg-pink-50 text-pink-700 border-pink-200',
   auto: 'bg-gray-50 text-gray-600 border-gray-200',
 };
 
@@ -332,7 +335,7 @@ export default function ClientDashboardPage() {
         .order('sort_order'),
       supabase
         .from('products')
-        .select('id, name, image_url, sell_price_ttc, description, category, stock, product_status, has_color_variants')
+        .select('id, name, image_url, sell_price_ttc, buy_price, description, category, stock, product_status, has_color_variants')
         .or('product_status.eq.active,product_status.eq.Active')
         .gt('stock', 0)
         .order('name')
@@ -446,7 +449,7 @@ export default function ClientDashboardPage() {
           order_id: orderId,
           product_id: product.id,
           quantity: 1,
-          unit_buy_price: 0,
+          unit_buy_price: product.buy_price ?? 0,
           unit_sell_price: product.sell_price_ttc,
           total_sell_price: product.sell_price_ttc,
           ...(colorVariant ? { color_variant: colorVariant } : {}),
@@ -516,7 +519,7 @@ export default function ClientDashboardPage() {
     })).filter((g) => g.products.length > 0);
   }, [visibleCategories, products, searchQuery]);
 
-  const canEdit = (!currentOrder || currentOrder.status === 'open') && !isPastDeadline;
+  const canEdit = (!currentOrder || currentOrder.status === 'open') && !isPastDeadline && currentOrder?.statut_livraison !== 'en_livraison';
   const totalCartQty = orderItems.reduce((s, i) => s + i.quantity, 0);
 
   // ── Upgrade section ────────────────────────────────────────────────────────
@@ -774,14 +777,25 @@ export default function ClientDashboardPage() {
               />
             )}
 
+            {/* Livraison banner */}
+            {currentOrder?.statut_livraison === 'en_livraison' && (
+              <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-pink-50 border border-pink-200">
+                <span className="text-2xl">🚚</span>
+                <div>
+                  <p className="text-sm font-bold text-pink-700">Votre box est en route !</p>
+                  <p className="text-xs text-pink-500">Votre box beauté a été expédiée et arrivera bientôt.</p>
+                </div>
+              </div>
+            )}
+
             {/* Deadline */}
             <div className="flex items-center justify-between px-1">
               <span className="text-xs text-gray-400">
                 {isPastDeadline ? 'Date limite dépassée' : `${daysLeft} jour${daysLeft > 1 ? 's' : ''} avant clôture`}
               </span>
               {currentOrder && (
-                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${STATUS_COLOR[currentOrder.status]}`}>
-                  {STATUS_LABEL[currentOrder.status]}
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${STATUS_COLOR[currentOrder.statut_livraison === 'en_livraison' ? 'en_livraison' : currentOrder.status]}`}>
+                  {STATUS_LABEL[currentOrder.statut_livraison === 'en_livraison' ? 'en_livraison' : currentOrder.status]}
                 </span>
               )}
             </div>
@@ -837,6 +851,7 @@ export default function ClientDashboardPage() {
                                 name: item.product.name,
                                 image_url: item.product.image_url,
                                 sell_price_ttc: item.unit_sell_price,
+                                buy_price: item.unit_buy_price,
                                 description: item.product.description,
                                 category: null,
                                 stock: 99,
@@ -1351,14 +1366,14 @@ export default function ClientDashboardPage() {
                 <div className="grid grid-cols-3 gap-2 text-center">
                   <div>
                     <p className="text-[10px] text-gray-400">Produits</p>
-                    <p className="text-sm font-bold text-gray-700 tabular-nums">{order.total_sell_price.toFixed(2)} €</p>
+                    <p className="text-sm font-bold text-gray-700 tabular-nums">{(order.total_sell_price ?? 0).toFixed(2)} €</p>
                   </div>
                   <div>
                     <p className="text-[10px] text-gray-400">Livraison</p>
                     <p className="text-sm font-bold">
-                      {order.shipping_cost === 0
+                      {(order.shipping_cost ?? 0) === 0
                         ? <span className="text-emerald-600">Offerte</span>
-                        : <span className="text-gray-700 tabular-nums">{order.shipping_cost.toFixed(2)} €</span>}
+                        : <span className="text-gray-700 tabular-nums">{(order.shipping_cost ?? 0).toFixed(2)} €</span>}
                     </p>
                   </div>
                   <div>
