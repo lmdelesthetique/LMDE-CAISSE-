@@ -166,6 +166,7 @@ export default function ClientDashboardPage() {
     setLoadingNotifs(true);
     try {
       const res = await fetch(`/api/client-portal/notifications?clientId=${clientUser.clientId}${markRead ? '' : '&countOnly=true'}`);
+      if (!res.ok) return;
       const json = await res.json();
       if (markRead) {
         setNotifications(json.notifications ?? []);
@@ -173,7 +174,7 @@ export default function ClientDashboardPage() {
       } else {
         setUnreadCount(json.unreadCount ?? 0);
       }
-    } catch {} finally { setLoadingNotifs(false); }
+    } catch { /* réseau indisponible */ } finally { setLoadingNotifs(false); }
   }, [clientUser]);
 
   useEffect(() => { if (clientUser) loadNotifications(false); }, [clientUser, loadNotifications]);
@@ -246,21 +247,29 @@ export default function ClientDashboardPage() {
     if (!authLoading && !clientUser) router.replace('/client-portal/login');
   }, [authLoading, clientUser, router]);
 
-  // ── Load plan data + all plans from DB ───────────────────────────────────
+  // ── Load plan data + refresh subscription from DB (anti-stale-session) ──────
   useEffect(() => {
     if (!clientUser) return;
     const supabase = createClient();
+
+    // Refresh subscription row to get fresh plan_name/quota in case admin changed it
+    supabase
+      .from('client_subscriptions')
+      .select('plan:subscription_plans(id, name, price, quota_amount, shipping_free, shipping_cost, description, is_active)')
+      .eq('id', clientUser.subscriptionId)
+      .maybeSingle()
+      .then(({ data }) => {
+        const plan = Array.isArray((data as any)?.plan) ? (data as any)?.plan[0] : (data as any)?.plan;
+        if (plan) setPlanData(plan as SubscriptionPlan);
+      });
+
+    // Also load all plans for upgrade modal
     supabase
       .from('subscription_plans')
       .select('*')
       .eq('is_active', true)
       .order('price')
-      .then(({ data }) => {
-        if (!data) return;
-        setAllPlans(data as SubscriptionPlan[]);
-        const current = (data as SubscriptionPlan[]).find((p) => p.name === clientUser.planName);
-        if (current) setPlanData(current);
-      });
+      .then(({ data }) => { if (data) setAllPlans(data as SubscriptionPlan[]); });
   }, [clientUser]);
 
   // ── Load current month order + items ──────────────────────────────────────
@@ -282,12 +291,10 @@ export default function ClientDashboardPage() {
           deadlineDate: deadlineDate.toISOString().slice(0, 10),
         }),
       });
-      const json = await res.json();
-      order = json.order ?? null;
+      if (res.ok) { const json = await res.json(); order = json.order ?? null; }
     } else {
       const res = await fetch(`/api/client-portal/subscription-order?subscriptionId=${encodeURIComponent(clientUser.subscriptionId)}&month=${encodeURIComponent(currentMonth)}`);
-      const json = await res.json();
-      order = json.order ?? null;
+      if (res.ok) { const json = await res.json(); order = json.order ?? null; }
     }
 
     setCurrentOrder(order);

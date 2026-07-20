@@ -267,6 +267,7 @@ function DeliveryModal({
       const json = await res.json();
       if (!res.ok) { setError(json.error ?? 'Erreur création livraison.'); setSubmitting(false); return; }
       const deliveryId = json.delivery?.id ?? json.id ?? null;
+      if (!deliveryId) { setError('Livraison créée mais ID introuvable — réessayez.'); setSubmitting(false); return; }
 
       // 2. Update subscription_order
       const supabase = createClient();
