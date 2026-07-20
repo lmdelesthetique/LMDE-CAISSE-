@@ -7,7 +7,7 @@ import { createClient } from '@/lib/supabase/client';
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type SubStatus = 'active' | 'inactive' | 'suspended' | 'expired';
-type OrderStatus = 'open' | 'confirmed' | 'preparing' | 'shipped' | 'auto' | 'en_livraison';
+type OrderStatus = 'open' | 'confirmed' | 'preparing' | 'shipped' | 'auto' | 'en_livraison' | 'cancelled';
 
 interface OrderItem {
   id: string;
@@ -55,7 +55,7 @@ const STATUS_COLOR: Record<SubStatus, string> = {
 };
 const ORDER_LABEL: Record<OrderStatus, string> = {
   open: 'En cours', confirmed: 'Confirmée', preparing: 'Préparation',
-  shipped: 'Expédiée', auto: 'Auto', en_livraison: 'En livraison',
+  shipped: 'Expédiée', auto: 'Auto', en_livraison: 'En livraison', cancelled: '❌ Annulée',
 };
 const ORDER_COLOR: Record<OrderStatus, string> = {
   open: 'bg-amber-50 text-amber-700',
@@ -64,6 +64,7 @@ const ORDER_COLOR: Record<OrderStatus, string> = {
   shipped: 'bg-purple-50 text-purple-700',
   auto: 'bg-gray-100 text-gray-500',
   en_livraison: 'bg-pink-50 text-pink-700',
+  cancelled: 'bg-red-50 text-red-700 border border-red-200',
 };
 
 // ─── BoxModal ─────────────────────────────────────────────────────────────────
@@ -628,12 +629,14 @@ export default function AbonnementsPage() {
   // KPIs
   const active = subscriptions.filter((s) => s.status === 'active');
   const mrr = active.reduce((sum, s) => sum + (s.plan?.price ?? 0), 0);
-  const totalBenefit = active.reduce((sum, s) => sum + (s.currentOrder?.benefit_amount ?? 0), 0);
+  const totalBenefit = active
+    .filter((s) => s.currentOrder?.status !== 'cancelled')
+    .reduce((sum, s) => sum + (s.currentOrder?.benefit_amount ?? 0), 0);
   const confirmed = active.filter((s) => s.currentOrder?.status === 'confirmed').length;
-  const pending = active.filter((s) => !s.currentOrder || s.currentOrder.status === 'open').length;
+  const pending = active.filter((s) => !s.currentOrder || s.currentOrder.status === 'open' || s.currentOrder.status === 'cancelled').length;
 
-  // Banner: subs with no order this month
-  const notCompleted = active.filter((s) => !s.currentOrder || s.currentOrder.status === 'open');
+  // Banner: subs with no order this month (cancelled counts as not completed)
+  const notCompleted = active.filter((s) => !s.currentOrder || s.currentOrder.status === 'open' || s.currentOrder.status === 'cancelled');
 
   const handleGenerateAuto = async () => {
     if (!isPastDeadline) { alert('La génération automatique n\'est disponible qu\'après le 28 du mois.'); return; }
