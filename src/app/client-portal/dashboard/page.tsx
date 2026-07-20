@@ -128,6 +128,9 @@ export default function ClientDashboardPage() {
 
   // Past orders
   const [pastOrders, setPastOrders] = useState<SubscriptionOrder[]>([]);
+  const [pastOrderItems, setPastOrderItems] = useState<Record<string, OrderItem[]>>({});
+  const [expandedPastOrder, setExpandedPastOrder] = useState<string | null>(null);
+  const [reordering, setReordering] = useState<string | null>(null);
 
   // Next billing date (refreshed from DB)
   const [nextBillingDate, setNextBillingDate] = useState<string | null>(null);
@@ -318,7 +321,7 @@ export default function ClientDashboardPage() {
     if (clientUser) loadCurrentOrder();
   }, [clientUser, loadCurrentOrder]);
 
-  // ── Load past orders ───────────────────────────────────────────────────────
+  // ── Load past orders + items ───────────────────────────────────────────────
   useEffect(() => {
     if (!clientUser) return;
     const supabase = createClient();
@@ -328,7 +331,21 @@ export default function ClientDashboardPage() {
       .eq('subscription_id', clientUser.subscriptionId)
       .neq('order_month', currentMonth)
       .order('order_month', { ascending: false })
-      .then(({ data }) => setPastOrders(data ?? []));
+      .then(async ({ data: orders }) => {
+        setPastOrders(orders ?? []);
+        if (!orders || orders.length === 0) return;
+        const ids = orders.map((o: any) => o.id);
+        const { data: items } = await supabase
+          .from('subscription_order_items')
+          .select('*, product:products(id, name, image_url, sell_price_ttc, buy_price, description)')
+          .in('order_id', ids);
+        const byOrder: Record<string, OrderItem[]> = {};
+        for (const item of items ?? []) {
+          if (!byOrder[item.order_id]) byOrder[item.order_id] = [];
+          byOrder[item.order_id].push(item);
+        }
+        setPastOrderItems(byOrder);
+      });
   }, [clientUser, currentMonth]);
 
   // ── Load products + categories ─────────────────────────────────────────────
@@ -514,6 +531,73 @@ export default function ClientDashboardPage() {
     setCurrentOrder((prev) => prev ? { ...prev, status: 'confirmed' } : prev);
     showToast('Box confirmée ! 🎉');
     setConfirming(false);
+  };
+
+  // ── Reprendre une commande passée ─────────────────────────────────────────
+  const reorderFromPast = async (pastOrderId: string) => {
+    if (!clientUser || !canEdit) return;
+    const items = pastOrderItems[pastOrderId];
+    if (!items || items.length === 0) { showToast('Aucun produit dans cette commande.', 'error'); return; }
+    setReordering(pastOrderId);
+    try {
+      const supabase = createClient();
+      const sc = shippingFree ? 0 : shippingCost;
+
+      // Get or create current order
+      let orderId = currentOrder?.id;
+      if (!orderId) {
+        const res = await fetch('/api/client-portal/subscription-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subscriptionId: clientUser.subscriptionId, month: currentMonth, shippingCost: sc, deadlineDate: deadlineDate.toISOString().slice(0, 10) }),
+        });
+        if (!res.ok) { showToast('Erreur création commande.', 'error'); return; }
+        const json = await res.json();
+        orderId = json.order?.id;
+        if (!orderId) { showToast('Erreur création commande.', 'error'); return; }
+      }
+
+      // Fetch current items to avoid duplicates
+      const { data: existing } = await supabase.from('subscription_order_items').select('product_id, quantity').eq('order_id', orderId);
+      const existingMap = new Map((existing ?? []).map((i: any) => [i.product_id, i.quantity]));
+
+      // Build inserts — only products that fit in quota
+      let remaining = quotaAmount - quotaUsed;
+      const toInsert: any[] = [];
+      for (const item of items) {
+        if (!item.product_id) continue;
+        if (existingMap.has(item.product_id)) continue; // skip already in box
+        const price = item.unit_sell_price;
+        const qty = Math.min(item.quantity, Math.floor(remaining / price));
+        if (qty < 1) continue;
+        toInsert.push({
+          order_id: orderId,
+          product_id: item.product_id,
+          quantity: qty,
+          unit_buy_price: item.unit_buy_price ?? 0,
+          unit_sell_price: price,
+          total_sell_price: price * qty,
+          color_variant: item.color_variant ?? null,
+        });
+        remaining -= price * qty;
+      }
+
+      if (toInsert.length === 0) { showToast('Quota insuffisant ou produits déjà dans la box.', 'error'); return; }
+
+      const { data: inserted, error } = await supabase
+        .from('subscription_order_items')
+        .insert(toInsert)
+        .select('*, product:products(id, name, image_url, sell_price_ttc, buy_price, description)');
+      if (error) { showToast(`Erreur: ${error.message}`, 'error'); return; }
+
+      await loadCurrentOrder();
+      showToast(`✅ ${toInsert.length} produit${toInsert.length > 1 ? 's' : ''} ajouté${toInsert.length > 1 ? 's' : ''} à votre box !`);
+      setTab('commande');
+    } catch (e: any) {
+      showToast(`Erreur: ${e.message}`, 'error');
+    } finally {
+      setReordering(null);
+    }
   };
 
   // ── Catalog groups ─────────────────────────────────────────────────────────
@@ -1403,38 +1487,114 @@ export default function ClientDashboardPage() {
           <div className="space-y-3">
             {pastOrders.length === 0 ? (
               <div className="bg-white rounded-2xl p-8 shadow-sm border border-gray-100 text-center">
+                <p className="text-2xl mb-2">📦</p>
                 <p className="text-sm text-gray-400">Aucune commande passée</p>
               </div>
-            ) : pastOrders.map((order) => (
-              <div key={order.id} className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-semibold text-gray-800">
-                    {new Date(order.order_month + '-01').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}
-                  </span>
-                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${STATUS_COLOR[order.status]}`}>
-                    {STATUS_LABEL[order.status]}
-                  </span>
+            ) : pastOrders.map((order) => {
+              const items = pastOrderItems[order.id] ?? [];
+              const isExpanded = expandedPastOrder === order.id;
+              const isReordering = reordering === order.id;
+              return (
+                <div key={order.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                  {/* Header row */}
+                  <button
+                    className="w-full flex items-center justify-between px-4 py-3 text-left"
+                    onClick={() => setExpandedPastOrder(isExpanded ? null : order.id)}
+                  >
+                    <div>
+                      <span className="text-sm font-bold text-gray-800 capitalize">
+                        {new Date(order.order_month + '-01').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}
+                      </span>
+                      <span className="ml-2 text-xs text-gray-400">
+                        {items.length > 0 ? `${items.length} produit${items.length > 1 ? 's' : ''}` : ''}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${STATUS_COLOR[order.statut_livraison === 'en_livraison' ? 'en_livraison' : order.status]}`}>
+                        {STATUS_LABEL[order.statut_livraison === 'en_livraison' ? 'en_livraison' : order.status]}
+                      </span>
+                      <svg className={`w-4 h-4 text-gray-300 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                      </svg>
+                    </div>
+                  </button>
+
+                  {/* Totals summary */}
+                  <div className="grid grid-cols-3 gap-2 text-center px-4 pb-3 border-b border-gray-50">
+                    <div>
+                      <p className="text-[10px] text-gray-400">Produits</p>
+                      <p className="text-sm font-bold text-gray-700 tabular-nums">{(order.total_sell_price ?? 0).toFixed(2)} €</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-gray-400">Livraison</p>
+                      <p className="text-sm font-bold">
+                        {(order.shipping_cost ?? 0) === 0
+                          ? <span className="text-emerald-600">Offerte</span>
+                          : <span className="text-gray-700 tabular-nums">{(order.shipping_cost ?? 0).toFixed(2)} €</span>}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-gray-400">Forfait</p>
+                      <p className="text-sm font-bold text-rose-600 tabular-nums">{clientUser.planPrice.toFixed(2)} €</p>
+                    </div>
+                  </div>
+
+                  {/* Expanded: product list + reorder button */}
+                  {isExpanded && (
+                    <div className="px-4 py-3 space-y-3">
+                      {items.length === 0 ? (
+                        <p className="text-xs text-gray-400 text-center py-2">Aucun produit enregistré pour cette box</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {items.map((item) => (
+                            <div key={item.id} className="flex items-center gap-3">
+                              {item.product?.image_url ? (
+                                <img src={item.product.image_url} alt={item.product?.name} className="w-10 h-10 rounded-xl object-cover border border-gray-100 shrink-0" />
+                              ) : (
+                                <div className="w-10 h-10 rounded-xl bg-rose-50 flex items-center justify-center shrink-0">
+                                  <span className="text-lg">💄</span>
+                                </div>
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-semibold text-gray-800 truncate">{item.product?.name ?? 'Produit'}</p>
+                                {item.color_variant && (
+                                  <p className="text-[10px] text-gray-400">{item.color_variant}</p>
+                                )}
+                              </div>
+                              <div className="text-right shrink-0">
+                                <p className="text-xs font-bold text-gray-700">{item.unit_sell_price.toFixed(2)} €</p>
+                                {item.quantity > 1 && <p className="text-[10px] text-gray-400">× {item.quantity}</p>}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Reorder button */}
+                      {items.length > 0 && canEdit && (
+                        <button
+                          onClick={() => reorderFromPast(order.id)}
+                          disabled={isReordering}
+                          className="w-full mt-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-rose-500 text-white text-sm font-bold hover:bg-rose-600 transition-colors disabled:opacity-60"
+                        >
+                          {isReordering ? (
+                            <>
+                              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                              </svg>
+                              Ajout en cours…
+                            </>
+                          ) : (
+                            <>🔁 Reprendre cette commande</>
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
-                <div className="grid grid-cols-3 gap-2 text-center">
-                  <div>
-                    <p className="text-[10px] text-gray-400">Produits</p>
-                    <p className="text-sm font-bold text-gray-700 tabular-nums">{(order.total_sell_price ?? 0).toFixed(2)} €</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-gray-400">Livraison</p>
-                    <p className="text-sm font-bold">
-                      {(order.shipping_cost ?? 0) === 0
-                        ? <span className="text-emerald-600">Offerte</span>
-                        : <span className="text-gray-700 tabular-nums">{(order.shipping_cost ?? 0).toFixed(2)} €</span>}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-gray-400">Forfait</p>
-                    <p className="text-sm font-bold text-rose-600 tabular-nums">{clientUser.planPrice.toFixed(2)} €</p>
-                  </div>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
