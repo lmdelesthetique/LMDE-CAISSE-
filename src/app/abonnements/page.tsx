@@ -147,12 +147,12 @@ function BoxModal({
         <div className="px-5 py-3 bg-gray-50 border-t border-gray-100 space-y-1 text-sm">
           <div className="flex justify-between text-gray-600">
             <span>Sous-total produits</span>
-            <span className="font-semibold tabular-nums">{order.total_sell_price.toFixed(2)} €</span>
+            <span className="font-semibold tabular-nums">{(order.total_sell_price ?? 0).toFixed(2)} €</span>
           </div>
           <div className="flex justify-between text-gray-600">
             <span>Livraison</span>
             <span className="font-semibold tabular-nums">
-              {sub.plan?.shipping_free ? 'Offerte' : `${order.shipping_cost.toFixed(2)} €`}
+              {sub.plan?.shipping_free ? 'Offerte' : `${(order.shipping_cost ?? 0).toFixed(2)} €`}
             </span>
           </div>
           <div className="flex justify-between font-bold text-gray-900 border-t border-gray-200 pt-1.5 mt-1.5">
