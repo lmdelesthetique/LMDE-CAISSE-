@@ -194,6 +194,10 @@ export default function OrderDetailPage() {
   const [searchingProducts, setSearchingProducts] = useState(false);
   const [showNewProductModal, setShowNewProductModal] = useState(false);
   const [creatingProduct, setCreatingProduct] = useState(false);
+  // Add modal currency
+  const [addModalCurrency, setAddModalCurrency] = useState<'EUR' | 'USD'>('EUR');
+  const [addModalUsdRate, setAddModalUsdRate] = useState<number | null>(null);
+  const [addModalFetchingRate, setAddModalFetchingRate] = useState(false);
 
   // Load default structure % from localStorage (set in admin-config)
   useEffect(() => {
@@ -656,7 +660,19 @@ export default function OrderDetailPage() {
     setSearchingProducts(false);
   };
 
+  const fetchAddModalRate = async () => {
+    setAddModalFetchingRate(true);
+    try {
+      const res = await fetch('https://api.frankfurter.app/latest?from=USD&to=EUR');
+      const json = await res.json();
+      if (json?.rates?.EUR) setAddModalUsdRate(json.rates.EUR);
+    } catch { /* réseau indisponible */ } finally { setAddModalFetchingRate(false); }
+  };
+
   const handleAddProductToOrder = (product: any) => {
+    const rate = addModalCurrency === 'USD' && addModalUsdRate ? addModalUsdRate : 1;
+    const buyPriceEur = Math.round((product.buy_price ?? 0) * rate * 100) / 100;
+    const sellPriceEur = Math.round((product.sell_price_ttc ?? 0) * rate * 100) / 100;
     const newLine: FoOrderLine = {
       id: `new-${Date.now()}`,
       orderId: order?.id ?? '',
@@ -666,10 +682,10 @@ export default function OrderDetailPage() {
       productImageUrl: product.image_url ?? undefined,
       qtyOrdered: 1,
       qtyReceived: 0,
-      unitPrice: product.buy_price ?? 0,
-      lineTotal: product.buy_price ?? 0,
+      unitPrice: buyPriceEur,
+      lineTotal: buyPriceEur,
       unitTransport: 0, unitCustoms: 0, unitVatImport: 0, unitFreight: 0, unitOther: 0,
-      unitRealCost: 0, salePrice: product.sell_price_ttc ?? 0,
+      unitRealCost: 0, salePrice: sellPriceEur,
       grossMargin: 0, marginRate: 0, previousCost: 0,
       qtyMissing: 0, qtyDamaged: 0, weightKg: 0, volumeM3: 0, customCostShare: 0,
     };
@@ -1945,14 +1961,52 @@ export default function OrderDetailPage() {
         {/* Add line modal */}
         {showAddLineModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
-              <div className="flex items-center justify-between mb-4">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4">
+              {/* Header */}
+              <div className="flex items-center justify-between">
                 <h2 className="text-base font-700 text-foreground">Ajouter un produit</h2>
                 <button onClick={() => { setShowAddLineModal(false); setProductSearch(''); setProductResults([]); }} className="p-1 rounded-lg hover:bg-muted text-muted-foreground">
                   <Icon name="XMarkIcon" size={18} />
                 </button>
               </div>
-              <div className="relative mb-3">
+
+              {/* Currency toggle */}
+              <div className="flex items-center gap-3">
+                <div className="flex border border-border rounded-lg overflow-hidden text-sm font-600">
+                  <button
+                    type="button"
+                    onClick={() => setAddModalCurrency('EUR')}
+                    className={`px-3 py-1.5 transition-colors ${addModalCurrency === 'EUR' ? 'bg-blue-600 text-white' : 'bg-white text-muted-foreground hover:bg-muted'}`}
+                  >€ EUR</button>
+                  <button
+                    type="button"
+                    onClick={() => { setAddModalCurrency('USD'); if (!addModalUsdRate) fetchAddModalRate(); }}
+                    className={`px-3 py-1.5 transition-colors ${addModalCurrency === 'USD' ? 'bg-amber-500 text-white' : 'bg-white text-muted-foreground hover:bg-muted'}`}
+                  >$ USD</button>
+                </div>
+                {addModalCurrency === 'USD' && (
+                  <div className="flex items-center gap-2 flex-1">
+                    {addModalUsdRate ? (
+                      <span className="text-xs font-600 text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg">
+                        1 $ = {addModalUsdRate.toFixed(4)} €
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">Taux non chargé</span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={fetchAddModalRate}
+                      disabled={addModalFetchingRate}
+                      className="text-xs px-2 py-1 border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
+                    >
+                      {addModalFetchingRate ? '…' : '🔄 Actualiser'}
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Search */}
+              <div className="relative">
                 <Icon name="MagnifyingGlassIcon" size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <input
                   type="text"
@@ -1963,22 +2017,57 @@ export default function OrderDetailPage() {
                   className="w-full pl-9 pr-4 py-2.5 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
                 />
               </div>
+
               {searchingProducts && (
                 <div className="flex justify-center py-4">
                   <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                 </div>
               )}
-              <div className="space-y-1 max-h-60 overflow-y-auto">
-                {productResults.map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => handleAddProductToOrder(p)}
-                    className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-muted transition-colors border border-transparent hover:border-border"
-                  >
-                    <p className="text-sm font-500 text-foreground">{p.name}</p>
-                    <p className="text-xs text-muted-foreground">{p.ref ?? '—'} · Achat: {p.buy_price?.toFixed(2) ?? '—'} € · Vente: {p.sell_price_ttc?.toFixed(2) ?? '—'} €</p>
-                  </button>
-                ))}
+
+              {/* Results */}
+              <div className="space-y-1.5 max-h-72 overflow-y-auto">
+                {productResults.map((p) => {
+                  const rate = addModalCurrency === 'USD' && addModalUsdRate ? addModalUsdRate : 1;
+                  const buyEur = (p.buy_price ?? 0) * rate;
+                  const sellEur = (p.sell_price_ttc ?? 0) * rate;
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => handleAddProductToOrder(p)}
+                      className="w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-muted transition-colors border border-transparent hover:border-border"
+                    >
+                      {/* Image */}
+                      <div className="w-12 h-12 rounded-lg bg-muted flex items-center justify-center overflow-hidden shrink-0 border border-border">
+                        {p.image_url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={p.image_url} alt={p.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <Icon name="PhotoIcon" size={18} className="text-muted-foreground" />
+                        )}
+                      </div>
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-600 text-foreground truncate">{p.name}</p>
+                        <p className="text-xs text-muted-foreground font-mono">{p.ref ?? '—'}</p>
+                        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                          <span className="text-xs font-600 text-blue-700">
+                            Achat : {addModalCurrency === 'USD' ? `${(p.buy_price ?? 0).toFixed(2)} $` : `${(p.buy_price ?? 0).toFixed(2)} €`}
+                            {addModalCurrency === 'USD' && addModalUsdRate && (
+                              <span className="text-amber-600 ml-1">= {buyEur.toFixed(2)} €</span>
+                            )}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">·</span>
+                          <span className="text-xs text-emerald-700">
+                            Vente : {addModalCurrency === 'USD' ? `${(p.sell_price_ttc ?? 0).toFixed(2)} $` : `${(p.sell_price_ttc ?? 0).toFixed(2)} €`}
+                            {addModalCurrency === 'USD' && addModalUsdRate && (
+                              <span className="text-amber-600 ml-1">= {sellEur.toFixed(2)} €</span>
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
                 {!searchingProducts && productSearch && productResults.length === 0 && (
                   <div className="py-4 text-center space-y-2">
                     <p className="text-sm text-muted-foreground">Aucun produit trouvé pour "{productSearch}"</p>
