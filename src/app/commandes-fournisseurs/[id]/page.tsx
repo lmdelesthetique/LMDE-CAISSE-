@@ -141,6 +141,10 @@ export default function OrderDetailPage() {
   const [realPrices, setRealPrices] = useState<Record<string, string>>({});
   const [savingPrices, setSavingPrices] = useState(false);
   const [pricesSaved, setPricesSaved] = useState(false);
+  // Currency toggle for price entry: USD input → auto-convert to EUR
+  const [realPricesCurrency, setRealPricesCurrency] = useState<'EUR' | 'USD'>('EUR');
+  const [usdToEur, setUsdToEur] = useState<number | null>(null);
+  const [fetchingRate, setFetchingRate] = useState(false);
 
   // Cost modes: 'eur' (fixed amount) | 'pct' (% of product subtotal)
   const [costModes, setCostModes] = useState<Record<string, 'eur' | 'pct'>>({
@@ -762,13 +766,25 @@ export default function OrderDetailPage() {
     }
   };
 
+  const fetchLiveUsdRate = async () => {
+    setFetchingRate(true);
+    try {
+      const res = await fetch('https://api.frankfurter.app/latest?from=USD&to=EUR');
+      const json = await res.json();
+      if (json?.rates?.EUR) setUsdToEur(json.rates.EUR);
+    } catch { /* silent */ } finally {
+      setFetchingRate(false);
+    }
+  };
+
   const handleSaveInvoicePrices = async () => {
     if (!order) return;
     setSavingPrices(true);
     try {
+      const rate = realPricesCurrency === 'USD' ? (usdToEur ?? 1) : 1;
       const prices = lines.map(l => ({
         lineId: l.id,
-        confirmedUnitPrice: parseFloat(realPrices[l.id] || '0') || 0,
+        confirmedUnitPrice: (parseFloat(realPrices[l.id] || '0') || 0) * rate,
       })).filter(p => p.confirmedUnitPrice > 0);
       const res = await fetch(`/api/fo-orders/${order.id}/save-invoice-prices`, {
         method: 'POST',
@@ -1929,44 +1945,103 @@ export default function OrderDetailPage() {
                 {/* Real price entry per line */}
                 {lines.length > 0 && (
                   <div className="mt-5">
-                    <p className="text-sm font-600 text-foreground mb-3">
-                      Saisir les prix réels (d'après la facture) :
-                    </p>
-                    <div className="space-y-2">
-                      {lines.map((line) => (
-                        <div key={line.id} className="flex items-center gap-3 py-2 border-b border-border last:border-0">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-500 text-foreground truncate">{line.productName}</p>
-                            <p className="text-xs text-muted-foreground">{line.productRef} · Commandé: {line.qtyOrdered}</p>
+                    {/* Header + currency toggle */}
+                    <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                      <p className="text-sm font-600 text-foreground">
+                        Saisir les prix réels (d'après la facture) :
+                      </p>
+                      <div className="flex items-center gap-2">
+                        {/* Toggle USD / EUR */}
+                        <div className="flex rounded-lg border border-border overflow-hidden text-xs font-600">
+                          <button
+                            onClick={() => setRealPricesCurrency('USD')}
+                            className={`px-3 py-1.5 transition-colors ${realPricesCurrency === 'USD' ? 'bg-amber-500 text-white' : 'bg-white text-muted-foreground hover:bg-muted'}`}
+                          >
+                            $ USD
+                          </button>
+                          <button
+                            onClick={() => setRealPricesCurrency('EUR')}
+                            className={`px-3 py-1.5 transition-colors ${realPricesCurrency === 'EUR' ? 'bg-blue-600 text-white' : 'bg-white text-muted-foreground hover:bg-muted'}`}
+                          >
+                            € EUR
+                          </button>
+                        </div>
+                        {/* Taux live */}
+                        {realPricesCurrency === 'USD' && (
+                          <div className="flex items-center gap-1.5">
+                            {usdToEur ? (
+                              <span className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-lg font-600">
+                                1 $ = {usdToEur.toFixed(4)} €
+                              </span>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">Taux non chargé</span>
+                            )}
+                            <button
+                              onClick={fetchLiveUsdRate}
+                              disabled={fetchingRate}
+                              className="text-xs px-2 py-1 bg-amber-50 border border-amber-200 text-amber-700 rounded-lg hover:bg-amber-100 transition-colors disabled:opacity-50"
+                            >
+                              {fetchingRate ? '…' : '🔄 Taux actuel'}
+                            </button>
                           </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <span className="text-xs text-muted-foreground">Prix estimé: {line.unitPrice?.toFixed(2)} {order.currency}</span>
-                            <div className="relative">
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={realPrices[line.id] ?? ''}
-                                onChange={(e) => setRealPrices(prev => ({ ...prev, [line.id]: e.target.value }))}
-                                placeholder="0.00"
-                                className="w-28 px-2.5 py-1.5 pr-8 border border-violet-300 rounded-lg text-sm text-right focus:outline-none focus:ring-2 focus:ring-violet-300 bg-violet-50"
-                              />
-                              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none">{order.currency}</span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      {lines.map((line) => {
+                        const rawVal = parseFloat(realPrices[line.id] || '0') || 0;
+                        const eurVal = realPricesCurrency === 'USD' && usdToEur && rawVal > 0
+                          ? rawVal * usdToEur : null;
+                        return (
+                          <div key={line.id} className="flex items-center gap-3 py-2 border-b border-border last:border-0">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-500 text-foreground truncate">{line.productName}</p>
+                              <p className="text-xs text-muted-foreground">{line.productRef} · Commandé: {line.qtyOrdered}</p>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className="text-xs text-muted-foreground hidden sm:inline">
+                                Estimé: {line.unitPrice?.toFixed(2)} {order.currency}
+                              </span>
+                              <div className="flex flex-col items-end gap-0.5">
+                                <div className="relative">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value={realPrices[line.id] ?? ''}
+                                    onChange={(e) => setRealPrices(prev => ({ ...prev, [line.id]: e.target.value }))}
+                                    placeholder="0.00"
+                                    className={`w-28 px-2.5 py-1.5 pr-8 border rounded-lg text-sm text-right focus:outline-none focus:ring-2 ${realPricesCurrency === 'USD' ? 'border-amber-300 bg-amber-50 focus:ring-amber-300' : 'border-violet-300 bg-violet-50 focus:ring-violet-300'}`}
+                                  />
+                                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none">
+                                    {realPricesCurrency === 'USD' ? '$' : '€'}
+                                  </span>
+                                </div>
+                                {eurVal !== null && (
+                                  <span className="text-[11px] text-blue-600 font-600">= {eurVal.toFixed(2)} €</span>
+                                )}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
+
+                    {realPricesCurrency === 'USD' && !usdToEur && (
+                      <p className="text-xs text-amber-600 mt-2">⚠️ Cliquez sur "🔄 Taux actuel" pour charger le taux de change avant d'enregistrer.</p>
+                    )}
+
                     <div className="mt-4 flex items-center gap-3">
                       <button
                         onClick={handleSaveInvoicePrices}
-                        disabled={savingPrices}
+                        disabled={savingPrices || (realPricesCurrency === 'USD' && !usdToEur)}
                         className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg text-sm font-500 hover:bg-violet-700 transition-colors disabled:opacity-50"
                       >
                         {savingPrices
                           ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                           : <Icon name="CheckIcon" size={15} />}
-                        Enregistrer les prix réels
+                        Enregistrer{realPricesCurrency === 'USD' && usdToEur ? ' (converti en €)' : ' les prix réels'}
                       </button>
                       {pricesSaved && (
                         <span className="text-sm text-emerald-600 font-500">✅ Prix sauvegardés</span>
