@@ -10,6 +10,7 @@ import { supplierOrderService, FoOrder, FoOrderLine, FoOrderStatus, FoStatusHist
 import { exportPurchaseOrderPDF } from '@/lib/utils/purchaseOrderPDF';
 import BarcodeLabelModal from '@/app/product-management/components/BarcodeLabelModal';
 import { type ProductRecord } from '@/app/product-management/components/mockProducts';
+import ProductFormModal from '@/app/product-management/components/ProductFormModal';
 import MessagingPanel from '@/app/suppliers/components/MessagingPanel';
 
 const STATUS_LABELS: Record<FoOrderStatus, string> = {
@@ -191,6 +192,8 @@ export default function OrderDetailPage() {
   const [productSearch, setProductSearch] = useState('');
   const [productResults, setProductResults] = useState<any[]>([]);
   const [searchingProducts, setSearchingProducts] = useState(false);
+  const [showNewProductModal, setShowNewProductModal] = useState(false);
+  const [creatingProduct, setCreatingProduct] = useState(false);
 
   // Load default structure % from localStorage (set in admin-config)
   useEffect(() => {
@@ -674,6 +677,90 @@ export default function OrderDetailPage() {
     setShowAddLineModal(false);
     setProductSearch('');
     setProductResults([]);
+  };
+
+  const handleCreateNewProduct = async (data: any, imageUrl?: string, colorVariants?: any[]) => {
+    setCreatingProduct(true);
+    const transportPctAmount = Number(data.buyPrice) * (Number(data.transportPct || 0) / 100);
+    const baseCost = Number(data.buyPrice) + Number(data.transport || 0) + transportPctAmount + Number(data.customs || 0) + Number(data.otherFees || 0);
+    const costPrice = baseCost + baseCost * (Number(data.structurePct || 0) / 100);
+    const tvaRate = Number(data.tva || 8.5);
+    const sellPriceHT = Number(data.sellPriceHT) || 0;
+    const sellPriceTTC = Math.round(sellPriceHT * (1 + tvaRate / 100) * 100) / 100;
+    const newQuantity = Number(data.quantityAvailable) || 0;
+
+    let computedStatus = data.status || 'active';
+    if (computedStatus !== 'inactive' && computedStatus !== 'coming_soon' && computedStatus !== 'archived') {
+      computedStatus = newQuantity === 0 ? 'rupture' : 'active';
+    }
+
+    const payload: any = {
+      name: data.name,
+      ref: data.ref || null,
+      barcode: data.barcode || null,
+      category: data.category,
+      supplier: data.supplier || null,
+      supplier_id: data.supplierId || null,
+      buy_price: Number(data.buyPrice) || 0,
+      transport: Number(data.transport) || 0,
+      customs: Number(data.customs) || 0,
+      other_fees: Number(data.otherFees) || 0,
+      structure_pct: Number(data.structurePct) || 0,
+      sell_price_ht: sellPriceHT,
+      sell_price_ttc: sellPriceTTC,
+      min_stock: Number(data.minStock) || 5,
+      stock: newQuantity,
+      status: computedStatus,
+      product_status: computedStatus,
+      shopify: Boolean(data.shopify),
+      image_url: (imageUrl && !imageUrl.startsWith('data:')) ? imageUrl : null,
+      description: data.description || null,
+      updated_at: new Date().toISOString(),
+    };
+
+    const stockMovement = newQuantity > 0 ? {
+      product_name: data.name,
+      movement_type: 'entry',
+      quantity_before: 0,
+      quantity_after: newQuantity,
+      quantity_change: newQuantity,
+      reason: 'Stock initial — création depuis commande fournisseur',
+      source: 'product_creation',
+      performed_by: 'Admin',
+    } : undefined;
+
+    const res = await fetch('/api/products', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...payload, colorVariants, stockMovement }),
+    });
+    const json = await res.json().catch(() => ({}));
+    setCreatingProduct(false);
+
+    if (!res.ok) {
+      alert(`Erreur création produit : ${json.error ?? res.status}`);
+      return;
+    }
+
+    // Add newly created product as order line
+    const newLine: FoOrderLine = {
+      id: `new-${Date.now()}`,
+      orderId: order?.id ?? '',
+      productId: json.id,
+      productName: data.name,
+      productRef: data.ref ?? '',
+      productImageUrl: (imageUrl && !imageUrl.startsWith('data:')) ? imageUrl : undefined,
+      qtyOrdered: 1,
+      qtyReceived: 0,
+      unitPrice: Number(data.buyPrice) || 0,
+      lineTotal: Number(data.buyPrice) || 0,
+      unitTransport: 0, unitCustoms: 0, unitVatImport: 0, unitFreight: 0, unitOther: 0,
+      unitRealCost: 0, salePrice: sellPriceTTC,
+      grossMargin: 0, marginRate: 0, previousCost: 0,
+      qtyMissing: 0, qtyDamaged: 0, weightKg: 0, volumeM3: 0, customCostShare: 0,
+    };
+    setEditedLines((prev) => [...prev, newLine]);
+    setShowNewProductModal(false);
   };
 
   const handleSaveEdit = async () => {
@@ -1688,6 +1775,13 @@ export default function OrderDetailPage() {
                       Ajouter produit
                     </button>
                     <button
+                      onClick={() => setShowNewProductModal(true)}
+                      className="flex items-center gap-2 px-4 py-2 border border-emerald-300 bg-emerald-50 text-emerald-700 rounded-lg text-sm font-500 hover:bg-emerald-100 transition-colors"
+                    >
+                      <Icon name="SparklesIcon" size={15} />
+                      Nouveau produit
+                    </button>
+                    <button
                       onClick={() => setEditMode(false)}
                       className="px-4 py-2 border border-border rounded-lg text-sm font-500 text-muted-foreground hover:bg-muted transition-colors"
                     >
@@ -1722,13 +1816,22 @@ export default function OrderDetailPage() {
                   <Icon name="ShoppingBagIcon" size={36} className="text-muted-foreground mx-auto mb-3" />
                   <p className="text-muted-foreground">Aucun produit dans cette commande</p>
                   {editMode && (
-                    <button
-                      onClick={() => setShowAddLineModal(true)}
-                      className="mt-3 flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-500 hover:bg-primary/90 mx-auto"
-                    >
-                      <Icon name="PlusIcon" size={15} />
-                      Ajouter un produit
-                    </button>
+                    <div className="mt-3 flex items-center gap-2 justify-center">
+                      <button
+                        onClick={() => setShowAddLineModal(true)}
+                        className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-500 hover:bg-primary/90"
+                      >
+                        <Icon name="PlusIcon" size={15} />
+                        Ajouter un produit
+                      </button>
+                      <button
+                        onClick={() => setShowNewProductModal(true)}
+                        className="flex items-center gap-2 px-4 py-2 border border-emerald-300 bg-emerald-50 text-emerald-700 rounded-lg text-sm font-500 hover:bg-emerald-100 transition-colors"
+                      >
+                        <Icon name="SparklesIcon" size={15} />
+                        Nouveau produit
+                      </button>
+                    </div>
                   )}
                 </div>
               ) : (
@@ -1877,10 +1980,38 @@ export default function OrderDetailPage() {
                   </button>
                 ))}
                 {!searchingProducts && productSearch && productResults.length === 0 && (
-                  <p className="text-sm text-muted-foreground text-center py-4">Aucun produit trouvé</p>
+                  <div className="py-4 text-center space-y-2">
+                    <p className="text-sm text-muted-foreground">Aucun produit trouvé pour "{productSearch}"</p>
+                    <button
+                      onClick={() => { setShowAddLineModal(false); setShowNewProductModal(true); }}
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-600 hover:bg-emerald-700 transition-colors"
+                    >
+                      <Icon name="SparklesIcon" size={14} />
+                      Créer ce nouveau produit
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Création nouveau produit */}
+        {showNewProductModal && (
+          <div className="relative z-[60]">
+            <ProductFormModal
+              product={null}
+              onClose={() => setShowNewProductModal(false)}
+              onSave={handleCreateNewProduct}
+            />
+            {creatingProduct && (
+              <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40">
+                <div className="bg-white rounded-2xl px-8 py-6 flex items-center gap-4 shadow-xl">
+                  <div className="w-6 h-6 border-3 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                  <p className="text-sm font-600 text-foreground">Création du produit en cours…</p>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
