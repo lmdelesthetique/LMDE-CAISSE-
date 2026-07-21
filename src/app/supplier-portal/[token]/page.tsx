@@ -31,6 +31,16 @@ interface ChatMessage {
   attachment_type: string | null;
 }
 
+interface OrderLine {
+  id: string;
+  product_name: string | null;
+  product_ref: string | null;
+  product_image_url: string | null;
+  qty_ordered: number;
+  unit_price: number;
+  line_total: number;
+}
+
 interface Order {
   id: string;
   order_number: string;
@@ -92,6 +102,9 @@ export default function SupplierTokenPortal() {
   // Orders
   const [orders, setOrders] = useState<Order[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
+  const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
+  const [orderLines, setOrderLines] = useState<Record<string, OrderLine[]>>({});
+  const [loadingLines, setLoadingLines] = useState<string | null>(null);
 
   // Push notifications
   const [pushStatus, setPushStatus] = useState<'default' | 'granted' | 'denied' | 'unsupported'>('default');
@@ -232,6 +245,23 @@ export default function SupplierTokenPortal() {
       setOrdersLoading(false);
     }
   }, [info, supabase]);
+
+  const toggleOrder = useCallback(async (orderId: string) => {
+    if (expandedOrderId === orderId) { setExpandedOrderId(null); return; }
+    setExpandedOrderId(orderId);
+    if (orderLines[orderId]) return; // already loaded
+    setLoadingLines(orderId);
+    try {
+      const { data } = await supabase
+        .from('fo_order_lines')
+        .select('id, product_name, product_ref, product_image_url, qty_ordered, unit_price, line_total')
+        .eq('order_id', orderId)
+        .order('id');
+      setOrderLines(prev => ({ ...prev, [orderId]: (data ?? []) as OrderLine[] }));
+    } catch { /* silent */ } finally {
+      setLoadingLines(null);
+    }
+  }, [expandedOrderId, orderLines, supabase]);
 
   useEffect(() => {
     if (!info) return;
@@ -505,27 +535,104 @@ export default function SupplierTokenPortal() {
               <p>Aucune commande</p>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {orders.map(o => (
-                <div key={o.id} style={{ background: '#fff', borderRadius: 12, padding: '14px 16px', boxShadow: '0 1px 3px rgba(0,0,0,.08)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                    <p style={{ fontWeight: 700, fontSize: 15, margin: 0 }}>{o.order_number}</p>
-                    <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 20, background: `${STATUS_COLOR[o.order_status] ?? '#9ca3af'}20`, color: STATUS_COLOR[o.order_status] ?? '#9ca3af' }}>
-                      {STATUS_LABEL[o.order_status] ?? o.order_status}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>
-                      {new Date(o.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })}
-                    </p>
-                    {(o.total_real_cost ?? o.subtotal) != null && (
-                      <p style={{ fontWeight: 700, fontSize: 15, margin: 0, color: '#111' }}>
-                        {(o.total_real_cost ?? o.subtotal ?? 0).toFixed(2)} {o.currency ?? 'EUR'}
-                      </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {orders.map(o => {
+                const isExpanded = expandedOrderId === o.id;
+                const lines = orderLines[o.id] ?? [];
+                const isLoadingThis = loadingLines === o.id;
+                return (
+                  <div key={o.id} style={{ background: '#fff', borderRadius: 16, boxShadow: '0 2px 8px rgba(0,0,0,.08)', overflow: 'hidden' }}>
+                    {/* Header — cliquable */}
+                    <button
+                      onClick={() => toggleOrder(o.id)}
+                      style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: '14px 16px', textAlign: 'left' }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                        <p style={{ fontWeight: 700, fontSize: 15, margin: 0 }}>📦 {o.order_number}</p>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 20, background: `${STATUS_COLOR[o.order_status] ?? '#9ca3af'}20`, color: STATUS_COLOR[o.order_status] ?? '#9ca3af' }}>
+                            {STATUS_LABEL[o.order_status] ?? o.order_status}
+                          </span>
+                          <span style={{ fontSize: 14, color: '#9ca3af', transition: 'transform .2s', display: 'inline-block', transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>▼</span>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>
+                          {new Date(o.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })}
+                        </p>
+                        {(o.total_real_cost ?? o.subtotal) != null && (
+                          <p style={{ fontWeight: 700, fontSize: 15, margin: 0, color: '#111' }}>
+                            {(o.total_real_cost ?? o.subtotal ?? 0).toFixed(2)} {o.currency ?? 'EUR'}
+                          </p>
+                        )}
+                      </div>
+                    </button>
+
+                    {/* Détail expandé */}
+                    {isExpanded && (
+                      <div style={{ borderTop: '1px solid #f1f5f9', padding: '12px 16px 16px' }}>
+                        {/* Bouton voir dans la conversation */}
+                        <button
+                          onClick={() => setTab('chat')}
+                          style={{ width: '100%', marginBottom: 14, padding: '9px 0', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 10, fontSize: 13, fontWeight: 600, color: '#0369a1', cursor: 'pointer' }}
+                        >
+                          💬 Voir dans la conversation
+                        </button>
+
+                        {isLoadingThis ? (
+                          <div style={{ display: 'flex', justifyContent: 'center', padding: '20px 0' }}><Spinner /></div>
+                        ) : lines.length === 0 ? (
+                          <p style={{ fontSize: 13, color: '#9ca3af', textAlign: 'center', padding: '12px 0' }}>Aucun produit trouvé</p>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                            {lines.map(line => (
+                              <div key={line.id} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', background: '#fafafa', borderRadius: 12, padding: 10 }}>
+                                {/* Photo grande */}
+                                <div style={{ width: 80, height: 80, borderRadius: 10, overflow: 'hidden', flexShrink: 0, background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                  {line.product_image_url ? (
+                                    <img
+                                      src={line.product_image_url}
+                                      alt={line.product_name ?? ''}
+                                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                      loading="lazy"
+                                    />
+                                  ) : (
+                                    <span style={{ fontSize: 28 }}>📦</span>
+                                  )}
+                                </div>
+                                {/* Infos */}
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <p style={{ fontWeight: 700, fontSize: 14, margin: '0 0 3px', lineHeight: 1.3 }}>{line.product_name ?? '—'}</p>
+                                  {line.product_ref && <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 6px' }}>Réf : {line.product_ref}</p>}
+                                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                                    <span style={{ fontSize: 12, background: '#e0f2fe', color: '#0369a1', borderRadius: 8, padding: '2px 8px', fontWeight: 600 }}>
+                                      Qté : {line.qty_ordered}
+                                    </span>
+                                    <span style={{ fontSize: 12, background: '#f0fdf4', color: '#15803d', borderRadius: 8, padding: '2px 8px', fontWeight: 600 }}>
+                                      {line.unit_price.toFixed(2)} € / u
+                                    </span>
+                                    <span style={{ fontSize: 12, background: '#faf5ff', color: '#7e22ce', borderRadius: 8, padding: '2px 8px', fontWeight: 700 }}>
+                                      = {line.line_total.toFixed(2)} €
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                            {/* Total */}
+                            {(o.total_real_cost ?? o.subtotal) != null && (
+                              <div style={{ display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #e5e7eb', paddingTop: 10, marginTop: 2 }}>
+                                <span style={{ fontWeight: 700, fontSize: 16, color: '#111' }}>
+                                  Total : {(o.total_real_cost ?? o.subtotal ?? 0).toFixed(2)} {o.currency ?? 'EUR'}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
