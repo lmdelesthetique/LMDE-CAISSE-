@@ -1,10 +1,18 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import { supplierOrderService, FoOrder, FoOrderStatus } from '@/lib/services/supplierOrderService';
+import { createClient } from '@/lib/supabase/client';
+
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
+}
 
 const STATUS_CONFIG: Record<FoOrderStatus, { label: string; color: string; dot: string }> = {
   draft:                      { label: 'Brouillon',              color: 'text-gray-600 bg-gray-100',    dot: 'bg-gray-400' },
@@ -73,6 +81,24 @@ export default function CommandesFournisseursPage() {
   // wa.me links returned by notify-supplier
   const [waLinks, setWaLinks] = useState<Record<string, string>>({});
 
+  // Unread supplier message badges per order
+  const [unreadPerOrder, setUnreadPerOrder] = useState<Record<string, number>>({});
+
+  // Admin push notification state
+  const [pushStatus, setPushStatus] = useState<'unknown' | 'granted' | 'denied' | 'subscribing'>('unknown');
+  const [pushError, setPushError] = useState<string | null>(null);
+  const pushInitialized = useRef(false);
+
+  const loadUnread = useCallback(async () => {
+    try {
+      const res = await fetch('/api/supplier-messages/unread-per-order');
+      if (res.ok) {
+        const data = await res.json();
+        setUnreadPerOrder(data.counts ?? {});
+      }
+    } catch {}
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -92,7 +118,70 @@ export default function CommandesFournisseursPage() {
     }
   }, []);
 
+  // Check current push permission state
+  useEffect(() => {
+    if (pushInitialized.current) return;
+    pushInitialized.current = true;
+    if (!('Notification' in window)) return;
+    if (Notification.permission === 'granted') setPushStatus('granted');
+    else if (Notification.permission === 'denied') setPushStatus('denied');
+    else setPushStatus('unknown');
+  }, []);
+
+  // Realtime: listen for new supplier messages → refresh unread badges
+  useEffect(() => {
+    loadUnread();
+    const supabase = createClient();
+    const channel = supabase
+      .channel('admin-supplier-msgs')
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'supplier_messages',
+        filter: "sender=eq.supplier",
+      }, () => {
+        loadUnread();
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [loadUnread]);
+
   useEffect(() => { load(); }, [load]);
+
+  const handleEnablePushNotifications = async () => {
+    setPushStatus('subscribing');
+    setPushError(null);
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        setPushStatus('denied');
+        setPushError('Notifications refusées. Activez-les dans les paramètres du navigateur.');
+        return;
+      }
+      const reg = await navigator.serviceWorker.ready;
+      const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+      if (!vapidKey) throw new Error('VAPID key manquante');
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapidKey),
+      });
+      const json = sub.toJSON();
+      const res = await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          endpoint: json.endpoint,
+          keys: json.keys,
+          isAdmin: true,
+        }),
+      });
+      if (!res.ok) throw new Error('Erreur enregistrement subscription');
+      setPushStatus('granted');
+    } catch (e: any) {
+      setPushStatus('unknown');
+      setPushError(e.message || 'Erreur activation notifications');
+    }
+  };
 
   const groups = [...new Set(orders.map((o) => o.orderGroup).filter(Boolean))] as string[];
 
@@ -386,6 +475,46 @@ export default function CommandesFournisseursPage() {
           </div>
         )}
 
+        {/* Admin push notification banner */}
+        {pushStatus === 'unknown' && (
+          <div className="mb-4 flex items-center gap-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl">
+            <span className="text-lg">🔔</span>
+            <div className="flex-1">
+              <p className="text-sm font-600 text-blue-900">Recevez les messages fournisseurs en temps réel</p>
+              <p className="text-xs text-blue-700 mt-0.5">Activez les notifications pour être alerté quand un fournisseur vous envoie un message.</p>
+            </div>
+            <button
+              onClick={handleEnablePushNotifications}
+              className="shrink-0 flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-600 hover:bg-blue-700 transition-colors"
+            >
+              <span>Activer les notifications</span>
+            </button>
+          </div>
+        )}
+        {pushStatus === 'subscribing' && (
+          <div className="mb-4 flex items-center gap-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl">
+            <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+            <p className="text-sm text-blue-800">Activation en cours...</p>
+          </div>
+        )}
+        {pushStatus === 'granted' && (
+          <div className="mb-4 flex items-center gap-3 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+            <span className="text-lg">✅</span>
+            <p className="text-sm font-600 text-emerald-800">Notifications activées — vous recevrez une alerte pour chaque message fournisseur.</p>
+          </div>
+        )}
+        {pushStatus === 'denied' && (
+          <div className="mb-4 flex items-center gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl">
+            <span className="text-lg">⚠️</span>
+            <p className="text-sm text-amber-800">{pushError || 'Notifications bloquées. Autorisez-les dans les paramètres navigateur.'}</p>
+          </div>
+        )}
+        {pushError && pushStatus === 'unknown' && (
+          <div className="mb-4 flex items-center gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+            <span>⚠️ {pushError}</span>
+          </div>
+        )}
+
         {/* WhatsApp error toast */}
         {notifyError && (
           <div className="mb-3 flex items-center gap-3 px-4 py-2.5 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
@@ -439,8 +568,10 @@ export default function CommandesFournisseursPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {filtered.map((order) => (
-                    <tr key={order.id} className={`hover:bg-muted/20 transition-colors ${selectedIds.has(order.id) ? 'bg-violet-50/50' : ''}`}>
+                  {filtered.map((order) => {
+                    const unreadCount = unreadPerOrder[order.id] ?? 0;
+                    return (
+                    <tr key={order.id} className={`hover:bg-muted/20 transition-colors ${selectedIds.has(order.id) ? 'bg-violet-50/50' : unreadCount > 0 ? 'bg-blue-50/40' : ''}`}>
                       {showGroupPanel && (
                         <td className="px-3 py-3">
                           <input
@@ -494,7 +625,7 @@ export default function CommandesFournisseursPage() {
                         {order.expectedDeliveryAt ? new Date(order.expectedDeliveryAt).toLocaleDateString('fr-FR') : '—'}
                       </td>
 
-                      {/* ── Colonne Facture ── */}
+                      {/* ── Colonne Facture / Messagerie ── */}
                       <td className="px-4 py-3">
                         {!['draft', 'cancelled', 'suspended'].includes(order.orderStatus) && (
                           order.invoiceReceivedAt ? (
@@ -509,10 +640,19 @@ export default function CommandesFournisseursPage() {
                           ) : (
                             <Link
                               href={`/commandes-fournisseurs/${order.id}?tab=messaging`}
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-700 bg-violet-50 text-violet-700 border border-violet-300 hover:bg-violet-100 transition-colors"
-                              title="Accéder à la messagerie fournisseur"
+                              className={`relative inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-700 transition-colors ${
+                                unreadCount > 0
+                                  ? 'bg-blue-600 text-white border border-blue-600 hover:bg-blue-700'
+                                  : 'bg-violet-50 text-violet-700 border border-violet-300 hover:bg-violet-100'
+                              }`}
+                              title={unreadCount > 0 ? `${unreadCount} message(s) non lu(s)` : 'Accéder à la messagerie fournisseur'}
                             >
                               💬 Messagerie
+                              {unreadCount > 0 && (
+                                <span className="ml-1 bg-white text-blue-700 text-[10px] font-800 rounded-full px-1.5 py-0.5 leading-none min-w-[18px] text-center">
+                                  {unreadCount}
+                                </span>
+                              )}
                             </Link>
                           )
                         )}
@@ -572,7 +712,8 @@ export default function CommandesFournisseursPage() {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                  );
+                  })}
                 </tbody>
               </table>
             </div>

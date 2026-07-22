@@ -468,7 +468,17 @@ export default function SupplierTokenPortal() {
             ) : messages.length === 0 ? (
               <EmptyChat />
             ) : (
-              messages.map(msg => <MessageBubble key={msg.id} msg={msg} formatTime={formatTime} />)
+              messages.map(msg => (
+                <MessageBubble
+                  key={msg.id}
+                  msg={msg}
+                  formatTime={formatTime}
+                  expandedOrderId={expandedOrderId}
+                  orderLines={orderLines}
+                  loadingLines={loadingLines}
+                  onToggleOrder={toggleOrder}
+                />
+              ))
             )}
             <div ref={messagesEndRef} style={{ height: 8 }} />
           </div>
@@ -643,7 +653,39 @@ export default function SupplierTokenPortal() {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function MessageBubble({ msg, formatTime }: { msg: ChatMessage; formatTime: (s: string) => string }) {
+interface MessageBubbleProps {
+  msg: ChatMessage;
+  formatTime: (s: string) => string;
+  expandedOrderId?: string | null;
+  orderLines?: Record<string, OrderLine[]>;
+  loadingLines?: string | null;
+  onToggleOrder?: (id: string) => void;
+}
+
+const ORDER_STATUS_MAP: Record<string, { label: string; bg: string; color: string }> = {
+  draft:                        { label: '📝 Brouillon',               bg: '#f1f5f9', color: '#475569' },
+  sent:                         { label: '📤 Envoyée',                 bg: '#dbeafe', color: '#1e40af' },
+  awaiting_validation:          { label: '⏳ En attente validation',   bg: '#fef3c7', color: '#92400e' },
+  validated:                    { label: '✅ Validée',                 bg: '#d1fae5', color: '#065f46' },
+  modification_requested:       { label: '🔄 Modif. demandée',         bg: '#ffedd5', color: '#9a3412' },
+  payment_pending:              { label: '💳 Paiement en attente',     bg: '#fef3c7', color: '#92400e' },
+  payment_in_progress:          { label: '💳 Paiement en cours',       bg: '#dbeafe', color: '#1e40af' },
+  paid:                         { label: '💰 Payée',                   bg: '#d1fae5', color: '#065f46' },
+  payment_received_by_supplier: { label: '✅ Paiement reçu',           bg: '#d1fae5', color: '#065f46' },
+  in_preparation:               { label: '📋 En préparation',          bg: '#e0e7ff', color: '#3730a3' },
+  in_production:                { label: '🏭 En production',           bg: '#e0e7ff', color: '#3730a3' },
+  ready_to_ship:                { label: '📦 Prête à expédier',        bg: '#ede9fe', color: '#5b21b6' },
+  shipped:                      { label: '🚢 En chemin',               bg: '#cffafe', color: '#164e63' },
+  partially_received:           { label: '📦 Partiellement reçue',     bg: '#ccfbf1', color: '#134e4a' },
+  fully_received:               { label: '✅ Reçue',                   bg: '#d1fae5', color: '#065f46' },
+  costs_recorded:               { label: '📊 Coûts enregistrés',       bg: '#f1f5f9', color: '#334155' },
+  stock_integrated:             { label: '🏪 Stock intégré',           bg: '#d1fae5', color: '#065f46' },
+  closed:                       { label: '🔒 Clôturée',                bg: '#f1f5f9', color: '#475569' },
+  suspended:                    { label: '⏸️ Suspendue',              bg: '#ffedd5', color: '#9a3412' },
+  cancelled:                    { label: '❌ Annulée',                 bg: '#fee2e2', color: '#991b1b' },
+};
+
+function MessageBubble({ msg, formatTime, expandedOrderId, orderLines = {}, loadingLines, onToggleOrder }: MessageBubbleProps) {
   const isSupplier = msg.sender_type === 'supplier';
   const isOrderCard = msg.message_type === 'order_card';
   const [showPreview, setShowPreview] = useState(false);
@@ -651,7 +693,7 @@ function MessageBubble({ msg, formatTime }: { msg: ChatMessage; formatTime: (s: 
 
   return (
     <div style={{ display: 'flex', justifyContent: isSupplier ? 'flex-end' : 'flex-start', marginBottom: 2 }}>
-      <div style={{ maxWidth: '82%', display: 'flex', flexDirection: 'column', alignItems: isSupplier ? 'flex-end' : 'flex-start', gap: 2 }}>
+      <div style={{ maxWidth: '88%', display: 'flex', flexDirection: 'column', alignItems: isSupplier ? 'flex-end' : 'flex-start', gap: 2 }}>
 
         {/* Order card badge */}
         {isOrderCard && (
@@ -660,44 +702,74 @@ function MessageBubble({ msg, formatTime }: { msg: ChatMessage; formatTime: (s: 
           </span>
         )}
 
-        {/* Order card — rendered outside the bubble */}
+        {/* Order card — invoice type with expandable product list */}
         {msg.message_type === 'invoice' && (() => {
           try {
             const inv = JSON.parse(msg.content ?? '{}');
-            const statusMap: Record<string, { label: string; bg: string; color: string }> = {
-              draft:                        { label: '📝 Brouillon',               bg: '#f1f5f9', color: '#475569' },
-              sent:                         { label: '📤 Envoyée',                 bg: '#dbeafe', color: '#1e40af' },
-              awaiting_validation:          { label: '⏳ En attente validation',   bg: '#fef3c7', color: '#92400e' },
-              validated:                    { label: '✅ Validée',                 bg: '#d1fae5', color: '#065f46' },
-              modification_requested:       { label: '🔄 Modif. demandée',         bg: '#ffedd5', color: '#9a3412' },
-              payment_pending:              { label: '💳 Paiement en attente',     bg: '#fef3c7', color: '#92400e' },
-              payment_in_progress:          { label: '💳 Paiement en cours',       bg: '#dbeafe', color: '#1e40af' },
-              paid:                         { label: '💰 Payée',                   bg: '#d1fae5', color: '#065f46' },
-              payment_received_by_supplier: { label: '✅ Paiement reçu',           bg: '#d1fae5', color: '#065f46' },
-              in_preparation:               { label: '📋 En préparation',          bg: '#e0e7ff', color: '#3730a3' },
-              in_production:                { label: '🏭 En production',           bg: '#e0e7ff', color: '#3730a3' },
-              ready_to_ship:                { label: '📦 Prête à expédier',        bg: '#ede9fe', color: '#5b21b6' },
-              shipped:                      { label: '🚢 En chemin',               bg: '#cffafe', color: '#164e63' },
-              partially_received:           { label: '📦 Partiellement reçue',     bg: '#ccfbf1', color: '#134e4a' },
-              fully_received:               { label: '✅ Reçue',                   bg: '#d1fae5', color: '#065f46' },
-              costs_recorded:               { label: '📊 Coûts enregistrés',       bg: '#f1f5f9', color: '#334155' },
-              stock_integrated:             { label: '🏪 Stock intégré',           bg: '#d1fae5', color: '#065f46' },
-              closed:                       { label: '🔒 Clôturée',                bg: '#f1f5f9', color: '#475569' },
-              suspended:                    { label: '⏸️ Suspendue',              bg: '#ffedd5', color: '#9a3412' },
-              cancelled:                    { label: '❌ Annulée',                 bg: '#fee2e2', color: '#991b1b' },
-            };
-            const s = statusMap[inv.status] ?? { label: inv.status ?? '—', bg: '#f1f5f9', color: '#475569' };
+            const s = ORDER_STATUS_MAP[inv.status] ?? { label: inv.status ?? '—', bg: '#f1f5f9', color: '#475569' };
+            const orderId = inv.id as string | undefined;
+            const isExpanded = orderId ? expandedOrderId === orderId : false;
+            const lines = orderId ? (orderLines[orderId] ?? []) : [];
+            const isLoadingThis = orderId ? loadingLines === orderId : false;
             return (
-              <div style={{ borderRadius: 12, border: '1px solid #e2e8f0', background: '#fff', overflow: 'hidden', minWidth: 220, boxShadow: '0 2px 8px rgba(0,0,0,.08)' }}>
-                <div style={{ padding: '8px 12px', background: 'linear-gradient(135deg, #7c3aed, #6d28d9)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ borderRadius: 14, border: '1px solid #e2e8f0', background: '#fff', overflow: 'hidden', minWidth: 260, maxWidth: 320, boxShadow: '0 2px 10px rgba(0,0,0,.10)' }}>
+                {/* Header */}
+                <div style={{ padding: '10px 14px', background: 'linear-gradient(135deg, #7c3aed, #6d28d9)', display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ fontSize: 18 }}>📦</span>
                   <span style={{ color: '#fff', fontWeight: 700, fontSize: 14, flex: 1 }}>{inv.numero || 'Commande'}</span>
                   <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 10, background: s.bg, color: s.color }}>{s.label}</span>
                 </div>
-                <div style={{ padding: '10px 12px' }}>
-                  <p style={{ margin: '0 0 6px', fontSize: 12, color: '#64748b' }}>📅 {inv.date ? new Date(inv.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }) : '—'}</p>
-                  <p style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#7c3aed' }}>{typeof inv.totalTTC === 'number' ? inv.totalTTC.toFixed(2) : '—'} €</p>
+                {/* Summary */}
+                <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid #f1f5f9' }}>
+                  <p style={{ margin: '0 0 4px', fontSize: 12, color: '#64748b' }}>📅 {inv.date ? new Date(inv.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }) : '—'}</p>
+                  <p style={{ margin: 0, fontSize: 20, fontWeight: 700, color: '#7c3aed' }}>{typeof inv.totalTTC === 'number' ? inv.totalTTC.toFixed(2) : '—'} €</p>
                 </div>
+                {/* Toggle button */}
+                {orderId && onToggleOrder && (
+                  <button
+                    onClick={() => onToggleOrder(orderId)}
+                    style={{ width: '100%', background: isExpanded ? '#f5f3ff' : '#fafafa', border: 'none', borderBottom: isExpanded ? '1px solid #ede9fe' : 'none', cursor: 'pointer', padding: '9px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 13, fontWeight: 600, color: '#7c3aed' }}
+                  >
+                    <span>{isExpanded ? '▲ Masquer les produits' : '▼ Voir les produits'}</span>
+                    {isLoadingThis && <SmallSpinner />}
+                  </button>
+                )}
+                {/* Expanded product list */}
+                {isExpanded && (
+                  <div style={{ padding: '10px 14px 14px' }}>
+                    {isLoadingThis ? (
+                      <div style={{ display: 'flex', justifyContent: 'center', padding: '16px 0' }}><Spinner /></div>
+                    ) : lines.length === 0 ? (
+                      <p style={{ fontSize: 13, color: '#9ca3af', textAlign: 'center', padding: '10px 0', margin: 0 }}>Aucun produit</p>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {lines.map(line => (
+                          <div key={line.id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', background: '#fafafa', borderRadius: 10, padding: 8 }}>
+                            <div style={{ width: 64, height: 64, borderRadius: 8, overflow: 'hidden', flexShrink: 0, background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              {line.product_image_url ? (
+                                <img src={line.product_image_url} alt={line.product_name ?? ''} style={{ width: '100%', height: '100%', objectFit: 'cover' }} loading="lazy" />
+                              ) : (
+                                <span style={{ fontSize: 24 }}>📦</span>
+                              )}
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <p style={{ fontWeight: 700, fontSize: 13, margin: '0 0 2px', lineHeight: 1.3 }}>{line.product_name ?? '—'}</p>
+                              {line.product_ref && <p style={{ fontSize: 10, color: '#9ca3af', margin: '0 0 5px' }}>Réf : {line.product_ref}</p>}
+                              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: 11, background: '#e0f2fe', color: '#0369a1', borderRadius: 6, padding: '2px 7px', fontWeight: 600 }}>Qté : {line.qty_ordered}</span>
+                                <span style={{ fontSize: 11, background: '#f0fdf4', color: '#15803d', borderRadius: 6, padding: '2px 7px', fontWeight: 600 }}>{line.unit_price.toFixed(2)} €/u</span>
+                                <span style={{ fontSize: 11, background: '#faf5ff', color: '#7e22ce', borderRadius: 6, padding: '2px 7px', fontWeight: 700 }}>= {line.line_total.toFixed(2)} €</span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #e5e7eb', paddingTop: 8, marginTop: 2 }}>
+                          <span style={{ fontWeight: 700, fontSize: 15, color: '#7c3aed' }}>Total : {typeof inv.totalTTC === 'number' ? inv.totalTTC.toFixed(2) : '—'} €</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             );
           } catch {

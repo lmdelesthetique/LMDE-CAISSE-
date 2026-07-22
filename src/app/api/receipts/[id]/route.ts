@@ -101,6 +101,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     updateData.notes = changes.notes;
     auditEntries.push({ receipt_id: id, modified_by: modifiedBy, field_changed: 'notes', old_value: current.notes, new_value: changes.notes, reason });
   }
+  // Acquisition source — set silently after payment, no audit entry needed
+  if (changes.acquisitionSource !== undefined) {
+    updateData.acquisition_source = changes.acquisitionSource || null;
+  }
 
   if (Object.keys(updateData).length === 0) return NextResponse.json({ ok: true });
 

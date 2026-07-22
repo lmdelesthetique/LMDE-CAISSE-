@@ -51,15 +51,30 @@ export async function POST(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Send push notification to supplier when admin sends a message
-  if (isAdmin && process.env.VAPID_PRIVATE_KEY) {
+  // Configure VAPID once
+  if (process.env.VAPID_PRIVATE_KEY) {
     webpush.setVapidDetails(
       process.env.VAPID_SUBJECT!,
       process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
       process.env.VAPID_PRIVATE_KEY!
     );
   }
+
+  const sendPush = async (subs: { endpoint: string; p256dh: string; auth: string }[], payload: string) => {
+    for (const sub of subs) {
+      try {
+        await webpush.sendNotification(
+          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+          payload
+        );
+      } catch {
+        await supabase.from('push_subscriptions').delete().eq('endpoint', sub.endpoint);
+      }
+    }
+  };
+
   if (isAdmin) {
+    // Admin sent message → notify supplier
     const { data: subs } = await supabase
       .from('push_subscriptions')
       .select('endpoint, p256dh, auth')
@@ -75,7 +90,7 @@ export async function POST(req: NextRequest) {
       ? `${process.env.NEXT_PUBLIC_SITE_URL}/supplier-portal/${supplierRow.portal_login}`
       : `${process.env.NEXT_PUBLIC_SITE_URL}/supplier-portal/login`;
 
-    const payload = JSON.stringify({
+    await sendPush(subs ?? [], JSON.stringify({
       title: '💬 Nouveau message boutique',
       body: content
         ? content.length > 80 ? content.slice(0, 80) + '…' : content
@@ -83,19 +98,32 @@ export async function POST(req: NextRequest) {
       url: portalUrl,
       icon: '/icons/icon-192.png',
       badge: '/icons/icon-192.png',
-    });
+    }));
+  } else {
+    // Supplier sent message → notify admin
+    const { data: adminSubs } = await supabase
+      .from('push_subscriptions')
+      .select('endpoint, p256dh, auth')
+      .eq('is_admin', true);
 
-    for (const sub of subs ?? []) {
-      try {
-        await webpush.sendNotification(
-          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-          payload
-        );
-      } catch {
-        // Subscription expirée — la supprimer
-        await supabase.from('push_subscriptions').delete().eq('endpoint', sub.endpoint);
-      }
-    }
+    const { data: supplierRow } = await supabase
+      .from('suppliers')
+      .select('name')
+      .eq('id', supplierId)
+      .maybeSingle();
+
+    const supplierName = supplierRow?.name || 'Fournisseur';
+    const adminUrl = `${process.env.NEXT_PUBLIC_SITE_URL}/commandes-fournisseurs`;
+
+    await sendPush(adminSubs ?? [], JSON.stringify({
+      title: `💬 Message de ${supplierName}`,
+      body: content
+        ? content.length > 80 ? content.slice(0, 80) + '…' : content
+        : attachmentName || 'Nouveau fichier reçu',
+      url: adminUrl,
+      icon: '/icons/icon-192.png',
+      badge: '/icons/icon-192.png',
+    }));
   }
 
   return NextResponse.json({ ok: true });

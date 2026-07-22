@@ -8,6 +8,7 @@ import PaymentModal from './PaymentModal';
 import OuvertureCaisseModal from './OuvertureCaisseModal';
 import ClientLookupBar from './ClientLookupBar';
 import FreePriceModal from './FreePriceModal';
+import AcquisitionSourceModal from './AcquisitionSourceModal';
 import LoyaltyRewardNotification from './LoyaltyRewardNotification';
 import { AvailableRewardsModal, NewlyUnlockedRewardsModal, RewardAppliedBanner } from './LoyaltyRewardModals';
 import { usePOSAuth } from '@/contexts/POSAuthContext';
@@ -1307,6 +1308,7 @@ export default function POSTerminal() {
         isDemo: isDemoCart,
       });
       if (!saved) toast.error('Ticket non enregistré — vérifiez la connexion', { duration: 8000 });
+      setLastReceiptId(saved?.id ?? null);
 
       // Complete referral if one was applied
       if (globalDiscount?.isReferral && globalDiscount.parrainId && !isDemoCart) {
@@ -1399,7 +1401,7 @@ export default function POSTerminal() {
           });
         }
 
-        setShowDocChoice(true);
+        setShowAcquisition(true);
         toast.success(`Paiement encaissé — ${total.toFixed(2)} € via ${method}`);
       } else {
         if (next) {
@@ -1432,7 +1434,7 @@ export default function POSTerminal() {
         setAppliedReward(null);
         setAvailableRewards([]);
         setClient(null);
-        setShowDocChoice(true);
+        setShowAcquisition(true);
         toast.success(`Paiement encaissé — ${total.toFixed(2)} € via ${method}`);
       }
     } else {
@@ -1455,6 +1457,7 @@ export default function POSTerminal() {
         isDemo: isDemoCart,
       });
       if (!saved2) toast.error('Ticket non enregistré — vérifiez la connexion', { duration: 8000 });
+      setLastReceiptId(saved2?.id ?? null);
 
       // Complete referral if one was applied (anonymous checkout with referral code)
       if (globalDiscount?.isReferral && globalDiscount.parrainId && !isDemoCart) {
@@ -1537,6 +1540,14 @@ export default function POSTerminal() {
   const [lastSaleLoyalty, setLastSaleLoyalty] = useState<{ pointsEarned: number; totalPoints: number; nextTier: LoyaltyTier | null; pointsToNext: number; currentTierName: string | null } | null>(null);
   const [lastSaleRewardDiscount, setLastSaleRewardDiscount] = useState(0);
   const [lastSaleGlobalDiscount, setLastSaleGlobalDiscount] = useState(0);
+  // Acquisition source questionnaire
+  const [showAcquisition, setShowAcquisition] = useState(false);
+  const [lastReceiptId, setLastReceiptId] = useState<string | null>(null);
+
+  const handleAcquisitionClose = useCallback(() => {
+    setShowAcquisition(false);
+    setShowDocChoice(true);
+  }, []);
 
   const handleDocChoiceClose = useCallback(() => {
     setShowDocChoice(false);
@@ -2149,25 +2160,7 @@ export default function POSTerminal() {
           </div>{/* end scrollable middle */}
 
           {/* Payment buttons — always visible at bottom */}
-          <div className="border-t border-border p-4 space-y-3 shrink-0">
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                { id: 'pay-cb', label: 'Carte bancaire', mode: 'immediate' as const, sub: 'CB / Sans contact' },
-                { id: 'pay-cash', label: 'Espèces', mode: 'immediate' as const, sub: 'Rendu monnaie' },
-                { id: 'pay-mix', label: 'Paiement mixte', mode: 'immediate' as const, sub: 'CB + Espèces' },
-                { id: 'pay-inst', label: 'Plusieurs fois', mode: 'installment' as const, sub: '2x / 3x / 4x' },
-              ].map((btn) => (
-                <button
-                  key={btn.id}
-                  onClick={() => openPayment(btn.mode)}
-                  disabled={cart.length === 0}
-                  className="flex flex-col items-center justify-center py-2.5 px-3 border border-border rounded-lg hover:border-primary/40 hover:bg-primary/5 transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed active:scale-95"
-                >
-                  <span className="text-sm font-600 text-foreground">{btn.label}</span>
-                  <span className="text-[10px] text-muted-foreground mt-0.5">{btn.sub}</span>
-                </button>
-              ))}
-            </div>
+          <div className="border-t border-border p-4 space-y-2 shrink-0">
             <button
               onClick={() => openPayment('acompte')}
               disabled={cart.length === 0}
@@ -2346,6 +2339,14 @@ export default function POSTerminal() {
           currentPoints={newlyUnlockedRewards.currentPoints}
           pointsEarned={newlyUnlockedRewards.pointsEarned}
           onDismiss={handleNewlyUnlockedDismiss}
+        />
+      )}
+
+      {/* Acquisition source questionnaire — shown right after payment */}
+      {showAcquisition && (
+        <AcquisitionSourceModal
+          receiptId={lastReceiptId}
+          onClose={handleAcquisitionClose}
         />
       )}
 
