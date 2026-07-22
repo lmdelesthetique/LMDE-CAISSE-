@@ -4,12 +4,24 @@ import { createAdminClient } from '@/lib/supabase/admin';
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const body = await req.json();
-    if (!body.status) return NextResponse.json({ error: 'status requis' }, { status: 400 });
-
     const supabase = createAdminClient();
+
+    const allowed = [
+      'status', 'delivery_destination', 'delivery_address',
+      'delivery_payment_sent', 'linked_expedition_id', 'linked_delivery_id', 'notified_at',
+    ];
+    const updateData: Record<string, any> = {};
+    for (const key of allowed) {
+      if (body[key] !== undefined) updateData[key] = body[key];
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return NextResponse.json({ error: 'Aucun champ à mettre à jour' }, { status: 400 });
+    }
+
     const { error } = await supabase
       .from('subscription_orders')
-      .update({ status: body.status })
+      .update(updateData)
       .eq('id', params.id);
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });

@@ -38,6 +38,9 @@ interface SubscriptionRow {
     statut_livraison: string | null;
     delivery_id: string | null;
     notified_at: string | null;
+    delivery_destination: string | null;
+    delivery_address: string | null;
+    delivery_payment_sent: boolean;
   } | null;
 }
 
@@ -68,24 +71,50 @@ const ORDER_COLOR: Record<OrderStatus, string> = {
   cancelled: 'bg-red-50 text-red-700 border border-red-200',
 };
 
-// ─── BoxModal ─────────────────────────────────────────────────────────────────
+// ─── Destination helpers ──────────────────────────────────────────────────────
 
-function BoxModal({
+const DEST_LABEL: Record<string, string> = {
+  retrait: '🏪 Retrait magasin',
+  martinique: '🏝️ Martinique',
+  guadeloupe: '✈️ Guadeloupe',
+  guyane: '✈️ Guyane',
+  france: '✈️ France métro',
+};
+const DEST_COLOR: Record<string, string> = {
+  retrait: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  martinique: 'bg-blue-50 text-blue-700 border-blue-200',
+  guadeloupe: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+  guyane: 'bg-teal-50 text-teal-700 border-teal-200',
+  france: 'bg-purple-50 text-purple-700 border-purple-200',
+};
+
+// ─── PrepModal ────────────────────────────────────────────────────────────────
+
+function PrepModal({
   sub,
   currentMonth,
   onClose,
   onDeliver,
+  onRefresh,
 }: {
   sub: SubscriptionRow;
   currentMonth: string;
   onClose: () => void;
   onDeliver: () => void;
+  onRefresh: () => void;
 }) {
   const [items, setItems] = useState<OrderItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [notifying, setNotifying] = useState(false);
+  const [creatingExpedition, setCreatingExpedition] = useState(false);
+  const [err, setErr] = useState('');
+  const [localStatus, setLocalStatus] = useState(sub.currentOrder?.status ?? 'confirmed');
+
   const order = sub.currentOrder!;
   const clientName = sub.client ? `${sub.client.first_name} ${sub.client.last_name}` : '—';
   const monthLabel = new Date(currentMonth + '-01').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+  const dest = order.delivery_destination;
+  const isPreparing = localStatus === 'preparing' || localStatus === 'shipped' || localStatus === 'en_livraison';
 
   useEffect(() => {
     const supabase = createClient();
@@ -96,21 +125,147 @@ function BoxModal({
       .then(({ data }) => { setItems(data ?? []); setLoading(false); });
   }, [order.id]);
 
-  const isDelivered = order.statut_livraison === 'en_livraison';
+  const handleNotifyReady = async () => {
+    setNotifying(true);
+    setErr('');
+    try {
+      const nowIso = new Date().toISOString();
+      const res = await fetch(`/api/subscriptions/orders/${order.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'preparing', notified_at: nowIso }),
+      });
+      if (!res.ok) { setErr('Erreur mise à jour commande'); setNotifying(false); return; }
+
+      setLocalStatus('preparing');
+
+      // WhatsApp to client
+      const phone = sub.portal_phone;
+      const firstName = sub.client?.first_name ?? clientName;
+      if (phone) {
+        const waMsg = `Bonjour ${firstName} ! 🎁\n\nVotre box beauté du mois est en cours de préparation par notre équipe.\n\nNous vous préviendrons dès qu'elle sera prête à être remise ou expédiée.\n\nLe Monde de l'Esthétique 💅`;
+        fetch('/api/whatsapp/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ to: phone, message: waMsg }),
+        }).then((r) => r.json()).then((d) => {
+          if (!d.ok && phone) {
+            const p = phone.replace(/[\s+]/g, '');
+            window.open(`https://wa.me/${p}?text=${encodeURIComponent(waMsg)}`, '_blank');
+          }
+        }).catch(() => {
+          const p = phone.replace(/[\s+]/g, '');
+          window.open(`https://wa.me/${p}?text=${encodeURIComponent(waMsg)}`, '_blank');
+        });
+      }
+
+      // Portal notification
+      if (sub.client?.id) {
+        fetch('/api/client-portal/notifications', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            clientId: sub.client.id,
+            title: '🔧 Votre box est en préparation',
+            message: 'Notre équipe prépare votre box avec soin. Vous serez notifiée dès qu\'elle est prête !',
+            type: 'info',
+          }),
+        }).catch(() => {});
+      }
+
+      onRefresh();
+    } catch {
+      setErr('Erreur réseau');
+    } finally {
+      setNotifying(false);
+    }
+  };
+
+  const handleCreateExpedition = async () => {
+    setCreatingExpedition(true);
+    setErr('');
+    try {
+      const res = await fetch('/api/expeditions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientName,
+          clientPhone: sub.portal_phone ?? '',
+          shippingAddress: order.delivery_address ?? '',
+          carrier: 'Colissimo',
+          products: items.map((i) => ({ name: i.product?.name ?? '?', quantity: i.quantity, ref: i.product?.ref ?? '' })),
+          totalAmount: sub.plan?.price ?? 0,
+          notes: `Box abonnement ${monthLabel} — ${sub.plan?.name ?? ''}`,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) { setErr(json.error ?? 'Erreur création expédition'); setCreatingExpedition(false); return; }
+
+      const expeditionId = json.id ?? null;
+      await fetch(`/api/subscriptions/orders/${order.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'shipped', ...(expeditionId ? { linked_expedition_id: expeditionId } : {}) }),
+      });
+
+      // Portal notification
+      if (sub.client?.id) {
+        fetch('/api/client-portal/notifications', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            clientId: sub.client.id,
+            title: '🚀 Votre box a été expédiée !',
+            message: 'Votre box beauté du mois a été expédiée. Livraison sous 2 à 5 jours ouvrés 📦',
+            type: 'success',
+          }),
+        }).catch(() => {});
+      }
+
+      onRefresh();
+      onClose();
+      window.location.href = '/expeditions';
+    } catch {
+      setErr('Erreur réseau');
+      setCreatingExpedition(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-0 sm:px-4">
-      <div className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl shadow-2xl max-h-[90vh] flex flex-col">
+      <div className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl shadow-2xl max-h-[92vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-gray-100">
           <div>
-            <h2 className="text-lg font-bold text-gray-900">📦 Box de {clientName}</h2>
+            <h2 className="text-lg font-bold text-gray-900">📦 Préparation — {clientName}</h2>
             <p className="text-sm text-gray-500 capitalize mt-0.5">
-              {monthLabel} — {sub.plan?.name ?? '—'} {sub.plan?.price ?? '—'}€
+              {monthLabel} · {sub.plan?.name ?? '—'} {sub.plan?.price ?? '—'}€
             </p>
           </div>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors text-lg">×</button>
         </div>
+
+        {/* Destination + address info */}
+        {(dest || order.delivery_address) && (
+          <div className="px-5 pt-3 pb-1 flex flex-wrap items-center gap-2">
+            {dest && (
+              <span className={`text-xs font-bold px-2.5 py-1 rounded-full border ${DEST_COLOR[dest] ?? 'bg-gray-50 text-gray-600 border-gray-200'}`}>
+                {DEST_LABEL[dest] ?? dest}
+              </span>
+            )}
+            {order.delivery_address && (
+              <span className="text-xs text-gray-500 truncate max-w-[260px]">📍 {order.delivery_address}</span>
+            )}
+            {order.delivery_payment_sent && (
+              <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">💳 Paiement livraison envoyé</span>
+            )}
+          </div>
+        )}
+        {!dest && (
+          <div className="px-5 pt-3 pb-1">
+            <span className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full">⚠️ Mode de livraison non choisi par la cliente</span>
+          </div>
+        )}
 
         {/* Items */}
         <div className="flex-1 overflow-y-auto px-5 py-4">
@@ -123,24 +278,27 @@ function BoxModal({
           ) : (
             <div className="space-y-2">
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                PRODUITS ({items.length}) :
+                PRODUITS ({items.length})
               </p>
-              {items.map((item) => {
-                const name = item.product?.name ?? '—';
-                const ref = item.product?.ref;
-                return (
-                  <div key={item.id} className="flex items-center justify-between gap-3 py-2 border-b border-gray-100 last:border-0">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-800 truncate">{name}</p>
-                      {ref && <p className="text-xs text-gray-400">Réf: {ref}</p>}
+              {items.map((item) => (
+                <div key={item.id} className="flex items-center gap-3 py-2 border-b border-gray-100 last:border-0">
+                  {item.product?.image_url ? (
+                    <img src={item.product.image_url} alt={item.product.name} className="w-14 h-14 rounded-xl object-cover shrink-0 border border-gray-100" />
+                  ) : (
+                    <div className="w-14 h-14 rounded-xl bg-pink-50 flex items-center justify-center shrink-0 border border-pink-100">
+                      <span className="text-2xl">💄</span>
                     </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-sm font-bold text-gray-900">x{item.quantity}</p>
-                      <p className="text-xs text-gray-500">{(item.unit_sell_price * item.quantity).toFixed(2)} €</p>
-                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 truncate">{item.product?.name ?? '—'}</p>
+                    {item.product?.ref && <p className="text-xs text-gray-400">Réf: {item.product.ref}</p>}
                   </div>
-                );
-              })}
+                  <div className="text-right shrink-0">
+                    <p className="text-sm font-bold text-gray-900">×{item.quantity}</p>
+                    <p className="text-xs text-gray-500">{(item.unit_sell_price * item.quantity).toFixed(2)} €</p>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -148,41 +306,56 @@ function BoxModal({
         {/* Totals */}
         <div className="px-5 py-3 bg-gray-50 border-t border-gray-100 space-y-1 text-sm">
           <div className="flex justify-between text-gray-600">
-            <span>Sous-total produits</span>
+            <span>Produits</span>
             <span className="font-semibold tabular-nums">{(order.total_sell_price ?? 0).toFixed(2)} €</span>
-          </div>
-          <div className="flex justify-between text-gray-600">
-            <span>Livraison</span>
-            <span className="font-semibold tabular-nums">
-              {sub.plan?.shipping_free ? 'Offerte' : `${(order.shipping_cost ?? 0).toFixed(2)} €`}
-            </span>
           </div>
           <div className="flex justify-between font-bold text-gray-900 border-t border-gray-200 pt-1.5 mt-1.5">
             <span>Forfait abonnement</span>
             <span className="tabular-nums">{sub.plan?.price ?? '—'} €</span>
           </div>
-          <div className="flex items-center gap-2 pt-2">
-            <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${ORDER_COLOR[order.status]} border-current`}>
-              {isDelivered ? '🚚 En livraison' : `✅ ${ORDER_LABEL[order.status]}`}
-            </span>
-          </div>
         </div>
 
+        {err && <p className="px-5 py-2 text-sm text-red-600 bg-red-50">{err}</p>}
+
         {/* Actions */}
-        <div className="px-5 pb-5 pt-3 flex gap-3">
-          {!isDelivered && (
+        <div className="px-5 pb-5 pt-3 space-y-2">
+          {!isPreparing ? (
+            /* STEP 1: mark box as ready + notify client */
             <button
-              onClick={() => { onClose(); onDeliver(); }}
-              className="flex-1 py-3 bg-orange-500 text-white font-bold rounded-xl text-sm hover:bg-orange-600 active:scale-95 transition-all"
+              onClick={handleNotifyReady}
+              disabled={notifying}
+              className="w-full py-3.5 bg-emerald-500 text-white font-bold rounded-xl text-sm hover:bg-emerald-600 active:scale-95 transition-all disabled:opacity-50"
             >
-              🚚 Mettre en livraison
+              {notifying ? 'Notification en cours…' : '✅ Box est prête — Notifier la cliente'}
             </button>
+          ) : (
+            /* STEP 2: dispatch options */
+            <div className="space-y-2">
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wide text-center">Expédier ou livrer</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={handleCreateExpedition}
+                  disabled={creatingExpedition}
+                  className="flex flex-col items-center gap-1.5 py-3.5 bg-indigo-50 border-2 border-indigo-300 text-indigo-700 font-bold rounded-xl text-xs hover:bg-indigo-100 active:scale-95 transition-all disabled:opacity-50"
+                >
+                  <span className="text-2xl">📦</span>
+                  {creatingExpedition ? 'En cours…' : 'Créer étiquette\n(Colissimo)'}
+                </button>
+                <button
+                  onClick={() => { onClose(); onDeliver(); }}
+                  className="flex flex-col items-center gap-1.5 py-3.5 bg-orange-50 border-2 border-orange-300 text-orange-700 font-bold rounded-xl text-xs hover:bg-orange-100 active:scale-95 transition-all"
+                >
+                  <span className="text-2xl">🚚</span>
+                  Confier à<br/>un livreur
+                </button>
+              </div>
+            </div>
           )}
           <button
             onClick={onClose}
-            className="flex-1 py-3 border-2 border-gray-200 text-gray-600 font-bold rounded-xl text-sm hover:bg-gray-50 transition-colors"
+            className="w-full py-2.5 border-2 border-gray-200 text-gray-600 font-bold rounded-xl text-sm hover:bg-gray-50 transition-colors"
           >
-            Fermer
+            Fermer (revenir plus tard)
           </button>
         </div>
       </div>
@@ -554,7 +727,7 @@ export default function AbonnementsPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [newConfirmToast, setNewConfirmToast] = useState<string | null>(null);
   // Modals
-  const [boxModalSub, setBoxModalSub] = useState<SubscriptionRow | null>(null);
+  const [prepModalSub, setPrepModalSub] = useState<SubscriptionRow | null>(null);
   const [deliveryModalSub, setDeliveryModalSub] = useState<SubscriptionRow | null>(null);
   // Notify modal state
   const [notifyEmailSub, setNotifyEmailSub] = useState<SubscriptionRow | null>(null);
@@ -586,7 +759,7 @@ export default function AbonnementsPage() {
     const subIds = subs.map((s: any) => s.id);
     const { data: orders } = await supabase
       .from('subscription_orders')
-      .select('id, subscription_id, status, total_products_cost, total_sell_price, benefit_amount, shipping_cost, statut_livraison, delivery_id, notified_at')
+      .select('id, subscription_id, status, total_products_cost, total_sell_price, benefit_amount, shipping_cost, statut_livraison, delivery_id, notified_at, delivery_destination, delivery_address, delivery_payment_sent')
       .in('subscription_id', subIds)
       .eq('order_month', currentMonth);
 
@@ -908,6 +1081,13 @@ export default function AbonnementsPage() {
                       </span>
                     )}
 
+                    {/* Delivery destination badge */}
+                    {order?.delivery_destination && (
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border shrink-0 hidden sm:inline ${DEST_COLOR[order.delivery_destination] ?? 'bg-gray-50 text-gray-600 border-gray-200'}`}>
+                        {DEST_LABEL[order.delivery_destination] ?? order.delivery_destination}
+                      </span>
+                    )}
+
                     {/* Launch offer badge */}
                     {sub.launch_offer && (
                       <span className="text-xs font-bold text-violet-700 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-full shrink-0 hidden sm:inline">
@@ -942,22 +1122,13 @@ export default function AbonnementsPage() {
                         </button>
                       )}
                       {isConfirmed && !isEnLivraison && (
-                        <>
-                          <button
-                            onClick={() => setBoxModalSub(sub)}
-                            className="px-2.5 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg text-[11px] font-bold hover:bg-blue-100 transition-colors"
-                            title="Voir la box"
-                          >
-                            📦 Box
-                          </button>
-                          <button
-                            onClick={() => setDeliveryModalSub(sub)}
-                            className="px-2.5 py-1 bg-orange-50 text-orange-700 border border-orange-200 rounded-lg text-[11px] font-bold hover:bg-orange-100 transition-colors"
-                            title="Mettre en livraison"
-                          >
-                            🚚
-                          </button>
-                        </>
+                        <button
+                          onClick={() => setPrepModalSub(sub)}
+                          className="px-2.5 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg text-[11px] font-bold hover:bg-blue-100 transition-colors"
+                          title="Préparer la box"
+                        >
+                          🔧 Préparer
+                        </button>
                       )}
                     </div>
 
@@ -1098,18 +1269,10 @@ export default function AbonnementsPage() {
                         )}
                         {isConfirmed && !isEnLivraison && (
                           <button
-                            onClick={() => setBoxModalSub(sub)}
+                            onClick={() => setPrepModalSub(sub)}
                             className="flex-1 min-w-[120px] py-2 text-center bg-blue-50 border border-blue-200 text-blue-700 rounded-xl text-xs font-semibold hover:bg-blue-100 transition-colors"
                           >
-                            📦 Voir la box
-                          </button>
-                        )}
-                        {isConfirmed && !isEnLivraison && (
-                          <button
-                            onClick={() => setDeliveryModalSub(sub)}
-                            className="flex-1 min-w-[120px] py-2 text-center bg-orange-50 border border-orange-200 text-orange-700 rounded-xl text-xs font-semibold hover:bg-orange-100 transition-colors"
-                          >
-                            🚚 Mettre en livraison
+                            🔧 Préparer la box
                           </button>
                         )}
                         <button
@@ -1151,13 +1314,14 @@ export default function AbonnementsPage() {
         )}
       </div>
 
-      {/* BoxModal */}
-      {boxModalSub && (
-        <BoxModal
-          sub={boxModalSub}
+      {/* PrepModal */}
+      {prepModalSub && (
+        <PrepModal
+          sub={prepModalSub}
           currentMonth={currentMonth}
-          onClose={() => setBoxModalSub(null)}
-          onDeliver={() => setDeliveryModalSub(boxModalSub)}
+          onClose={() => setPrepModalSub(null)}
+          onDeliver={() => setDeliveryModalSub(prepModalSub)}
+          onRefresh={() => load()}
         />
       )}
 

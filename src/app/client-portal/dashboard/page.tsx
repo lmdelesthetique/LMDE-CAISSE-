@@ -31,6 +31,9 @@ interface SubscriptionOrder {
   deadline_date: string | null;
   statut_livraison: string | null;
   shipping_mode: 'delivery' | 'pickup';
+  delivery_destination: string | null;
+  delivery_address: string | null;
+  delivery_payment_sent: boolean;
 }
 
 interface PortalProduct {
@@ -620,6 +623,43 @@ export default function ClientDashboardPage() {
 
   // ── Mode de livraison ─────────────────────────────────────────────────────
   const [updatingShipping, setUpdatingShipping] = useState(false);
+
+  // ── Delivery destination + address (post-confirmation) ───────────────────
+  const [deliveryStep, setDeliveryStep] = useState<'choice' | 'form' | null>(null);
+  const [deliveryDestination, setDeliveryDestination] = useState('');
+  const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [savingDelivery, setSavingDelivery] = useState(false);
+  const [deliverySaved, setDeliverySaved] = useState(false);
+
+  const handleSaveDelivery = async (destination: string, address?: string) => {
+    if (!currentOrder) return;
+    setSavingDelivery(true);
+    try {
+      await fetch(`/api/subscriptions/orders/${currentOrder.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ delivery_destination: destination, delivery_address: address ?? null }),
+      });
+
+      // Auto-send Stripe delivery payment link if not free
+      if (destination !== 'retrait' && !shippingFree && !launchOffer) {
+        await fetch(`/api/subscriptions/orders/${currentOrder.id}/send-delivery-payment`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        }).catch(() => {});
+      }
+
+      setCurrentOrder((prev) => prev ? { ...prev, delivery_destination: destination, delivery_address: address ?? null } : prev);
+      setDeliveryStep(null);
+      setDeliverySaved(true);
+      showToast(destination === 'retrait' ? '🏪 Retrait enregistré !' : '📦 Adresse de livraison enregistrée !');
+    } catch {
+      showToast('Erreur lors de l\'enregistrement', 'error');
+    } finally {
+      setSavingDelivery(false);
+    }
+  };
+
   const updateShippingMode = async (mode: 'delivery' | 'pickup') => {
     if (!currentOrder || currentOrder.status === 'confirmed') return;
     setUpdatingShipping(true);
@@ -1191,6 +1231,14 @@ export default function ClientDashboardPage() {
                     <svg className="w-4 h-4 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
                     <p className="text-xs text-emerald-700 font-semibold">Box confirmée ! Votre conseillère prépare votre commande.</p>
                   </div>
+                ) : currentOrder?.status === 'preparing' || currentOrder?.status === 'shipped' ? (
+                  /* ── Préparation / Expédiée ── */
+                  <div className="flex items-center gap-2 p-3 bg-blue-50 rounded-xl border border-blue-100">
+                    <span className="text-base shrink-0">{currentOrder.status === 'shipped' ? '🚀' : '🔧'}</span>
+                    <p className="text-xs text-blue-700 font-semibold">
+                      {currentOrder.status === 'shipped' ? 'Votre box a été expédiée !' : 'Votre box est en cours de préparation.'}
+                    </p>
+                  </div>
                 ) : canEdit ? (
                   /* ── En cours (open) : bouton confirmer ── */
                   <button
@@ -1217,6 +1265,120 @@ export default function ClientDashboardPage() {
                 </div>
               </div>
             )}
+
+            {/* ── Delivery destination card (post-confirmation) ── */}
+            {!loadingOrder && currentOrder && (currentOrder.status === 'confirmed' || currentOrder.status === 'preparing') && currentOrder.statut_livraison !== 'en_livraison' && (() => {
+              const dest = currentOrder.delivery_destination;
+
+              // Already saved — show summary + edit option
+              if (dest) {
+                const DEST_LABELS: Record<string, string> = {
+                  retrait: '🏪 Retrait magasin', martinique: '🏝️ Martinique', guadeloupe: '✈️ Guadeloupe', guyane: '✈️ Guyane', france: '✈️ France métropolitaine',
+                };
+                return (
+                  <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-bold text-gray-700 uppercase tracking-wide">Mode de réception</p>
+                      {currentOrder.status === 'confirmed' && (
+                        <button onClick={() => { setDeliveryStep('choice'); setDeliveryDestination(dest); setDeliveryAddress(currentOrder.delivery_address ?? ''); }} className="text-xs text-rose-500 font-semibold hover:underline">Modifier</button>
+                      )}
+                    </div>
+                    <p className="text-sm font-semibold text-gray-800">{DEST_LABELS[dest] ?? dest}</p>
+                    {currentOrder.delivery_address && (
+                      <p className="text-xs text-gray-500">📍 {currentOrder.delivery_address}</p>
+                    )}
+                    {currentOrder.delivery_payment_sent && (
+                      <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-1.5">💳 Lien de paiement des frais de livraison envoyé</p>
+                    )}
+                  </div>
+                );
+              }
+
+              // Not yet chosen — show form
+              if (deliveryStep === 'form') {
+                return (
+                  <div className="bg-white rounded-2xl p-4 shadow-sm border border-rose-200 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-bold text-gray-800">📦 Informations de livraison</p>
+                      <button onClick={() => setDeliveryStep('choice')} className="text-xs text-gray-400 hover:text-gray-600">← Retour</button>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-gray-700 mb-2">Destination</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { value: 'martinique', label: '🏝️ Martinique' },
+                          { value: 'guadeloupe', label: '✈️ Guadeloupe' },
+                          { value: 'guyane', label: '✈️ Guyane' },
+                          { value: 'france', label: '✈️ France métro' },
+                        ].map((d) => (
+                          <button
+                            key={d.value}
+                            onClick={() => setDeliveryDestination(d.value)}
+                            className={`py-2 text-xs font-semibold rounded-xl border-2 transition-all ${deliveryDestination === d.value ? 'border-rose-500 bg-rose-50 text-rose-700' : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}
+                          >
+                            {d.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1.5">Adresse de livraison *</label>
+                      <textarea
+                        value={deliveryAddress}
+                        onChange={(e) => setDeliveryAddress(e.target.value)}
+                        placeholder="Numéro, rue, ville, code postal…"
+                        rows={3}
+                        className="w-full text-sm border-2 border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:border-rose-400 resize-none"
+                      />
+                    </div>
+                    {!shippingFree && !launchOffer && deliveryDestination && (
+                      <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5 text-xs text-amber-800">
+                        ℹ️ Des frais de livraison de <strong>8 €</strong> s'appliquent. Un lien de paiement sécurisé vous sera envoyé automatiquement.
+                      </div>
+                    )}
+                    <button
+                      onClick={() => handleSaveDelivery(deliveryDestination, deliveryAddress)}
+                      disabled={savingDelivery || !deliveryDestination || !deliveryAddress.trim()}
+                      className="w-full py-3 bg-rose-500 text-white rounded-xl text-sm font-bold hover:bg-rose-600 transition-colors disabled:opacity-40"
+                    >
+                      {savingDelivery ? 'Enregistrement…' : '✓ Confirmer l\'adresse'}
+                    </button>
+                  </div>
+                );
+              }
+
+              // Default: choice card
+              return (
+                <div className="bg-white rounded-2xl p-4 shadow-sm border border-rose-200 space-y-3">
+                  <div>
+                    <p className="text-sm font-bold text-gray-800">Choisir votre mode de réception</p>
+                    <p className="text-xs text-gray-500 mt-0.5">Une étape nécessaire pour que nous puissions vous remettre votre box</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => handleSaveDelivery('retrait')}
+                      disabled={savingDelivery}
+                      className="flex flex-col items-center gap-1.5 py-4 rounded-xl border-2 border-gray-200 hover:border-emerald-400 hover:bg-emerald-50 text-gray-600 hover:text-emerald-700 font-semibold transition-all text-xs active:scale-95 disabled:opacity-50"
+                    >
+                      <span className="text-2xl">🏪</span>
+                      Retrait magasin
+                      <span className="text-[10px] text-emerald-600 font-bold">Gratuit</span>
+                    </button>
+                    <button
+                      onClick={() => { setDeliveryStep('form'); setDeliveryDestination(''); setDeliveryAddress(''); }}
+                      className="flex flex-col items-center gap-1.5 py-4 rounded-xl border-2 border-gray-200 hover:border-rose-400 hover:bg-rose-50 text-gray-600 hover:text-rose-700 font-semibold transition-all text-xs active:scale-95"
+                    >
+                      <span className="text-2xl">📦</span>
+                      Livraison / Expédition
+                      {shippingFree || launchOffer
+                        ? <span className="text-[10px] text-emerald-600 font-bold">Offerte 🎁</span>
+                        : <span className="text-[10px] text-gray-400">8 €</span>
+                      }
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
           </>
         )}
 
