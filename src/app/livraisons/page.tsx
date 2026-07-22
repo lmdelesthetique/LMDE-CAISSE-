@@ -132,6 +132,8 @@ export default function LivraisonsPage() {
   const driversOnline  = drivers.filter((d) => d.driverStatus === 'on').length;
   const todayDelivered = deliveries.filter((d) => d.status === 'delivered' && d.deliveredAt?.startsWith(todayStr)).length;
   const enRouteCount   = deliveries.filter((d) => d.status === 'en_route').length;
+  const pendingInvoices = deliveries.filter((d) => d.driverFee != null && !d.driverInvoicePaid).length;
+  const pendingInvoicesTotal = deliveries.filter((d) => d.driverFee != null && !d.driverInvoicePaid).reduce((s, d) => s + (d.driverFee ?? 0), 0);
 
   const filtered = tab === 'all'
     ? deliveries.filter((d) => d.status !== 'cancelled')
@@ -161,6 +163,17 @@ export default function LivraisonsPage() {
     if (!confirm('Annuler cette livraison ?')) return;
     try { await deliveryService.cancel(deliveryId); } catch { /* ignore */ }
     loadAll();
+  };
+
+  const handleMarkInvoicePaid = async (deliveryId: string) => {
+    try {
+      await fetch(`/api/livraisons/${deliveryId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ driver_invoice_paid: true }),
+      });
+      loadAll();
+    } catch { /* ignore */ }
   };
 
   const handleCreateSubmit = async (e: React.FormEvent) => {
@@ -250,16 +263,18 @@ export default function LivraisonsPage() {
       )}
 
       {/* KPI cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
         {[
-          { label: 'Commandes actives', value: totalOrders,    icon: '📦', bg: 'bg-blue-50 border-blue-200' },
-          { label: 'Livreurs en ligne', value: driversOnline,  icon: '🟢', bg: 'bg-green-50 border-green-200' },
-          { label: 'Livrées auj.',      value: todayDelivered, icon: '✅', bg: 'bg-emerald-50 border-emerald-200' },
-          { label: 'En route',          value: enRouteCount,   icon: '🚚', bg: 'bg-orange-50 border-orange-200' },
+          { label: 'Commandes actives', value: totalOrders,    icon: '📦', bg: 'bg-blue-50 border-blue-200',     text: null },
+          { label: 'Livreurs en ligne', value: driversOnline,  icon: '🟢', bg: 'bg-green-50 border-green-200',   text: null },
+          { label: 'Livrées auj.',      value: todayDelivered, icon: '✅', bg: 'bg-emerald-50 border-emerald-200', text: null },
+          { label: 'En route',          value: enRouteCount,   icon: '🚚', bg: 'bg-orange-50 border-orange-200',  text: null },
+          { label: 'Factures à payer',  value: pendingInvoices, icon: '🧾', bg: pendingInvoices > 0 ? 'bg-amber-50 border-amber-300' : 'bg-gray-50 border-gray-200', text: pendingInvoices > 0 ? `${pendingInvoicesTotal.toFixed(2)} € dû` : null },
         ].map((kpi) => (
           <div key={kpi.label} className={`rounded-2xl border p-4 ${kpi.bg}`}>
             <p className="text-3xl font-black text-gray-900">{kpi.value}</p>
             <p className="text-xs font-semibold text-gray-600 mt-1">{kpi.icon} {kpi.label}</p>
+            {kpi.text && <p className="text-xs font-bold text-amber-700 mt-0.5">{kpi.text}</p>}
           </div>
         ))}
       </div>
@@ -323,6 +338,7 @@ export default function LivraisonsPage() {
                   <th className="text-right px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider hidden md:table-cell">Montant</th>
                   <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Statut</th>
                   <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Livreur</th>
+                  <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider hidden lg:table-cell">Facture livreur</th>
                   <th className="px-4 py-3" />
                 </tr>
               </thead>
@@ -448,6 +464,48 @@ export default function LivraisonsPage() {
                               </option>
                             ))}
                           </select>
+                        )}
+                      </td>
+
+                      {/* Driver invoice */}
+                      <td className="px-4 py-3 hidden lg:table-cell">
+                        {d.driverFee != null ? (
+                          <div className="space-y-1.5">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-black text-gray-900">{d.driverFee.toFixed(2)} €</span>
+                              {d.driverInvoicePaid ? (
+                                <span className="text-[10px] font-bold px-2 py-0.5 bg-green-100 text-green-700 border border-green-200 rounded-full">✅ Payée</span>
+                              ) : (
+                                <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-100 text-amber-700 border border-amber-200 rounded-full">⏳ En attente</span>
+                              )}
+                            </div>
+                            {d.driverInvoiceUrl && (
+                              <a
+                                href={d.driverInvoiceUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-semibold"
+                              >
+                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" /></svg>
+                                Facture
+                              </a>
+                            )}
+                            {!d.driverInvoicePaid && (
+                              <button
+                                onClick={() => handleMarkInvoicePaid(d.id)}
+                                className="text-xs px-2.5 py-1 bg-green-500 text-white font-bold rounded-lg hover:bg-green-600 transition-colors whitespace-nowrap"
+                              >
+                                ✓ Marquer payée
+                              </button>
+                            )}
+                            {d.driverInvoicePaid && d.driverInvoicePaidAt && (
+                              <p className="text-[10px] text-green-600">
+                                {new Date(d.driverInvoicePaidAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-gray-400">—</span>
                         )}
                       </td>
 

@@ -174,7 +174,7 @@ function mapProduct(r: Record<string, unknown>): StockProduct {
     stockStatus,
     daysBeforeStockout,
     suggestedReorder,
-    totalStockValue: stock * costPrice,
+    totalStockValue: stock * (costPrice > 0 ? costPrice : sellPriceTtc),
   };
 }
 
@@ -184,7 +184,6 @@ export async function fetchStockProducts(search?: string): Promise<StockProduct[
       return supabase
         .from('products')
         .select('*')
-        .neq('product_status', 'inactive')
         .or(`name.ilike.%${search.trim()}%,ref.ilike.%${search.trim()}%,supplier.ilike.%${search.trim()}%,category.ilike.%${search.trim()}%`)
         .order('name')
         .range(from, to);
@@ -192,7 +191,6 @@ export async function fetchStockProducts(search?: string): Promise<StockProduct[
     return supabase
       .from('products')
       .select('*')
-      .neq('product_status', 'inactive')
       .order('name')
       .range(from, to);
   });
@@ -228,7 +226,7 @@ export async function fetchProductByBarcode(barcode: string): Promise<StockProdu
 
 export async function fetchStockKPIs(products: StockProduct[]): Promise<StockKPIs> {
   const totalStockValue = products.reduce((s, p) => s + p.totalStockValue, 0);
-  const dormantProducts = products.filter(p => p.sales30d === 0);
+  const dormantProducts = products.filter(p => p.sales30d === 0 && p.stock > 0 && p.productStatus !== 'inactive');
   const dormantStockValue = dormantProducts.reduce((s, p) => s + p.totalStockValue, 0);
   const profitableProducts = products.filter(p => p.marginRate > 40);
   const profitableStockValue = profitableProducts.reduce((s, p) => s + p.totalStockValue, 0);

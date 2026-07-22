@@ -40,7 +40,16 @@ export default function DeliveryDetailPage() {
   const [actionError, setActionError] = useState('');
   const [confirmSuccess, setConfirmSuccess] = useState(false);
 
+  // Invoice state
+  const [driverFee, setDriverFee] = useState('');
+  const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
+  const [invoiceFileName, setInvoiceFileName] = useState('');
+  const [invoiceSubmitting, setInvoiceSubmitting] = useState(false);
+  const [invoiceError, setInvoiceError] = useState('');
+  const [invoiceSuccess, setInvoiceSuccess] = useState(false);
+
   const photoInputRef = useRef<HTMLInputElement>(null);
+  const invoiceInputRef = useRef<HTMLInputElement>(null);
 
   // Auth check
   useEffect(() => {
@@ -55,6 +64,7 @@ export default function DeliveryDetailPage() {
       if (!d) { router.replace('/livreur/dashboard'); return; }
       setDelivery(d);
       setCheckedItems(new Array(d.products?.length ?? 0).fill(false));
+      if (d.driverFee != null) setDriverFee(String(d.driverFee));
     } catch {
       router.replace('/livreur/dashboard');
     } finally {
@@ -80,6 +90,14 @@ export default function DeliveryDetailPage() {
     setPhotoFile(null);
     setPhotoPreview(null);
     if (photoInputRef.current) photoInputRef.current.value = '';
+  };
+
+  const handleInvoiceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setInvoiceFile(file);
+    setInvoiceFileName(file.name);
+    setInvoiceError('');
   };
 
   // Step 1: depart (assigned → en_route)
@@ -125,11 +143,46 @@ export default function DeliveryDetailPage() {
         driverNotes: driverNotes.trim() || undefined,
       });
       setConfirmSuccess(true);
-      setTimeout(() => router.replace('/livreur/dashboard'), 2000);
+      await loadDelivery();
     } catch {
       setActionError('Erreur lors de la confirmation. Réessayez.');
     } finally {
       setBusy(false);
+    }
+  };
+
+  // Submit driver invoice
+  const handleInvoiceSubmit = async () => {
+    if (!delivery || !session) return;
+    if (!driverFee && !invoiceFile) {
+      setInvoiceError('Entrez un tarif ou joignez une facture.');
+      return;
+    }
+    setInvoiceError('');
+    setInvoiceSubmitting(true);
+    try {
+      let invoiceUrl: string | undefined;
+      if (invoiceFile) {
+        invoiceUrl = await deliveryService.uploadDriverInvoice(delivery.id, invoiceFile);
+      }
+      const res = await fetch('/api/livreur/invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deliveryId: delivery.id,
+          driverId: session.driverId,
+          driverFee: driverFee ? Number(driverFee) : undefined,
+          invoiceUrl,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) { setInvoiceError(json.error || 'Erreur. Réessayez.'); return; }
+      setInvoiceSuccess(true);
+      await loadDelivery();
+    } catch {
+      setInvoiceError('Erreur de connexion. Réessayez.');
+    } finally {
+      setInvoiceSubmitting(false);
     }
   };
 
@@ -162,17 +215,23 @@ export default function DeliveryDetailPage() {
   const mapsUrl = `https://maps.google.com/?q=${encodeURIComponent(delivery.deliveryAddress)}`;
   const cfg = DELIVERY_STATUS_CONFIG[delivery.status] ?? DELIVERY_STATUS_CONFIG.pending;
 
-  if (confirmSuccess) {
+  if (confirmSuccess && delivery.status !== 'delivered') {
     return (
       <div className="min-h-screen bg-green-50 flex flex-col items-center justify-center p-6 text-center">
         <div className="text-6xl mb-4">✅</div>
         <h1 className="text-2xl font-black text-green-800">Livraison confirmée !</h1>
-        <p className="text-green-700 mt-2">Redirection en cours…</p>
+        <p className="text-green-700 mt-2">Vous pouvez maintenant soumettre votre facture.</p>
+        <button
+          onClick={() => setConfirmSuccess(false)}
+          className="mt-6 px-6 py-3 bg-green-600 text-white font-bold rounded-xl"
+        >
+          Soumettre ma facture →
+        </button>
       </div>
     );
   }
 
-  const isActive = ['pending', 'assigned', 'en_route', 'arrived'].includes(delivery.status);
+  const invoiceAlreadySubmitted = delivery.driverFee != null || delivery.driverInvoiceUrl != null;
 
   return (
     <div className="min-h-screen bg-gray-50 pb-24">
@@ -244,7 +303,7 @@ export default function DeliveryDetailPage() {
           )}
         </div>
 
-        {/* ── Section 2 — Products checklist ── */}
+        {/* ── Section 2 — Products checklist with photos ── */}
         {products.length > 0 && (
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 space-y-3">
             <div className="flex items-center justify-between">
@@ -283,14 +342,28 @@ export default function DeliveryDetailPage() {
                       </svg>
                     )}
                   </div>
-                  {p.imageUrl && (
-                    <img src={p.imageUrl} alt="" className="w-10 h-10 rounded-lg object-cover shrink-0 bg-gray-100" />
+
+                  {/* Product photo — larger for easy identification */}
+                  {p.imageUrl ? (
+                    <img
+                      src={p.imageUrl}
+                      alt={p.name}
+                      className="w-16 h-16 rounded-xl object-cover shrink-0 bg-gray-100 border border-gray-200"
+                    />
+                  ) : (
+                    <div className="w-16 h-16 rounded-xl bg-gray-100 border border-gray-200 shrink-0 flex items-center justify-center text-2xl">
+                      📦
+                    </div>
                   )}
+
                   <div className="flex-1 min-w-0">
                     <p className={`text-sm font-bold leading-tight ${checkedItems[i] ? 'text-green-800 line-through' : 'text-gray-900'}`}>
                       {p.name}
                     </p>
                     {p.sku && <p className="text-xs text-gray-400 font-mono">{p.sku}</p>}
+                    {p.price != null && (
+                      <p className="text-xs text-gray-500 mt-0.5">{p.price.toFixed(2)} €</p>
+                    )}
                   </div>
                   <span className="shrink-0 text-sm font-black text-gray-700 bg-white border border-gray-200 px-2 py-1 rounded-lg">
                     ×{p.qty}
@@ -425,17 +498,151 @@ export default function DeliveryDetailPage() {
           </div>
         )}
 
-        {/* Done */}
+        {/* ── Section 4 — Invoice (after delivery) ── */}
         {delivery.status === 'delivered' && (
-          <div className="bg-green-50 rounded-2xl border border-green-200 p-6 text-center">
-            <p className="text-3xl mb-2">✅</p>
-            <p className="font-black text-green-800 text-lg">Livraison effectuée</p>
-            {delivery.deliveredAt && (
-              <p className="text-xs text-green-600 mt-1">
-                {new Date(delivery.deliveredAt).toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-              </p>
-            )}
-          </div>
+          <>
+            <div className="bg-green-50 rounded-2xl border border-green-200 p-4 text-center">
+              <p className="text-2xl mb-1">✅</p>
+              <p className="font-black text-green-800 text-base">Livraison effectuée</p>
+              {delivery.deliveredAt && (
+                <p className="text-xs text-green-600 mt-1">
+                  {new Date(delivery.deliveredAt).toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                </p>
+              )}
+            </div>
+
+            {/* Invoice section */}
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Ma facture de livraison</p>
+                {invoiceAlreadySubmitted && (
+                  delivery.driverInvoicePaid ? (
+                    <span className="text-xs font-bold px-2.5 py-1 bg-green-100 text-green-700 border border-green-200 rounded-full">
+                      ✅ Payée
+                    </span>
+                  ) : (
+                    <span className="text-xs font-bold px-2.5 py-1 bg-amber-100 text-amber-700 border border-amber-200 rounded-full">
+                      ⏳ En attente
+                    </span>
+                  )
+                )}
+              </div>
+
+              {invoiceAlreadySubmitted ? (
+                /* Already submitted — show summary */
+                <div className="space-y-3">
+                  {delivery.driverFee != null && (
+                    <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
+                      <p className="text-sm font-semibold text-gray-600">Tarif soumis</p>
+                      <p className="text-xl font-black text-gray-900">{delivery.driverFee.toFixed(2)} €</p>
+                    </div>
+                  )}
+                  {delivery.driverInvoiceUrl && (
+                    <a
+                      href={delivery.driverInvoiceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 w-full px-4 py-3 bg-blue-50 border border-blue-200 text-blue-700 font-semibold text-sm rounded-xl hover:bg-blue-100 transition-colors"
+                    >
+                      <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m.75 12l3 3m0 0l3-3m-3 3v-6m-1.5-9H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                      </svg>
+                      Voir / Télécharger ma facture
+                    </a>
+                  )}
+                  {delivery.driverInvoicePaid && delivery.driverInvoicePaidAt && (
+                    <p className="text-xs text-green-600 text-center">
+                      Payée le {new Date(delivery.driverInvoicePaidAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
+                    </p>
+                  )}
+                  {!delivery.driverInvoicePaid && (
+                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-center">
+                      Votre facture a bien été transmise. Le paiement sera traité par le responsable.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                /* Not yet submitted — show form */
+                <div className="space-y-4">
+                  {/* Fee input */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                      Tarif de livraison (€)
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        step="0.50"
+                        min="0"
+                        value={driverFee}
+                        onChange={(e) => { setDriverFee(e.target.value); setInvoiceError(''); }}
+                        placeholder="Ex : 15.00"
+                        className="w-full pl-4 pr-10 py-3.5 rounded-xl border-2 border-gray-200 focus:border-orange-400 focus:outline-none text-base transition-colors"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">€</span>
+                    </div>
+                  </div>
+
+                  {/* Invoice upload */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                      Facture / justificatif <span className="text-gray-400 font-normal">(optionnel)</span>
+                    </label>
+                    <input
+                      ref={invoiceInputRef}
+                      type="file"
+                      accept="image/*,application/pdf"
+                      className="sr-only"
+                      onChange={handleInvoiceChange}
+                    />
+                    {invoiceFileName ? (
+                      <div className="flex items-center gap-3 p-3 bg-blue-50 border border-blue-200 rounded-xl">
+                        <svg className="w-8 h-8 text-blue-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                        </svg>
+                        <p className="flex-1 text-sm font-semibold text-blue-800 truncate">{invoiceFileName}</p>
+                        <button
+                          type="button"
+                          onClick={() => { setInvoiceFile(null); setInvoiceFileName(''); if (invoiceInputRef.current) invoiceInputRef.current.value = ''; }}
+                          className="text-blue-400 hover:text-red-500 font-bold text-lg leading-none"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => invoiceInputRef.current?.click()}
+                        className="w-full h-20 border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center gap-1 text-gray-400 hover:border-orange-400 hover:text-orange-500 transition-colors"
+                      >
+                        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
+                        </svg>
+                        <span className="text-xs font-semibold">Photo ou PDF</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {invoiceError && <ErrorBanner msg={invoiceError} />}
+                  {invoiceSuccess && (
+                    <div className="bg-green-50 border border-green-200 rounded-xl px-3 py-2 text-sm text-green-700 text-center font-semibold">
+                      ✅ Facture envoyée avec succès !
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleInvoiceSubmit}
+                    disabled={invoiceSubmitting || (!driverFee && !invoiceFile)}
+                    className="w-full py-4 bg-orange-500 text-white font-black text-base rounded-xl hover:bg-orange-600 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {invoiceSubmitting ? <SpinLabel text="Envoi…" /> : '📤 Envoyer ma facture'}
+                  </button>
+                </div>
+              )}
+            </div>
+          </>
         )}
 
         {/* Problem */}

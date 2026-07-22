@@ -26,6 +26,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (body.en_route_at !== undefined) updates.en_route_at = body.en_route_at;
     if (body.delivered_at !== undefined) updates.delivered_at = body.delivered_at;
     if (body.driver_notes !== undefined) updates.driver_notes = body.driver_notes;
+    if (body.driver_invoice_paid !== undefined) {
+      updates.driver_invoice_paid = Boolean(body.driver_invoice_paid);
+      updates.driver_invoice_paid_at = body.driver_invoice_paid ? new Date().toISOString() : null;
+    }
 
     const supabase = createAdminClient();
     const { data, error } = await supabase

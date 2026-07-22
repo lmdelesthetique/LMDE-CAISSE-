@@ -36,6 +36,11 @@ export interface Delivery {
   driverNotes: string | null;
   createdAt: string;
   receiptId: string | null;
+  // Driver invoice fields
+  driverFee: number | null;
+  driverInvoiceUrl: string | null;
+  driverInvoicePaid: boolean;
+  driverInvoicePaidAt: string | null;
   // Joined from drivers table
   driverName?: string | null;
   driverPhone?: string | null;
@@ -79,6 +84,10 @@ function mapDelivery(row: any): Delivery {
     driverNotes: row.driver_notes ?? null,
     createdAt: row.created_at,
     receiptId: row.receipt_id ?? null,
+    driverFee: row.driver_fee != null ? Number(row.driver_fee) : null,
+    driverInvoiceUrl: row.driver_invoice_url ?? null,
+    driverInvoicePaid: Boolean(row.driver_invoice_paid),
+    driverInvoicePaidAt: row.driver_invoice_paid_at ?? null,
     driverName: row.drivers
       ? `${row.drivers.first_name ?? ''} ${row.drivers.last_name ?? ''}`.trim()
       : null,
@@ -233,6 +242,19 @@ export const deliveryService = {
       .upload(path, blob, { upsert: true, contentType: 'image/png' });
     if (error) throw error;
     const { data } = supabase.storage.from('signatures').getPublicUrl(path);
+    return data.publicUrl;
+  },
+
+  // Upload driver invoice (PDF or image) to storage
+  async uploadDriverInvoice(deliveryId: string, file: File): Promise<string> {
+    const supabase = createClient();
+    const ext = file.name.split('.').pop() ?? 'pdf';
+    const path = `${deliveryId}/invoice_${Date.now()}.${ext}`;
+    const { error } = await supabase.storage
+      .from('driver-invoices')
+      .upload(path, file, { upsert: true, contentType: file.type });
+    if (error) throw error;
+    const { data } = supabase.storage.from('driver-invoices').getPublicUrl(path);
     return data.publicUrl;
   },
 

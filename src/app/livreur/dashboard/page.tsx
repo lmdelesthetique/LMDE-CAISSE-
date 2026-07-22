@@ -155,7 +155,7 @@ export default function DriverDashboard() {
     router.push(`/livreur/livraison/${d.id}`);
   };
 
-  const [tab, setTab] = useState<'dashboard' | 'livraisons'>('dashboard');
+  const [tab, setTab] = useState<'dashboard' | 'livraisons' | 'factures'>('dashboard');
   const [deliveryFilter, setDeliveryFilter] = useState<'all' | 'active' | 'delivered' | 'problem'>('all');
 
   // ─── Push notifications ───────────────────────────────────────────────────────
@@ -382,8 +382,108 @@ export default function DriverDashboard() {
         </>
       )}
 
+      {tab === 'factures' && (
+        <>
+          <div className="bg-white border-b border-gray-200 px-4 py-3">
+            <h1 className="text-lg font-bold text-gray-900">Mes factures</h1>
+            <p className="text-xs text-gray-500 mt-0.5">Suivi de vos tarifs et paiements</p>
+          </div>
+
+          <div className="px-4 py-4 space-y-3">
+            {/* Summary KPIs */}
+            {(() => {
+              const invoiced = deliveries.filter(d => d.driverFee != null);
+              const paid     = invoiced.filter(d => d.driverInvoicePaid);
+              const pending  = invoiced.filter(d => !d.driverInvoicePaid);
+              const totalEarned  = paid.reduce((s, d) => s + (d.driverFee ?? 0), 0);
+              const totalPending = pending.reduce((s, d) => s + (d.driverFee ?? 0), 0);
+              return (
+                <div className="grid grid-cols-2 gap-3 mb-1">
+                  <div className="bg-green-50 border border-green-200 rounded-2xl p-4">
+                    <p className="text-2xl font-black text-green-800">{totalEarned.toFixed(2)} €</p>
+                    <p className="text-xs font-semibold text-green-700 mt-1">✅ Payées</p>
+                  </div>
+                  <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+                    <p className="text-2xl font-black text-amber-800">{totalPending.toFixed(2)} €</p>
+                    <p className="text-xs font-semibold text-amber-700 mt-1">⏳ En attente</p>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Invoice list */}
+            {deliveries.filter(d => d.driverFee != null || d.status === 'delivered').length === 0 ? (
+              <div className="bg-white rounded-2xl p-8 text-center border border-gray-200">
+                <p className="text-4xl mb-3">🧾</p>
+                <p className="text-gray-600 font-semibold">Aucune facture soumise</p>
+                <p className="text-sm text-gray-400 mt-1">Après chaque livraison, soumettez votre tarif depuis la page livraison.</p>
+              </div>
+            ) : (
+              deliveries
+                .filter(d => d.status === 'delivered')
+                .map((d) => (
+                  <div key={d.id} className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+                    <div className="flex items-center justify-between px-4 py-2 bg-gray-50 border-b border-gray-100">
+                      <span className="text-xs font-mono text-gray-500">
+                        {d.shopifyOrderNumber ? `#${d.shopifyOrderNumber}` : new Date(d.createdAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
+                      </span>
+                      {d.driverFee != null ? (
+                        d.driverInvoicePaid ? (
+                          <span className="text-xs font-bold px-2 py-0.5 bg-green-100 text-green-700 border border-green-200 rounded-full">✅ Payée</span>
+                        ) : (
+                          <span className="text-xs font-bold px-2 py-0.5 bg-amber-100 text-amber-700 border border-amber-200 rounded-full">⏳ En attente</span>
+                        )
+                      ) : (
+                        <span className="text-xs font-bold px-2 py-0.5 bg-gray-100 text-gray-500 border border-gray-200 rounded-full">Non soumise</span>
+                      )}
+                    </div>
+                    <div className="p-4 flex items-center gap-4">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-gray-900 text-sm truncate">{d.clientName}</p>
+                        <p className="text-xs text-gray-500 truncate">{d.deliveryAddress}</p>
+                        {d.deliveredAt && (
+                          <p className="text-xs text-gray-400 mt-0.5">
+                            Livré le {new Date(d.deliveredAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          </p>
+                        )}
+                      </div>
+                      <div className="shrink-0 text-right">
+                        {d.driverFee != null ? (
+                          <p className="text-xl font-black text-gray-900">{d.driverFee.toFixed(2)} €</p>
+                        ) : (
+                          <button
+                            onClick={() => router.push(`/livreur/livraison/${d.id}`)}
+                            className="text-xs px-3 py-2 bg-orange-500 text-white font-bold rounded-xl hover:bg-orange-600 transition-colors"
+                          >
+                            Soumettre
+                          </button>
+                        )}
+                        {d.driverInvoiceUrl && (
+                          <a
+                            href={d.driverInvoiceUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="block mt-1 text-xs text-blue-500 hover:text-blue-700 font-semibold"
+                          >
+                            Voir facture →
+                          </a>
+                        )}
+                        {d.driverInvoicePaid && d.driverInvoicePaidAt && (
+                          <p className="text-[10px] text-green-600 mt-0.5">
+                            {new Date(d.driverInvoicePaidAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))
+            )}
+          </div>
+        </>
+      )}
+
       {/* Bottom nav */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-6 py-3 flex justify-around z-30">
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-2 py-3 flex justify-around z-30">
         <button
           onClick={() => setTab('dashboard')}
           className={`flex flex-col items-center gap-1 transition-colors ${tab === 'dashboard' ? 'text-orange-500' : 'text-gray-400'}`}
@@ -400,6 +500,18 @@ export default function DriverDashboard() {
           {activeDeliveries.length > 0 && (
             <span className="absolute -top-1 -right-1 w-4 h-4 bg-orange-500 text-white text-[9px] font-black rounded-full flex items-center justify-center">
               {activeDeliveries.length}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => setTab('factures')}
+          className={`flex flex-col items-center gap-1 transition-colors relative ${tab === 'factures' ? 'text-orange-500' : 'text-gray-400'}`}
+        >
+          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
+          <span className="text-xs font-semibold">Factures</span>
+          {deliveries.filter(d => d.driverFee != null && !d.driverInvoicePaid).length > 0 && (
+            <span className="absolute -top-1 -right-1 w-4 h-4 bg-amber-500 text-white text-[9px] font-black rounded-full flex items-center justify-center">
+              {deliveries.filter(d => d.driverFee != null && !d.driverInvoicePaid).length}
             </span>
           )}
         </button>

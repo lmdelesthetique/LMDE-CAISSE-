@@ -32,14 +32,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Contenu introuvable' }, { status: 404 });
     }
 
-    // Ensure bucket exists (create silently if not)
+    const FILE_SIZE_LIMIT = 524288000; // 500 MB
+
+    // Ensure bucket exists with correct size limit
     const { error: bucketErr } = await supabase.storage.createBucket(BUCKET, {
       public: false,
-      fileSizeLimit: 524288000, // 500 MB
+      fileSizeLimit: FILE_SIZE_LIMIT,
     });
     if (bucketErr && !bucketErr.message.toLowerCase().includes('already exists') && !bucketErr.message.toLowerCase().includes('duplicate')) {
       console.warn('[upload-presigned] bucket create warning:', bucketErr.message);
     }
+    // Always update bucket settings to ensure the size limit and mime types are applied
+    // (createBucket is a no-op if it already exists, so settings may be stale)
+    await supabase.storage.updateBucket(BUCKET, {
+      public: false,
+      fileSizeLimit: FILE_SIZE_LIMIT,
+      allowedMimeTypes: [
+        'video/mp4', 'video/quicktime', 'video/mov', 'video/avi',
+        'video/webm', 'video/hevc', 'video/x-m4v', 'video/*',
+        'image/jpeg', 'image/png', 'image/heic', 'image/heif', 'image/webp', 'image/*',
+      ],
+    }).catch((e: unknown) => console.warn('[upload-presigned] bucket update warning:', e));
 
     // Build storage path — only alphanumeric and hyphens
     const ext = (filename.split('.').pop() || 'mp4').toLowerCase().replace(/[^a-z0-9]/g, '');
