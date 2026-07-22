@@ -1,11 +1,15 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { usePathname } from 'next/navigation';
 
 export function InstallPWABanner() {
+  const pathname = usePathname();
   const [prompt, setPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [show, setShow] = useState(false);
 
   useEffect(() => {
+    // Don't capture the install prompt on livreur routes — they have their own
+    if (pathname?.startsWith('/livreur')) return;
     try {
       if (typeof window === 'undefined') return;
       if (window.matchMedia?.('(display-mode: standalone)').matches) return;
@@ -24,9 +28,10 @@ export function InstallPWABanner() {
     } catch (err) {
       console.error('[PWA Banner] init error:', err);
     }
-  }, []);
+  }, [pathname]);
 
-  if (!show) return null;
+  // Never render on livreur routes
+  if (pathname?.startsWith('/livreur') || !show) return null;
 
   async function install() {
     try {

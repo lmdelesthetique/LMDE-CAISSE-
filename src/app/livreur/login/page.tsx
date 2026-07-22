@@ -17,6 +17,25 @@ export default function LivreurLoginPage() {
   const [error, setError] = useState('');
   const [showForgot, setShowForgot] = useState(false);
 
+  // PWA install prompt — captured from livreur manifest (separate from POS)
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [isStandalone, setIsStandalone] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    setIsStandalone(window.matchMedia('(display-mode: standalone)').matches);
+    const handler = (e: Event) => { e.preventDefault(); setInstallPrompt(e); };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const handleInstall = async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    await installPrompt.userChoice;
+    setInstallPrompt(null);
+  };
+
   useEffect(() => {
     // Redirect if already logged in
     try {
@@ -191,13 +210,36 @@ export default function LivreurLoginPage() {
           </div>
         )}
 
-        <div className="mt-6 bg-orange-50 border border-orange-200 rounded-xl p-4">
-          <p className="font-bold text-orange-800 mb-2 text-sm">📱 Installer l'app sur votre téléphone</p>
-          <div className="text-xs text-orange-700 space-y-1">
-            <p><strong>iPhone Safari :</strong> Appuyer sur ↑ → "Sur l'écran d'accueil"</p>
-            <p><strong>Android Chrome :</strong> Menu ⋮ → "Installer l'application"</p>
+        {/* PWA install section */}
+        {!isStandalone && (
+          <div className="mt-6 bg-orange-50 border border-orange-200 rounded-xl p-4">
+            <p className="font-bold text-orange-800 mb-2 text-sm">📱 Installer l'app livreur</p>
+            {installPrompt ? (
+              // Android Chrome / compatible browser — show native install button
+              <button
+                onClick={handleInstall}
+                className="w-full py-2.5 bg-orange-500 text-white font-bold rounded-xl text-sm hover:bg-orange-600 active:scale-95 transition-all flex items-center justify-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                </svg>
+                Installer le portail livreur
+              </button>
+            ) : (
+              // iOS Safari — manual instructions
+              <div className="text-xs text-orange-700 space-y-1">
+                <p><strong>iPhone Safari :</strong> Appuyer sur <span className="font-bold">↑</span> → "Sur l'écran d'accueil"</p>
+                <p><strong>Android Chrome :</strong> Menu <span className="font-bold">⋮</span> → "Installer l'application"</p>
+                <p className="text-orange-500 mt-1">⚠️ Bien ouvrir via Safari/Chrome depuis cette page</p>
+              </div>
+            )}
           </div>
-        </div>
+        )}
+        {isStandalone && (
+          <div className="mt-6 bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-center">
+            <p className="text-xs text-emerald-700 font-semibold">✅ Application installée</p>
+          </div>
+        )}
 
         <p className="text-center text-xs text-gray-400 mt-5">
           Accès réservé aux livreurs autorisés BeautyPOS

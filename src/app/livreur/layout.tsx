@@ -4,12 +4,15 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
-  themeColor: '#ec4899',
+  themeColor: '#f97316',
 };
 
 export const metadata: Metadata = {
-  title: 'BeautyPOS Livreur',
+  title: 'LMDE Livreur',
   description: 'Portail livreur — Le Monde de l\'Esthétique',
+  // Override the root layout manifest so installing from /livreur/* installs
+  // the livreur PWA (start_url: /livreur/login), not the POS app.
+  manifest: '/livreur-manifest.json',
   appleWebApp: {
     capable: true,
     title: 'LMDE Livreur',
