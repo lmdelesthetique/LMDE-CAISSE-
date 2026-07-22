@@ -338,7 +338,7 @@ export default function LivraisonsPage() {
                   <th className="text-right px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider hidden md:table-cell">Montant</th>
                   <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Statut</th>
                   <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Livreur</th>
-                  <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider hidden lg:table-cell">Facture livreur</th>
+                  <th className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Facture livreur</th>
                   <th className="px-4 py-3" />
                 </tr>
               </thead>
@@ -468,7 +468,7 @@ export default function LivraisonsPage() {
                       </td>
 
                       {/* Driver invoice */}
-                      <td className="px-4 py-3 hidden lg:table-cell">
+                      <td className="px-4 py-3">
                         {d.driverFee != null ? (
                           <div className="space-y-1.5">
                             <div className="flex items-center gap-2">
