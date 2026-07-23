@@ -740,6 +740,21 @@ function SubscriptionSetupModal({
   const [nextBilling, setNextBilling] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [stripeUrl, setStripeUrl] = useState<string | null>(null);
+  const [created, setCreated] = useState(false);
+  const [urlCopied, setUrlCopied] = useState(false);
+
+  // Compute default next billing date (1 month from today, capped at last day of month)
+  const today = new Date();
+  const billingDay = today.getDate();
+  const autoNextBilling = (() => {
+    const d = new Date(today);
+    d.setMonth(d.getMonth() + 1);
+    const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    d.setDate(Math.min(billingDay, lastDay));
+    return d.toISOString().split('T')[0];
+  })();
+  const isLateMonth = billingDay >= 29;
 
   useEffect(() => {
     const supabase = createClient();
@@ -770,7 +785,8 @@ function SubscriptionSetupModal({
       });
       const json = await res.json();
       if (!res.ok) { setError(json.error ?? 'Erreur création abonnement'); return; }
-      onCreated();
+      setCreated(true);
+      if (json.stripePaymentUrl) setStripeUrl(json.stripePaymentUrl);
     } catch {
       setError('Erreur réseau');
     } finally {
@@ -780,6 +796,55 @@ function SubscriptionSetupModal({
 
   const selectedPlan = plans.find((p) => p.id === planId);
   const clientName = `${client.firstName} ${client.lastName}`;
+
+  // ── Success screen ─────────────────────────────────────────────────────────
+  if (created) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+          <div className="text-center">
+            <p className="text-4xl mb-2">🎉</p>
+            <h2 className="text-base font-bold text-gray-900">Abonnement créé !</h2>
+            <p className="text-sm text-gray-500 mt-1">{clientName} · {selectedPlan?.name}</p>
+          </div>
+          <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 space-y-1 text-xs text-gray-600">
+            <p><span className="font-semibold">Téléphone portail :</span> {portalPhone || '—'}</p>
+            <p><span className="font-semibold">Code PIN :</span> <span className="font-mono">{pinCode}</span></p>
+            <p><span className="font-semibold">Prochaine facturation :</span> {new Date(nextBilling || autoNextBilling).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+          </div>
+          {stripeUrl ? (
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Lien de paiement Stripe</p>
+              <div className="flex gap-2">
+                <input readOnly value={stripeUrl}
+                  className="flex-1 px-3 py-2 border-2 border-emerald-200 bg-emerald-50 rounded-xl text-xs text-emerald-800 font-mono focus:outline-none" />
+                <button
+                  onClick={() => { navigator.clipboard.writeText(stripeUrl); setUrlCopied(true); setTimeout(() => setUrlCopied(false), 2000); }}
+                  className="px-3 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-colors"
+                >
+                  {urlCopied ? '✓ Copié' : 'Copier'}
+                </button>
+              </div>
+              <a href={`https://wa.me/${(portalPhone || '').replace(/[\s+]/g, '')}?text=${encodeURIComponent(`Bonjour ${client.firstName} 💅\n\nVotre abonnement Box Beauté ${selectedPlan?.name ?? ''} a bien été créé !\n\nVoici votre lien de paiement sécurisé Stripe :\n${stripeUrl}\n\nAprès paiement, vous pourrez accéder à votre espace portail avec :\n📱 Téléphone : ${portalPhone}\n🔐 PIN : ${pinCode}\n\nLe Monde de l'Esthétique 💅`)}`}
+                target="_blank" rel="noopener noreferrer"
+                className="flex items-center justify-center gap-2 w-full py-3 bg-[#25D366] text-white font-bold rounded-xl text-sm hover:opacity-90 transition-opacity"
+              >
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                Envoyer via WhatsApp
+              </a>
+            </div>
+          ) : (
+            <p className="text-xs text-center text-amber-600 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+              ⚠️ Stripe non configuré — envoyez le lien de paiement manuellement depuis l&apos;onglet abonnement
+            </p>
+          )}
+          <button onClick={onCreated} className="w-full py-3 bg-primary text-white font-bold rounded-xl text-sm hover:opacity-90 transition-opacity">
+            Fermer
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
@@ -837,9 +902,18 @@ function SubscriptionSetupModal({
 
           {/* Next billing */}
           <div>
-            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Date prochaine facturation</label>
-            <input type="date" value={nextBilling} onChange={(e) => setNextBilling(e.target.value)}
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">
+              Date prochaine facturation
+              {isLateMonth && <span className="ml-2 text-amber-600 font-normal normal-case">(fin de mois détectée)</span>}
+            </label>
+            <input type="date" value={nextBilling || autoNextBilling} onChange={(e) => setNextBilling(e.target.value)}
               className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:border-primary focus:outline-none" />
+            {isLateMonth && (
+              <div className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                ⚠️ Souscription le {billingDay} — les mois plus courts (fév., avr., juin…) factureront automatiquement le dernier jour du mois.
+                La date a été calculée en conséquence.
+              </div>
+            )}
           </div>
 
           {/* Launch offer */}
