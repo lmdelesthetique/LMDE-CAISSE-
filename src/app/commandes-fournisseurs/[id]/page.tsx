@@ -461,7 +461,8 @@ export default function OrderDetailPage() {
       (supplierIncludes.exchange ? getECLocal('exchange') : 0) +
       (supplierIncludes.local ? getECLocal('local') : 0) +
       (supplierIncludes.other ? getECLocal('other') : 0);
-    const supplierPaymentAmountLocal = order.subtotal + supplierExtraFeesLocal;
+    const confirmedSubtotalLocal = (order.lines || []).reduce((s: number, l: any) => s + (l.confirmedUnitPrice != null ? l.confirmedUnitPrice : l.unitPrice) * l.qtyOrdered, 0);
+    const supplierPaymentAmountLocal = (confirmedSubtotalLocal > 0 ? confirmedSubtotalLocal : order.subtotal) + supplierExtraFeesLocal;
 
     const newBalance = Math.max(0, supplierPaymentAmountLocal - amt);
     const newStatus = amt >= supplierPaymentAmountLocal ? 'paid' : amt > 0 ? 'partial' : 'pending';
@@ -903,6 +904,7 @@ export default function OrderDetailPage() {
       if (res.ok) {
         setPricesSaved(true);
         setTimeout(() => setPricesSaved(false), 3000);
+        load(); // refresh order so confirmedUnitPrice values are up to date in all tabs
       }
     } finally {
       setSavingPrices(false);
@@ -1055,16 +1057,17 @@ export default function OrderDetailPage() {
     (supplierIncludes.exchange ? getEC('exchange') : 0) +
     (supplierIncludes.local ? getEC('local') : 0) +
     (supplierIncludes.other ? getEC('other') : 0);
-  const supplierPaymentAmount = order.subtotal + supplierExtraFees;
-
-  // Real import cost = products + all external fees (transport, customs, etc.)
-  // Structure is overhead info only — never added to totals
-  const totalFees = getEC('transport') + getEC('customs') + getEC('vat') + getEC('freight') + getEC('bank') + getEC('exchange') + getEC('local') + getEC('other');
-
   const lines = order.lines || [];
   // Use confirmed (real invoice) prices when available, otherwise fall back to estimated
   const confirmedSubtotal = lines.reduce((s, l) => s + (l.confirmedUnitPrice != null ? l.confirmedUnitPrice : l.unitPrice) * l.qtyOrdered, 0);
   const productsCost = confirmedSubtotal > 0 ? confirmedSubtotal : order.subtotal;
+
+  // Supplier payment uses real confirmed prices (from received invoice), not the original estimate
+  const supplierPaymentAmount = productsCost + supplierExtraFees;
+
+  // Real import cost = products + all external fees (transport, customs, etc.)
+  // Structure is overhead info only — never added to totals
+  const totalFees = getEC('transport') + getEC('customs') + getEC('vat') + getEC('freight') + getEC('bank') + getEC('exchange') + getEC('local') + getEC('other');
   const importCost = productsCost + totalFees;
   const structureAmount = importCost * (structurePct / 100); // info only
 
@@ -1678,8 +1681,8 @@ export default function OrderDetailPage() {
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between"><span className="text-muted-foreground">Montant produits</span>
                     <span className="font-500 text-right">
-                      {order.subtotal.toFixed(2)} {order.currency}
-                      {showEUR && <span className="block text-xs text-blue-500 font-400">≈ {toEUR(order.subtotal).toFixed(2)} €</span>}
+                      {productsCost.toFixed(2)} {order.currency}
+                      {showEUR && <span className="block text-xs text-blue-500 font-400">≈ {toEUR(productsCost).toFixed(2)} €</span>}
                     </span>
                   </div>
                   {supplierExtraFees > 0 && (
@@ -2592,7 +2595,7 @@ export default function OrderDetailPage() {
                   <div className="space-y-1.5 text-sm">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Montant produits</span>
-                      <span className="font-600">{order.subtotal.toFixed(2)} {order.currency}</span>
+                      <span className="font-600">{productsCost.toFixed(2)} {order.currency}</span>
                     </div>
                     {COST_LINES.map(({ key, label }) => (supplierIncludes as any)[key] && getEC(key) > 0 ? (
                       <div key={key} className="flex justify-between text-blue-700">
@@ -2633,7 +2636,7 @@ export default function OrderDetailPage() {
                   </div>
                   <div className="space-y-1.5 text-sm">
                     <p className="text-[10px] font-600 text-muted-foreground uppercase tracking-wide">Coût import réel</p>
-                    <div className="flex justify-between"><span className="text-muted-foreground">Montant produits</span><span>{order.subtotal.toFixed(2)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Montant produits</span><span>{productsCost.toFixed(2)}</span></div>
                     {COST_LINES.map(({ key, label }) => getEC(key) > 0 ? (
                       <div key={key} className="flex justify-between text-muted-foreground">
                         <span>+ {label}{costModes[key] === 'pct' ? ` (${costPcts[key]}%)` : ''}</span>
@@ -2984,7 +2987,7 @@ export default function OrderDetailPage() {
               <div className="space-y-2.5 text-sm">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Montant produits fournisseur</span>
-                  <span className="font-600">{order.subtotal.toFixed(2)} {order.currency}</span>
+                  <span className="font-600">{productsCost.toFixed(2)} {order.currency}</span>
                 </div>
                 {supplierExtraFees > 0 && (
                   <div className="flex justify-between text-blue-700">
