@@ -114,6 +114,7 @@ export default function ClientDetailPanel({
   const [pinCopied, setPinCopied] = useState(false);
   const [sendingPayment, setSendingPayment] = useState(false);
   const [sendingAccess, setSendingAccess] = useState(false);
+  const [clientReview, setClientReview] = useState<{ rating: number; comment: string | null; updated_at: string } | null>(null);
   const [emailMsg, setEmailMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [referralCode, setReferralCode] = useState<string | null>(client.referralCode);
   const [generatingReferral, setGeneratingReferral] = useState(false);
@@ -162,6 +163,14 @@ export default function ClientDetailPanel({
             setPortalPin((data as any).pin_code ?? '');
           }
         });
+
+      // Load client review via subscription
+      supabase
+        .from('app_reviews')
+        .select('rating, comment, updated_at')
+        .eq('subscription_id', subscription.id)
+        .maybeSingle()
+        .then(({ data }) => { if (data) setClientReview(data as any); });
     }
   }, [tab, subscription]);
 
@@ -1223,6 +1232,27 @@ export default function ClientDetailPanel({
                       {savingSub ? <><Icon name="ArrowPathIcon" size={14} className="animate-spin" />Enregistrement…</> : <><Icon name="CheckIcon" size={14} />Enregistrer</>}
                     </button>
                   </div>
+                </div>
+              )}
+
+              {/* Client review */}
+              {clientReview && (
+                <div className="border border-amber-200 bg-amber-50 rounded-xl p-4 space-y-2">
+                  <p className="text-xs font-700 text-amber-700 uppercase tracking-wide">Avis laissé par la cliente</p>
+                  <div className="flex items-center gap-1">
+                    {[1,2,3,4,5].map((s) => (
+                      <span key={s} className={s <= clientReview.rating ? 'text-amber-400 text-lg' : 'text-gray-200 text-lg'}>★</span>
+                    ))}
+                    <span className="ml-2 text-xs font-600 text-amber-700">
+                      {['','Mauvais','Passable','Bien','Très bien','Excellent !'][clientReview.rating]}
+                    </span>
+                  </div>
+                  {clientReview.comment && (
+                    <p className="text-sm text-gray-700 italic">&ldquo;{clientReview.comment}&rdquo;</p>
+                  )}
+                  <p className="text-[10px] text-muted-foreground">
+                    Posté le {new Date(clientReview.updated_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
+                  </p>
                 </div>
               )}
             </div>

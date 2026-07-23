@@ -891,6 +891,11 @@ export default function AbonnementsPage() {
   const [traitingId, setTraitingId] = useState<string | null>(null);
   const [expandedItems, setExpandedItems] = useState<Record<string, OrderItem[]>>({});
 
+  // Cancel subscription admin flow
+  const [cancelSub, setCancelSub] = useState<SubscriptionRow | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancellingSub, setCancellingSub] = useState(false);
+
   // Add new subscriber flow
   const [showNewClientModal, setShowNewClientModal] = useState(false);
   const [subSetupClient, setSubSetupClient] = useState<Client | null>(null);
@@ -1102,6 +1107,28 @@ export default function AbonnementsPage() {
       showEmailToast(false, 'Erreur réseau');
     } finally {
       setTraitingId(null);
+    }
+  };
+
+  const handleCancelSubscription = async () => {
+    if (!cancelSub) return;
+    setCancellingSub(true);
+    try {
+      const res = await fetch(`/api/subscriptions/${cancelSub.id}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: cancelReason || null, cancelledBy: 'admin' }),
+      });
+      const json = await res.json();
+      if (!res.ok) { showEmailToast(false, json.error ?? 'Erreur désactivation'); return; }
+      showEmailToast(true, `Abonnement de ${cancelSub.client?.first_name ?? ''} désactivé`);
+      setCancelSub(null);
+      setCancelReason('');
+      load();
+    } catch {
+      showEmailToast(false, 'Erreur réseau');
+    } finally {
+      setCancellingSub(false);
     }
   };
 
@@ -1503,6 +1530,17 @@ export default function AbonnementsPage() {
                         </div>
                       )}
 
+                      {/* Cancellation info */}
+                      {(sub as any).cancelled_at && (
+                        <div className="flex flex-col gap-1 p-3 bg-red-50 border border-red-200 rounded-xl text-xs">
+                          <p className="font-bold text-red-700">Abonnement annulé</p>
+                          <p className="text-red-600">Le {new Date((sub as any).cancelled_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+                          {(sub as any).cancellation_reason && (
+                            <p className="text-red-600 italic">&ldquo;{(sub as any).cancellation_reason}&rdquo;</p>
+                          )}
+                        </div>
+                      )}
+
                       {/* Action buttons */}
                       <div className="flex flex-wrap gap-2">
                         <a
@@ -1565,6 +1603,14 @@ export default function AbonnementsPage() {
                             (pas d&apos;email — envoi désactivé)
                           </span>
                         )}
+                        {sub.status === 'active' && (
+                          <button
+                            onClick={() => { setCancelSub(sub); setCancelReason(''); }}
+                            className="flex-1 min-w-[120px] py-2 text-center bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs font-semibold hover:bg-red-100 transition-colors"
+                          >
+                            🚫 Désactiver l&apos;abonnement
+                          </button>
+                        )}
                       </div>
                     </div>
                   )}
@@ -1607,6 +1653,44 @@ export default function AbonnementsPage() {
           onClose={() => setDeliveryModalSub(null)}
           onConfirmed={() => { setDeliveryModalSub(null); load(); }}
         />
+      )}
+
+      {/* Cancel subscription modal */}
+      {cancelSub && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center text-xl">🚫</div>
+              <div>
+                <h2 className="font-bold text-gray-900">Désactiver l&apos;abonnement</h2>
+                <p className="text-sm text-gray-500">{cancelSub.client?.first_name} {cancelSub.client?.last_name} · {cancelSub.plan?.name}</p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-600">L&apos;abonnement sera mis en statut <strong>Inactif</strong>. Si la cliente a un abonnement Stripe récurrent, il sera également annulé.</p>
+            <div>
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Raison de la désactivation</label>
+              <textarea
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder="Ex: Demande cliente, impayé, pause…"
+                rows={3}
+                className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:border-red-400 focus:outline-none resize-none"
+              />
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={handleCancelSubscription}
+                disabled={cancellingSub}
+                className="flex-1 py-3 bg-red-600 text-white font-bold rounded-xl text-sm hover:bg-red-700 disabled:opacity-50 transition-colors"
+              >
+                {cancellingSub ? 'Désactivation…' : '🚫 Confirmer la désactivation'}
+              </button>
+              <button onClick={() => setCancelSub(null)} className="px-5 py-3 border-2 border-gray-200 text-gray-600 font-bold rounded-xl text-sm hover:bg-gray-50 transition-colors">
+                Annuler
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* New client modal → on save, open subscription setup */}

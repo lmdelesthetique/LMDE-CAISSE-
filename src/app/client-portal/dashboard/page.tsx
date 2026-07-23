@@ -575,6 +575,45 @@ export default function ClientDashboardPage() {
   const [cancelling, setCancelling] = useState(false);
   const [restarting, setRestarting] = useState(false);
 
+  // ── Désabonnement ─────────────────────────────────────────────────────────
+  type UnsubStep = 'idle' | 'recovery' | 'reason' | 'confirming' | 'done';
+  const [unsubStep, setUnsubStep] = useState<UnsubStep>('idle');
+  const [unsubReason, setUnsubReason] = useState('');
+  const [unsubOther, setUnsubOther] = useState('');
+  const [unsubLoading, setUnsubLoading] = useState(false);
+
+  const UNSUB_REASONS = [
+    'Le prix est trop élevé',
+    'Je n\'utilise pas assez la box',
+    'Je n\'étais pas satisfaite des produits',
+    'Je déménage ou change de situation',
+    'J\'ai trouvé une autre solution',
+    'Autre raison',
+  ];
+
+  const handleUnsubscribe = async () => {
+    if (!clientUser) return;
+    setUnsubLoading(true);
+    const finalReason = unsubReason === 'Autre raison' ? (unsubOther || 'Autre') : unsubReason;
+    try {
+      const res = await fetch(`/api/subscriptions/${clientUser.subscriptionId}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: finalReason, cancelledBy: 'client' }),
+      });
+      if (res.ok) {
+        setUnsubStep('done');
+      } else {
+        const j = await res.json().catch(() => ({}));
+        showToast(j.error ?? 'Erreur lors du désabonnement', 'error');
+      }
+    } catch {
+      showToast('Erreur réseau', 'error');
+    } finally {
+      setUnsubLoading(false);
+    }
+  };
+
   // ── Soumettre un avis ──────────────────────────────────────────────────────
   const submitReview = async () => {
     if (!clientUser || reviewRating === 0) return;
@@ -778,6 +817,118 @@ export default function ClientDashboardPage() {
       )}
 
       {/* Upgrade modal */}
+      {/* ── Unsubscribe: Step 1 — Recovery ───────────────────────────────── */}
+      {unsubStep === 'recovery' && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+            <div className="text-center">
+              <p className="text-3xl mb-2">💝</p>
+              <h2 className="text-base font-bold text-gray-900">Vous souhaitez partir ?</h2>
+              <p className="text-sm text-gray-500 mt-1">Avant de résilier, sachez qu&apos;on peut trouver une solution ensemble !</p>
+            </div>
+            <div className="space-y-2">
+              <div className="bg-rose-50 border border-rose-100 rounded-xl p-3 text-xs text-gray-700 space-y-1">
+                <p className="font-semibold text-rose-700">Ce que vous allez perdre :</p>
+                <p>• Vos {quotaAmount} € de produits beauté par mois</p>
+                <p>• Votre remise abonnée sur toutes vos commandes</p>
+                {hasSurpriseGift && <p>• Votre cadeau surprise mensuel 🎁</p>}
+              </div>
+              <a
+                href={`https://wa.me/596${process.env.NEXT_PUBLIC_WHATSAPP_PHONE ?? '0696000000'}?text=${encodeURIComponent('Bonjour, je souhaitais résilier mon abonnement mais je voudrais en parler avant 💅')}`}
+                target="_blank" rel="noopener noreferrer"
+                className="flex items-center justify-center gap-2 w-full py-3 bg-[#25D366] text-white font-bold rounded-xl text-sm"
+              >
+                💬 Parler à ma conseillère
+              </a>
+              <button
+                onClick={() => setUnsubStep('reason')}
+                className="w-full py-2.5 text-sm text-gray-400 hover:text-red-500 font-medium transition-colors"
+              >
+                Non merci, je veux quand même résilier →
+              </button>
+              <button onClick={() => setUnsubStep('idle')} className="w-full py-2 text-xs text-gray-400 hover:text-gray-600 transition-colors">
+                Annuler
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Unsubscribe: Step 2 — Reason ─────────────────────────────────── */}
+      {unsubStep === 'reason' && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl w-full max-w-sm max-h-[90vh] flex flex-col">
+            <div className="px-6 pt-5 pb-4 border-b border-gray-100">
+              <h2 className="text-base font-bold text-gray-900">Pourquoi souhaitez-vous partir ?</h2>
+              <p className="text-xs text-gray-500 mt-0.5">Votre avis nous aide à améliorer le service</p>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-2">
+              {UNSUB_REASONS.map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setUnsubReason(r)}
+                  className={`w-full text-left px-4 py-3 rounded-xl border-2 text-sm transition-all ${
+                    unsubReason === r ? 'border-red-400 bg-red-50 text-red-700 font-semibold' : 'border-gray-200 text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  {r}
+                </button>
+              ))}
+              {unsubReason === 'Autre raison' && (
+                <textarea
+                  value={unsubOther}
+                  onChange={(e) => setUnsubOther(e.target.value)}
+                  placeholder="Dites-nous en plus…"
+                  rows={3}
+                  className="w-full mt-1 px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:border-red-400 focus:outline-none resize-none"
+                />
+              )}
+            </div>
+            <div className="px-6 pb-6 pt-3 border-t border-gray-100 space-y-2">
+              <button
+                onClick={() => setUnsubStep('confirming')}
+                disabled={!unsubReason}
+                className="w-full py-3 bg-red-500 text-white font-bold rounded-xl text-sm hover:bg-red-600 disabled:opacity-40 transition-colors"
+              >
+                Continuer
+              </button>
+              <button onClick={() => setUnsubStep('idle')} className="w-full py-2 text-xs text-gray-400 hover:text-gray-600 transition-colors">
+                Annuler
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Unsubscribe: Step 3 — Final confirm ──────────────────────────── */}
+      {unsubStep === 'confirming' && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+            <div className="text-center">
+              <p className="text-3xl mb-2">⚠️</p>
+              <h2 className="text-base font-bold text-gray-900">Confirmer la résiliation</h2>
+              <p className="text-sm text-gray-500 mt-1">Cette action est <strong>définitive</strong>. Votre abonnement sera immédiatement annulé.</p>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-3 text-xs text-gray-600">
+              <p className="font-semibold mb-1">Raison indiquée :</p>
+              <p className="italic">&ldquo;{unsubReason === 'Autre raison' ? (unsubOther || 'Autre') : unsubReason}&rdquo;</p>
+            </div>
+            <div className="space-y-2">
+              <button
+                onClick={handleUnsubscribe}
+                disabled={unsubLoading}
+                className="w-full py-3 bg-red-600 text-white font-bold rounded-xl text-sm hover:bg-red-700 disabled:opacity-50 transition-colors"
+              >
+                {unsubLoading ? 'Résiliation en cours…' : '🚫 Confirmer la résiliation définitive'}
+              </button>
+              <button onClick={() => setUnsubStep('idle')} className="w-full py-2.5 border-2 border-gray-200 text-gray-600 font-bold rounded-xl text-sm hover:bg-gray-50 transition-colors">
+                Annuler — Je reste abonnée
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showUpgradeModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
@@ -1742,6 +1893,34 @@ export default function ClientDashboardPage() {
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* Unsubscribe button */}
+            {unsubStep === 'idle' && (
+              <div className="pt-2">
+                <button
+                  onClick={() => setUnsubStep('recovery')}
+                  className="w-full py-3 text-xs font-semibold text-gray-400 hover:text-red-500 transition-colors"
+                >
+                  Se désabonner
+                </button>
+              </div>
+            )}
+
+            {/* Step done */}
+            {unsubStep === 'done' && (
+              <div className="bg-gray-50 border border-gray-200 rounded-2xl p-5 text-center space-y-3">
+                <p className="text-2xl">💔</p>
+                <p className="text-sm font-bold text-gray-800">Abonnement annulé</p>
+                <p className="text-xs text-gray-500">Votre abonnement a bien été résilié. Vous pouvez nous recontacter à tout moment pour vous réabonner.</p>
+                <a
+                  href={`https://wa.me/596${process.env.NEXT_PUBLIC_WHATSAPP_PHONE ?? '0696000000'}?text=${encodeURIComponent('Bonjour, je souhaite me réabonner à la box beauté LMDE 💅')}`}
+                  className="inline-block mt-2 text-xs font-bold text-green-600 hover:text-green-700"
+                  target="_blank" rel="noopener noreferrer"
+                >
+                  Nous contacter pour se réabonner →
+                </a>
               </div>
             )}
           </div>
