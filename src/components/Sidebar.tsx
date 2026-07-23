@@ -36,7 +36,7 @@ const navItems: NavItem[] = [
   },
   { id: 'nav-categories', label: 'Catégories', icon: 'RectangleGroupIcon', href: '/categories', group: 'catalogue' },
   { id: 'nav-promotions', label: 'Promotions', icon: 'TagIcon', href: '/promotions', group: 'catalogue' },
-  { id: 'nav-stock', label: 'Stock', icon: 'ArchiveBoxIcon', href: '/stock', badge: 4, group: 'catalogue' },
+  { id: 'nav-stock', label: 'Stock', icon: 'ArchiveBoxIcon', href: '/stock', group: 'catalogue' },
   { id: 'nav-shopify-sync', label: 'Sync Shopify', icon: 'ArrowPathIcon', href: '/shopify-sync', group: 'catalogue' },
   {
     id: 'nav-inventory',
@@ -75,7 +75,7 @@ const navItems: NavItem[] = [
   { id: 'nav-expeditions', label: 'Expéditions', icon: 'ArchiveBoxArrowDownIcon', href: '/expeditions', group: 'gestion' },
   { id: 'nav-clients', label: 'Clients', icon: 'UsersIcon', href: '/clients', group: 'gestion' },
   { id: 'nav-abonnements', label: 'Abonnements', icon: 'ArchiveBoxIcon', href: '/abonnements', group: 'gestion' },
-  { id: 'nav-reservations', label: 'Réservations', icon: 'CalendarDaysIcon', href: '/reservations', badge: 7, group: 'gestion' },
+  { id: 'nav-reservations', label: 'Réservations', icon: 'CalendarDaysIcon', href: '/reservations', group: 'gestion' },
   { id: 'nav-parrainage', label: 'Parrainage', icon: 'UserGroupIcon', href: '/parrainage', group: 'gestion' },
   { id: 'nav-loyalty', label: 'Fidélité', icon: 'StarIcon', href: '/loyalty', group: 'gestion' },
   { id: 'nav-returns', label: 'Retours & Avoirs', icon: 'ArrowUturnLeftIcon', href: '/returns', group: 'gestion' },
@@ -136,6 +136,8 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const [userEmail, setUserEmail] = useState('');
   const [userInitials, setUserInitials] = useState('');
   const [unreadSupplierMsgs, setUnreadSupplierMsgs] = useState(0);
+  const [stockAlertCount, setStockAlertCount] = useState(0);
+  const [reservationPendingCount, setReservationPendingCount] = useState(0);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -223,6 +225,17 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
     }
   }, [pathname]);
 
+  // Live stock alert count + reservations pending count
+  useEffect(() => {
+    const load = () => {
+      fetch('/api/stock/alert-count').then(r => r.json()).then(d => setStockAlertCount(d.count ?? 0)).catch(() => {});
+      fetch('/api/reservations/pending-count').then(r => r.json()).then(d => setReservationPendingCount(d.count ?? 0)).catch(() => {});
+    };
+    load();
+    // Refresh when user visits these pages
+    if (pathname.startsWith('/stock') || pathname.startsWith('/reservations')) load();
+  }, [pathname]);
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     router.replace('/login');
@@ -276,9 +289,15 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                 const isActive = pathname === item.href || (item.children && pathname.startsWith(item.href));
                 const isExpanded = expandedItems[item.id];
                 const hasChildren = item.children && item.children.length > 0;
-                const dynamicBadge = item.id === 'nav-commandes-fo' && unreadSupplierMsgs > 0
-                  ? unreadSupplierMsgs
-                  : item.badge;
+                const dynamicBadge =
+                  item.id === 'nav-commandes-fo' && unreadSupplierMsgs > 0 ? unreadSupplierMsgs :
+                  item.id === 'nav-stock' && stockAlertCount > 0 ? stockAlertCount :
+                  item.id === 'nav-reservations' && reservationPendingCount > 0 ? reservationPendingCount :
+                  item.badge;
+                const isAlertBadge =
+                  (item.id === 'nav-commandes-fo' && unreadSupplierMsgs > 0) ||
+                  (item.id === 'nav-stock' && stockAlertCount > 0) ||
+                  (item.id === 'nav-reservations' && reservationPendingCount > 0);
 
                 return (
                   <div key={item.id}>
@@ -305,9 +324,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                             <span className="flex-1 truncate text-left">{item.label}</span>
                             {dynamicBadge !== undefined && (
                               <span className={`text-[10px] font-600 rounded-full px-1.5 py-0.5 min-w-[18px] text-center tabular-nums ${
-                                item.id === 'nav-commandes-fo' && unreadSupplierMsgs > 0
-                                  ? 'bg-red-500 text-white'
-                                  : 'bg-primary text-primary-foreground'
+                                isAlertBadge ? 'bg-red-500 text-white' : 'bg-primary text-primary-foreground'
                               }`}>
                                 {dynamicBadge}
                               </span>
@@ -321,9 +338,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                         )}
                         {collapsed && dynamicBadge !== undefined && (
                           <span className={`absolute top-1 right-1 w-2 h-2 rounded-full ${
-                            item.id === 'nav-commandes-fo' && unreadSupplierMsgs > 0
-                              ? 'bg-red-500'
-                              : 'bg-primary'
+                            isAlertBadge ? 'bg-red-500' : 'bg-primary'
                           }`} />
                         )}
                       </button>
@@ -350,9 +365,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                             <span className="flex-1 truncate">{item.label}</span>
                             {dynamicBadge !== undefined && (
                               <span className={`ml-auto text-[10px] font-600 rounded-full px-1.5 py-0.5 min-w-[18px] text-center tabular-nums ${
-                                item.id === 'nav-commandes-fo' && unreadSupplierMsgs > 0
-                                  ? 'bg-red-500 text-white'
-                                  : 'bg-primary text-primary-foreground'
+                                isAlertBadge ? 'bg-red-500 text-white' : 'bg-primary text-primary-foreground'
                               }`}>
                                 {dynamicBadge}
                               </span>
@@ -361,9 +374,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                         )}
                         {collapsed && dynamicBadge !== undefined && (
                           <span className={`absolute top-1 right-1 w-2 h-2 rounded-full ${
-                            item.id === 'nav-commandes-fo' && unreadSupplierMsgs > 0
-                              ? 'bg-red-500'
-                              : 'bg-primary'
+                            isAlertBadge ? 'bg-red-500' : 'bg-primary'
                           }`} />
                         )}
                       </Link>
