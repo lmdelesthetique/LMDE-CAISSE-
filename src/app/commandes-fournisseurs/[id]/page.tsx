@@ -1075,10 +1075,14 @@ export default function OrderDetailPage() {
   // Real import cost = products + all external fees (transport, customs, etc.)
   // Structure is overhead info only — never added to totals
   const totalFees = getEC('transport') + getEC('customs') + getEC('vat') + getEC('freight') + getEC('bank') + getEC('exchange') + getEC('local') + getEC('other');
-  const importCost = order.subtotal + totalFees;
-  const structureAmount = importCost * (structurePct / 100); // info only
 
   const lines = order.lines || [];
+  // Use confirmed (real invoice) prices when available, otherwise fall back to estimated
+  const confirmedSubtotal = lines.reduce((s, l) => s + (l.confirmedUnitPrice != null ? l.confirmedUnitPrice : l.unitPrice) * l.qtyOrdered, 0);
+  const productsCost = confirmedSubtotal > 0 ? confirmedSubtotal : order.subtotal;
+  const importCost = productsCost + totalFees;
+  const structureAmount = importCost * (structurePct / 100); // info only
+
   const totalQty = lines.reduce((s, l) => s + l.qtyOrdered, 0);
   const avgCostPerProduct = totalQty > 0 ? importCost / totalQty : 0;
   const totalSalePrice = lines.reduce((s, l) => s + l.salePrice * l.qtyOrdered, 0);
@@ -2877,7 +2881,9 @@ export default function OrderDetailPage() {
               <div className="px-5 py-4 border-b border-border flex items-center justify-between">
                 <h3 className="font-600 text-foreground">Analyse par produit</h3>
                 {lines.some((l) => {
-                  const unitCost = l.unitRealCost > 0 ? l.unitRealCost : avgCostPerProduct;
+                  const cu = l.confirmedUnitPrice != null ? l.confirmedUnitPrice : l.unitPrice;
+                  const fpu = productsCost > 0 ? totalFees * (cu || 0) / productsCost : (totalQty > 0 ? totalFees / totalQty : 0);
+                  const unitCost = (cu || 0) + fpu;
                   return l.salePrice > 0 && ((l.salePrice - unitCost) / l.salePrice) * 100 < 30;
                 }) && (
                   <span className="text-xs px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 font-600 border border-amber-200">
@@ -2890,7 +2896,12 @@ export default function OrderDetailPage() {
               ) : (
                 <div className="divide-y divide-border">
                   {lines.sort((a, b) => b.marginRate - a.marginRate).map((line) => {
-                    const unitCost = line.unitRealCost > 0 ? line.unitRealCost : avgCostPerProduct;
+                    // Real unit cost = confirmed price + proportional share of import fees (by value)
+                    const confirmedUnit = line.confirmedUnitPrice != null ? line.confirmedUnitPrice : line.unitPrice;
+                    const feesPerUnit = productsCost > 0
+                      ? totalFees * (confirmedUnit || 0) / productsCost
+                      : (totalQty > 0 ? totalFees / totalQty : 0);
+                    const unitCost = (confirmedUnit || 0) + feesPerUnit;
                     const computedMargin = line.salePrice > 0 ? ((line.salePrice - unitCost) / line.salePrice) * 100 : 0;
                     const alert = getMarginAlert(unitCost, line.salePrice);
                     const isEditingThis = editingPriceLineId === line.id;
