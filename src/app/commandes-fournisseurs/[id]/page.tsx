@@ -144,8 +144,9 @@ export default function OrderDetailPage() {
   const [pricesSaved, setPricesSaved] = useState(false);
   // Currency toggle for price entry: USD input → auto-convert to EUR
   const [realPricesCurrency, setRealPricesCurrency] = useState<'EUR' | 'USD'>('EUR');
-  const [usdToEur, setUsdToEur] = useState<number | null>(null);
+  const [usdRateStr, setUsdRateStr] = useState(''); // editable rate "€ par $"
   const [fetchingRate, setFetchingRate] = useState(false);
+  const effectiveRate = parseFloat(usdRateStr) || null;
 
   // Cost modes: 'eur' (fixed amount) | 'pct' (% of product subtotal)
   const [costModes, setCostModes] = useState<Record<string, 'eur' | 'pct'>>({
@@ -874,18 +875,18 @@ export default function OrderDetailPage() {
     try {
       const res = await fetch('https://api.frankfurter.app/latest?from=USD&to=EUR');
       const json = await res.json();
-      if (json?.rates?.EUR) setUsdToEur(json.rates.EUR);
-    } catch { /* silent */ } finally {
+      if (json?.rates?.EUR) setUsdRateStr(String(json.rates.EUR));
+    } catch { /* silent — user can type rate manually */ } finally {
       setFetchingRate(false);
     }
   };
 
   const handleSaveInvoicePrices = async () => {
     if (!order) return;
-    if (realPricesCurrency === 'USD' && !usdToEur) return;
+    if (realPricesCurrency === 'USD' && !effectiveRate) return;
     setSavingPrices(true);
     try {
-      const rate = realPricesCurrency === 'USD' ? usdToEur! : 1;
+      const rate = realPricesCurrency === 'USD' ? effectiveRate! : 1;
       const prices = lines.map(l => ({
         lineId: l.id,
         confirmedUnitPrice: (parseFloat(realPrices[l.id] || '0') || 0) * rate,
@@ -2175,7 +2176,7 @@ export default function OrderDetailPage() {
                         {/* Toggle USD / EUR */}
                         <div className="flex rounded-lg border border-border overflow-hidden text-xs font-600">
                           <button
-                            onClick={() => { setRealPricesCurrency('USD'); if (!usdToEur) fetchLiveUsdRate(); }}
+                            onClick={() => { setRealPricesCurrency('USD'); if (!usdRateStr) fetchLiveUsdRate(); }}
                             className={`px-3 py-1.5 transition-colors ${realPricesCurrency === 'USD' ? 'bg-amber-500 text-white' : 'bg-white text-muted-foreground hover:bg-muted'}`}
                           >
                             $ USD
@@ -2187,27 +2188,31 @@ export default function OrderDetailPage() {
                             € EUR
                           </button>
                         </div>
-                        {/* Taux live */}
+                        {/* Taux USD→EUR éditable */}
                         {realPricesCurrency === 'USD' && (
-                          <div className="flex items-center gap-1.5">
-                            {usdToEur ? (
-                              <span className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-lg font-600">
-                                1 $ = {usdToEur.toFixed(4)} €
-                              </span>
-                            ) : fetchingRate ? (
-                              <span className="text-xs text-amber-600 flex items-center gap-1">
-                                <span className="w-3 h-3 border-2 border-amber-400 border-t-transparent rounded-full animate-spin inline-block" />
-                                Chargement du taux…
-                              </span>
-                            ) : (
-                              <span className="text-xs text-red-500">⚠️ Taux non chargé</span>
-                            )}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-xs text-muted-foreground shrink-0">1 $ =</span>
+                            <div className="relative">
+                              <input
+                                type="number"
+                                min="0.0001"
+                                step="0.0001"
+                                value={usdRateStr}
+                                onChange={e => setUsdRateStr(e.target.value)}
+                                placeholder="0.0000"
+                                className={`w-24 px-2 py-1 pr-5 border rounded-lg text-xs text-right focus:outline-none focus:ring-2 ${effectiveRate ? 'border-emerald-300 bg-emerald-50 focus:ring-emerald-300 text-emerald-800 font-600' : 'border-amber-300 bg-amber-50 focus:ring-amber-300'}`}
+                              />
+                              <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">€</span>
+                            </div>
                             <button
                               onClick={fetchLiveUsdRate}
                               disabled={fetchingRate}
-                              className="text-xs px-2 py-1 bg-amber-50 border border-amber-200 text-amber-700 rounded-lg hover:bg-amber-100 transition-colors disabled:opacity-50"
+                              title="Récupérer le taux actuel automatiquement"
+                              className="text-xs px-2 py-1 bg-amber-50 border border-amber-200 text-amber-700 rounded-lg hover:bg-amber-100 transition-colors disabled:opacity-50 shrink-0 flex items-center gap-1"
                             >
-                              {fetchingRate ? '…' : '🔄 Actualiser'}
+                              {fetchingRate
+                                ? <><span className="w-3 h-3 border-2 border-amber-400 border-t-transparent rounded-full animate-spin inline-block" /> Chargement…</>
+                                : '🔄 Taux auto'}
                             </button>
                           </div>
                         )}
@@ -2217,8 +2222,8 @@ export default function OrderDetailPage() {
                     <div className="space-y-2">
                       {lines.map((line) => {
                         const rawVal = parseFloat(realPrices[line.id] || '0') || 0;
-                        const eurVal = realPricesCurrency === 'USD' && usdToEur && rawVal > 0
-                          ? rawVal * usdToEur : null;
+                        const eurVal = realPricesCurrency === 'USD' && effectiveRate && rawVal > 0
+                          ? rawVal * effectiveRate : null;
                         return (
                           <div key={line.id} className="flex items-center gap-3 py-2 border-b border-border last:border-0">
                             <div className="flex-1 min-w-0">
@@ -2254,20 +2259,20 @@ export default function OrderDetailPage() {
                       })}
                     </div>
 
-                    {realPricesCurrency === 'USD' && !usdToEur && (
-                      <p className="text-xs text-amber-600 mt-2">⚠️ Cliquez sur "🔄 Taux actuel" pour charger le taux de change avant d'enregistrer.</p>
+                    {realPricesCurrency === 'USD' && !effectiveRate && (
+                      <p className="text-xs text-amber-600 mt-2">⚠️ Entrez le taux de change (ex : 0.92) ou cliquez "🔄 Taux auto" pour le charger automatiquement.</p>
                     )}
 
                     <div className="mt-4 flex items-center gap-3">
                       <button
                         onClick={handleSaveInvoicePrices}
-                        disabled={savingPrices || (realPricesCurrency === 'USD' && !usdToEur)}
+                        disabled={savingPrices || (realPricesCurrency === 'USD' && !effectiveRate)}
                         className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg text-sm font-500 hover:bg-violet-700 transition-colors disabled:opacity-50"
                       >
                         {savingPrices
                           ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                           : <Icon name="CheckIcon" size={15} />}
-                        Enregistrer{realPricesCurrency === 'USD' && usdToEur ? ' (converti en €)' : ' les prix réels'}
+                        Enregistrer{realPricesCurrency === 'USD' && effectiveRate ? ` (1$ = ${effectiveRate.toFixed(4)}€)` : ' les prix réels'}
                       </button>
                       {pricesSaved && (
                         <span className="text-sm text-emerald-600 font-500">✅ Prix sauvegardés</span>
