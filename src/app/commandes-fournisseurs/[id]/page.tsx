@@ -652,11 +652,14 @@ export default function OrderDetailPage() {
     if (!q.trim()) { setProductResults([]); return; }
     setSearchingProducts(true);
     const supabase = createClient();
+    const term = q.trim().replace(/'/g, "''");
     const { data } = await supabase
       .from('products')
-      .select('id, name, ref, buy_price, sell_price_ttc, image_url')
-      .ilike('name', `%${q}%`)
-      .limit(10);
+      .select('id, name, ref, barcode, buy_price, sell_price_ttc, image_url')
+      .or(`name.ilike.%${term}%,ref.ilike.%${term}%,barcode.ilike.%${term}%`)
+      .eq('is_active', true)
+      .order('name')
+      .limit(50);
     setProductResults(data || []);
     setSearchingProducts(false);
   };

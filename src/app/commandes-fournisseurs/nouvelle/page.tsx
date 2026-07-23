@@ -156,10 +156,13 @@ function NouvelleCommandeContent() {
     if (!q.trim()) { setSearchResults([]); setShowSearch(false); return; }
     // Search only within supplier's products if a supplier is selected, otherwise all products
     const pool = selectedSupplier && supplierProducts.length > 0 ? supplierProducts : allProducts;
+    const lq = q.toLowerCase();
     const results = pool.filter(
-      (p) => p.name.toLowerCase().includes(q.toLowerCase()) || p.ref.toLowerCase().includes(q.toLowerCase())
+      (p) =>
+        p.name.toLowerCase().includes(lq) ||
+        (p.ref ?? '').toLowerCase().includes(lq)
     );
-    setSearchResults(results.slice(0, 10));
+    setSearchResults(results.slice(0, 50));
     setShowSearch(true);
   }, [allProducts, selectedSupplier, supplierProducts]);
 
