@@ -7,7 +7,7 @@ export async function GET() {
   const { data, error } = await supabase
     .from('products')
     .select('id, stock, min_stock')
-    .eq('is_active', true)
+    .neq('is_suspended', true)
     .not('stock', 'is', null);
   if (error) return NextResponse.json({ count: 0 });
   const threshold = 3;
