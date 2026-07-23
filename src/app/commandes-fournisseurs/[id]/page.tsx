@@ -882,9 +882,10 @@ export default function OrderDetailPage() {
 
   const handleSaveInvoicePrices = async () => {
     if (!order) return;
+    if (realPricesCurrency === 'USD' && !usdToEur) return;
     setSavingPrices(true);
     try {
-      const rate = realPricesCurrency === 'USD' ? (usdToEur ?? 1) : 1;
+      const rate = realPricesCurrency === 'USD' ? usdToEur! : 1;
       const prices = lines.map(l => ({
         lineId: l.id,
         confirmedUnitPrice: (parseFloat(realPrices[l.id] || '0') || 0) * rate,
@@ -2174,7 +2175,7 @@ export default function OrderDetailPage() {
                         {/* Toggle USD / EUR */}
                         <div className="flex rounded-lg border border-border overflow-hidden text-xs font-600">
                           <button
-                            onClick={() => setRealPricesCurrency('USD')}
+                            onClick={() => { setRealPricesCurrency('USD'); if (!usdToEur) fetchLiveUsdRate(); }}
                             className={`px-3 py-1.5 transition-colors ${realPricesCurrency === 'USD' ? 'bg-amber-500 text-white' : 'bg-white text-muted-foreground hover:bg-muted'}`}
                           >
                             $ USD
@@ -2193,15 +2194,20 @@ export default function OrderDetailPage() {
                               <span className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-lg font-600">
                                 1 $ = {usdToEur.toFixed(4)} €
                               </span>
+                            ) : fetchingRate ? (
+                              <span className="text-xs text-amber-600 flex items-center gap-1">
+                                <span className="w-3 h-3 border-2 border-amber-400 border-t-transparent rounded-full animate-spin inline-block" />
+                                Chargement du taux…
+                              </span>
                             ) : (
-                              <span className="text-xs text-muted-foreground">Taux non chargé</span>
+                              <span className="text-xs text-red-500">⚠️ Taux non chargé</span>
                             )}
                             <button
                               onClick={fetchLiveUsdRate}
                               disabled={fetchingRate}
                               className="text-xs px-2 py-1 bg-amber-50 border border-amber-200 text-amber-700 rounded-lg hover:bg-amber-100 transition-colors disabled:opacity-50"
                             >
-                              {fetchingRate ? '…' : '🔄 Taux actuel'}
+                              {fetchingRate ? '…' : '🔄 Actualiser'}
                             </button>
                           </div>
                         )}

@@ -303,12 +303,28 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                         {!collapsed && (
                           <>
                             <span className="flex-1 truncate text-left">{item.label}</span>
+                            {dynamicBadge !== undefined && (
+                              <span className={`text-[10px] font-600 rounded-full px-1.5 py-0.5 min-w-[18px] text-center tabular-nums ${
+                                item.id === 'nav-commandes-fo' && unreadSupplierMsgs > 0
+                                  ? 'bg-red-500 text-white'
+                                  : 'bg-primary text-primary-foreground'
+                              }`}>
+                                {dynamicBadge}
+                              </span>
+                            )}
                             <Icon
                               name={isExpanded ? 'ChevronDownIcon' : 'ChevronRightIcon'}
                               size={13}
                               className="text-muted-foreground shrink-0"
                             />
                           </>
+                        )}
+                        {collapsed && dynamicBadge !== undefined && (
+                          <span className={`absolute top-1 right-1 w-2 h-2 rounded-full ${
+                            item.id === 'nav-commandes-fo' && unreadSupplierMsgs > 0
+                              ? 'bg-red-500'
+                              : 'bg-primary'
+                          }`} />
                         )}
                       </button>
                     ) : (

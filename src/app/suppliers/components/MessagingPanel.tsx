@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
+import Link from 'next/link';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client'; // used only for realtime subscription
 
@@ -71,6 +72,10 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
   const [usingInvoice, setUsingInvoice] = useState<string | null>(null);
   const [usedInvoice, setUsedInvoice] = useState<string | null>(null);
   const [invoiceJustSelected, setInvoiceJustSelected] = useState(false);
+
+  // Delete state
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // Invoice picker state
   const [showInvoicePicker, setShowInvoicePicker] = useState(false);
@@ -285,6 +290,18 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   };
 
+  const handleDeleteMessage = async (msgId: string) => {
+    setDeletingId(msgId);
+    try {
+      await fetch(`/api/supplier-messages/${msgId}`, { method: 'DELETE' });
+      setMessages(prev => prev.filter(m => m.id !== msgId));
+      setConfirmDeleteId(null);
+      onRefresh?.();
+    } catch { /* silent */ } finally {
+      setDeletingId(null);
+    }
+  };
+
   const formatTime = (iso: string) =>
     new Date(iso).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
@@ -354,7 +371,7 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
             const isPdfMsg = msg.attachmentUrl ? IS_PDF(msg.attachmentUrl) : false;
 
             return (
-              <div key={msg.id} className={`flex ${isStore ? 'justify-end' : 'justify-start'}`}>
+              <div key={msg.id} className={`flex ${isStore ? 'justify-end' : 'justify-start'} group/msg`}>
                 <div className={`max-w-[78%] ${isStore ? 'items-end' : 'items-start'} flex flex-col gap-1`}>
                   {!isStore && (
                     <div className="flex items-center gap-1.5 mb-0.5">
@@ -413,7 +430,7 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
                           cancelled:                  { label: '❌ Annulée',                 cls: 'text-red-700 bg-red-50 border-red-200' },
                         };
                         const s = statusMap[inv.status] ?? { label: inv.status ?? '—', cls: 'text-gray-600 bg-gray-50 border-gray-200' };
-                        return (
+                        const card = (
                           <div className="rounded-xl border border-border bg-white shadow-sm overflow-hidden min-w-[220px]">
                             <div className="px-3 py-2 bg-gradient-to-r from-violet-600 to-violet-500 flex items-center gap-2">
                               <span className="text-white text-base">📦</span>
@@ -427,9 +444,15 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
                               <p className="text-base font-700 text-violet-700 mt-1">
                                 {typeof inv.totalTTC === 'number' ? inv.totalTTC.toFixed(2) : '—'} €
                               </p>
+                              {inv.id && (
+                                <p className="text-[10px] text-violet-500 font-500">👆 Cliquer pour voir la commande →</p>
+                              )}
                             </div>
                           </div>
                         );
+                        return inv.id
+                          ? <Link href={`/commandes-fournisseurs/${inv.id}`} className="block hover:opacity-90 transition-opacity">{card}</Link>
+                          : card;
                       } catch {
                         return <p className="whitespace-pre-wrap">{msg.content}</p>;
                       }
@@ -501,7 +524,35 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
                     </button>
                   )}
 
-                  <span className="text-[11px] text-muted-foreground px-1">{formatTime(msg.createdAt)}</span>
+                  <div className={`flex items-center gap-1.5 ${isStore ? 'flex-row-reverse' : ''}`}>
+                    <span className="text-[11px] text-muted-foreground px-1">{formatTime(msg.createdAt)}</span>
+                    {/* Delete — visible on hover */}
+                    {confirmDeleteId === msg.id ? (
+                      <span className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleDeleteMessage(msg.id)}
+                          disabled={deletingId === msg.id}
+                          className="text-[10px] font-600 px-2 py-0.5 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors disabled:opacity-60"
+                        >
+                          {deletingId === msg.id ? '…' : 'Confirmer'}
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="text-[10px] text-muted-foreground hover:text-foreground px-1"
+                        >
+                          Annuler
+                        </button>
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDeleteId(msg.id)}
+                        className="opacity-0 group-hover/msg:opacity-100 transition-opacity p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-red-500"
+                        title="Supprimer ce message"
+                      >
+                        <Icon name="TrashIcon" size={12} />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             );
