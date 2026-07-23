@@ -543,52 +543,37 @@ export default function OrderDetailPage() {
     setCostHistory(allCostHistory);
     localStorage.setItem(`beautypos_cost_history_${order.id}`, JSON.stringify(allCostHistory));
 
-    // ── Sync new price to Supabase products table ──
+    // ── Sync new price to products table via API route (service role) ──
     try {
-      const { createClient } = await import('@/lib/supabase/client');
-      const supabase = createClient();
+      const tvaRate = 8.5;
+      const newSellPriceHT = newPrice / (1 + tvaRate / 100);
 
-      // Find product by ref
-      const { data: productData } = await supabase
-        .from('products')
-        .select('id, sell_price_ht, sell_price_ttc, buy_price, transport, customs, other_fees')
-        .eq('ref', line.productRef)
-        .maybeSingle();
-
-      if (productData) {
-        const tvaRate = 8.5;
-        const newSellPriceHT = newPrice / (1 + tvaRate / 100);
-        const newSellPriceTTC = newPrice;
-
-        // Update product price in DB
-        await supabase.from('products').update({
-          sell_price_ht: newSellPriceHT,
-          sell_price_ttc: newSellPriceTTC,
-          updated_at: new Date().toISOString(),
-        }).eq('id', productData.id);
-
-        // Record price change history
-        const oldSellPriceHT = productData.sell_price_ht || 0;
-        const costPrice = (productData.buy_price || 0) + (productData.transport || 0) + (productData.customs || 0) + (productData.other_fees || 0);
-        const oldMarginPct = oldSellPriceHT > 0 ? ((oldSellPriceHT - costPrice) / oldSellPriceHT) * 100 : 0;
-        const newMarginPct = newSellPriceHT > 0 ? ((newSellPriceHT - costPrice) / newSellPriceHT) * 100 : 0;
-
-        await supabase.from('product_price_history').insert({
-          product_id: productData.id,
-          product_ref: line.productRef,
-          product_name: line.productName,
-          old_sell_price_ht: oldSellPriceHT,
-          new_sell_price_ht: newSellPriceHT,
-          old_sell_price_ttc: productData.sell_price_ttc || 0,
-          new_sell_price_ttc: newSellPriceTTC,
-          old_margin_pct: oldMarginPct,
-          new_margin_pct: newMarginPct,
-          old_margin_amount: oldSellPriceHT - costPrice,
-          new_margin_amount: newSellPriceHT - costPrice,
-          supplier_order_id: order.id,
-          changed_by: 'Caisse',
-          change_reason: 'profitability_adjustment',
+      if (line.productId) {
+        await fetch(`/api/products/${line.productId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sell_price_ht: newSellPriceHT,
+            sell_price_ttc: newPrice,
+            updated_at: new Date().toISOString(),
+          }),
         });
+      } else if (line.productRef) {
+        // fallback: find product id by ref then update
+        const res = await fetch(`/api/products/search?ref=${encodeURIComponent(line.productRef)}`);
+        const json = await res.json();
+        const pid = json?.id || json?.[0]?.id;
+        if (pid) {
+          await fetch(`/api/products/${pid}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sell_price_ht: newSellPriceHT,
+              sell_price_ttc: newPrice,
+              updated_at: new Date().toISOString(),
+            }),
+          });
+        }
       }
     } catch (syncErr) {
       console.warn('Price sync to products failed (non-blocking):', syncErr);
