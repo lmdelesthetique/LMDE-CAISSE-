@@ -28,12 +28,30 @@ export async function POST(
 
   for (const { lineId, confirmedUnitPrice } of prices) {
     if (!lineId || confirmedUnitPrice == null || isNaN(Number(confirmedUnitPrice))) continue;
+    const price = Number(confirmedUnitPrice);
+
+    // Update confirmed_unit_price on the order line
     const { error } = await supabase
       .from('fo_order_lines')
-      .update({ confirmed_unit_price: Number(confirmedUnitPrice) })
+      .update({ confirmed_unit_price: price })
       .eq('id', lineId)
       .eq('order_id', id);
-    if (error) console.error('[save-invoice-prices]', lineId, error.message);
+    if (error) { console.error('[save-invoice-prices] line', lineId, error.message); continue; }
+
+    // Also update purchase_price_supplier on the product if price > 0
+    if (price > 0) {
+      const { data: line } = await supabase
+        .from('fo_order_lines')
+        .select('product_id')
+        .eq('id', lineId)
+        .maybeSingle();
+      if (line?.product_id) {
+        await supabase
+          .from('products')
+          .update({ purchase_price_supplier: price })
+          .eq('id', line.product_id);
+      }
+    }
   }
 
   return NextResponse.json({ ok: true });

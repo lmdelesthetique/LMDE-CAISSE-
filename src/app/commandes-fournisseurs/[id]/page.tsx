@@ -157,6 +157,11 @@ export default function OrderDetailPage() {
     transport: 0, customs: 0, vat: 0, freight: 0,
     bank: 0, exchange: 0, local: 0, other: 0,
   });
+  // Global currency for cost inputs (USD → converted to EUR on save)
+  const [costsCurrency, setCostsCurrency] = useState<'EUR' | 'USD'>('EUR');
+  const [costsUsdRateStr, setCostsUsdRateStr] = useState('');
+  const [fetchingCostsRate, setFetchingCostsRate] = useState(false);
+  const costsEffectiveRate = parseFloat(costsUsdRateStr) || null;
 
   // Group / transport inline edit
   const [editingMeta, setEditingMeta] = useState(false);
@@ -368,10 +373,12 @@ export default function OrderDetailPage() {
 
   const handleSaveCosts = async () => {
     if (!order) return;
+    if (costsCurrency === 'USD' && !costsEffectiveRate) return;
     setSavingCosts(true);
 
+    const costsRate = costsCurrency === 'USD' ? costsEffectiveRate! : 1;
     const getEC = (key: string): number =>
-      costModes[key] === 'pct' ? order.subtotal * (costPcts[key] || 0) / 100 : (costs as any)[key] || 0;
+      costModes[key] === 'pct' ? order.subtotal * (costPcts[key] || 0) / 100 : ((costs as any)[key] || 0) * costsRate;
 
     const importCost = order.subtotal + getEC('transport') + getEC('customs') + getEC('vat') + getEC('freight') + getEC('bank') + getEC('exchange') + getEC('local') + getEC('other');
 
@@ -444,7 +451,7 @@ export default function OrderDetailPage() {
 
     // Calculate supplierPaymentAmount inline here using effective costs
     const getECLocal = (key: string): number =>
-      costModes[key] === 'pct' ? order.subtotal * (costPcts[key] || 0) / 100 : (costs as any)[key] || 0;
+      costModes[key] === 'pct' ? order.subtotal * (costPcts[key] || 0) / 100 : ((costs as any)[key] || 0) * (costsCurrency === 'USD' ? (costsEffectiveRate ?? 1) : 1);
     const supplierExtraFeesLocal =
       (supplierIncludes.transport ? getECLocal('transport') : 0) +
       (supplierIncludes.customs ? getECLocal('customs') : 0) +
@@ -506,7 +513,7 @@ export default function OrderDetailPage() {
 
     // Calculate avgCostPerProduct inline here using effective costs
     const getECQ = (key: string): number =>
-      costModes[key] === 'pct' ? order.subtotal * (costPcts[key] || 0) / 100 : (costs as any)[key] || 0;
+      costModes[key] === 'pct' ? order.subtotal * (costPcts[key] || 0) / 100 : ((costs as any)[key] || 0) * (costsCurrency === 'USD' ? (costsEffectiveRate ?? 1) : 1);
     const totalFeesLocal = getECQ('transport') + getECQ('customs') + getECQ('vat') + getECQ('freight') + getECQ('bank') + getECQ('exchange') + getECQ('local') + getECQ('other');
     const importCostLocal = order.subtotal + totalFeesLocal;
     const linesLocal = order.lines || [];
@@ -601,7 +608,7 @@ export default function OrderDetailPage() {
 
     // Calculate avgCostPerProduct inline here using effective costs
     const getECB = (key: string): number =>
-      costModes[key] === 'pct' ? order.subtotal * (costPcts[key] || 0) / 100 : (costs as any)[key] || 0;
+      costModes[key] === 'pct' ? order.subtotal * (costPcts[key] || 0) / 100 : ((costs as any)[key] || 0) * (costsCurrency === 'USD' ? (costsEffectiveRate ?? 1) : 1);
     const totalFeesLocal2 = getECB('transport') + getECB('customs') + getECB('vat') + getECB('freight') + getECB('bank') + getECB('exchange') + getECB('local') + getECB('other');
     const importCostLocal2 = order.subtotal + totalFeesLocal2;
     const totalQtyLocal2 = lines.reduce((s, l) => s + l.qtyOrdered, 0);
@@ -882,6 +889,15 @@ export default function OrderDetailPage() {
     } catch { /* silent — user can type rate manually */ } finally {
       setFetchingRate(false);
     }
+  };
+
+  const fetchCostsUsdRate = async () => {
+    setFetchingCostsRate(true);
+    try {
+      const res = await fetch('https://api.frankfurter.app/latest?from=USD&to=EUR');
+      const json = await res.json();
+      if (json?.rates?.EUR) setCostsUsdRateStr(String(json.rates.EUR));
+    } catch { /* user can enter manually */ } finally { setFetchingCostsRate(false); }
   };
 
   const handleSaveInvoicePrices = async () => {
@@ -2416,13 +2432,51 @@ export default function OrderDetailPage() {
                   <Icon name="BanknotesIcon" size={16} className="text-primary" />
                   Saisie des frais réels
                 </h3>
-                <p className="text-xs text-muted-foreground mb-4">Cochez ✓ pour inclure un frais dans le montant à payer au fournisseur</p>
+                <p className="text-xs text-muted-foreground mb-3">Cochez ✓ pour inclure un frais dans le montant à payer au fournisseur</p>
+
+                {/* Currency toggle for costs */}
+                <div className="flex items-center gap-2 mb-3 flex-wrap">
+                  <div className="flex rounded-lg border border-border overflow-hidden text-xs font-600">
+                    <button
+                      onClick={() => { setCostsCurrency('USD'); if (!costsUsdRateStr) fetchCostsUsdRate(); }}
+                      className={`px-3 py-1.5 transition-colors ${costsCurrency === 'USD' ? 'bg-amber-500 text-white' : 'bg-white text-muted-foreground hover:bg-muted'}`}
+                    >$ USD</button>
+                    <button
+                      onClick={() => setCostsCurrency('EUR')}
+                      className={`px-3 py-1.5 transition-colors ${costsCurrency === 'EUR' ? 'bg-blue-600 text-white' : 'bg-white text-muted-foreground hover:bg-muted'}`}
+                    >€ EUR</button>
+                  </div>
+                  {costsCurrency === 'USD' && (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-muted-foreground shrink-0">1 $ =</span>
+                      <div className="relative">
+                        <input
+                          type="number" min="0.0001" step="0.0001"
+                          value={costsUsdRateStr}
+                          onChange={e => setCostsUsdRateStr(e.target.value)}
+                          placeholder="0.0000"
+                          className={`w-24 px-2 py-1 pr-5 border rounded-lg text-xs text-right focus:outline-none focus:ring-2 ${costsEffectiveRate ? 'border-emerald-300 bg-emerald-50 text-emerald-800 font-600' : 'border-amber-300 bg-amber-50'}`}
+                        />
+                        <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">€</span>
+                      </div>
+                      <button
+                        onClick={fetchCostsUsdRate}
+                        disabled={fetchingCostsRate}
+                        className="text-xs px-2 py-1 bg-amber-50 border border-amber-200 text-amber-700 rounded-lg hover:bg-amber-100 disabled:opacity-50 flex items-center gap-1"
+                      >
+                        {fetchingCostsRate
+                          ? <><span className="w-3 h-3 border-2 border-amber-400 border-t-transparent rounded-full animate-spin inline-block" /> …</>
+                          : '🔄 Taux auto'}
+                      </button>
+                    </div>
+                  )}
+                </div>
 
                 {/* Column headers */}
                 <div className="flex items-center gap-2 mb-2 px-0.5">
                   <div className="w-28 shrink-0" />
                   <div className="w-14 shrink-0" />
-                  <div className="flex-1 text-xs text-muted-foreground font-500">Montant</div>
+                  <div className="flex-1 text-xs text-muted-foreground font-500">Montant {costsCurrency === 'USD' ? '($)' : '(€)'}</div>
                   <div className="w-32 text-xs text-blue-600 font-600 text-center">Inclure fournisseur</div>
                 </div>
 
@@ -2448,12 +2502,24 @@ export default function OrderDetailPage() {
                           >%</button>
                         </div>
                         {mode === 'eur' ? (
-                          <input
-                            type="number" min="0" step="0.01"
-                            value={(costs as any)[key]}
-                            onChange={(e) => setCosts((prev) => ({ ...prev, [key]: parseFloat(e.target.value) || 0 }))}
-                            className="flex-1 px-3 py-1.5 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
-                          />
+                          <div className="flex-1 flex flex-col gap-0.5">
+                            <div className="relative">
+                              <input
+                                type="number" min="0" step="0.01"
+                                value={(costs as any)[key]}
+                                onChange={(e) => setCosts((prev) => ({ ...prev, [key]: parseFloat(e.target.value) || 0 }))}
+                                className={`w-full px-3 py-1.5 pr-8 border rounded-lg text-sm focus:outline-none focus:ring-2 ${costsCurrency === 'USD' ? 'border-amber-300 bg-amber-50 focus:ring-amber-200' : 'border-border focus:ring-primary/20'}`}
+                              />
+                              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none">
+                                {costsCurrency === 'USD' ? '$' : '€'}
+                              </span>
+                            </div>
+                            {costsCurrency === 'USD' && costsEffectiveRate && (costs as any)[key] > 0 && (
+                              <span className="text-[11px] text-blue-600 font-600 pl-1">
+                                = {(((costs as any)[key] || 0) * costsEffectiveRate).toFixed(2)} €
+                              </span>
+                            )}
+                          </div>
                         ) : (
                           <div className="flex-1 flex items-center gap-2">
                             <input
@@ -2618,7 +2684,7 @@ export default function OrderDetailPage() {
 
                 <button
                   onClick={handleSaveCosts}
-                  disabled={savingCosts || updatingStock}
+                  disabled={savingCosts || updatingStock || (costsCurrency === 'USD' && !costsEffectiveRate)}
                   className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-500 hover:bg-primary/90 transition-colors disabled:opacity-50"
                 >
                   {savingCosts || updatingStock ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Icon name="CheckIcon" size={15} />}
