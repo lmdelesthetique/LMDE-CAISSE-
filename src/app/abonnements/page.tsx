@@ -1,8 +1,10 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import AppLayout from '@/components/AppLayout';
 import { createClient } from '@/lib/supabase/client';
+import ClientFormModal from '@/app/clients/components/ClientFormModal';
+import { clientService, type Client } from '@/lib/services/clientService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -717,6 +719,158 @@ function NotifyEmailModal({ sub, onClose, onSent }: { sub: SubscriptionRow; onCl
   );
 }
 
+// ─── SubscriptionSetupModal ───────────────────────────────────────────────────
+
+interface Plan { id: string; name: string; price: number; quota_amount: number; shipping_free: boolean; shipping_cost: number; }
+
+function SubscriptionSetupModal({
+  client,
+  onClose,
+  onCreated,
+}: {
+  client: Client;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const [planId, setPlanId] = useState('');
+  const [portalPhone, setPortalPhone] = useState(client.phone ?? client.whatsapp ?? '');
+  const [pinCode, setPinCode] = useState(() => String(Math.floor(1000 + Math.random() * 9000)));
+  const [launchOffer, setLaunchOffer] = useState(false);
+  const [nextBilling, setNextBilling] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.from('subscription_plans').select('id, name, price, quota_amount, shipping_free, shipping_cost').order('price')
+      .then(({ data }) => {
+        setPlans(data ?? []);
+        if (data && data.length > 0) setPlanId(data[0].id);
+      });
+  }, []);
+
+  const handleSubmit = async () => {
+    if (!planId) { setError('Veuillez choisir un forfait.'); return; }
+    setSaving(true);
+    setError('');
+    try {
+      const res = await fetch('/api/subscriptions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_id: client.id,
+          plan_id: planId,
+          portal_phone: portalPhone || null,
+          pin_code: pinCode || null,
+          status: 'active',
+          launch_offer: launchOffer,
+          next_billing_date: nextBilling || null,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) { setError(json.error ?? 'Erreur création abonnement'); return; }
+      onCreated();
+    } catch {
+      setError('Erreur réseau');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const selectedPlan = plans.find((p) => p.id === planId);
+  const clientName = `${client.firstName} ${client.lastName}`;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div>
+            <h2 className="text-base font-bold text-gray-900">Configurer l&apos;abonnement</h2>
+            <p className="text-sm text-gray-500 mt-0.5">{clientName}</p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 text-lg">×</button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+          {/* Plan */}
+          <div>
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Forfait *</label>
+            <select value={planId} onChange={(e) => setPlanId(e.target.value)}
+              className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:border-primary focus:outline-none bg-white">
+              <option value="">— Choisir un forfait —</option>
+              {plans.map((p) => (
+                <option key={p.id} value={p.id}>{p.name} — {p.price} €/mois · quota {p.quota_amount} €</option>
+              ))}
+            </select>
+            {selectedPlan && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 font-semibold">{selectedPlan.price} €/mois</span>
+                <span className="text-xs px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 font-semibold">Quota {selectedPlan.quota_amount} €</span>
+                <span className="text-xs px-2.5 py-1 rounded-full bg-gray-100 text-gray-600 font-semibold">
+                  {selectedPlan.shipping_free ? 'Livraison offerte' : `Livraison ${selectedPlan.shipping_cost} €`}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Phone */}
+          <div>
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Téléphone portail</label>
+            <input value={portalPhone} onChange={(e) => setPortalPhone(e.target.value)} placeholder="Ex: +33612345678"
+              className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:border-primary focus:outline-none" />
+            <p className="text-xs text-gray-400 mt-1">Utilisé pour la connexion au portail client</p>
+          </div>
+
+          {/* PIN */}
+          <div>
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Code PIN portail</label>
+            <div className="flex gap-2">
+              <input value={pinCode} onChange={(e) => setPinCode(e.target.value.replace(/\D/g, '').slice(0, 6))} maxLength={6} placeholder="4 chiffres"
+                className="flex-1 px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm font-mono focus:border-primary focus:outline-none" />
+              <button onClick={() => setPinCode(String(Math.floor(1000 + Math.random() * 9000)))}
+                className="px-3 py-2.5 bg-gray-100 text-gray-600 rounded-xl text-xs font-semibold hover:bg-gray-200 transition-colors">
+                Générer
+              </button>
+            </div>
+          </div>
+
+          {/* Next billing */}
+          <div>
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">Date prochaine facturation</label>
+            <input type="date" value={nextBilling} onChange={(e) => setNextBilling(e.target.value)}
+              className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:border-primary focus:outline-none" />
+          </div>
+
+          {/* Launch offer */}
+          <div className="flex items-center justify-between p-3 bg-violet-50 border border-violet-200 rounded-xl">
+            <div>
+              <p className="text-sm font-semibold text-violet-900">Offre de lancement</p>
+              <p className="text-xs text-violet-600 mt-0.5">Livraison offerte pour cette cliente</p>
+            </div>
+            <button onClick={() => setLaunchOffer((v) => !v)}
+              className={`ml-3 px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${launchOffer ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-violet-700 border-violet-300 hover:bg-violet-50'}`}>
+              {launchOffer ? '✓ Activée' : 'Activer'}
+            </button>
+          </div>
+
+          {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{error}</p>}
+        </div>
+
+        <div className="px-6 pb-6 pt-4 border-t border-gray-100 flex gap-3">
+          <button onClick={handleSubmit} disabled={saving || !planId}
+            className="flex-1 py-3 bg-primary text-white font-bold rounded-xl text-sm hover:opacity-90 disabled:opacity-40 transition-opacity">
+            {saving ? 'Création…' : '✅ Créer l\'abonnement'}
+          </button>
+          <button onClick={onClose} className="px-5 py-3 border-2 border-gray-200 text-gray-600 font-bold rounded-xl text-sm hover:bg-gray-50 transition-colors">
+            Annuler
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AbonnementsPage() {
@@ -736,6 +890,18 @@ export default function AbonnementsPage() {
   const [emailToast, setEmailToast] = useState<{ ok: boolean; msg: string } | null>(null);
   const [traitingId, setTraitingId] = useState<string | null>(null);
   const [expandedItems, setExpandedItems] = useState<Record<string, OrderItem[]>>({});
+
+  // Add new subscriber flow
+  const [showNewClientModal, setShowNewClientModal] = useState(false);
+  const [subSetupClient, setSubSetupClient] = useState<Client | null>(null);
+
+  // Client search
+  const [clientSearch, setClientSearch] = useState('');
+  const [clientResults, setClientResults] = useState<Client[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const searchRef = useRef<HTMLDivElement>(null);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const currentMonth = new Date().toISOString().slice(0, 7);
   const today = new Date();
@@ -783,6 +949,29 @@ export default function AbonnementsPage() {
   }, [currentMonth]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Client search with debounce
+  useEffect(() => {
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    if (!clientSearch.trim()) { setClientResults([]); setShowDropdown(false); return; }
+    searchTimer.current = setTimeout(async () => {
+      setSearchLoading(true);
+      const results = await clientService.search(clientSearch.trim());
+      setClientResults(results.slice(0, 20));
+      setShowDropdown(true);
+      setSearchLoading(false);
+    }, 300);
+    return () => { if (searchTimer.current) clearTimeout(searchTimer.current); };
+  }, [clientSearch]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) setShowDropdown(false);
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Real-time confirmation listener
   useEffect(() => {
@@ -956,28 +1145,100 @@ export default function AbonnementsPage() {
 
       <div className="p-6 max-w-5xl mx-auto space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>
             <h1 className="text-2xl font-bold text-foreground">Abonnements</h1>
             <p className="text-sm text-muted-foreground mt-0.5">Gestion des box beauté mensuelles</p>
           </div>
-          <button
-            onClick={handleGenerateAuto}
-            disabled={generatingAuto}
-            className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-xl text-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-40"
-          >
-            {generatingAuto ? (
-              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => setShowNewClientModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
+              Nouvel abonné
+            </button>
+            <button
+              onClick={handleGenerateAuto}
+              disabled={generatingAuto}
+              className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-xl text-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-40"
+            >
+              {generatingAuto ? (
+                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 8.25h15m-16.5 7.5h15m-1.8-13.5l-3.9 19.5m-2.1-19.5l-3.9 19.5" />
+                </svg>
+              )}
+              Générer box auto
+            </button>
+          </div>
+        </div>
+
+        {/* Client search bar */}
+        <div ref={searchRef} className="relative">
+          <div className="relative">
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+            </svg>
+            <input
+              type="text"
+              value={clientSearch}
+              onChange={(e) => setClientSearch(e.target.value)}
+              onFocus={() => { if (clientResults.length > 0) setShowDropdown(true); }}
+              placeholder="Rechercher un client existant pour lui créer un abonnement…"
+              className="w-full pl-9 pr-4 py-2.5 border-2 border-border rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+            />
+            {searchLoading && (
+              <svg className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground animate-spin" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
-            ) : (
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 8.25h15m-16.5 7.5h15m-1.8-13.5l-3.9 19.5m-2.1-19.5l-3.9 19.5" />
-              </svg>
             )}
-            Générer box auto
-          </button>
+          </div>
+          {showDropdown && clientResults.length > 0 && (
+            <div className="absolute top-full left-0 right-0 mt-1 bg-white border-2 border-border rounded-xl shadow-2xl z-30 max-h-72 overflow-y-auto">
+              <p className="px-4 pt-3 pb-1 text-[10px] font-700 text-muted-foreground uppercase tracking-wide">
+                {clientResults.length} client{clientResults.length > 1 ? 's' : ''} trouvé{clientResults.length > 1 ? 's' : ''} — cliquez pour créer un abonnement
+              </p>
+              {clientResults.map((c) => (
+                <button
+                  key={c.id}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    setSubSetupClient(c);
+                    setClientSearch('');
+                    setShowDropdown(false);
+                    setClientResults([]);
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/60 transition-colors text-left border-t border-border/40 first:border-0"
+                >
+                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm shrink-0">
+                    {c.firstName.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-600 text-foreground truncate">{c.firstName} {c.lastName}</p>
+                    <p className="text-xs text-muted-foreground truncate">{[c.phone, c.email].filter(Boolean).join(' · ') || 'Aucun contact'}</p>
+                  </div>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-600 shrink-0">+ Abonnement</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {showDropdown && clientResults.length === 0 && clientSearch.trim().length > 1 && !searchLoading && (
+            <div className="absolute top-full left-0 right-0 mt-1 bg-white border-2 border-border rounded-xl shadow-2xl z-30 p-4 text-center">
+              <p className="text-sm text-muted-foreground">Aucun client trouvé pour &ldquo;{clientSearch}&rdquo;</p>
+              <button onClick={() => { setShowDropdown(false); setShowNewClientModal(true); }}
+                className="mt-2 text-xs text-primary font-600 hover:underline">
+                Créer un nouveau client →
+              </button>
+            </div>
+          )}
         </div>
 
         {/* KPIs */}
@@ -1345,6 +1606,30 @@ export default function AbonnementsPage() {
           currentMonth={currentMonth}
           onClose={() => setDeliveryModalSub(null)}
           onConfirmed={() => { setDeliveryModalSub(null); load(); }}
+        />
+      )}
+
+      {/* New client modal → on save, open subscription setup */}
+      {showNewClientModal && (
+        <ClientFormModal
+          onClose={() => setShowNewClientModal(false)}
+          onSaved={(savedClient) => {
+            setShowNewClientModal(false);
+            setSubSetupClient(savedClient);
+          }}
+        />
+      )}
+
+      {/* Subscription setup modal (after client selected or created) */}
+      {subSetupClient && (
+        <SubscriptionSetupModal
+          client={subSetupClient}
+          onClose={() => setSubSetupClient(null)}
+          onCreated={() => {
+            setSubSetupClient(null);
+            showEmailToast(true, `Abonnement créé pour ${subSetupClient.firstName} ${subSetupClient.lastName}`);
+            load();
+          }}
         />
       )}
     </AppLayout>
