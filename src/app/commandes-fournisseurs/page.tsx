@@ -43,6 +43,7 @@ const TABS = [
   { id: 'active', label: 'En cours' },
   { id: 'shipped', label: 'Expédiées' },
   { id: 'received', label: 'Reçues' },
+  { id: 'paid', label: 'Payé' },
   { id: 'suspended', label: 'Suspendues' },
 ];
 
@@ -193,6 +194,7 @@ export default function CommandesFournisseursPage() {
     else if (tab === 'active') matchTab = ACTIVE_STATUSES.includes(o.orderStatus);
     else if (tab === 'shipped') matchTab = o.orderStatus === 'shipped';
     else if (tab === 'received') matchTab = RECEIVED_STATUSES.includes(o.orderStatus);
+    else if (tab === 'paid') matchTab = o.paymentStatus === 'paid' || o.paymentStatus === 'received_by_supplier';
     else if (tab === 'suspended') matchTab = o.orderStatus === 'suspended';
     const matchGroup = !groupFilter || o.orderGroup === groupFilter;
     return matchSearch && matchTab && matchGroup;
@@ -462,6 +464,18 @@ export default function CommandesFournisseursPage() {
                 <div>
                   <p className="text-[10px] font-600 text-violet-500 uppercase tracking-wide">Brouillons</p>
                   <p className="font-700 text-gray-600 text-lg leading-tight">{filtered.filter(o => o.orderStatus === 'draft').length}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-600 text-violet-500 uppercase tracking-wide">Payé</p>
+                  <p className="font-700 text-emerald-700 text-lg leading-tight">{filtered.filter(o => o.paymentStatus === 'paid' || o.paymentStatus === 'received_by_supplier').length}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-600 text-violet-500 uppercase tracking-wide">Montant payé</p>
+                  <p className="font-700 text-emerald-700 text-lg leading-tight">
+                    {filtered.filter(o => o.paymentStatus === 'paid' || o.paymentStatus === 'received_by_supplier')
+                      .reduce((s, o) => s + Math.max(o.totalRealCost || 0, o.subtotal || 0), 0)
+                      .toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} EUR
+                  </p>
                 </div>
               </div>
               <button
