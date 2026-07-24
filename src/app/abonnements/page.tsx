@@ -1706,6 +1706,27 @@ export default function AbonnementsPage() {
                             })()}
                           </>
                         )}
+                        {sub.status === 'pending' && sub.client?.email && (
+                          <button
+                            onClick={async () => {
+                              setEmailSendingId(sub.id + '_relance');
+                              try {
+                                const res = await fetch('/api/subscriptions/send-relance', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ subscriptionId: sub.id }),
+                                });
+                                const d = await res.json();
+                                showEmailToast(res.ok, res.ok ? `Email de relance envoye a ${sub.client?.email}` : (d.error ?? 'Erreur'));
+                              } catch { showEmailToast(false, 'Erreur reseau'); }
+                              finally { setEmailSendingId(null); }
+                            }}
+                            disabled={emailSendingId === sub.id + '_relance'}
+                            className="flex-1 min-w-[120px] py-2 text-center bg-orange-50 border border-orange-300 text-orange-700 rounded-xl text-xs font-bold hover:bg-orange-100 transition-colors disabled:opacity-50"
+                          >
+                            {emailSendingId === sub.id + '_relance' ? '…' : 'Relancer'}
+                          </button>
+                        )}
                         {!sub.client?.email && (
                           <span className="flex-1 min-w-[120px] py-2 text-center text-xs text-muted-foreground italic">
                             (pas d&apos;email — envoi désactivé)
