@@ -1,18 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 
-// Existing Stripe product IDs
-const STRIPE_PRODUCT_MAP: Record<string, string> = {
-  starter: 'prod_UiOwABcDn3m7XH',
-  elite:   'prod_UiOxLQTo68CWrS',
+// Static Stripe Payment Links
+const STRIPE_PAYMENT_LINKS: Record<string, string> = {
+  starter: 'https://buy.stripe.com/14A4gAdjtgy3cb89pJ7IY06',
+  pro:     'https://buy.stripe.com/aFa28sdjt95B2Ay45p7IY08',
+  elite:   'https://buy.stripe.com/6oUdRaa7h3Lh8YWeK37IY07',
 };
 
-function resolveStripeProductId(planName: string): string | null {
+function resolveStripePaymentLink(planName: string, email?: string | null): string | null {
   const lower = planName.toLowerCase();
-  for (const [key, id] of Object.entries(STRIPE_PRODUCT_MAP)) {
-    if (lower.includes(key)) return id;
+  let baseUrl: string | null = null;
+  for (const [key, url] of Object.entries(STRIPE_PAYMENT_LINKS)) {
+    if (lower.includes(key)) { baseUrl = url; break; }
   }
-  return null;
+  if (!baseUrl) return null;
+  return email ? `${baseUrl}?prefilled_email=${encodeURIComponent(email)}` : baseUrl;
 }
 
 export async function POST(req: NextRequest) {
@@ -22,19 +25,16 @@ export async function POST(req: NextRequest) {
 
     const supabase = createAdminClient();
 
-    // Separate queries — avoids FK join issues
     const { data: sub, error: subErr } = await supabase
       .from('client_subscriptions')
-      .select('id, client_id, plan_id, portal_phone, pin_code')
+      .select('id, client_id, plan_id')
       .eq('id', subscriptionId)
       .maybeSingle();
 
     if (subErr || !sub) {
-      console.error('[send-payment-link] subscription not found', subErr?.message);
       return NextResponse.json({ error: 'Abonnement introuvable' }, { status: 404 });
     }
 
-    // Get client
     const { data: client } = await supabase
       .from('clients')
       .select('first_name, last_name, email')
@@ -46,7 +46,6 @@ export async function POST(req: NextRequest) {
 
     const firstName = client?.first_name ?? 'Abonnée';
 
-    // Get plan (optional)
     let planName = 'Box Beauté';
     let planPrice = 0;
     if (sub.plan_id) {
@@ -55,42 +54,12 @@ export async function POST(req: NextRequest) {
         .select('name, price')
         .eq('id', sub.plan_id)
         .maybeSingle();
-      if (plan) {
-        planName = plan.name ?? 'Box Beauté';
-        planPrice = plan.price ?? 0;
-      }
+      if (plan) { planName = plan.name ?? 'Box Beauté'; planPrice = plan.price ?? 0; }
     }
 
     const amountStr = planPrice > 0 ? planPrice.toFixed(2).replace('.', ',') + ' €' : '—';
+    const paymentUrl = resolveStripePaymentLink(planName, email);
 
-    // Generate Stripe payment link
-    let paymentUrl: string | null = null;
-    const stripeKey = process.env.STRIPE_SECRET_KEY;
-    if (stripeKey && !stripeKey.startsWith('your-') && planPrice > 0) {
-      try {
-        const Stripe = (await import('stripe')).default;
-        const stripe = new Stripe(stripeKey);
-        const existingProductId = resolveStripeProductId(planName);
-        const productId = existingProductId ?? (await stripe.products.create({ name: planName })).id;
-        const price = await stripe.prices.create({
-          product: productId,
-          unit_amount: Math.round(planPrice * 100),
-          currency: 'eur',
-        });
-        const link = await stripe.paymentLinks.create({
-          line_items: [{ price: price.id, quantity: 1 }],
-          after_completion: {
-            type: 'redirect',
-            redirect: { url: `${process.env.NEXT_PUBLIC_SITE_URL ?? 'https://lmdecaisse.com'}/client-portal/login` },
-          },
-        });
-        paymentUrl = link.url;
-      } catch (err: any) {
-        console.error('[send-payment-link] Stripe error:', err.message);
-      }
-    }
-
-    // Build email HTML
     const html = `<!DOCTYPE html>
 <html lang="fr">
 <head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
@@ -104,21 +73,21 @@ export async function POST(req: NextRequest) {
   </div>
   <div style="padding:32px 36px;">
     <p style="font-size:15px;color:#44403c;margin:0 0 16px;">Bonjour ${firstName} 💅</p>
-    <p style="font-size:14px;color:#57534e;margin:0 0 24px;">Voici votre lien de paiement pour votre abonnement <strong>${planName}</strong>.</p>
+    <p style="font-size:14px;color:#57534e;margin:0 0 24px;">Voici votre lien de paiement sécurisé pour votre abonnement <strong>${planName}</strong>.</p>
     <div style="background:#fdf2f8;border:1px solid #fbcfe8;border-radius:14px;padding:20px 24px;margin-bottom:28px;text-align:center;">
-      <p style="margin:0 0 4px;font-size:13px;color:#9ca3af;">Montant à régler</p>
+      <p style="margin:0 0 4px;font-size:13px;color:#9ca3af;">Montant mensuel</p>
       <p style="margin:0;font-size:36px;font-weight:700;color:#ec4899;">${amountStr}</p>
-      <p style="margin:6px 0 0;font-size:12px;color:#a8a29e;">${planName}</p>
+      <p style="margin:6px 0 0;font-size:12px;color:#a8a29e;">${planName} · renouvelé chaque mois</p>
     </div>
     ${paymentUrl
-      ? `<a href="${paymentUrl}" style="display:block;text-align:center;background:#ec4899;color:#fff;font-size:15px;font-weight:700;padding:16px 24px;border-radius:12px;text-decoration:none;">💳 Payer maintenant →</a>
-         <p style="font-size:11px;color:#a8a29e;text-align:center;margin:10px 0 0;">Paiement sécurisé via Stripe · Ce lien est à usage unique</p>`
+      ? `<a href="${paymentUrl}" style="display:block;text-align:center;background:#ec4899;color:#fff;font-size:15px;font-weight:700;padding:16px 24px;border-radius:12px;text-decoration:none;">💳 Payer et activer mon abonnement →</a>
+         <p style="font-size:11px;color:#a8a29e;text-align:center;margin:10px 0 0;">Paiement sécurisé via Stripe · Renouvellement automatique mensuel</p>`
       : `<div style="background:#fef3c7;border:1px solid #fde68a;border-radius:12px;padding:16px 20px;text-align:center;">
            <p style="margin:0;font-size:13px;color:#92400e;">Pour procéder au paiement, contactez votre conseillère LMDE.</p>
          </div>`
     }
     <p style="font-size:12px;color:#a8a29e;text-align:center;margin:20px 0 0;">
-      Une fois votre paiement validé, vous recevrez vos accès au Portail Beauté par email.
+      Une fois votre paiement validé, votre abonnement sera automatiquement activé.
     </p>
   </div>
   <div style="background:#fdf2f8;padding:16px 36px;text-align:center;">
@@ -127,7 +96,6 @@ export async function POST(req: NextRequest) {
 </div>
 </body></html>`;
 
-    // Send via Resend
     const resendKey = process.env.RESEND_API_KEY;
     const fromEmail = process.env.RESEND_FROM_EMAIL ?? "Le Monde de l'Esthétique <noreply@lmdecaisse.com>";
     if (!resendKey) return NextResponse.json({ error: 'RESEND_API_KEY non configurée' }, { status: 500 });
@@ -138,14 +106,13 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         from: fromEmail,
         to: [email],
-        subject: `Votre lien de paiement — ${planName}${planPrice > 0 ? ` (${amountStr})` : ''}`,
+        subject: `Votre lien de paiement — ${planName}${planPrice > 0 ? ` (${amountStr}/mois)` : ''}`,
         html,
       }),
     });
 
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      console.error('[send-payment-link] Resend error:', data);
       return NextResponse.json({ error: (data as any).message ?? `Erreur envoi (${res.status})` }, { status: 500 });
     }
 

@@ -56,6 +56,7 @@ const SUB_STATUS_CONFIG = {
   inactive: { label: 'Inactif', color: 'text-slate-600 bg-slate-50 border-slate-200' },
   expired: { label: 'Expiré', color: 'text-red-700 bg-red-50 border-red-200' },
   suspended: { label: 'Suspendu', color: 'text-amber-700 bg-amber-50 border-amber-200' },
+  pending: { label: 'En attente', color: 'text-blue-700 bg-blue-50 border-blue-200' },
 };
 
 const CLIENT_TYPE_CONFIG: Record<string, { label: string; color: string }> = {
@@ -96,7 +97,7 @@ export default function ClientDetailPanel({
   const [subForm, setSubForm] = useState({
     subscriptionType: subscription?.subscriptionType ?? 'Abonnement Standard',
     discountPercent: subscription?.discountPercent ?? 5,
-    status: (subscription?.status ?? 'active') as 'active' | 'inactive' | 'expired' | 'suspended',
+    status: (subscription?.status ?? 'pending') as 'active' | 'inactive' | 'expired' | 'suspended' | 'pending',
     startDate: subscription?.startDate ?? new Date().toISOString().split('T')[0],
     endDate: subscription?.endDate ?? '',
     autoRenew: subscription?.autoRenew ?? false,
@@ -1016,7 +1017,7 @@ export default function ClientDetailPanel({
                 <div>
                   <h3 className="text-xs font-600 uppercase tracking-wide text-muted-foreground mb-2">Changer le statut</h3>
                   <div className="flex gap-2 flex-wrap">
-                    {(['active', 'inactive', 'suspended', 'expired'] as const).map((s) => (
+                    {(['active', 'pending', 'suspended', 'inactive', 'expired'] as const).map((s) => (
                       <button key={s} onClick={async () => {
                         const updated = await clientService.updateSubscription(subscription.id, { status: s });
                         if (updated) onSubscriptionUpdated(updated);
@@ -1191,9 +1192,10 @@ export default function ClientDetailPanel({
                       <label className="text-xs font-600 text-muted-foreground block mb-1">Statut</label>
                       <select value={subForm.status} onChange={(e) => setSubForm((f) => ({ ...f, status: e.target.value as any }))}
                         className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white">
+                        <option value="pending">En attente</option>
                         <option value="active">Actif</option>
-                        <option value="inactive">Inactif</option>
                         <option value="suspended">Suspendu</option>
+                        <option value="inactive">Inactif</option>
                         <option value="expired">Expiré</option>
                       </select>
                     </div>

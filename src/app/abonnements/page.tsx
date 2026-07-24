@@ -8,7 +8,7 @@ import { clientService, type Client } from '@/lib/services/clientService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type SubStatus = 'active' | 'inactive' | 'suspended' | 'expired';
+type SubStatus = 'active' | 'inactive' | 'suspended' | 'expired' | 'pending';
 type OrderStatus = 'open' | 'confirmed' | 'preparing' | 'shipped' | 'auto' | 'en_livraison' | 'cancelled';
 
 interface OrderItem {
@@ -51,13 +51,14 @@ type DriverOption = { id: string; name: string; phone: string | null };
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STATUS_LABEL: Record<SubStatus, string> = {
-  active: 'Actif', inactive: 'Inactif', suspended: 'Suspendu', expired: 'Expiré',
+  active: 'Actif', inactive: 'Inactif', suspended: 'Suspendu', expired: 'Expiré', pending: 'En attente',
 };
 const STATUS_COLOR: Record<SubStatus, string> = {
   active: 'bg-emerald-50 text-emerald-700',
   inactive: 'bg-gray-100 text-gray-500',
   suspended: 'bg-amber-50 text-amber-700',
   expired: 'bg-red-50 text-red-600',
+  pending: 'bg-blue-50 text-blue-700',
 };
 const ORDER_LABEL: Record<OrderStatus, string> = {
   open: 'En cours', confirmed: 'Confirmée', preparing: 'Préparation',
@@ -778,7 +779,7 @@ function SubscriptionSetupModal({
           plan_id: planId,
           portal_phone: portalPhone || null,
           pin_code: pinCode || null,
-          status: 'active',
+          status: 'pending',
           launch_offer: launchOffer,
           next_billing_date: nextBilling || null,
         }),
@@ -1367,7 +1368,7 @@ export default function AbonnementsPage() {
 
         {/* Filter tabs */}
         <div className="flex gap-2 flex-wrap">
-          {(['all', 'active', 'inactive', 'suspended', 'expired'] as const).map((s) => (
+          {(['all', 'active', 'pending', 'suspended', 'inactive', 'expired'] as const).map((s) => (
             <button
               key={s}
               onClick={() => setFilterStatus(s)}
@@ -1677,7 +1678,7 @@ export default function AbonnementsPage() {
                             (pas d&apos;email — envoi désactivé)
                           </span>
                         )}
-                        {sub.status === 'active' && (
+                        {(sub.status === 'active' || sub.status === 'pending' || sub.status === 'suspended') && (
                           <button
                             onClick={() => { setCancelSub(sub); setCancelReason(''); }}
                             className="flex-1 min-w-[120px] py-2 text-center bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs font-semibold hover:bg-red-100 transition-colors"
