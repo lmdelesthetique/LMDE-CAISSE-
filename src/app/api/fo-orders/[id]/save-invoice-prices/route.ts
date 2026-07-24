@@ -42,7 +42,7 @@ export async function POST(
     if (price > 0) {
       const { data: line } = await supabase
         .from('fo_order_lines')
-        .select('product_id')
+        .select('product_id, product_ref')
         .eq('id', lineId)
         .maybeSingle();
       if (line?.product_id) {
@@ -50,6 +50,12 @@ export async function POST(
           .from('products')
           .update({ purchase_price_supplier: price })
           .eq('id', line.product_id);
+      } else if (line?.product_ref) {
+        // Fallback: find product by ref when product_id is not set on the line
+        await supabase
+          .from('products')
+          .update({ purchase_price_supplier: price })
+          .eq('ref', line.product_ref);
       }
     }
   }

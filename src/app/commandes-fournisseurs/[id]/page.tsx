@@ -589,10 +589,9 @@ export default function OrderDetailPage() {
   const handleBulkUpdate = async () => {
     if (!order) return;
     setBulkUpdating(true);
-    // Simulate bulk update of all products with new costs
     const lines = order.lines || [];
 
-    // Calculate avgCostPerProduct inline here using effective costs
+    // Compute average cost per unit including all fees
     const getECB = (key: string): number =>
       costModes[key] === 'pct' ? order.subtotal * (costPcts[key] || 0) / 100 : ((costs as any)[key] || 0) * (costsCurrency === 'USD' ? (costsEffectiveRate ?? 1) : 1);
     const totalFeesLocal2 = getECB('transport') + getECB('customs') + getECB('vat') + getECB('freight') + getECB('bank') + getECB('exchange') + getECB('local') + getECB('other');
@@ -600,18 +599,39 @@ export default function OrderDetailPage() {
     const totalQtyLocal2 = lines.reduce((s, l) => s + l.qtyOrdered, 0);
     const avgCostPerProductLocal2 = totalQtyLocal2 > 0 ? importCostLocal2 / totalQtyLocal2 : 0;
 
-    const productUpdates = JSON.parse(localStorage.getItem('beautypos_bulk_cost_updates') || '{}');
-    lines.forEach((line) => {
-      productUpdates[line.productRef ?? ''] = {
-        newCost: avgCostPerProductLocal2,
-        newMargin: line.salePrice > 0 ? ((line.salePrice - avgCostPerProductLocal2) / line.salePrice) * 100 : 0,
-        updatedAt: new Date().toISOString(),
-        orderId: order.id,
-        supplierName: order.supplierName,
-      };
-    });
-    localStorage.setItem('beautypos_bulk_cost_updates', JSON.stringify(productUpdates));
-    await new Promise((r) => setTimeout(r, 1200));
+    // Update each product's purchase_price_supplier via API
+    for (const line of lines) {
+      // Use confirmed unit price if available, otherwise average allocated cost
+      const unitCost = line.confirmedUnitPrice != null ? line.confirmedUnitPrice : avgCostPerProductLocal2;
+      if (unitCost <= 0) continue;
+
+      try {
+        if (line.productId) {
+          await fetch(`/api/products/${line.productId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ purchase_price_supplier: unitCost }),
+          });
+        } else if (line.productRef) {
+          // Find product by ref then update
+          const searchRes = await fetch(`/api/products/search?ref=${encodeURIComponent(line.productRef)}`);
+          if (searchRes.ok) {
+            const found = await searchRes.json();
+            const pid = found?.id ?? found?.[0]?.id;
+            if (pid) {
+              await fetch(`/api/products/${pid}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ purchase_price_supplier: unitCost }),
+              });
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[handleBulkUpdate] failed for line', line.id, err);
+      }
+    }
+
     setBulkUpdating(false);
     setBulkUpdateDone(true);
     setTimeout(() => setBulkUpdateDone(false), 4000);
