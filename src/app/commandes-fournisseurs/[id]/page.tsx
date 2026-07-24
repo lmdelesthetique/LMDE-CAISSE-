@@ -512,16 +512,20 @@ export default function OrderDetailPage() {
     const newPrice = parseFloat(newSellPrice) || 0;
     const oldPrice = line.salePrice;
 
-    // Calculate avgCostPerProduct inline here using effective costs
+    // Compute real unit cost using same proportional-fee formula as "Coût réel unit." display
     const getECQ = (key: string): number =>
       costModes[key] === 'pct' ? order.subtotal * (costPcts[key] || 0) / 100 : ((costs as any)[key] || 0) * (costsCurrency === 'USD' ? (costsEffectiveRate ?? 1) : 1);
-    const totalFeesLocal = getECQ('transport') + getECQ('customs') + getECQ('vat') + getECQ('freight') + getECQ('bank') + getECQ('exchange') + getECQ('local') + getECQ('other');
-    const importCostLocal = order.subtotal + totalFeesLocal;
-    const linesLocal = order.lines || [];
-    const totalQtyLocal = linesLocal.reduce((s, l) => s + l.qtyOrdered, 0);
-    const avgCostPerProductLocal = totalQtyLocal > 0 ? importCostLocal / totalQtyLocal : 0;
+    const totalFeesQ = getECQ('transport') + getECQ('customs') + getECQ('vat') + getECQ('freight') + getECQ('bank') + getECQ('exchange') + getECQ('local') + getECQ('other');
+    const linesQ = order.lines || [];
+    const totalQtyQ = linesQ.reduce((s, l) => s + l.qtyOrdered, 0);
+    const confirmedSubtotalQ = linesQ.reduce((s, l) => s + (l.confirmedUnitPrice != null ? l.confirmedUnitPrice : l.unitPrice) * l.qtyOrdered, 0);
+    const productsCostQ = confirmedSubtotalQ > 0 ? confirmedSubtotalQ : order.subtotal;
+    const confirmedUnitQ = line.confirmedUnitPrice != null ? line.confirmedUnitPrice : line.unitPrice;
+    const feesPerUnitQ = productsCostQ > 0
+      ? totalFeesQ * confirmedUnitQ / productsCostQ
+      : (totalQtyQ > 0 ? totalFeesQ / totalQtyQ : 0);
+    const newUnitCost = confirmedUnitQ + feesPerUnitQ;
 
-    const newUnitCost = line.unitRealCost || avgCostPerProductLocal;
     const oldMargin = oldPrice > 0 ? ((oldPrice - newUnitCost) / oldPrice) * 100 : 0;
     const newMargin = newPrice > 0 ? ((newPrice - newUnitCost) / newPrice) * 100 : 0;
 
@@ -2994,13 +2998,13 @@ export default function OrderDetailPage() {
                                 {line.salePrice > 0 ? `${computedMargin.toFixed(1)}%` : '—'}
                               </p>
                             </div>
-                            {alert && !isEditingThis && (
+                            {!isEditingThis && (
                               <button
                                 onClick={() => handleQuickPriceEdit(line.id, line.salePrice)}
-                                className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-600 hover:opacity-90 transition-opacity whitespace-nowrap"
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-600 hover:opacity-90 transition-opacity whitespace-nowrap ${alert ? 'bg-primary text-primary-foreground' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
                               >
                                 <Icon name="PencilSquareIcon" size={12} />
-                                Modifier prix de vente
+                                Modifier tarif
                               </button>
                             )}
                           </div>
