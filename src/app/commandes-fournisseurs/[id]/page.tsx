@@ -610,7 +610,7 @@ export default function OrderDetailPage() {
           await fetch(`/api/products/${line.productId}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ purchase_price_supplier: unitCost }),
+            body: JSON.stringify({ buy_price: unitCost, purchase_price_supplier: unitCost }),
           });
         } else if (line.productRef) {
           // Find product by ref then update
@@ -622,7 +622,7 @@ export default function OrderDetailPage() {
               await fetch(`/api/products/${pid}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ purchase_price_supplier: unitCost }),
+                body: JSON.stringify({ buy_price: unitCost, purchase_price_supplier: unitCost }),
               });
             }
           }

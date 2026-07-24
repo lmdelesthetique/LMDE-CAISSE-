@@ -48,13 +48,12 @@ export async function POST(
       if (line?.product_id) {
         await supabase
           .from('products')
-          .update({ purchase_price_supplier: price })
+          .update({ buy_price: price, purchase_price_supplier: price })
           .eq('id', line.product_id);
       } else if (line?.product_ref) {
-        // Fallback: find product by ref when product_id is not set on the line
         await supabase
           .from('products')
-          .update({ purchase_price_supplier: price })
+          .update({ buy_price: price, purchase_price_supplier: price })
           .eq('ref', line.product_ref);
       }
     }
