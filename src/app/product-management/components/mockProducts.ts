@@ -7,6 +7,7 @@ export interface ProductRecord {
   supplier: string;
   supplierId?: string;
   buyPrice: number;
+  purchasePriceSupplier?: number;
   transport: number;
   customs: number;
   otherFees?: number;

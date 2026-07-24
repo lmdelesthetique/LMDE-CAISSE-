@@ -1764,6 +1764,19 @@ export default function AbonnementsPage() {
                             (pas d&apos;email — envoi désactivé)
                           </span>
                         )}
+                        {(sub.status === 'pending' || sub.status === 'suspended') && (
+                          <button
+                            onClick={async () => {
+                              if (!confirm('Activer manuellement cet abonnement ?')) return;
+                              const res = await fetch(`/api/subscriptions/${sub.id}/activate`, { method: 'POST' });
+                              if (res.ok) { load(); }
+                              else { alert('Erreur lors de l\'activation'); }
+                            }}
+                            className="flex-1 min-w-[120px] py-2 text-center bg-emerald-50 border border-emerald-300 text-emerald-700 rounded-xl text-xs font-bold hover:bg-emerald-100 transition-colors"
+                          >
+                            Activer manuellement
+                          </button>
+                        )}
                         {(sub.status === 'active' || sub.status === 'pending' || sub.status === 'suspended') && (
                           <button
                             onClick={() => { setCancelSub(sub); setCancelReason(''); }}

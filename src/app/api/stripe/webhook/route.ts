@@ -36,20 +36,65 @@ export async function POST(req: NextRequest) {
     // ── 1. Paiement initial réussi → activer l'abonnement
     case 'checkout.session.completed': {
       const session = event.data.object;
-      const email: string | undefined = session.customer_details?.email;
+      const email: string | undefined = session.customer_details?.email ?? session.customer_email ?? undefined;
       const stripeSubscriptionId: string | undefined = session.subscription;
+      const stripeCustomerId: string | undefined = typeof session.customer === 'string' ? session.customer : session.customer?.id;
 
-      if (!email) break;
+      if (!email && !stripeCustomerId) break;
 
-      // Trouver la cliente par email
-      const { data: client } = await supabase
-        .from('clients')
-        .select('id')
-        .eq('email', email)
-        .maybeSingle();
+      // Tentative 1 : trouver la cliente par email exact
+      let clientId: string | null = null;
+      if (email) {
+        const { data: clientByEmail } = await supabase
+          .from('clients')
+          .select('id')
+          .ilike('email', email)
+          .maybeSingle();
+        if (clientByEmail) clientId = clientByEmail.id;
+      }
 
-      if (!client) {
-        console.warn('[stripe/webhook] checkout.session.completed: client introuvable pour email', email);
+      // Tentative 2 : si email ne correspond pas, chercher l'abonnement pending avec le même stripe_customer_id
+      if (!clientId && stripeCustomerId) {
+        const { data: subByCustomer } = await supabase
+          .from('client_subscriptions')
+          .select('id, client_id')
+          .eq('stripe_customer_id', stripeCustomerId)
+          .eq('status', 'pending')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (subByCustomer) {
+          // Activer directement
+          await supabase
+            .from('client_subscriptions')
+            .update({
+              status: 'active',
+              ...(stripeSubscriptionId ? { stripe_subscription_id: stripeSubscriptionId } : {}),
+              ...(email ? { payment_email: email } : {}),
+            })
+            .eq('id', subByCustomer.id);
+          console.log('[stripe/webhook] Abonnement activé via customer_id:', subByCustomer.id);
+          break;
+        }
+      }
+
+      // Tentative 3 : si toujours pas trouvé, activer le dernier abonnement pending global
+      // (dernier recours quand email Stripe ≠ email admin — évite de rater le paiement)
+      if (!clientId && email) {
+        // Essayer une correspondance partielle : prénom/nom dans clients
+        const nameParts = (session.customer_details?.name ?? '').trim().split(/\s+/);
+        if (nameParts.length >= 1) {
+          const { data: clientByName } = await supabase
+            .from('clients')
+            .select('id')
+            .ilike('name', `%${nameParts[0]}%`)
+            .maybeSingle();
+          if (clientByName) clientId = clientByName.id;
+        }
+      }
+
+      if (!clientId) {
+        console.warn('[stripe/webhook] checkout.session.completed: client introuvable — email:', email, 'customer:', stripeCustomerId);
         break;
       }
 
@@ -57,14 +102,14 @@ export async function POST(req: NextRequest) {
       const { data: sub } = await supabase
         .from('client_subscriptions')
         .select('id')
-        .eq('client_id', client.id)
+        .eq('client_id', clientId)
         .eq('status', 'pending')
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
 
       if (!sub) {
-        console.warn('[stripe/webhook] checkout.session.completed: aucun abonnement pending pour client', client.id);
+        console.warn('[stripe/webhook] checkout.session.completed: aucun abonnement pending pour client', clientId);
         break;
       }
 
@@ -74,10 +119,11 @@ export async function POST(req: NextRequest) {
         .update({
           status: 'active',
           ...(stripeSubscriptionId ? { stripe_subscription_id: stripeSubscriptionId } : {}),
+          ...(email ? { payment_email: email } : {}),
         })
         .eq('id', sub.id);
 
-      console.log('[stripe/webhook] Abonnement activé:', sub.id, '→ stripe sub:', stripeSubscriptionId);
+      console.log('[stripe/webhook] Abonnement activé:', sub.id, '→ stripe sub:', stripeSubscriptionId, '→ email Stripe:', email);
       break;
     }
 

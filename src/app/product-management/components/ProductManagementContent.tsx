@@ -20,14 +20,22 @@ type SortField = 'name' | 'costPrice' | 'sellPriceTTC' | 'marginPct' | 'stock';
 type SortDir = 'asc' | 'desc';
 
 function mapDbProduct(r: any): ProductRecord {
+  // purchase_price_supplier = raw invoice price from supplier (what we ordered at)
+  // buy_price = real loaded cost including allocated transport/customs/fees from the order
+  const purchasePriceSupplier = Number(r.purchase_price_supplier) || 0;
   const buyPrice = Number(r.buy_price) || 0;
   const transport = Number(r.transport) || 0;
   const customs = Number(r.customs) || 0;
   const otherFees = Number(r.other_fees) || 0;
   const structurePct = Number(r.structure_pct) || 0;
+  // costPrice = real loaded cost:
+  //   - if buy_price was set from an order (buy_price >= purchasePriceSupplier), it already includes all fees
+  //   - otherwise fall back to the manual computation (buy_price + individual fee columns)
   const baseCost = buyPrice + transport + customs + otherFees;
   const structureAmount = baseCost * (structurePct / 100);
-  const costPrice = baseCost + structureAmount;
+  const costPrice = purchasePriceSupplier > 0 && buyPrice >= purchasePriceSupplier
+    ? buyPrice  // already includes proportional fees from order
+    : baseCost + structureAmount; // manual entry: sum individual columns
   const sellPriceHT = Number(r.sell_price_ht) || Number(r.sell_price_ttc) / 1.085 || 0;
   const sellPriceTTC = Number(r.sell_price_ttc) || sellPriceHT * 1.085;
   const marginAmount = sellPriceHT - costPrice;
@@ -40,6 +48,7 @@ function mapDbProduct(r: any): ProductRecord {
     category: r.category || '',
     supplier: r.supplier || '',
     supplierId: r.supplier_id || undefined,
+    purchasePriceSupplier,
     buyPrice,
     transport,
     customs,
@@ -387,10 +396,11 @@ EXECUTE FUNCTION sync_product_status();`;
 
   const handleExport = () => {
     const today = new Date().toISOString().slice(0, 10);
-    const headers = ['code_barres', 'reference', 'nom', 'categorie', 'fournisseur', 'prix_achat', 'prix_revient', 'pv_ttc', 'marge_pct', 'stock', 'statut', 'shopify'];
+    const headers = ['code_barres', 'reference', 'nom', 'categorie', 'fournisseur', 'prix_achat_fournisseur', 'cout_de_revient', 'pv_ttc', 'marge_pct', 'stock', 'statut', 'shopify'];
     const csvRows = filtered.map((p) => [
       p.barcode, p.ref, p.name, p.category, p.supplier,
-      p.buyPrice.toFixed(2), p.costPrice.toFixed(2), p.sellPriceTTC.toFixed(2),
+      (p.purchasePriceSupplier && p.purchasePriceSupplier > 0 ? p.purchasePriceSupplier : p.buyPrice).toFixed(2),
+      p.costPrice.toFixed(2), p.sellPriceTTC.toFixed(2),
       p.marginPct.toFixed(1), p.stock, p.status, p.shopify ? 'Oui' : 'Non',
     ]);
     const csv = [headers, ...csvRows]
@@ -666,7 +676,7 @@ EXECUTE FUNCTION sync_product_status();`;
                   {visibleCols.category && <th className="text-left px-4 py-3 text-[11px] font-600 text-muted-foreground uppercase tracking-wide">Catégorie</th>}
                   {visibleCols.supplier && <th className="text-left px-4 py-3 text-[11px] font-600 text-muted-foreground uppercase tracking-wide">Fournisseur</th>}
                   {visibleCols.buyPrice && <th className="text-right px-4 py-3 text-[11px] font-600 text-muted-foreground uppercase tracking-wide cursor-pointer hover:text-foreground select-none whitespace-nowrap" onClick={() => toggleSort('costPrice')}><span className="flex items-center justify-end">Prix achat <SortIcon field="costPrice" /></span></th>}
-                  {visibleCols.costPrice && <th className="text-right px-4 py-3 text-[11px] font-600 text-muted-foreground uppercase tracking-wide whitespace-nowrap">Prix revient</th>}
+                  {visibleCols.costPrice && <th className="text-right px-4 py-3 text-[11px] font-600 text-muted-foreground uppercase tracking-wide whitespace-nowrap">Coût de revient</th>}
                   {visibleCols.sellPriceTTC && <th className="text-right px-4 py-3 text-[11px] font-600 text-muted-foreground uppercase tracking-wide cursor-pointer hover:text-foreground select-none whitespace-nowrap" onClick={() => toggleSort('sellPriceTTC')}><span className="flex items-center justify-end">PV TTC <SortIcon field="sellPriceTTC" /></span></th>}
                   {visibleCols.marginPct && <th className="text-right px-4 py-3 text-[11px] font-600 text-muted-foreground uppercase tracking-wide cursor-pointer hover:text-foreground select-none" onClick={() => toggleSort('marginPct')}><span className="flex items-center justify-end">Marge <SortIcon field="marginPct" /></span></th>}
                   {visibleCols.stock && <th className="text-right px-4 py-3 text-[11px] font-600 text-muted-foreground uppercase tracking-wide cursor-pointer hover:text-foreground select-none" onClick={() => toggleSort('stock')}><span className="flex items-center justify-end">Stock <SortIcon field="stock" /></span></th>}
@@ -719,7 +729,7 @@ EXECUTE FUNCTION sync_product_status();`;
                       {visibleCols.barcode && <td className="px-4 py-3 font-mono text-xs text-muted-foreground whitespace-nowrap">{product.barcode}</td>}
                       {visibleCols.category && <td className="px-4 py-3"><span className="text-xs bg-secondary text-secondary-foreground px-2 py-0.5 rounded-md font-medium whitespace-nowrap">{product.category}</span></td>}
                       {visibleCols.supplier && <td className="px-4 py-3 text-xs text-muted-foreground whitespace-normal break-words" style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>{product.supplier}</td>}
-                      {visibleCols.buyPrice && <td className="px-4 py-3 text-right tabular-nums text-sm text-muted-foreground">{product.buyPrice.toFixed(2)} €</td>}
+                      {visibleCols.buyPrice && <td className="px-4 py-3 text-right tabular-nums text-sm text-muted-foreground">{(product.purchasePriceSupplier && product.purchasePriceSupplier > 0 ? product.purchasePriceSupplier : product.buyPrice).toFixed(2)} €</td>}
                       {visibleCols.costPrice && <td className="px-4 py-3 text-right tabular-nums text-sm font-500 text-foreground">{product.costPrice.toFixed(2)} €</td>}
                       {visibleCols.sellPriceTTC && <td className="px-4 py-3 text-right tabular-nums text-sm font-700 text-foreground">{product.sellPriceTTC.toFixed(2)} €</td>}
                       {visibleCols.marginPct && (

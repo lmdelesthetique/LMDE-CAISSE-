@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 interface Payment {
   id: string;
@@ -73,6 +74,7 @@ function StatusBadge({ status }: { status: string }) {
 type Tab = 'paiements' | 'abonnements';
 
 export default function PaiementsPage() {
+  const router = useRouter();
   const [data, setData] = useState<{ stats: Stats; payments: Payment[]; subscriptions: Subscription[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -108,9 +110,20 @@ export default function PaiementsPage() {
 
         {/* Header */}
         <div className="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <h1 className="text-2xl font-800 text-gray-900">Suivi des paiements</h1>
-            <p className="text-sm text-gray-500 mt-0.5">Tous les paiements Stripe — tunnel de vente + liens manuels</p>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => router.push('/abonnements')}
+              className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm font-600 text-gray-600 hover:bg-gray-50 transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+              Retour
+            </button>
+            <div>
+              <h1 className="text-2xl font-800 text-gray-900">Suivi des paiements</h1>
+              <p className="text-sm text-gray-500 mt-0.5">Tous les paiements Stripe — tunnel de vente + liens manuels</p>
+            </div>
           </div>
           <button
             onClick={refresh}
@@ -126,8 +139,13 @@ export default function PaiementsPage() {
 
         {/* Error */}
         {error && (
-          <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
-            Erreur : {error}
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700 space-y-1">
+            <p className="font-600">Erreur Stripe : {error}</p>
+            {error.toLowerCase().includes('publishable') || error.toLowerCase().includes('secret') ? (
+              <p className="text-red-600">
+                La variable <code className="bg-red-100 px-1 rounded">STRIPE_SECRET_KEY</code> dans Vercel contient une clé publique (<code>pk_...</code>). Remplacez-la par votre clé <strong>secrete</strong> (<code>sk_live_...</code>) depuis le tableau de bord Stripe → Developeurs → Cles API.
+              </p>
+            ) : null}
           </div>
         )}
 

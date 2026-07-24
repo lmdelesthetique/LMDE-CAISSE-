@@ -26,9 +26,11 @@ export async function POST(
     .from('fo_orders').select('id').eq('id', id).maybeSingle();
   if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
 
-  for (const { lineId, confirmedUnitPrice } of prices) {
+  for (const { lineId, confirmedUnitPrice, realUnitCost } of prices) {
     if (!lineId || confirmedUnitPrice == null || isNaN(Number(confirmedUnitPrice))) continue;
     const price = Number(confirmedUnitPrice);
+    // realUnitCost = invoice price + proportional fees; falls back to raw price if not provided
+    const buyPrice = realUnitCost != null && Number(realUnitCost) > 0 ? Number(realUnitCost) : price;
 
     // Update confirmed_unit_price on the order line
     const { error } = await supabase
@@ -38,8 +40,8 @@ export async function POST(
       .eq('order_id', id);
     if (error) { console.error('[save-invoice-prices] line', lineId, error.message); continue; }
 
-    // Also update purchase_price_supplier on the product if price > 0
-    if (price > 0) {
+    // Update product buy_price with REAL allocated cost (includes proportional fees), not raw invoice price
+    if (buyPrice > 0) {
       const { data: line } = await supabase
         .from('fo_order_lines')
         .select('product_id, product_ref')
@@ -48,12 +50,12 @@ export async function POST(
       if (line?.product_id) {
         await supabase
           .from('products')
-          .update({ buy_price: price, purchase_price_supplier: price })
+          .update({ buy_price: buyPrice, purchase_price_supplier: price })
           .eq('id', line.product_id);
       } else if (line?.product_ref) {
         await supabase
           .from('products')
-          .update({ buy_price: price, purchase_price_supplier: price })
+          .update({ buy_price: buyPrice, purchase_price_supplier: price })
           .eq('ref', line.product_ref);
       }
     }

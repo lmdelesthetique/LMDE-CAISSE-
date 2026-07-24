@@ -58,18 +58,22 @@ export default function MarginsReport({ dateRange }: MarginsReportProps) {
       const products = await fetchAll((from, to) =>
         supabase
           .from('products')
-          .select('id, name, category, buy_price, transport, customs, other_fees, structure_pct')
+          .select('id, name, category, buy_price, purchase_price_supplier, transport, customs, other_fees, structure_pct')
           .range(from, to)
       );
 
       const productLookup: Record<string, { name: string; category: string; purchase_price: number }> = {};
       products.forEach((p: any) => {
         const buyPrice = Number(p.buy_price ?? 0);
+        const purchasePriceSupplier = Number(p.purchase_price_supplier ?? 0);
         const transport = Number(p.transport) || 0;
         const customs = Number(p.customs) || 0;
         const otherFees = Number(p.other_fees) || 0;
-        // structure_pct is overhead info only — not added to real import cost
-        const realCost = buyPrice + transport + customs + otherFees;
+        // Use buy_price as the real loaded cost (it includes proportional fees when updated from an order)
+        // For manually-created products, fall back to buy_price + individual fee columns
+        const realCost = purchasePriceSupplier > 0 && buyPrice >= purchasePriceSupplier
+          ? buyPrice  // already includes all fees
+          : buyPrice + transport + customs + otherFees;
         productLookup[p.id] = {
           name: p.name ?? 'Produit inconnu',
           category: p.category ?? 'Non catégorisé',

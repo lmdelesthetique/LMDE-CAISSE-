@@ -43,7 +43,7 @@ export interface ClientSubscription {
   clientId: string;
   subscriptionType: string;
   discountPercent: number;
-  status: 'active' | 'inactive' | 'expired' | 'suspended';
+  status: 'active' | 'inactive' | 'expired' | 'suspended' | 'pending';
   startDate: string;
   endDate: string | null;
   autoRenew: boolean;
@@ -135,7 +135,7 @@ export interface CreateSubscriptionInput {
   clientId: string;
   subscriptionType: string;
   discountPercent: number;
-  status: 'active' | 'inactive' | 'expired' | 'suspended';
+  status: 'active' | 'inactive' | 'expired' | 'suspended' | 'pending';
   startDate: string;
   endDate?: string;
   autoRenew?: boolean;

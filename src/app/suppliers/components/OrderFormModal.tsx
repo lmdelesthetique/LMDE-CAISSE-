@@ -25,6 +25,7 @@ interface Product {
   reference?: string;
   image_url?: string;
   buy_price?: number;
+  purchase_price_supplier?: number;
   has_color_variants?: boolean;
 }
 
@@ -80,7 +81,7 @@ export default function OrderFormModal({ supplierId, onClose, onSaved }: Props) 
     setSearching(index);
     const { data } = await supabase
       .from('products')
-      .select('id, name, reference, image_url, buy_price, has_color_variants')
+      .select('id, name, reference, image_url, buy_price, purchase_price_supplier, has_color_variants')
       .ilike('name', `%${query.trim()}%`)
       .eq('is_active', true)
       .limit(8);
@@ -90,7 +91,8 @@ export default function OrderFormModal({ supplierId, onClose, onSaved }: Props) 
   };
 
   const selectProduct = async (index: number, product: Product) => {
-    const buyPrice = Number(product.buy_price) || 0;
+    // Use raw supplier price when available (buy_price now stores the loaded cost with fees)
+    const buyPrice = Number(product.purchase_price_supplier || product.buy_price) || 0;
     setItems((prev) => {
       const next = [...prev];
       next[index] = {

@@ -591,18 +591,24 @@ export default function OrderDetailPage() {
     setBulkUpdating(true);
     const lines = order.lines || [];
 
-    // Compute average cost per unit including all fees
+    // Compute total fees (same logic as getEC used for display)
     const getECB = (key: string): number =>
       costModes[key] === 'pct' ? order.subtotal * (costPcts[key] || 0) / 100 : ((costs as any)[key] || 0) * (costsCurrency === 'USD' ? (costsEffectiveRate ?? 1) : 1);
     const totalFeesLocal2 = getECB('transport') + getECB('customs') + getECB('vat') + getECB('freight') + getECB('bank') + getECB('exchange') + getECB('local') + getECB('other');
-    const importCostLocal2 = order.subtotal + totalFeesLocal2;
     const totalQtyLocal2 = lines.reduce((s, l) => s + l.qtyOrdered, 0);
-    const avgCostPerProductLocal2 = totalQtyLocal2 > 0 ? importCostLocal2 / totalQtyLocal2 : 0;
 
-    // Update each product's purchase_price_supplier via API
+    // productsCost = confirmed subtotal (mirrors display formula)
+    const confirmedSubtotalB = lines.reduce((s, l) => s + (l.confirmedUnitPrice != null ? l.confirmedUnitPrice : l.unitPrice) * l.qtyOrdered, 0);
+    const productsCostB = confirmedSubtotalB > 0 ? confirmedSubtotalB : order.subtotal;
+
+    // Update each product with the REAL allocated unit cost (invoice price + proportional fees)
     for (const line of lines) {
-      // Use confirmed unit price if available, otherwise average allocated cost
-      const unitCost = line.confirmedUnitPrice != null ? line.confirmedUnitPrice : avgCostPerProductLocal2;
+      const cu = line.confirmedUnitPrice != null ? line.confirmedUnitPrice : line.unitPrice;
+      // Proportional fee allocation by value (same formula as "Coût réel unit." in Analyse par produit)
+      const feesPerUnit = productsCostB > 0
+        ? totalFeesLocal2 * cu / productsCostB
+        : (totalQtyLocal2 > 0 ? totalFeesLocal2 / totalQtyLocal2 : 0);
+      const unitCost = cu + feesPerUnit;
       if (unitCost <= 0) continue;
 
       try {
@@ -668,7 +674,7 @@ export default function OrderDetailPage() {
     const term = q.trim();
     const { data } = await supabase
       .from('products')
-      .select('id, name, ref, barcode, buy_price, sell_price_ttc, image_url')
+      .select('id, name, ref, barcode, buy_price, purchase_price_supplier, sell_price_ttc, image_url')
       .or(`name.ilike.%${term}%,ref.ilike.%${term}%,barcode.ilike.%${term}%`)
       .neq('is_suspended', true)
       .order('name')
@@ -688,7 +694,10 @@ export default function OrderDetailPage() {
 
   const handleAddProductToOrder = (product: any) => {
     const rate = addModalCurrency === 'USD' && addModalUsdRate ? addModalUsdRate : 1;
-    const buyPriceEur = Math.round((product.buy_price ?? 0) * rate * 100) / 100;
+    // Use raw supplier price (purchase_price_supplier) if available — it's what we pay the supplier
+    // buy_price now stores the loaded cost (with fees), which is not the correct order unit price
+    const rawSupplierPrice = product.purchase_price_supplier || product.buy_price;
+    const buyPriceEur = Math.round((rawSupplierPrice ?? 0) * rate * 100) / 100;
     const sellPriceEur = Math.round((product.sell_price_ttc ?? 0) * rate * 100) / 100;
     const newLine: FoOrderLine = {
       id: `new-${Date.now()}`,
@@ -912,10 +921,25 @@ export default function OrderDetailPage() {
     setSavingPrices(true);
     try {
       const rate = realPricesCurrency === 'USD' ? effectiveRate! : 1;
-      const prices = lines.map(l => ({
-        lineId: l.id,
-        confirmedUnitPrice: (parseFloat(realPrices[l.id] || '0') || 0) * rate,
-      })).filter(p => p.confirmedUnitPrice > 0);
+
+      // Pre-compute confirmed subtotal so we can do proportional fee allocation per line
+      const confirmedSubtotalSIP = lines.reduce((s, l) => {
+        const cu = (parseFloat(realPrices[l.id] || '0') || 0) * rate || (l.confirmedUnitPrice ?? l.unitPrice) * rate;
+        return s + cu * l.qtyOrdered;
+      }, 0);
+      const productsCostSIP = confirmedSubtotalSIP > 0 ? confirmedSubtotalSIP : order.subtotal;
+      const totalQtySIP = lines.reduce((s, l) => s + l.qtyOrdered, 0);
+
+      const prices = lines.map(l => {
+        const confirmedUnitPrice = (parseFloat(realPrices[l.id] || '0') || 0) * rate;
+        if (confirmedUnitPrice <= 0) return null;
+        // Real unit cost = invoice price + proportional share of all fees (same as display formula)
+        const feesPerUnit = productsCostSIP > 0
+          ? totalFees * confirmedUnitPrice / productsCostSIP
+          : (totalQtySIP > 0 ? totalFees / totalQtySIP : 0);
+        const realUnitCost = confirmedUnitPrice + feesPerUnit;
+        return { lineId: l.id, confirmedUnitPrice, realUnitCost };
+      }).filter(Boolean);
       const res = await fetch(`/api/fo-orders/${order.id}/save-invoice-prices`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
