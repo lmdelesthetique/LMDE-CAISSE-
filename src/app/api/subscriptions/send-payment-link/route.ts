@@ -72,16 +72,16 @@ export async function POST(req: NextRequest) {
     <p style="margin:6px 0 0;color:rgba(255,255,255,.8);font-size:14px;">${planName}</p>
   </div>
   <div style="padding:32px 36px;">
-    <p style="font-size:15px;color:#44403c;margin:0 0 16px;">Bonjour ${firstName} 💅</p>
+    <p style="font-size:15px;color:#44403c;margin:0 0 16px;">Bonjour ${firstName},</p>
     <p style="font-size:14px;color:#57534e;margin:0 0 24px;">Voici votre lien de paiement sécurisé pour votre abonnement <strong>${planName}</strong>.</p>
     <div style="background:#fdf2f8;border:1px solid #fbcfe8;border-radius:14px;padding:20px 24px;margin-bottom:28px;text-align:center;">
       <p style="margin:0 0 4px;font-size:13px;color:#9ca3af;">Montant mensuel</p>
       <p style="margin:0;font-size:36px;font-weight:700;color:#ec4899;">${amountStr}</p>
-      <p style="margin:6px 0 0;font-size:12px;color:#a8a29e;">${planName} · renouvelé chaque mois</p>
+      <p style="margin:6px 0 0;font-size:12px;color:#a8a29e;">${planName} - renouvelé chaque mois</p>
     </div>
     ${paymentUrl
-      ? `<a href="${paymentUrl}" style="display:block;text-align:center;background:#ec4899;color:#fff;font-size:15px;font-weight:700;padding:16px 24px;border-radius:12px;text-decoration:none;">💳 Payer et activer mon abonnement →</a>
-         <p style="font-size:11px;color:#a8a29e;text-align:center;margin:10px 0 0;">Paiement sécurisé via Stripe · Renouvellement automatique mensuel</p>`
+      ? `<a href="${paymentUrl}" style="display:block;text-align:center;background:#ec4899;color:#fff;font-size:15px;font-weight:700;padding:16px 24px;border-radius:12px;text-decoration:none;">Payer et activer mon abonnement</a>
+         <p style="font-size:11px;color:#a8a29e;text-align:center;margin:10px 0 0;">Paiement sécurisé via Stripe - Renouvellement automatique mensuel</p>`
       : `<div style="background:#fef3c7;border:1px solid #fde68a;border-radius:12px;padding:16px 20px;text-align:center;">
            <p style="margin:0;font-size:13px;color:#92400e;">Pour procéder au paiement, contactez votre conseillère LMDE.</p>
          </div>`
@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
     </p>
   </div>
   <div style="background:#fdf2f8;padding:16px 36px;text-align:center;">
-    <p style="margin:0;font-size:12px;color:#c084fc;">Le Monde de l'Esthétique 💅</p>
+    <p style="margin:0;font-size:12px;color:#c084fc;">Le Monde de l'Esthetique</p>
   </div>
 </div>
 </body></html>`;
