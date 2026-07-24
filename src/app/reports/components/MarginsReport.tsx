@@ -69,8 +69,11 @@ export default function MarginsReport({ dateRange }: MarginsReportProps) {
         const transport = Number(p.transport) || 0;
         const customs = Number(p.customs) || 0;
         const otherFees = Number(p.other_fees) || 0;
-        // costPrice = buy_price (includes order fees after update) + individual per-product fees + structure
-        const realCost = buyPrice + transport + customs + otherFees;
+        // When updated from an order, buy_price already includes proportional fees — don't add structure again
+        const baseCostR = buyPrice + transport + customs + otherFees;
+        const realCost = purchasePriceSupplier > 0 && Math.abs(buyPrice - purchasePriceSupplier) > 0.001
+          ? buyPrice
+          : baseCostR;
         productLookup[p.id] = {
           name: p.name ?? 'Produit inconnu',
           category: p.category ?? 'Non catégorisé',

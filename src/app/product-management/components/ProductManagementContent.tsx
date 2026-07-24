@@ -28,12 +28,15 @@ function mapDbProduct(r: any): ProductRecord {
   const customs = Number(r.customs) || 0;
   const otherFees = Number(r.other_fees) || 0;
   const structurePct = Number(r.structure_pct) || 0;
-  // costPrice = buy_price + per-product fees + structure overhead
-  // buy_price already contains the real loaded cost (raw invoice + proportional order fees) after an order update
-  // structure_pct represents overhead (rent, salaries, charges) and is always added on top
+  // When buy_price was updated from a supplier order (purchase_price_supplier > 0 and buy_price ≠ purchasePriceSupplier),
+  // buy_price already contains the proportional order fees (transport, customs, etc.).
+  // Structure overhead is a separate pricing concept — do NOT add it again here.
+  // For manually-created products (no purchase_price_supplier), fall back to old formula with structure.
   const baseCost = buyPrice + transport + customs + otherFees;
   const structureAmount = baseCost * (structurePct / 100);
-  const costPrice = baseCost + structureAmount;
+  const costPrice = purchasePriceSupplier > 0 && Math.abs(buyPrice - purchasePriceSupplier) > 0.001
+    ? buyPrice  // set from order: buy_price already = real loaded cost, structure not added again
+    : baseCost + structureAmount; // manual product: add per-product fees + structure
   const sellPriceHT = Number(r.sell_price_ht) || Number(r.sell_price_ttc) / 1.085 || 0;
   const sellPriceTTC = Number(r.sell_price_ttc) || sellPriceHT * 1.085;
   const marginAmount = sellPriceHT - costPrice;
