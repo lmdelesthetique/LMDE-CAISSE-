@@ -31,6 +31,7 @@ const REWARD_TYPES: { value: RewardType; label: string; icon: string }[] = [
   { value: 'free_shipping', label: 'Livraison offerte', icon: '📦' },
   { value: 'surprise_gift', label: 'Cadeau surprise', icon: '🎀' },
   { value: 'category_discount', label: 'Remise catégorie', icon: '✂️' },
+  { value: 'gift_category_pick', label: 'Produit par catégorie', icon: '🧴' },
 ];
 
 const TIER_COLORS = [
@@ -61,6 +62,7 @@ const STATUS_LABEL: Record<string, string> = {
 
 const CATEGORY_LABELS: Record<string, string> = {
   gift: 'Cadeau', old_stock: 'Ancien stock', surprise: 'Surprise', vip: 'VIP',
+  extensions_cils: 'Extensions Cils', manucure: 'Manucure', pedicure: 'Pédicure',
 };
 
 interface SlowMoverProduct {
@@ -359,10 +361,17 @@ function RealProductPickerModal({
             <label className="text-xs font-600 text-muted-foreground block mb-1">Catégorie de récompense</label>
             <select value={rewardCategory} onChange={(e) => setRewardCategory(e.target.value)}
               className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white">
-              <option value="gift">Cadeau fidélité</option>
-              <option value="old_stock">Ancien stock à écouler</option>
-              <option value="surprise">Cadeau surprise</option>
-              <option value="vip">Récompense VIP</option>
+              <optgroup label="— Spécialités —">
+                <option value="extensions_cils">✨ Extensions Cils</option>
+                <option value="manucure">💅 Manucure</option>
+                <option value="pedicure">🦶 Pédicure</option>
+              </optgroup>
+              <optgroup label="— Général —">
+                <option value="gift">Cadeau fidélité</option>
+                <option value="old_stock">Ancien stock à écouler</option>
+                <option value="surprise">Cadeau surprise</option>
+                <option value="vip">Récompense VIP</option>
+              </optgroup>
             </select>
           </div>
 
@@ -454,10 +463,17 @@ function SuggestionConfigModal({
             <label className="text-xs font-600 text-muted-foreground block mb-1">Catégorie de récompense</label>
             <select value={rewardCategory} onChange={(e) => setRewardCategory(e.target.value)}
               className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white">
-              <option value="old_stock">Ancien stock à écouler</option>
-              <option value="gift">Cadeau fidélité</option>
-              <option value="surprise">Cadeau surprise</option>
-              <option value="vip">Récompense VIP</option>
+              <optgroup label="— Spécialités —">
+                <option value="extensions_cils">✨ Extensions Cils</option>
+                <option value="manucure">💅 Manucure</option>
+                <option value="pedicure">🦶 Pédicure</option>
+              </optgroup>
+              <optgroup label="— Général —">
+                <option value="old_stock">Ancien stock à écouler</option>
+                <option value="gift">Cadeau fidélité</option>
+                <option value="surprise">Cadeau surprise</option>
+                <option value="vip">Récompense VIP</option>
+              </optgroup>
             </select>
           </div>
 

@@ -130,6 +130,9 @@ export default function OrderDetailPage() {
   const [orderLabelInitialQtys, setOrderLabelInitialQtys] = useState<Record<string, number>>({});
   const [orderLabelLoading, setOrderLabelLoading] = useState(false);
 
+  // Unread supplier messages badge for Messagerie tab
+  const [unreadMsgCount, setUnreadMsgCount] = useState(0);
+
   // Image backfill
   const [backfilledImages, setBackfilledImages] = useState(false);
 
@@ -278,6 +281,30 @@ export default function OrderDetailPage() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Load unread supplier message count for badge on Messagerie tab
+  useEffect(() => {
+    if (!id) return;
+    const fetchUnread = () =>
+      fetch('/api/supplier-messages/unread-per-order')
+        .then(r => r.json())
+        .then(d => setUnreadMsgCount((d.counts ?? {})[id] ?? 0))
+        .catch(() => {});
+    fetchUnread();
+    const supabase = createClient();
+    const ch = supabase
+      .channel(`order-msg-badge-${id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'supplier_messages', filter: `order_id=eq.${id}` }, (payload: any) => {
+        if (payload.new?.sender === 'supplier') setUnreadMsgCount(c => c + 1);
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [id]);
+
+  // Reset badge when user opens the messaging tab
+  useEffect(() => {
+    if (tab === 'messaging' && unreadMsgCount > 0) setUnreadMsgCount(0);
+  }, [tab, unreadMsgCount]);
 
   // Auto-backfill product images silently on first load (fixes supplier portal too)
   useEffect(() => {
@@ -465,7 +492,7 @@ export default function OrderDetailPage() {
     const supplierPaymentAmountLocal = (confirmedSubtotalLocal > 0 ? confirmedSubtotalLocal : order.subtotal) + supplierExtraFeesLocal;
 
     const newBalance = Math.max(0, supplierPaymentAmountLocal - amt);
-    const newStatus = amt >= supplierPaymentAmountLocal ? 'paid' : amt > 0 ? 'partial' : 'pending';
+    const newStatus = Math.round(amt * 100) >= Math.round(supplierPaymentAmountLocal * 100) ? 'paid' : amt > 0 ? 'partial' : 'pending';
     await supplierOrderService.update(order.id, {
       paymentAmount: amt,
       balanceDue: newBalance,
@@ -1129,11 +1156,13 @@ export default function OrderDetailPage() {
   // Payment tracking uses supplierPaymentAmount (NOT businessCost)
   const amountPaid = order.paymentAmount || 0;
   const balanceDue = Math.max(0, supplierPaymentAmount - amountPaid);
+  // Round to cents before comparing to avoid floating-point false negatives (e.g. 277.11 < 277.110000001)
+  const isFullyPaid = supplierPaymentAmount > 0 && Math.round(amountPaid * 100) >= Math.round(supplierPaymentAmount * 100);
   const paymentStatusLabel =
-    amountPaid >= supplierPaymentAmount && supplierPaymentAmount > 0 ? 'Payé' :
+    isFullyPaid ? 'Payé' :
     amountPaid > 0 ? 'Paiement partiel': 'En attente';
   const paymentStatusColor =
-    amountPaid >= supplierPaymentAmount && supplierPaymentAmount > 0 ? 'bg-emerald-50 text-emerald-700' :
+    isFullyPaid ? 'bg-emerald-50 text-emerald-700' :
     amountPaid > 0 ? 'bg-amber-50 text-amber-700': 'bg-gray-100 text-gray-700';
 
   const COST_LINES: { key: keyof typeof costs; label: string }[] = [
@@ -1310,10 +1339,15 @@ export default function OrderDetailPage() {
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-500 border-b-2 whitespace-nowrap transition-colors ${tab === t.id ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+              className={`relative flex items-center gap-1.5 px-4 py-2.5 text-sm font-500 border-b-2 whitespace-nowrap transition-colors ${tab === t.id ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
             >
               <Icon name={t.icon as any} size={14} />
               {t.label}
+              {t.id === 'messaging' && unreadMsgCount > 0 && (
+                <span className="ml-1 bg-red-500 text-white text-[10px] font-700 rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 leading-none">
+                  {unreadMsgCount}
+                </span>
+              )}
             </button>
           ))}
         </div>

@@ -10,7 +10,7 @@ import ClientLookupBar from './ClientLookupBar';
 import FreePriceModal from './FreePriceModal';
 import AcquisitionSourceModal from './AcquisitionSourceModal';
 import LoyaltyRewardNotification from './LoyaltyRewardNotification';
-import { AvailableRewardsModal, NewlyUnlockedRewardsModal, RewardAppliedBanner } from './LoyaltyRewardModals';
+import { AvailableRewardsModal, NewlyUnlockedRewardsModal, RewardAppliedBanner, GiftCategoryPickerModal } from './LoyaltyRewardModals';
 import { usePOSAuth } from '@/contexts/POSAuthContext';
 import { toast } from 'sonner';
 import Icon from '@/components/ui/AppIcon';
@@ -24,6 +24,7 @@ import {
   pointsToNextTier,
   type LoyaltyTier,
   type ClientLoyaltyReward,
+  type LoyaltyRewardProduct,
 } from '@/lib/services/loyaltyService';
 import { generateTicketHTML, generateFactureHTML, loadSettingsFromCache, openAndPrint } from '@/lib/utils/ticketPrinter';
 import { clientService, type Client as FullClient, type ClientPurchase, type ClientSubscription } from '@/lib/services/clientService';
@@ -696,6 +697,8 @@ export default function POSTerminal() {
   const [allClientRewards, setAllClientRewards] = useState<ClientLoyaltyReward[]>([]);
   const [showAllRewards, setShowAllRewards] = useState(false);
   const [showClientFiche, setShowClientFiche] = useState(false);
+  const [showGiftCategoryPicker, setShowGiftCategoryPicker] = useState(false);
+  const [giftPickerReward, setGiftPickerReward] = useState<ClientLoyaltyReward | null>(null);
   // Newly unlocked rewards (shown after payment)
   const [newlyUnlockedRewards, setNewlyUnlockedRewards] = useState<{
     rewards: ClientLoyaltyReward[];
@@ -988,8 +991,15 @@ export default function POSTerminal() {
 
   // ── Handle reward use now ─────────────────────────────────────────────────
    const handleUseRewardNow = useCallback(async (reward: ClientLoyaltyReward) => {
-    setAppliedReward(reward);
     setShowAvailableRewards(false);
+
+    if (reward.rewardType === 'gift_category_pick') {
+      setGiftPickerReward(reward);
+      setShowGiftCategoryPicker(true);
+      return;
+    }
+
+    setAppliedReward(reward);
 
     if ((reward.rewardType === 'free_product' || reward.rewardType === 'surprise_gift') && reward.rewardProductId) {
       const rewardProd = await loyaltyService.getRewardProductById(reward.rewardProductId);
@@ -1044,6 +1054,54 @@ export default function POSTerminal() {
     }
   }, []);
 
+
+  // ── Handle gift category product chosen ───────────────────────────────────
+  const handleGiftCategoryProductChosen = useCallback(async (product: LoyaltyRewardProduct) => {
+    setShowGiftCategoryPicker(false);
+    const reward = giftPickerReward;
+    setGiftPickerReward(null);
+    if (!reward) return;
+
+    let cartName = `🎁 ${product.productName} (offert)`;
+    let cartSku = product.sku ?? '';
+    let cartImage: string | undefined;
+    let cartStock: number | undefined;
+    let cartOriginalPrice: number | undefined;
+
+    if (product.sku) {
+      try {
+        const byBarcode = await fetchProductByBarcode(product.sku);
+        if (byBarcode) {
+          cartName = `🎁 ${byBarcode.name} (offert)`;
+          cartSku = byBarcode.ref;
+          cartImage = byBarcode.imageUrl || undefined;
+          cartStock = byBarcode.stock;
+          cartOriginalPrice = byBarcode.sellPriceTtc;
+        }
+      } catch { /* use reward product data */ }
+    }
+
+    setCart((prev) => [
+      ...prev,
+      {
+        id: `reward-${reward.id}`,
+        productId: product.sku ?? `reward-${reward.id}`,
+        name: cartName,
+        sku: cartSku,
+        price: 0,
+        qty: 1,
+        discount: 0,
+        discountType: 'percent' as const,
+        tva: LIVE_TAX_RATE,
+        imageUrl: cartImage,
+        stock: cartStock,
+        isReward: true,
+        originalPrice: cartOriginalPrice,
+      },
+    ]);
+    setAppliedReward(reward);
+    toast.success(`🎁 ${product.productName} ajouté au panier (offert)`, { duration: 3000 });
+  }, [giftPickerReward, LIVE_TAX_RATE]);
 
   // ── Handle keep reward for later ──────────────────────────────────────────
   const handleKeepRewardForLater = useCallback(() => {
@@ -2327,6 +2385,15 @@ export default function POSTerminal() {
           currentPoints={client.points}
           onUseNow={handleUseRewardNow}
           onKeepForLater={handleKeepRewardForLater}
+        />
+      )}
+
+      {/* Gift Category Picker Modal (Cils / Manucure / Pédicure) */}
+      {showGiftCategoryPicker && giftPickerReward && (
+        <GiftCategoryPickerModal
+          reward={giftPickerReward}
+          onProductChosen={handleGiftCategoryProductChosen}
+          onClose={() => { setShowGiftCategoryPicker(false); setGiftPickerReward(null); }}
         />
       )}
 

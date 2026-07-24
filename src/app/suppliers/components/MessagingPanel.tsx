@@ -430,6 +430,7 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
                           cancelled:                  { label: '❌ Annulée',                 cls: 'text-red-700 bg-red-50 border-red-200' },
                         };
                         const s = statusMap[inv.status] ?? { label: inv.status ?? '—', cls: 'text-gray-600 bg-gray-50 border-gray-200' };
+                        const isSameOrder = !!(currentOrderId && currentOrderId === inv.id);
                         const card = (
                           <div className="rounded-xl border border-border bg-white shadow-sm overflow-hidden min-w-[220px]">
                             <div className="px-3 py-2 bg-gradient-to-r from-violet-600 to-violet-500 flex items-center gap-2">
@@ -445,13 +446,15 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
                                 {typeof inv.totalTTC === 'number' ? inv.totalTTC.toFixed(2) : '—'} €
                               </p>
                               {inv.id && (
-                                <p className="text-[10px] text-violet-500 font-500">👆 Cliquer pour voir la commande →</p>
+                                isSameOrder
+                                  ? <p className="text-[10px] text-emerald-600 font-500">📌 Commande actuellement affichée</p>
+                                  : <p className="text-[10px] text-violet-500 font-500">👆 Cliquer pour voir la commande →</p>
                               )}
                             </div>
                           </div>
                         );
-                        return inv.id
-                          ? <Link href={`/commandes-fournisseurs/${inv.id}`} className="block hover:opacity-90 transition-opacity">{card}</Link>
+                        return inv.id && !isSameOrder
+                          ? <a href={`/commandes-fournisseurs/${inv.id}`} className="block hover:opacity-90 transition-opacity">{card}</a>
                           : card;
                       } catch {
                         return <p className="whitespace-pre-wrap">{msg.content}</p>;

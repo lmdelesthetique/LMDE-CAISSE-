@@ -105,6 +105,8 @@ export default function SupplierTokenPortal() {
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
   const [orderLines, setOrderLines] = useState<Record<string, OrderLine[]>>({});
   const [loadingLines, setLoadingLines] = useState<string | null>(null);
+  const [confirmingShipped, setConfirmingShipped] = useState<string | null>(null);
+  const [shippedConfirmed, setShippedConfirmed] = useState<Set<string>>(new Set());
 
   // Push notifications
   const [pushStatus, setPushStatus] = useState<'default' | 'granted' | 'denied' | 'unsupported'>('default');
@@ -321,48 +323,72 @@ export default function SupplierTokenPortal() {
 
   // ─── Upload file ────────────────────────────────────────────────────────────
 
+  const guessMimeType = (file: File): string => {
+    if (file.type) return file.type;
+    const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+    const map: Record<string, string> = {
+      xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      xls: 'application/vnd.ms-excel',
+      csv: 'text/csv',
+      pdf: 'application/pdf',
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      png: 'image/png',
+      webp: 'image/webp',
+    };
+    return map[ext] ?? 'application/octet-stream';
+  };
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !info) return;
     e.target.value = '';
     setUploadingFile(true);
+    setSendError(null);
 
-    const fd = new FormData();
-    fd.append('file', file);
-    fd.append('supplierId', info.supplierId);
+    try {
+      const fd = new FormData();
+      // Rebuild file with correct MIME type if browser left it empty
+      const mimeType = guessMimeType(file);
+      const correctedFile = file.type ? file : new File([file], file.name, { type: mimeType });
+      fd.append('file', correctedFile);
+      fd.append('supplierId', info.supplierId);
 
-    const res = await fetch('/api/supplier-messages/upload', { method: 'POST', body: fd });
-    const json = await res.json();
+      const res = await fetch('/api/supplier-messages/upload', { method: 'POST', body: fd });
+      const json = await res.json().catch(() => ({}));
 
-    if (!res.ok || !json.url) {
-      alert('Erreur lors de l\'envoi du fichier. Veuillez réessayer.');
+      if (!res.ok || !json.url) {
+        setSendError(json.error ?? 'Erreur lors de l\'envoi du fichier. Veuillez réessayer.');
+        return;
+      }
+
+      const isImg = IS_IMG(json.url, json.type ?? mimeType);
+      const isPdf = IS_PDF(json.url);
+      const msgType = isImg ? 'photo' : isPdf ? 'pdf' : 'other';
+
+      const msgRes = await fetch('/api/supplier-messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          supplierId: info.supplierId,
+          messageType: msgType,
+          attachmentUrl: json.url,
+          attachmentName: json.name,
+          attachmentType: json.type ?? mimeType,
+        }),
+      });
+
+      if (!msgRes.ok) {
+        const err = await msgRes.json().catch(() => ({}));
+        setSendError(err.error ?? 'Erreur enregistrement fichier');
+      } else {
+        await loadMessages();
+      }
+    } catch (err: any) {
+      setSendError(err?.message ?? 'Erreur réseau lors de l\'envoi');
+    } finally {
       setUploadingFile(false);
-      return;
     }
-
-    const isImg = IS_IMG(json.url, json.type);
-    const isPdf = IS_PDF(json.url);
-    const msgType = isImg ? 'photo' : isPdf ? 'pdf' : 'other';
-
-    const msgRes = await fetch('/api/supplier-messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        supplierId: info.supplierId,
-        messageType: msgType,
-        attachmentUrl: json.url,
-        attachmentName: json.name,
-        attachmentType: json.type,
-      }),
-    });
-
-    if (!msgRes.ok) {
-      const err = await msgRes.json().catch(() => ({}));
-      setSendError(err.error || 'Erreur enregistrement fichier');
-    } else {
-      await loadMessages();
-    }
-    setUploadingFile(false);
   };
 
   const formatTime = (iso: string) =>
@@ -581,6 +607,47 @@ export default function SupplierTokenPortal() {
                     {/* Détail expandé */}
                     {isExpanded && (
                       <div style={{ borderTop: '1px solid #f1f5f9', padding: '12px 16px 16px' }}>
+                        {/* Bouton confirmer expédition */}
+                        {['sent', 'in_preparation', 'in_production', 'ready_to_ship'].includes(o.order_status) && (
+                          shippedConfirmed.has(o.id) ? (
+                            <div style={{ width: '100%', marginBottom: 14, padding: '11px 0', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 10, fontSize: 13, fontWeight: 700, color: '#16a34a', textAlign: 'center' }}>
+                              ✅ Expédition confirmée — merci !
+                            </div>
+                          ) : (
+                            <button
+                              onClick={async () => {
+                                if (!confirm(`Confirmer l'expédition de la commande ${o.order_number} ?`)) return;
+                                setConfirmingShipped(o.id);
+                                try {
+                                  const res = await fetch(`/api/supplier-portal/${token}/confirm-shipped`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ orderId: o.id }),
+                                  });
+                                  if (res.ok) {
+                                    setShippedConfirmed(prev => new Set([...prev, o.id]));
+                                    setOrders(prev => prev.map(ord => ord.id === o.id ? { ...ord, order_status: 'shipped' } : ord));
+                                  } else {
+                                    const d = await res.json();
+                                    alert(d.error ?? 'Erreur lors de la confirmation');
+                                  }
+                                } catch {
+                                  alert('Erreur réseau');
+                                } finally {
+                                  setConfirmingShipped(null);
+                                }
+                              }}
+                              disabled={confirmingShipped === o.id}
+                              style={{ width: '100%', marginBottom: 10, padding: '12px 0', background: confirmingShipped === o.id ? '#e5e7eb' : '#6366f1', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 700, color: '#fff', cursor: confirmingShipped === o.id ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                            >
+                              {confirmingShipped === o.id ? (
+                                <><SmallSpinner /> Confirmation en cours…</>
+                              ) : (
+                                '🚢 Confirmer l\'expédition'
+                              )}
+                            </button>
+                          )
+                        )}
                         {/* Bouton voir dans la conversation */}
                         <button
                           onClick={() => setTab('chat')}

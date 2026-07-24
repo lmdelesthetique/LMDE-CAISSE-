@@ -102,6 +102,18 @@ export default function DepotMediaPage() {
     setItems(prev => prev.map(it => it.id === id ? { ...it, admin_note: noteValue.trim() || null } : it));
   }
 
+  async function handleDownloadMedia(item: MediaItem) {
+    const res = await fetch(`/api/media-depot/download?id=${item.id}`);
+    const data = await res.json();
+    if (!data.url) return;
+    const a = document.createElement('a');
+    a.href = data.url;
+    a.download = item.file_name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
   async function handleDelete(id: string) {
     if (!confirm('Supprimer ce fichier définitivement ?')) return;
     setDeletingId(id);
@@ -249,15 +261,12 @@ export default function DepotMediaPage() {
                         <p className="text-[10px] text-gray-400">{formatDate(item.created_at)} · {formatSize(item.size_bytes ?? 0)}</p>
                       </div>
                       <div className="flex flex-col gap-1">
-                        {item.url && (
-                          <a
-                            href={item.url}
-                            download={item.file_name}
-                            className="text-[10px] px-2 py-1 bg-green-50 border border-green-200 text-green-700 rounded-lg font-semibold hover:bg-green-100 transition-colors whitespace-nowrap"
-                          >
-                            ⬇ Télécharger
-                          </a>
-                        )}
+                        <button
+                          onClick={() => handleDownloadMedia(item)}
+                          className="text-[10px] px-2 py-1 bg-green-50 border border-green-200 text-green-700 rounded-lg font-semibold hover:bg-green-100 transition-colors whitespace-nowrap"
+                        >
+                          ⬇ Télécharger
+                        </button>
                         <button
                           onClick={() => handleDelete(item.id)}
                           disabled={deletingId === item.id}

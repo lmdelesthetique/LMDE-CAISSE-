@@ -139,6 +139,10 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const [unreadSupplierMsgs, setUnreadSupplierMsgs] = useState(0);
   const [stockAlertCount, setStockAlertCount] = useState(0);
   const [reservationPendingCount, setReservationPendingCount] = useState(0);
+  const [pendingSubscriptionsCount, setPendingSubscriptionsCount] = useState(0);
+  const [pendingLivraisonsCount, setPendingLivraisonsCount] = useState(0);
+  const [depotMediaNewCount, setDepotMediaNewCount] = useState(0);
+  const [campagnesNewCount, setCampagnesNewCount] = useState(0);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -224,6 +228,26 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
         .then(d => setUnreadSupplierMsgs(d.count ?? 0))
         .catch(() => {});
     }
+    if (pathname.startsWith('/abonnements')) {
+      fetch('/api/subscriptions/pending-count')
+        .then(r => r.json())
+        .then(d => setPendingSubscriptionsCount(d.count ?? 0))
+        .catch(() => {});
+    }
+    if (pathname.startsWith('/livraisons')) {
+      fetch('/api/livraisons/pending-count')
+        .then(r => r.json())
+        .then(d => setPendingLivraisonsCount(d.count ?? 0))
+        .catch(() => {});
+    }
+    if (pathname.startsWith('/depot-media')) {
+      localStorage.setItem('depot_media_last_seen', new Date().toISOString());
+      setDepotMediaNewCount(0);
+    }
+    if (pathname.startsWith('/campagnes-ambassadrices')) {
+      localStorage.setItem('campagnes_last_seen', new Date().toISOString());
+      setCampagnesNewCount(0);
+    }
   }, [pathname]);
 
   // Live stock alert count + reservations pending count
@@ -236,6 +260,93 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
     // Refresh when user visits these pages
     if (pathname.startsWith('/stock') || pathname.startsWith('/reservations')) load();
   }, [pathname]);
+
+  // Pending subscriptions badge + realtime
+  useEffect(() => {
+    const load = () =>
+      fetch('/api/subscriptions/pending-count')
+        .then(r => r.json())
+        .then(d => setPendingSubscriptionsCount(d.count ?? 0))
+        .catch(() => {});
+
+    load();
+
+    const ch = supabase
+      .channel('sidebar_subscriptions')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'client_subscriptions' }, load)
+      .subscribe();
+
+    return () => { supabase.removeChannel(ch); };
+  }, []);
+
+  // Pending livraisons badge + realtime
+  useEffect(() => {
+    const load = () =>
+      fetch('/api/livraisons/pending-count')
+        .then(r => r.json())
+        .then(d => setPendingLivraisonsCount(d.count ?? 0))
+        .catch(() => {});
+
+    load();
+
+    const ch = supabase
+      .channel('sidebar_livraisons')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'deliveries' }, () => {
+        load();
+        playNotifSound();
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(ch); };
+  }, []);
+
+  // Dépôt Photo & Vidéo new-content badge + realtime
+  useEffect(() => {
+    const lastSeen = localStorage.getItem('depot_media_last_seen') ?? new Date(0).toISOString();
+    fetch(`/api/media-depot/new-count?since=${encodeURIComponent(lastSeen)}`)
+      .then(r => r.json())
+      .then(d => setDepotMediaNewCount(d.count ?? 0))
+      .catch(() => {});
+
+    const ch = supabase
+      .channel('sidebar_depot_media')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'media_depot' }, () => {
+        if (!window.location.pathname.startsWith('/depot-media')) {
+          setDepotMediaNewCount(c => c + 1);
+          playNotifSound();
+        }
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(ch); };
+  }, []);
+
+  // Campagnes ambassadrices new-video badge + realtime
+  useEffect(() => {
+    const lastSeen = localStorage.getItem('campagnes_last_seen') ?? new Date(0).toISOString();
+    fetch(`/api/campagne-contenus/new-count?since=${encodeURIComponent(lastSeen)}`)
+      .then(r => r.json())
+      .then(d => setCampagnesNewCount(d.count ?? 0))
+      .catch(() => {});
+
+    const ch = supabase
+      .channel('sidebar_campagnes')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'campagne_contenus' }, (payload: any) => {
+        if (payload.new?.video_path && !window.location.pathname.startsWith('/campagnes-ambassadrices')) {
+          setCampagnesNewCount(c => c + 1);
+          playNotifSound();
+        }
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'campagne_contenus' }, (payload: any) => {
+        if (payload.new?.video_path && !payload.old?.video_path && !window.location.pathname.startsWith('/campagnes-ambassadrices')) {
+          setCampagnesNewCount(c => c + 1);
+          playNotifSound();
+        }
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(ch); };
+  }, []);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -294,11 +405,21 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                   item.id === 'nav-commandes-fo' && unreadSupplierMsgs > 0 ? unreadSupplierMsgs :
                   item.id === 'nav-stock' && stockAlertCount > 0 ? stockAlertCount :
                   item.id === 'nav-reservations' && reservationPendingCount > 0 ? reservationPendingCount :
+                  item.id === 'nav-abonnements' && pendingSubscriptionsCount > 0 ? pendingSubscriptionsCount :
+                  item.id === 'nav-paiements' && pendingSubscriptionsCount > 0 ? pendingSubscriptionsCount :
+                  item.id === 'nav-livraisons' && pendingLivraisonsCount > 0 ? pendingLivraisonsCount :
+                  item.id === 'nav-depot-media' && depotMediaNewCount > 0 ? depotMediaNewCount :
+                  item.id === 'nav-campagnes-ambassadrices' && campagnesNewCount > 0 ? campagnesNewCount :
                   item.badge;
                 const isAlertBadge =
                   (item.id === 'nav-commandes-fo' && unreadSupplierMsgs > 0) ||
                   (item.id === 'nav-stock' && stockAlertCount > 0) ||
-                  (item.id === 'nav-reservations' && reservationPendingCount > 0);
+                  (item.id === 'nav-reservations' && reservationPendingCount > 0) ||
+                  (item.id === 'nav-abonnements' && pendingSubscriptionsCount > 0) ||
+                  (item.id === 'nav-paiements' && pendingSubscriptionsCount > 0) ||
+                  (item.id === 'nav-livraisons' && pendingLivraisonsCount > 0) ||
+                  (item.id === 'nav-depot-media' && depotMediaNewCount > 0) ||
+                  (item.id === 'nav-campagnes-ambassadrices' && campagnesNewCount > 0);
 
                 return (
                   <div key={item.id}>

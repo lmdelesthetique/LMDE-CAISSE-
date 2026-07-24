@@ -1515,6 +1515,20 @@ export default function AbonnementsPage() {
 
                     {/* Quick actions in row (no propagation) */}
                     <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                      {(sub.status === 'pending' || sub.status === 'suspended') && (
+                        <button
+                          onClick={async () => {
+                            if (!confirm('Activer manuellement cet abonnement ?')) return;
+                            const res = await fetch(`/api/subscriptions/${sub.id}/activate`, { method: 'POST' });
+                            if (res.ok) { load(); }
+                            else { alert('Erreur lors de l\'activation'); }
+                          }}
+                          className="px-2.5 py-1 bg-emerald-500 text-white border border-emerald-600 rounded-lg text-[11px] font-bold hover:bg-emerald-600 transition-colors"
+                          title="Activer manuellement"
+                        >
+                          ✅ Activer
+                        </button>
+                      )}
                       <button
                         onClick={() => setNotifyEmailSub(sub)}
                         className="px-2.5 py-1 bg-violet-100 text-violet-700 border border-violet-300 rounded-lg text-[11px] font-bold hover:bg-violet-200 transition-colors"

@@ -3,11 +3,19 @@
 import React, { useState } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import {
+  loyaltyService,
   REWARD_TYPE_LABELS,
   REWARD_TYPE_ICONS,
   type ClientLoyaltyReward,
+  type LoyaltyRewardProduct,
   type LoyaltyTier,
 } from '@/lib/services/loyaltyService';
+
+export const GIFT_CATEGORIES = [
+  { id: 'extensions_cils', label: 'Extensions Cils', icon: '✨' },
+  { id: 'manucure', label: 'Manucure', icon: '💅' },
+  { id: 'pedicure', label: 'Pédicure', icon: '🦶' },
+] as const;
 
 // ── Available Rewards Modal (shown when client is selected at POS) ─────────────
 
@@ -324,6 +332,123 @@ export function RewardAppliedBanner({ reward, discountAmount, onRemove }: Reward
       >
         <Icon name="XMarkIcon" size={14} />
       </button>
+    </div>
+  );
+}
+
+// ── Gift Category Picker Modal (Cils / Manucure / Pédicure) ───────────────────
+
+interface GiftCategoryPickerModalProps {
+  reward: ClientLoyaltyReward;
+  onProductChosen: (product: LoyaltyRewardProduct) => void;
+  onClose: () => void;
+}
+
+export function GiftCategoryPickerModal({ reward, onProductChosen, onClose }: GiftCategoryPickerModalProps) {
+  const [step, setStep] = useState<'category' | 'products'>('category');
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [products, setProducts] = useState<LoyaltyRewardProduct[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const handleCategorySelect = async (categoryId: string) => {
+    setSelectedCategory(categoryId);
+    setStep('products');
+    setLoading(true);
+    const prods = await loyaltyService.getRewardProductsByCategory(categoryId);
+    setProducts(prods);
+    setLoading(false);
+  };
+
+  const selectedCat = GIFT_CATEGORIES.find(c => c.id === selectedCategory);
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-modal w-full max-w-md mx-4 overflow-hidden">
+        {/* Header */}
+        <div className="bg-gradient-to-r from-violet-500 to-purple-600 px-6 py-5 text-white">
+          <div className="flex items-center gap-3">
+            <span className="text-3xl">🎁</span>
+            <div>
+              <h2 className="text-lg font-700">Produit offert !</h2>
+              <p className="text-sm opacity-90">{reward.rewardDescription}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-5 min-h-[200px]">
+          {step === 'category' && (
+            <>
+              <p className="text-sm font-600 text-foreground mb-4 text-center">Choisir la catégorie du cadeau</p>
+              <div className="grid grid-cols-3 gap-3">
+                {GIFT_CATEGORIES.map(cat => (
+                  <button
+                    key={cat.id}
+                    onClick={() => handleCategorySelect(cat.id)}
+                    className="flex flex-col items-center gap-2 p-5 rounded-2xl border-2 border-violet-200 hover:border-violet-500 hover:bg-violet-50 transition-all active:scale-95"
+                  >
+                    <span className="text-4xl">{cat.icon}</span>
+                    <span className="text-xs font-700 text-foreground text-center leading-tight">{cat.label}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+
+          {step === 'products' && (
+            <>
+              <div className="flex items-center gap-2 mb-4">
+                <button
+                  onClick={() => setStep('category')}
+                  className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground transition-colors"
+                >
+                  <Icon name="ChevronLeftIcon" size={16} />
+                </button>
+                <p className="text-sm font-600 text-foreground">
+                  {selectedCat?.icon} {selectedCat?.label} — Choisir un produit
+                </p>
+              </div>
+              {loading ? (
+                <div className="flex items-center justify-center py-10">
+                  <Icon name="ArrowPathIcon" size={22} className="animate-spin text-muted-foreground" />
+                </div>
+              ) : products.length === 0 ? (
+                <div className="text-center py-10 text-sm text-muted-foreground">
+                  <p className="font-600 mb-1">Aucun produit dans cette catégorie</p>
+                  <p className="text-xs">Ajoutez des produits dans Fidélité → Produits récompenses</p>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {products.map(p => (
+                    <button
+                      key={p.id}
+                      onClick={() => onProductChosen(p)}
+                      className="w-full flex items-center gap-3 p-3 rounded-xl border border-border hover:border-violet-400 hover:bg-violet-50 transition-all text-left active:scale-[0.98]"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-600 text-foreground truncate">{p.productName}</p>
+                        <p className={`text-xs font-700 ${p.stockQuantity <= 3 ? 'text-red-500' : p.stockQuantity <= 10 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                          {p.stockQuantity} en stock
+                        </p>
+                      </div>
+                      <Icon name="ChevronRightIcon" size={16} className="text-violet-400 shrink-0" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="border-t border-border p-4">
+          <button
+            onClick={onClose}
+            className="w-full py-2.5 border border-border rounded-xl text-sm font-600 text-muted-foreground hover:bg-muted transition-colors"
+          >
+            Annuler
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

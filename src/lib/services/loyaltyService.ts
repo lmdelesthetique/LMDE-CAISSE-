@@ -6,7 +6,7 @@ import { fetchAll } from '@/lib/utils/fetchAll';
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 export type RewardType =
-  | 'discount' |'free_product' |'double_points' |'private_offer' |'vip_access' |'buy_one_get_one' |'free_shipping' |'surprise_gift' |'category_discount';
+  | 'discount' |'free_product' |'double_points' |'private_offer' |'vip_access' |'buy_one_get_one' |'free_shipping' |'surprise_gift' |'category_discount' |'gift_category_pick';
 
 export type RewardStatus = 'available' | 'used' | 'expired' | 'cancelled';
 
@@ -219,6 +219,7 @@ export const REWARD_TYPE_LABELS: Record<string, string> = {
   free_shipping: 'Livraison offerte',
   surprise_gift: 'Cadeau surprise',
   category_discount: 'Remise catégorie',
+  gift_category_pick: 'Produit par catégorie',
 };
 
 export const REWARD_TYPE_ICONS: Record<string, string> = {
@@ -231,6 +232,7 @@ export const REWARD_TYPE_ICONS: Record<string, string> = {
   free_shipping: '📦',
   surprise_gift: '🎀',
   category_discount: '✂️',
+  gift_category_pick: '🧴',
 };
 
 // ── Tier detection helper ──────────────────────────────────────────────────────
@@ -386,6 +388,20 @@ export const loyaltyService = {
       if (error) { console.log('loyaltyService.getRewardProducts error:', error.message); return []; }
       return (data ?? []).map(mapRewardProduct);
     } catch (e: any) { console.log('loyaltyService.getRewardProducts exception:', e.message); return []; }
+  },
+
+  async getRewardProductsByCategory(category: string): Promise<LoyaltyRewardProduct[]> {
+    const supabase = createClient();
+    try {
+      const { data, error } = await supabase
+        .from('loyalty_reward_products')
+        .select('*')
+        .eq('is_active', true)
+        .eq('reward_category', category)
+        .order('product_name', { ascending: true });
+      if (error) { console.log('loyaltyService.getRewardProductsByCategory error:', error.message); return []; }
+      return (data ?? []).map(mapRewardProduct);
+    } catch (e: any) { console.log('loyaltyService.getRewardProductsByCategory exception:', e.message); return []; }
   },
 
   async createRewardProduct(input: Omit<LoyaltyRewardProduct, 'id' | 'createdAt'>): Promise<LoyaltyRewardProduct | null> {

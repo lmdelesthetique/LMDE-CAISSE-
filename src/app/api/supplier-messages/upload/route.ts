@@ -19,14 +19,26 @@ export async function POST(req: NextRequest) {
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
   const path = `chat/${supplierId}/${Date.now()}-${safeName}`;
 
+  // Fallback MIME type when browser doesn't set it (common for Excel on some devices)
+  const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+  const mimeMap: Record<string, string> = {
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    xls: 'application/vnd.ms-excel',
+    csv: 'text/csv',
+    pdf: 'application/pdf',
+    jpg: 'image/jpeg', jpeg: 'image/jpeg',
+    png: 'image/png', webp: 'image/webp',
+  };
+  const contentType = file.type || mimeMap[ext] || 'application/octet-stream';
+
   const bytes = await file.arrayBuffer();
   const { error } = await supabase.storage
     .from('supplier-invoices')
-    .upload(path, bytes, { contentType: file.type, upsert: false });
+    .upload(path, bytes, { contentType, upsert: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const { data: { publicUrl } } = supabase.storage.from('supplier-invoices').getPublicUrl(path);
 
-  return NextResponse.json({ url: publicUrl, name: file.name, type: file.type });
+  return NextResponse.json({ url: publicUrl, name: file.name, type: contentType });
 }
