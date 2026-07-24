@@ -69,11 +69,8 @@ export default function MarginsReport({ dateRange }: MarginsReportProps) {
         const transport = Number(p.transport) || 0;
         const customs = Number(p.customs) || 0;
         const otherFees = Number(p.other_fees) || 0;
-        // Use buy_price as the real loaded cost (it includes proportional fees when updated from an order)
-        // For manually-created products, fall back to buy_price + individual fee columns
-        const realCost = purchasePriceSupplier > 0 && buyPrice >= purchasePriceSupplier
-          ? buyPrice  // already includes all fees
-          : buyPrice + transport + customs + otherFees;
+        // costPrice = buy_price (includes order fees after update) + individual per-product fees + structure
+        const realCost = buyPrice + transport + customs + otherFees;
         productLookup[p.id] = {
           name: p.name ?? 'Produit inconnu',
           category: p.category ?? 'Non catégorisé',
