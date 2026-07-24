@@ -97,7 +97,7 @@ export async function POST(req: NextRequest) {
 
   <div style="border-top:1px solid #f3f4f6;padding-top:20px;text-align:center;">
     <p style="font-size:13px;color:#78716c;margin:0 0 8px;">Une question ? Je reponds personnellement.</p>
-    <a href="https://wa.me/message/QBWQFIG2EHXCI1"
+    <a href="https://wa.me/262692000000"
       style="display:inline-block;background:#25D366;color:#fff;font-size:13px;font-weight:700;padding:10px 24px;border-radius:8px;text-decoration:none;">
       Ecrire a Christy sur WhatsApp
     </a>
