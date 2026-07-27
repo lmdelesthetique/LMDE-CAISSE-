@@ -10,6 +10,7 @@ import TopProductsTable from './components/TopProductsTable';
 import StockAlerts from './components/StockAlerts';
 import RecentSalesFeed from './components/RecentSalesFeed';
 import RealMarginDashboard from './components/RealMarginDashboard';
+import CACategoryBreakdown from './components/CACategoryBreakdown';
 import AdminAlerts from '../backup-compliance/components/AdminAlerts';
 import ShopifyStatusCard from './components/ShopifyStatusCard';
 import ShopifyOrdersWidget from './components/ShopifyOrdersWidget';
@@ -76,6 +77,9 @@ export default function DashboardPage() {
               <TopProductsTable filters={filters} />
             </div>
           </div>
+
+          {/* CA by category */}
+          <CACategoryBreakdown />
 
           {/* Shopify + Boxes Row */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
