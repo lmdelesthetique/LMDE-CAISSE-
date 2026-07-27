@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { createClient } from '@/lib/supabase/client';
 import Icon from '@/components/ui/AppIcon';
 
 interface MarginData {
@@ -20,7 +19,6 @@ interface MarginData {
 }
 
 export default function RealMarginDashboard() {
-  const supabase = createClient();
   const [data, setData] = useState<MarginData | null>(null);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState('month');
@@ -29,84 +27,18 @@ export default function RealMarginDashboard() {
     const load = async () => {
       setLoading(true);
       try {
-        const now = new Date();
-        let startDate: string;
-        if (period === 'month') {
-          startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-        } else if (period === '3months') {
-          startDate = new Date(now.getFullYear(), now.getMonth() - 3, 1).toISOString().slice(0, 10);
-        } else {
-          startDate = new Date(now.getFullYear(), 0, 1).toISOString().slice(0, 10);
-        }
-
-        // Load supplier orders for import costs
-        const ordersResult = await supabase
-          .from('fo_orders')
-          .select('subtotal, transport_cost, customs_cost, vat_import, freight_forwarder_cost, bank_fees, exchange_fees, local_delivery, other_costs, total_real_cost, payment_amount, order_status')
-          .gte('created_at', startDate);
-        const orders = ordersResult.error ? [] : (ordersResult.data ?? []);
-
-        // Load business expenses
-        const { data: expenses } = await supabase
-          .from('business_expenses')
-          .select('amount, category')
-          .gte('expense_date', startDate);
-
-        // Load structure fee config
-        const monthYear = now.toISOString().slice(0, 7);
-        const { data: feeConfig } = await supabase
-          .from('structure_fee_config')
-          .select('applied_pct, reference_revenue')
-          .eq('month_year', monthYear)
-          .maybeSingle();
-
-        // Load client purchases for revenue
-        const { data: purchases } = await supabase
-          .from('client_purchases')
-          .select('total_ttc')
-          .gte('purchased_at', startDate);
-
-        const revenue = (purchases ?? []).reduce((s: number, p: any) => s + (p.total_ttc || 0), 0);
-        const supplierPayments = (orders ?? [])
-          .filter((o: any) => ['paid', 'payment_received_by_supplier'].includes(o.order_status))
-          .reduce((s: number, o: any) => s + (o.payment_amount || o.subtotal || 0), 0);
-        const importCosts = (orders ?? []).reduce((s: number, o: any) =>
-          s + (o.transport_cost || 0) + (o.customs_cost || 0) + (o.vat_import || 0) +
-          (o.freight_forwarder_cost || 0) + (o.bank_fees || 0) + (o.exchange_fees || 0) +
-          (o.local_delivery || 0) + (o.other_costs || 0), 0);
-        const costOfGoods = (orders ?? []).reduce((s: number, o: any) => s + (o.subtotal || 0), 0);
-
-        const fixedExpenses = (expenses ?? []).filter((e: any) => e.category === 'fixed_monthly').reduce((s: number, e: any) => s + e.amount, 0);
-        const variableExpenses = (expenses ?? []).filter((e: any) => e.category === 'variable').reduce((s: number, e: any) => s + e.amount, 0);
-        const dailyExpenses = (expenses ?? []).filter((e: any) => e.category === 'daily').reduce((s: number, e: any) => s + e.amount, 0);
-        const totalExpenses = fixedExpenses + variableExpenses + dailyExpenses;
-
-        const grossMargin = revenue - costOfGoods - importCosts;
-        const grossMarginPct = revenue > 0 ? (grossMargin / revenue) * 100 : 0;
-        const netMargin = grossMargin - totalExpenses;
-        const netMarginPct = revenue > 0 ? (netMargin / revenue) * 100 : 0;
-        const structurePct = feeConfig?.applied_pct ?? (revenue > 0 ? (totalExpenses / revenue) * 100 : 0);
-
-        setData({
-          revenue,
-          costOfGoods,
-          importCosts,
-          supplierPayments,
-          fixedExpenses,
-          variableExpenses,
-          dailyExpenses,
-          grossMargin,
-          grossMarginPct,
-          netMargin,
-          netMarginPct,
-          structurePct,
-        });
+        const res = await fetch(`/api/dashboard/margin?period=${period}`);
+        if (!res.ok) throw new Error('fetch failed');
+        const json = await res.json();
+        setData(json);
+      } catch {
+        setData(null);
       } finally {
         setLoading(false);
       }
     };
     load();
-  }, [period, supabase]);
+  }, [period]);
 
   const fmt = (v: number) => v.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, '\u00a0') + '\u00a0€';
   const pct = (v: number) => v.toFixed(1) + '%';
