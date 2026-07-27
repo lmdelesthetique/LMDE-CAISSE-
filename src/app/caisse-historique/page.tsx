@@ -149,6 +149,10 @@ function parseMethod(raw: string): { label: string; color: string; detail?: stri
       detail: `CB: ${fmt(cbNum)} € + Espèces: ${fmt(cashNum)} €`,
     };
   }
+  // Alma 4x, Alma 3x, Alma 4x (+46.63€ frais), etc. → canonical "Alma"
+  if (raw.startsWith('Alma') || raw === 'alma') {
+    return { label: 'Alma', color: METHOD_COLORS['Alma'] };
+  }
   const label = METHOD_LABELS[raw] ?? raw;
   return { label, color: METHOD_COLORS[label] ?? 'text-slate-700 bg-slate-50 border-slate-200' };
 }
@@ -1295,7 +1299,7 @@ export default function CaisseHistoriquePage() {
   const payBreakdown: Record<string, number> = {};
   realNonCancelled.forEach(t => {
     const raw = t.payment_method ?? 'Autre';
-    const key = raw.startsWith('Mixte') ? 'Mixte' : (parseMethod(raw).label);
+    const key = raw.startsWith('Mixte') ? 'Mixte' : (raw.startsWith('Alma') || raw === 'alma') ? 'Alma' : (parseMethod(raw).label);
     payBreakdown[key] = (payBreakdown[key] ?? 0) + (t.total_amount ?? 0);
   });
 

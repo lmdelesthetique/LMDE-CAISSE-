@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { getAccessToken } from '@/lib/services/shopifyService';
 
 interface WeekStat {
   semaine: number;
@@ -35,7 +36,7 @@ function mockSpiraleMLDE(d: MLDEData) {
   const ruptureProduit = d.produitsRupture[0];
   return {
     diagnostic: {
-      ca_evolution: `CA ce mois : ${d.totalCA.toFixed(0)}€ — configurez ANTHROPIC_API_KEY pour l'analyse réelle`,
+      ca_evolution: `CA ce mois : ${(d.totalCA + d.shopifyCA).toFixed(0)}€${d.shopifyCA > 0 ? ` (dont Shopify ${d.shopifyCA.toFixed(0)}€)` : ''} — configurez ANTHROPIC_API_KEY pour l'analyse réelle`,
       segment_plus_actif: `Actives 30j (${d.segmentActifs} clientes)`,
       segment_a_risque: `Inactives 90j+ (${d.segmentInactifs} clientes)`,
       produit_star: starProduit,
@@ -178,6 +179,10 @@ export async function POST(_req: NextRequest) {
     const startOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
     const endOfPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59).toISOString();
 
+    // ── Shopify CA du mois en parallèle ──────────────────────────────────────
+    const storeDomain = process.env.SHOPIFY_STORE_DOMAIN ?? '';
+    const shopifyTokenPromise = storeDomain ? getAccessToken() : Promise.resolve(null);
+
     // ── Tout en parallèle — une seule vague de requêtes ───────────────────────
     const results = await Promise.all([
       supabase.from('receipts').select('total_amount, items, created_at')
@@ -211,6 +216,20 @@ export async function POST(_req: NextRequest) {
     ] = results;
 
     if (err0) console.error('[spirale-mdle] receipts query error:', err0.message);
+
+    // ── CA Shopify du mois ────────────────────────────────────────────────────
+    let shopifyCA = 0;
+    try {
+      const shopifyToken = await shopifyTokenPromise;
+      if (shopifyToken && storeDomain) {
+        const params = new URLSearchParams({ status: 'any', financial_status: 'paid', created_at_min: startOfMonth, limit: '250', fields: 'id,total_price' });
+        const shopifyRes = await fetch(`https://${storeDomain}/admin/api/2024-10/orders.json?${params}`, { headers: { 'X-Shopify-Access-Token': shopifyToken } });
+        if (shopifyRes.ok) {
+          const shopifyData = await shopifyRes.json();
+          shopifyCA = (shopifyData.orders ?? []).reduce((s: number, o: { total_price: string }) => s + parseFloat(o.total_price || '0'), 0);
+        }
+      }
+    } catch { /* Shopify optionnel */ }
 
     // ── CA + tendances ─────────────────────────────────────────────────────────
     const totalCA = (receipts ?? []).reduce((s, r) => s + parseFloat(r.total_amount ?? 0), 0);
@@ -281,7 +300,7 @@ export async function POST(_req: NextRequest) {
       totalCA,
       nbTickets,
       panierMoyen: parseFloat(panierMoyen.toFixed(2)),
-      shopifyCA: 0,
+      shopifyCA,
       topProduits,
       produitsDormants,
       produitsRupture,
@@ -316,7 +335,7 @@ S4 → Parrainage gamifié à points
 S5 → Chaque vente génère du nouveau contenu client
 
 DONNÉES RÉELLES DE LA PÉRIODE :
-CA Total : ${data.totalCA.toFixed(2)}€
+CA Total : ${(data.totalCA + data.shopifyCA).toFixed(2)}€ (Caisse : ${data.totalCA.toFixed(2)}€${data.shopifyCA > 0 ? ` + Shopify : ${data.shopifyCA.toFixed(2)}€` : ''})
 Nombre de tickets : ${data.nbTickets}
 Panier moyen : ${data.panierMoyen.toFixed(2)}€
 
