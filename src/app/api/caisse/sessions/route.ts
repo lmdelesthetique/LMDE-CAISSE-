@@ -12,8 +12,27 @@ function todayDate() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+/**
+ * Calcule la portion espèces reçue d'une vente selon son mode de paiement.
+ * - "Espèces" / "cash" → montant total
+ * - "Mixte|CB|cash"    → uniquement la partie cash (3e segment)
+ * - "Mixte" / "mixed"  → montant total (tout en espèces)
+ * - Autres             → 0
+ */
+function cashPortionOfReceipt(paymentMethod: string, totalAmount: number): number {
+  const pm = String(paymentMethod ?? '').trim();
+  if (pm === 'Espèces' || pm === 'cash') return totalAmount;
+  if (pm === 'Mixte' || pm === 'mixed') return totalAmount;
+  if (pm.startsWith('Mixte|')) {
+    // Format : Mixte|<montant_cb>|<montant_cash>
+    const parts = pm.split('|');
+    return parseFloat(parts[2] ?? '0') || 0;
+  }
+  return 0;
+}
+
 // ─── GET /api/caisse/sessions?date=YYYY-MM-DD ─────────────────────────────────
-// Returns today's open session or null
+// Returns the open session for the date, with correct cash_in_today
 export async function GET(req: NextRequest) {
   const date = new URL(req.url).searchParams.get('date') ?? todayDate();
   const supabase = makeClient();
@@ -26,7 +45,6 @@ export async function GET(req: NextRequest) {
     .maybeSingle();
 
   if (error) {
-    // Table might not exist yet
     if (error.code === '42P01') return NextResponse.json(null);
     console.error('[api/caisse/sessions GET]', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -34,21 +52,36 @@ export async function GET(req: NextRequest) {
 
   if (!data) return NextResponse.json(null);
 
-  // Compute live cash drawer
-  const { data: cashReceipts } = await supabase
+  // Fetch ALL receipts of the day (no payment_method filter — we parse ourselves)
+  const { data: allReceipts } = await supabase
     .from('receipts')
-    .select('total_amount')
+    .select('total_amount, payment_method')
     .gte('created_at', `${date}T00:00:00`)
     .lte('created_at', `${date}T23:59:59`)
-    .in('payment_method', ['Espèces', 'cash', 'Mixte', 'mixed'])
     .eq('status', 'completed');
 
-  const cashIn = (cashReceipts ?? []).reduce(
-    (s: number, r: { total_amount: number }) => s + parseFloat(String(r.total_amount ?? 0)),
+  const cashIn = (allReceipts ?? []).reduce((sum, r) => {
+    const amount = parseFloat(String(r.total_amount ?? 0));
+    return sum + cashPortionOfReceipt(r.payment_method, amount);
+  }, 0);
+
+  // Subtract cash expenses paid from the drawer
+  const { data: cashExpenses } = await supabase
+    .from('daily_expenses')
+    .select('amount')
+    .eq('expense_date', date)
+    .in('payment_method', ['cash', 'Espèces']);
+
+  const cashOut = (cashExpenses ?? []).reduce(
+    (sum, e) => sum + parseFloat(String(e.amount ?? 0)),
     0
   );
 
-  return NextResponse.json({ ...data, cash_in_today: cashIn });
+  return NextResponse.json({
+    ...data,
+    cash_in_today: cashIn,
+    cash_expenses_today: cashOut,
+  });
 }
 
 // ─── POST /api/caisse/sessions — open session ─────────────────────────────────
@@ -61,7 +94,6 @@ export async function POST(req: NextRequest) {
   const supabase = makeClient();
   const date = todayDate();
 
-  // Check if session already exists
   const { data: existing } = await supabase
     .from('caisse_sessions')
     .select('id')
@@ -106,14 +138,52 @@ export async function PATCH(req: NextRequest) {
 
   const supabase = makeClient();
   const date = body.date ?? todayDate();
-  const ecart = body.fond_compte - body.fond_theorique;
+
+  // Retrieve session to get fond_ouverture
+  const { data: session } = await supabase
+    .from('caisse_sessions')
+    .select('fond_ouverture')
+    .eq('date', date)
+    .eq('statut', 'ouverte')
+    .maybeSingle();
+
+  // Recompute fond_theorique server-side for reliability
+  let fondTheorique = body.fond_theorique;
+  if (session?.fond_ouverture != null) {
+    const { data: allReceipts } = await supabase
+      .from('receipts')
+      .select('total_amount, payment_method')
+      .gte('created_at', `${date}T00:00:00`)
+      .lte('created_at', `${date}T23:59:59`)
+      .eq('status', 'completed');
+
+    const cashIn = (allReceipts ?? []).reduce((sum, r) => {
+      const amount = parseFloat(String(r.total_amount ?? 0));
+      return sum + cashPortionOfReceipt(r.payment_method, amount);
+    }, 0);
+
+    const { data: cashExpenses } = await supabase
+      .from('daily_expenses')
+      .select('amount')
+      .eq('expense_date', date)
+      .in('payment_method', ['cash', 'Espèces']);
+
+    const cashOut = (cashExpenses ?? []).reduce(
+      (sum, e) => sum + parseFloat(String(e.amount ?? 0)),
+      0
+    );
+
+    fondTheorique = session.fond_ouverture + cashIn - cashOut;
+  }
+
+  const ecart = body.fond_compte - fondTheorique;
 
   const { data, error } = await supabase
     .from('caisse_sessions')
     .update({
       heure_cloture: new Date().toISOString(),
       fond_compte: body.fond_compte,
-      fond_theorique: body.fond_theorique,
+      fond_theorique: fondTheorique,
       ecart,
       fond_demain: body.fond_demain,
       montant_a_deposer: body.montant_a_deposer,

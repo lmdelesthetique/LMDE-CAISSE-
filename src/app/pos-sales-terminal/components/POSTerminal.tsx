@@ -636,7 +636,7 @@ export default function POSTerminal() {
   // ── Fond de caisse ────────────────────────────────────────────────────────
   const [sessionChecked, setSessionChecked] = useState(false);
   const [showOuverture, setShowOuverture] = useState(false);
-  const [caisseSession, setCaisseSession] = useState<{ fond_ouverture: number; cash_in_today: number } | null>(null);
+  const [caisseSession, setCaisseSession] = useState<{ fond_ouverture: number; cash_in_today: number; cash_expenses_today: number } | null>(null);
 
   useEffect(() => {
     fetch('/api/caisse/sessions')
@@ -662,7 +662,7 @@ export default function POSTerminal() {
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? 'Erreur');
       const session = await res.json();
-      setCaisseSession({ fond_ouverture: session.fond_ouverture, cash_in_today: 0 });
+      setCaisseSession({ fond_ouverture: session.fond_ouverture, cash_in_today: 0, cash_expenses_today: 0 });
       setShowOuverture(false);
       toast.success(`✓ Caisse ouverte avec ${fond.toFixed(2)} € de fond`);
     } catch (e: any) {
@@ -672,7 +672,7 @@ export default function POSTerminal() {
   };
 
   const tiroir = caisseSession
-    ? caisseSession.fond_ouverture + (caisseSession.cash_in_today ?? 0)
+    ? caisseSession.fond_ouverture + (caisseSession.cash_in_today ?? 0) - (caisseSession.cash_expenses_today ?? 0)
     : null;
 
   // Camera scanner state

@@ -94,7 +94,7 @@ export default function ClotureCaissePage() {
   const printRef = useRef<HTMLDivElement>(null);
 
   // Fond de caisse clôture
-  const [caisseSession, setCaisseSession] = useState<{ fond_ouverture: number; cash_in_today: number } | null>(null);
+  const [caisseSession, setCaisseSession] = useState<{ fond_ouverture: number; cash_in_today: number; cash_expenses_today: number } | null>(null);
   const [fondCounts, setFondCounts] = useState<Record<string, number>>({});
   const [fondDemainMode, setFondDemainMode] = useState<'all' | 'fixed'>('all');
   const [fondDemainFixed, setFondDemainFixed] = useState('');
@@ -205,7 +205,7 @@ export default function ClotureCaissePage() {
   };
 
   const fondTheorique = caisseSession
-    ? caisseSession.fond_ouverture + (caisseSession.cash_in_today ?? 0)
+    ? caisseSession.fond_ouverture + (caisseSession.cash_in_today ?? 0) - (caisseSession.cash_expenses_today ?? 0)
     : 0;
 
   const fondCompte = useMemo(() => {
@@ -576,7 +576,12 @@ ${notes ? `<h2>Notes de clôture</h2><p style="padding:8px;background:#f9f9f9;bo
                 <p className="text-xs text-blue-600 mb-1">Théorique tiroir</p>
                 <p className="text-xl font-900 tabular-nums text-blue-800">{fondTheorique.toFixed(2)} €</p>
                 <p className="text-[10px] text-blue-500 mt-0.5">
-                  Fond ouv. {caisseSession.fond_ouverture.toFixed(2)} € + Espèces {(caisseSession.cash_in_today ?? 0).toFixed(2)} €
+                  Fond ouv. {caisseSession.fond_ouverture.toFixed(2)} €
+                  {' + Espèces '}
+                  {(caisseSession.cash_in_today ?? 0).toFixed(2)} €
+                  {(caisseSession.cash_expenses_today ?? 0) > 0 && (
+                    <span className="text-red-400"> − Dép. {(caisseSession.cash_expenses_today ?? 0).toFixed(2)} €</span>
+                  )}
                 </p>
               </div>
               <div className={`rounded-xl px-4 py-3 text-center border ${
