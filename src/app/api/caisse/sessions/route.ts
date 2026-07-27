@@ -7,10 +7,19 @@ function makeClient() {
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
-function todayDate() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+// Martinique = UTC-4, pas d'heure d'été (DST)
+const MTQ_OFFSET = '-04:00';
+
+/** Retourne la date du jour en heure Martinique (YYYY-MM-DD). */
+function todayDate(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Martinique' });
 }
+
+/** Début de journée en heure Martinique → timestamp ISO avec offset. */
+function dayStart(date: string): string { return `${date}T00:00:00${MTQ_OFFSET}`; }
+
+/** Fin de journée en heure Martinique → timestamp ISO avec offset. */
+function dayEnd(date: string): string { return `${date}T23:59:59${MTQ_OFFSET}`; }
 
 /**
  * Calcule la portion espèces reçue d'une vente selon son mode de paiement.
@@ -56,9 +65,10 @@ export async function GET(req: NextRequest) {
   const { data: allReceipts } = await supabase
     .from('receipts')
     .select('total_amount, payment_method')
-    .gte('created_at', `${date}T00:00:00`)
-    .lte('created_at', `${date}T23:59:59`)
-    .eq('status', 'completed');
+    .gte('created_at', dayStart(date))
+    .lte('created_at', dayEnd(date))
+    .eq('status', 'completed')
+    .neq('is_demo', true);
 
   const cashIn = (allReceipts ?? []).reduce((sum, r) => {
     const amount = parseFloat(String(r.total_amount ?? 0));
@@ -153,9 +163,10 @@ export async function PATCH(req: NextRequest) {
     const { data: allReceipts } = await supabase
       .from('receipts')
       .select('total_amount, payment_method')
-      .gte('created_at', `${date}T00:00:00`)
-      .lte('created_at', `${date}T23:59:59`)
-      .eq('status', 'completed');
+      .gte('created_at', dayStart(date))
+      .lte('created_at', dayEnd(date))
+      .eq('status', 'completed')
+      .neq('is_demo', true);
 
     const cashIn = (allReceipts ?? []).reduce((sum, r) => {
       const amount = parseFloat(String(r.total_amount ?? 0));

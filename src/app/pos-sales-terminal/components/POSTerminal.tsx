@@ -1386,21 +1386,31 @@ export default function POSTerminal() {
         setReferralCodeInput('');
       }
 
-      // Deduct avoir from client store_credit if used
+      // Deduct avoir from client store_credit if used — MUST be awaited to prevent reuse
       if (globalDiscount?.isAvoir && !isDemoCart) {
         const remaining = Math.max(0, client.balance - globalDiscountAmount);
-        fetch(`/api/clients/${client.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ store_credit: remaining }),
-        }).catch(() => {});
-        // Mark specific return record as used if applied by avoir number
-        if (globalDiscount.avoirRecordId) {
-          fetch(`/api/returns/${globalDiscount.avoirRecordId}`, {
+        try {
+          const creditRes = await fetch(`/api/clients/${client.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ avoir_status: 'used', avoir_used_amount_delta: globalDiscountAmount, total_amount_ref: globalDiscount.value }),
-          }).catch(() => {});
+            body: JSON.stringify({ store_credit: remaining }),
+          });
+          if (!creditRes.ok) console.error('[POS] Avoir store_credit update failed for client', client.id);
+        } catch (e) {
+          console.error('[POS] Avoir store_credit update exception:', e);
+        }
+        // Mark specific return record as used — must succeed to prevent double-use
+        if (globalDiscount.avoirRecordId) {
+          try {
+            const avoirRes = await fetch(`/api/returns/${globalDiscount.avoirRecordId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ avoir_status: 'used', avoir_used_amount_delta: globalDiscountAmount, total_amount_ref: globalDiscount.value }),
+            });
+            if (!avoirRes.ok) console.error('[POS] Avoir record update failed for id', globalDiscount.avoirRecordId);
+          } catch (e) {
+            console.error('[POS] Avoir record update exception:', e);
+          }
         }
       }
 

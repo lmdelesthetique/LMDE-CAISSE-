@@ -263,8 +263,9 @@ export interface DailyExpense {
 
 export async function computeDaySummary(date: string): Promise<DaySummaryData> {
   const supabase = createClient();
-  const dayStart = new Date(date + 'T00:00:00').toISOString();
-  const dayEnd = new Date(date + 'T23:59:59').toISOString();
+  // Martinique UTC-4 : les heures doivent être interprétées en heure locale, pas UTC
+  const dayStart = new Date(date + 'T00:00:00-04:00').toISOString();
+  const dayEnd   = new Date(date + 'T23:59:59-04:00').toISOString();
 
   const [receiptsRes, expensesRes, productsRes] = await Promise.all([
     supabase

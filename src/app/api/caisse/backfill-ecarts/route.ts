@@ -7,6 +7,10 @@ function makeClient() {
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
+const MTQ_OFFSET = '-04:00';
+const dayStart = (d: string) => `${d}T00:00:00${MTQ_OFFSET}`;
+const dayEnd   = (d: string) => `${d}T23:59:59${MTQ_OFFSET}`;
+
 function cashPortionOfReceipt(paymentMethod: string, totalAmount: number): number {
   const pm = String(paymentMethod ?? '').trim();
   if (pm === 'Espèces' || pm === 'cash') return totalAmount;
@@ -42,13 +46,14 @@ export async function POST() {
   const oldest = sessions[0].date;
   const newest = sessions[sessions.length - 1].date;
 
-  // Fetch all receipts in range
+  // Fetch all real receipts in range (Martinique timezone bounds, no demo)
   const { data: allReceipts } = await supabase
     .from('receipts')
-    .select('created_at, total_amount, payment_method')
+    .select('created_at, total_amount, payment_method, client_name')
     .eq('status', 'completed')
-    .gte('created_at', `${oldest}T00:00:00`)
-    .lte('created_at', `${newest}T23:59:59`);
+    .neq('is_demo', true)
+    .gte('created_at', dayStart(oldest))
+    .lte('created_at', dayEnd(newest));
 
   // Fetch all cash expenses in range
   const { data: allExpenses } = await supabase
@@ -58,10 +63,13 @@ export async function POST() {
     .lte('expense_date', newest)
     .in('payment_method', ['cash', 'Espèces']);
 
-  // Group receipts by date
+  // Group receipts by Martinique local date
   const cashInByDate: Record<string, number> = {};
   for (const r of allReceipts ?? []) {
-    const d = String(r.created_at).slice(0, 10);
+    const cn = (r.client_name ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
+    if (cn === 'CHRISTY LHOMME') continue;
+    // Convert UTC created_at to local Martinique date
+    const d = new Date(r.created_at as string).toLocaleDateString('en-CA', { timeZone: 'America/Martinique' });
     const portion = cashPortionOfReceipt(r.payment_method, parseFloat(String(r.total_amount ?? 0)));
     cashInByDate[d] = (cashInByDate[d] ?? 0) + portion;
   }

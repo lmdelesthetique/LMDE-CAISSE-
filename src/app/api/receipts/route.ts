@@ -108,6 +108,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: msg, code: 'CLIENT_INIT_FAILED' }, { status: 500 });
   }
 
+  // Validation : un ticket doit avoir un montant positif
+  const totalAmount = Number(body.total_amount ?? body.totalAmount ?? 0);
+  if (!totalAmount || totalAmount < 0) {
+    return NextResponse.json({ error: 'total_amount requis et doit être ≥ 0' }, { status: 400 });
+  }
+
   const { data, error } = await supabase
     .from('receipts')
     .insert(body)

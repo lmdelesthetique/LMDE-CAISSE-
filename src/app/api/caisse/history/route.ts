@@ -7,8 +7,13 @@ function makeClient() {
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
+// Martinique = UTC-4, pas d'heure d'été
+const MTQ_OFFSET = '-04:00';
+const dayStart = (d: string) => `${d}T00:00:00${MTQ_OFFSET}`;
+const dayEnd   = (d: string) => `${d}T23:59:59${MTQ_OFFSET}`;
+
 // GET /api/caisse/history?limit=30
-// Returns last N sessions with CA + ticket count from receipts
+// Returns last N sessions with CA + ticket count from real (non-demo) receipts
 export async function GET(req: NextRequest) {
   const limit = Math.min(parseInt(new URL(req.url).searchParams.get('limit') ?? '30'), 60);
   const supabase = makeClient();
@@ -27,24 +32,33 @@ export async function GET(req: NextRequest) {
 
   if (!sessions || sessions.length === 0) return NextResponse.json([]);
 
-  // Compute CA + ticket count per day from receipts
   const oldest = sessions[sessions.length - 1].date;
   const newest = sessions[0].date;
 
+  // Fetch real (non-demo, non-test-client) completed receipts in range
   const { data: receipts } = await supabase
     .from('receipts')
-    .select('created_at, total_amount')
+    .select('created_at, total_amount, client_name')
     .eq('status', 'completed')
-    .gte('created_at', `${oldest}T00:00:00`)
-    .lte('created_at', `${newest}T23:59:59`);
+    .neq('is_demo', true)
+    .gte('created_at', dayStart(oldest))
+    .lte('created_at', dayEnd(newest));
 
-  // Group by date
+  // Group by Martinique date — convert UTC timestamp to local date
   const byDate: Record<string, { ca: number; count: number }> = {};
   for (const r of receipts ?? []) {
-    const d = (r.created_at as string).slice(0, 10);
-    if (!byDate[d]) byDate[d] = { ca: 0, count: 0 };
-    byDate[d].ca += parseFloat(String(r.total_amount ?? 0));
-    byDate[d].count += 1;
+    // Filter out internal test client
+    const cn = (r.client_name ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
+    if (cn === 'CHRISTY LHOMME') continue;
+
+    // Convert UTC created_at to Martinique date
+    const localDate = new Date(r.created_at as string).toLocaleDateString('en-CA', {
+      timeZone: 'America/Martinique',
+    });
+
+    if (!byDate[localDate]) byDate[localDate] = { ca: 0, count: 0 };
+    byDate[localDate].ca += parseFloat(String(r.total_amount ?? 0));
+    byDate[localDate].count += 1;
   }
 
   const result = sessions.map((s) => ({
