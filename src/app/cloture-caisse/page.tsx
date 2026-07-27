@@ -92,6 +92,27 @@ export default function ClotureCaissePage() {
     performedBy: '',
   });
   const printRef = useRef<HTMLDivElement>(null);
+  const [backfilling, setBackfilling] = useState(false);
+
+  const handleBackfillEcarts = async () => {
+    if (!confirm('Recalculer les écarts de toutes les sessions passées avec la formule corrigée ?\n\nCela va mettre à jour fond_theorique et écart pour chaque journée clôturée.')) return;
+    setBackfilling(true);
+    try {
+      const res = await fetch('/api/caisse/backfill-ecarts', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erreur serveur');
+      toast.success(`${data.updated} session${data.updated > 1 ? 's' : ''} recalculée${data.updated > 1 ? 's' : ''} sur ${data.total}`);
+      // Reload sessions list
+      fetch('/api/caisse/history?limit=30')
+        .then(r => r.ok ? r.json() : [])
+        .then(d => setSessions(Array.isArray(d) ? d : []))
+        .catch(() => {});
+    } catch (e: any) {
+      toast.error(e.message ?? 'Erreur lors du recalcul');
+    } finally {
+      setBackfilling(false);
+    }
+  };
 
   // Fond de caisse clôture
   const [caisseSession, setCaisseSession] = useState<{ fond_ouverture: number; cash_in_today: number; cash_expenses_today: number } | null>(null);
@@ -719,9 +740,23 @@ ${notes ? `<h2>Notes de clôture</h2><p style="padding:8px;background:#f9f9f9;bo
 
         {/* ── Feature 1 — Historique des journées ─────────────────── */}
         <div className="bg-white border border-border rounded-2xl p-6">
-          <h2 className="text-base font-700 text-foreground mb-4 flex items-center gap-2">
-            📅 Historique des journées
-          </h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base font-700 text-foreground flex items-center gap-2">
+              📅 Historique des journées
+            </h2>
+            <button
+              onClick={handleBackfillEcarts}
+              disabled={backfilling}
+              title="Recalcule les écarts de toutes les sessions passées avec la formule corrigée (Mixte + dépenses espèces)"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-600 border border-amber-300 bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 disabled:opacity-50 transition-colors"
+            >
+              {backfilling ? (
+                <><Icon name="ArrowPathIcon" size={13} className="animate-spin" />Recalcul…</>
+              ) : (
+                <><Icon name="CalculatorIcon" size={13} />Recalculer les écarts historiques</>
+              )}
+            </button>
+          </div>
 
           {sessionsLoading ? (
             <div className="flex justify-center py-4">
