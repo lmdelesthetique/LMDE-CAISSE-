@@ -139,9 +139,8 @@ export default function CommandesFournisseursPage() {
         event: 'INSERT',
         schema: 'public',
         table: 'supplier_messages',
-        filter: "sender=eq.supplier",
-      }, () => {
-        loadUnread();
+      }, (payload: any) => {
+        if (payload.new?.sender === 'supplier') loadUnread();
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
