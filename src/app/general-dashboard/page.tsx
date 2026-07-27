@@ -196,7 +196,7 @@ export default function GeneralDashboardPage() {
         if (raw === 'CB' || raw === 'card') return 'SumUp (CB)';
         if (raw === 'cash') return 'Espèces';
         if (raw === 'transfer') return 'Virement';
-        if (raw === 'alma') return 'Alma (3x/4x)';
+        if (raw.startsWith('Alma') || raw === 'alma') return 'Alma (3x/4x)';
         return raw;
       };
 

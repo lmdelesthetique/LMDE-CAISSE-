@@ -432,7 +432,7 @@ export async function fetchPaymentMethods(filters?: DashboardFiltersState): Prom
     if (raw === 'cash') return 'Espèces';
     if (raw === 'card' || raw === 'CB') return 'SumUp (CB)';
     if (raw === 'transfer') return 'Virement';
-    if (raw === 'alma') return 'Alma (3x/4x)';
+    if (raw.startsWith('Alma') || raw === 'alma') return 'Alma (3x/4x)';
     if (raw === 'store_credit') return 'Avoir';
     return raw;
   };

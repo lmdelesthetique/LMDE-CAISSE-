@@ -129,9 +129,8 @@ export default function PaymentModal({ mode, totalTTC, client, cartItems, onClos
 
     await new Promise((r) => setTimeout(r, 600));
     setLoading(false);
-    const resolvedMethod = (mode === 'installment')
-      ? 'Alma ' + almaInstallments + 'x' + (parseFloat(dossierFee) > 0 ? ' (+' + parseFloat(dossierFee).toFixed(2) + '€ frais)' : '')
-      : method === 'Alma (3x/4x)' ? 'Alma ' + almaInstallments + 'x'
+    const resolvedMethod = (mode === 'installment' || method === 'Alma (3x/4x)')
+      ? 'Alma (3x/4x)'
       : finalMethod;
     onConfirm(resolvedMethod);
   };
