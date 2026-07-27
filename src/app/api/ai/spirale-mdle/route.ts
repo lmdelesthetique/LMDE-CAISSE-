@@ -14,6 +14,7 @@ interface MLDEData {
   nbTickets: number;
   panierMoyen: number;
   shopifyCA: number;
+  reservationCA: number;
   topProduits: { name: string; qty: number; revenue: number }[];
   produitsDormants: { name: string; stock: number }[];
   produitsRupture: { name: string; stock: number }[];
@@ -36,7 +37,7 @@ function mockSpiraleMLDE(d: MLDEData) {
   const ruptureProduit = d.produitsRupture[0];
   return {
     diagnostic: {
-      ca_evolution: `CA ce mois : ${(d.totalCA + d.shopifyCA).toFixed(0)}€${d.shopifyCA > 0 ? ` (dont Shopify ${d.shopifyCA.toFixed(0)}€)` : ''} — configurez ANTHROPIC_API_KEY pour l'analyse réelle`,
+      ca_evolution: `CA ce mois : ${(d.totalCA + d.shopifyCA + d.reservationCA).toFixed(0)}€${d.shopifyCA > 0 ? ` (dont Shopify ${d.shopifyCA.toFixed(0)}€)` : ''}${d.reservationCA > 0 ? ` (dont Résa ${d.reservationCA.toFixed(0)}€)` : ''} — configurez ANTHROPIC_API_KEY pour l'analyse réelle`,
       segment_plus_actif: `Actives 30j (${d.segmentActifs} clientes)`,
       segment_a_risque: `Inactives 90j+ (${d.segmentInactifs} clientes)`,
       produit_star: starProduit,
@@ -171,13 +172,19 @@ function mockSpiraleMLDE(d: MLDEData) {
 export async function POST(_req: NextRequest) {
   try {
     const supabase = createAdminClient();
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-    const d30ago = new Date(now); d30ago.setDate(now.getDate() - 30);
+    const MTQ = '-04:00';
+    // Use Martinique local date to avoid UTC midnight vs Martinique midnight mismatch
+    const mtqNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Martinique' }));
+    const yr = mtqNow.getFullYear(), mo = mtqNow.getMonth() + 1;
+    const startOfMonth = `${yr}-${String(mo).padStart(2, '0')}-01T00:00:00${MTQ}`;
+    const prevMo = mo === 1 ? 12 : mo - 1, prevYr = mo === 1 ? yr - 1 : yr;
+    const startOfPrevMonth = `${prevYr}-${String(prevMo).padStart(2, '0')}-01T00:00:00${MTQ}`;
+    const lastDayPrev = new Date(yr, mo - 1, 0).getDate();
+    const endOfPrevMonth = `${prevYr}-${String(prevMo).padStart(2, '0')}-${String(lastDayPrev).padStart(2, '0')}T23:59:59${MTQ}`;
 
+    const now = new Date();
+    const d30ago = new Date(now); d30ago.setDate(now.getDate() - 30);
     const d90ago = new Date(now); d90ago.setDate(now.getDate() - 90);
-    const startOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
-    const endOfPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59).toISOString();
 
     // ── Shopify CA du mois en parallèle ──────────────────────────────────────
     const storeDomain = process.env.SHOPIFY_STORE_DOMAIN ?? '';
@@ -185,9 +192,9 @@ export async function POST(_req: NextRequest) {
 
     // ── Tout en parallèle — une seule vague de requêtes ───────────────────────
     const results = await Promise.all([
-      supabase.from('receipts').select('total_amount, items, created_at')
+      supabase.from('receipts').select('total_amount, items, created_at, client_name')
         .gte('created_at', startOfMonth).neq('status', 'cancelled').neq('is_demo', true),
-      supabase.from('receipts').select('total_amount, created_at')
+      supabase.from('receipts').select('total_amount, created_at, client_name')
         .gte('created_at', startOfPrevMonth).lte('created_at', endOfPrevMonth)
         .neq('status', 'cancelled').neq('is_demo', true),
       supabase.from('products').select('id, name, stock')
@@ -203,8 +210,8 @@ export async function POST(_req: NextRequest) {
     ]);
 
     const [
-      { data: receipts, error: err0 },
-      { data: prevMonthReceipts },
+      { data: rawReceipts, error: err0 },
+      { data: rawPrevReceipts },
       { data: allActiveProducts },
       { data: ruptureProducts },
       { count: countTous },
@@ -216,6 +223,13 @@ export async function POST(_req: NextRequest) {
     ] = results;
 
     if (err0) console.error('[spirale-mdle] receipts query error:', err0.message);
+
+    const isReal = (r: any) => {
+      const cn = (r.client_name ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
+      return cn !== 'CHRISTY LHOMME';
+    };
+    const receipts = (rawReceipts ?? []).filter(isReal);
+    const prevMonthReceipts = (rawPrevReceipts ?? []).filter(isReal);
 
     // ── CA Shopify du mois ────────────────────────────────────────────────────
     let shopifyCA = 0;
@@ -231,12 +245,23 @@ export async function POST(_req: NextRequest) {
       }
     } catch { /* Shopify optionnel */ }
 
+    // ── Réservations du mois ─────────────────────────────────────────────────
+    const monthDateStr = `${yr}-${String(mo).padStart(2, '0')}`;
+    const { data: resDep } = await supabase.from('reservations').select('deposit_paid')
+      .gte('deposit_accounting_date', `${monthDateStr}-01`).lte('deposit_accounting_date', `${monthDateStr}-31`)
+      .neq('reservation_status', 'cancelled');
+    const { data: resBal } = await supabase.from('reservations').select('balance_paid')
+      .gte('balance_accounting_date', `${monthDateStr}-01`).lte('balance_accounting_date', `${monthDateStr}-31`)
+      .neq('reservation_status', 'cancelled');
+    const reservationCA = (resDep ?? []).reduce((s: number, r: any) => s + (Number(r.deposit_paid) || 0), 0)
+      + (resBal ?? []).reduce((s: number, r: any) => s + (Number(r.balance_paid) || 0), 0);
+
     // ── CA + tendances ─────────────────────────────────────────────────────────
-    const totalCA = (receipts ?? []).reduce((s, r) => s + parseFloat(r.total_amount ?? 0), 0);
-    const nbTickets = receipts?.length ?? 0;
+    const totalCA = receipts.reduce((s, r) => s + parseFloat(r.total_amount ?? 0), 0);
+    const nbTickets = receipts.length;
     const panierMoyen = nbTickets > 0 ? totalCA / nbTickets : 0;
-    const casMoisPrecedent = (prevMonthReceipts ?? []).reduce((s, r) => s + parseFloat(r.total_amount ?? 0), 0);
-    const ticketsMoisPrecedent = prevMonthReceipts?.length ?? 0;
+    const casMoisPrecedent = prevMonthReceipts.reduce((s, r) => s + parseFloat(r.total_amount ?? 0), 0);
+    const ticketsMoisPrecedent = prevMonthReceipts.length;
 
     const weekRanges = [
       { semaine: 1, start: 1, end: 7, jours: '1-7' },
@@ -301,6 +326,7 @@ export async function POST(_req: NextRequest) {
       nbTickets,
       panierMoyen: parseFloat(panierMoyen.toFixed(2)),
       shopifyCA,
+      reservationCA,
       topProduits,
       produitsDormants,
       produitsRupture,
@@ -335,7 +361,7 @@ S4 → Parrainage gamifié à points
 S5 → Chaque vente génère du nouveau contenu client
 
 DONNÉES RÉELLES DE LA PÉRIODE :
-CA Total : ${(data.totalCA + data.shopifyCA).toFixed(2)}€ (Caisse : ${data.totalCA.toFixed(2)}€${data.shopifyCA > 0 ? ` + Shopify : ${data.shopifyCA.toFixed(2)}€` : ''})
+CA Total : ${(data.totalCA + data.shopifyCA + data.reservationCA).toFixed(2)}€ (Caisse : ${data.totalCA.toFixed(2)}€${data.shopifyCA > 0 ? ` + Shopify : ${data.shopifyCA.toFixed(2)}€` : ''}${data.reservationCA > 0 ? ` + Réservations : ${data.reservationCA.toFixed(2)}€` : ''})
 Nombre de tickets : ${data.nbTickets}
 Panier moyen : ${data.panierMoyen.toFixed(2)}€
 

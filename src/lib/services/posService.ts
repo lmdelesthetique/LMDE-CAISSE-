@@ -272,6 +272,7 @@ export async function computeDaySummary(date: string): Promise<DaySummaryData> {
       .from('receipts')
       .select('*')
       .eq('status', 'completed')
+      .neq('is_demo', true)
       .gte('created_at', dayStart)
       .lte('created_at', dayEnd),
     supabase
@@ -283,7 +284,12 @@ export async function computeDaySummary(date: string): Promise<DaySummaryData> {
       .select('id, name, cost_price, buy_price, sell_price_ttc'),
   ]);
 
-  const receipts = receiptsRes.data || [];
+  const allFetched = receiptsRes.data || [];
+  // Exclude internal test client from all CA/ticket calculations
+  const receipts = allFetched.filter((r: any) => {
+    const cn = (r.client_name ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
+    return cn !== 'CHRISTY LHOMME';
+  });
   const expenses = expensesRes.data || [];
   const products = productsRes.data || [];
 

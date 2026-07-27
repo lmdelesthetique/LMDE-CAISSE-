@@ -36,15 +36,20 @@ function mockReport(totalCA: number, tickets: number, prevCA: number, prevTicket
 }
 
 async function fetchPeriodData(supabase: any, startDate: string, endDate: string) {
-  const { data: receipts } = await supabase
+  const { data: rawReceipts } = await supabase
     .from('receipts')
-    .select('id, total_amount, items_count, payment_method, created_at, items, acquisition_source')
+    .select('id, total_amount, items_count, payment_method, created_at, items, acquisition_source, client_name')
     .gte('created_at', startDate)
     .lte('created_at', endDate)
     .neq('status', 'cancelled')
     .not('is_demo', 'eq', true);
 
-  const totalCA = (receipts ?? []).reduce((sum: number, r: any) => sum + parseFloat(r.total_amount ?? 0), 0);
+  const receipts = (rawReceipts ?? []).filter((r: any) => {
+    const cn = (r.client_name ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
+    return cn !== 'CHRISTY LHOMME';
+  });
+
+  const totalCA = receipts.reduce((sum: number, r: any) => sum + parseFloat(r.total_amount ?? 0), 0);
   const totalTickets = receipts?.length ?? 0;
 
   const productSales: Record<string, { name: string; qty: number; revenue: number }> = {};
