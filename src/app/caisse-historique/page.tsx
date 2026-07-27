@@ -161,6 +161,7 @@ function formatDateTime(iso: string) {
   return new Date(iso).toLocaleString('fr-FR', {
     day: '2-digit', month: '2-digit', year: 'numeric',
     hour: '2-digit', minute: '2-digit',
+    timeZone: 'America/Martinique',
   });
 }
 
@@ -168,28 +169,27 @@ type PeriodFilter = 'today' | 'week' | 'month' | 'year' | 'custom';
 
 function getPeriodDates(period: PeriodFilter, customFrom: string, customTo: string): { from: string; to: string } {
   const now = new Date();
-  const toISO = (d: Date) => d.toISOString();
+  const MTQ = '-04:00';
+  // Always compute boundaries in Martinique timezone (UTC-4, no DST)
+  const mtqDate = now.toLocaleDateString('en-CA', { timeZone: 'America/Martinique' });
+  const [yr, mo] = mtqDate.split('-').map(Number);
 
   if (period === 'today') {
-    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    return { from: toISO(start), to: toISO(now) };
+    return { from: `${mtqDate}T00:00:00${MTQ}`, to: now.toISOString() };
   }
   if (period === 'week') {
-    const start = new Date(now);
-    start.setDate(now.getDate() - 7);
-    return { from: toISO(start), to: toISO(now) };
+    const d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    return { from: d.toISOString(), to: now.toISOString() };
   }
   if (period === 'month') {
-    const start = new Date(now.getFullYear(), now.getMonth(), 1);
-    return { from: toISO(start), to: toISO(now) };
+    return { from: `${yr}-${String(mo).padStart(2, '0')}-01T00:00:00${MTQ}`, to: now.toISOString() };
   }
   if (period === 'year') {
-    const start = new Date(now.getFullYear(), 0, 1);
-    return { from: toISO(start), to: toISO(now) };
+    return { from: `${yr}-01-01T00:00:00${MTQ}`, to: now.toISOString() };
   }
   return {
-    from: customFrom ? new Date(customFrom + 'T00:00:00').toISOString() : toISO(new Date(now.getFullYear(), now.getMonth(), 1)),
-    to: customTo ? new Date(customTo + 'T23:59:59').toISOString() : toISO(now),
+    from: customFrom ? `${customFrom}T00:00:00${MTQ}` : `${yr}-${String(mo).padStart(2, '0')}-01T00:00:00${MTQ}`,
+    to: customTo ? `${customTo}T23:59:59${MTQ}` : now.toISOString(),
   };
 }
 
@@ -573,8 +573,8 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
   const handlePrint = () => {
     if (!receipt) return;
     const now = new Date(receipt.createdAt);
-    const dateStr = now.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    const timeStr = now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    const dateStr = now.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'America/Martinique' });
+    const timeStr = now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Martinique' });
     const s = loadSettingsFromCache();
     const subtotalHT = receipt.subtotalHT || receipt.totalAmount / (1 + s.tvaRate / 100);
     const totalTVA = receipt.totalTVA || receipt.totalAmount - subtotalHT;
@@ -604,8 +604,8 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
   const handleCreateFacture = () => {
     if (!receipt) return;
     const now = new Date(receipt.createdAt);
-    const dateStr = now.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    const timeStr = now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    const dateStr = now.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'America/Martinique' });
+    const timeStr = now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Martinique' });
     const s = loadSettingsFromCache();
     const subtotalHT = receipt.subtotalHT || receipt.totalAmount / (1 + s.tvaRate / 100);
     const totalTVA = receipt.totalTVA || receipt.totalAmount - subtotalHT;
@@ -643,7 +643,7 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
     setSendingEmail(true);
     const receiptData: ReceiptEmailData = {
       ticketNumber: receipt.ticketNumber,
-      date: new Date(receipt.createdAt).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }),
+      date: new Date(receipt.createdAt).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'America/Martinique' }),
       clientName: receipt.clientName || undefined,
       items: receipt.items.map((i) => ({
         name: i.name,
@@ -806,8 +806,8 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
                       openAndPrint(generateTicketHTML({
                         ...s,
                         ticketNumber: fallbackTicket.ticket_number,
-                        dateStr: now.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' }),
-                        timeStr: now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+                        dateStr: now.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'America/Martinique' }),
+                        timeStr: now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Martinique' }),
                         cashierLabel: fallbackTicket.cashier_name || s.cashierLabel,
                         clientName: fallbackTicket.client_name ?? undefined,
                         items: [{ name: '⚠️ Détail articles non disponible', qty: 1, price: fallbackTicket.total_amount, discount: 0, discountType: 'percent' as const }],
@@ -1476,7 +1476,7 @@ export default function CaisseHistoriquePage() {
                                 {(order.line_items ?? []).slice(0, 2).map((li: any) => li.title).join(', ')}{(order.line_items ?? []).length > 2 ? ` +${order.line_items.length - 2}` : ''}
                               </td>
                               <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
-                                {new Date(order.created_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                {new Date(order.created_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'America/Martinique' })}
                               </td>
                               <td className="px-4 py-3">
                                 {order.shipping_address && (
