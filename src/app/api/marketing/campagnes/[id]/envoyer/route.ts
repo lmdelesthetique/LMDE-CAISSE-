@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getSegmentClients, type SegmentKey } from '@/lib/segmentationService';
-import { sendNotifCampagneBoutique, sendNotifCampagneSite } from '@/lib/whatsappService';
+import { sendCampaignMultiChannel } from '@/lib/whatsappService';
 
 function makeAdminClient() {
   return createClient(
@@ -38,43 +38,40 @@ export async function POST(
 
     let envoyes = 0;
     let erreurs = 0;
+    let smsSent = 0;
+    let emailSent = 0;
     const logs: any[] = [];
+
+    const subject = campagne.nom ?? "Le Monde de l'Esthétique";
 
     for (const client of clients) {
       const clientName = (client.first_name || 'Cliente').trim();
       const messageAI = (campagne.message ?? '').replace(/\{prénom\}/gi, clientName);
-      const isSite = campagne.type === 'site';
 
-      const codePromo = campagne.code_promo?.trim() || 'AUCUN';
-      const dateLimite = campagne.date_limite?.trim() || 'À venir';
-      const result = isSite
-        ? await sendNotifCampagneSite(client.phone, clientName, messageAI)
-        : await sendNotifCampagneBoutique(
-            client.phone,
-            clientName,
-            messageAI,
-            codePromo,
-            dateLimite
-          );
+      const result = await sendCampaignMultiChannel(
+        { phone: client.phone || undefined, email: client.email || undefined, name: clientName },
+        subject,
+        messageAI
+      );
 
-      if (result.ok) envoyes++; else erreurs++;
+      if (result.anyOk) envoyes++; else erreurs++;
+      if (result.sms) smsSent++;
+      if (result.email) emailSent++;
 
       logs.push({
         campagne_id: id,
         client_id: client.id,
         phone: client.phone,
         client_name: clientName,
-        statut: result.ok ? 'envoye' : 'erreur',
-        error_message: result.error ?? null,
+        statut: result.anyOk ? 'envoye' : 'erreur',
+        error_message: result.anyOk ? null : 'Aucun canal disponible ou erreur envoi',
       });
 
-      // Insert logs in batches of 100 to avoid holding them all in memory
       if (logs.length >= 100) {
         await supabase.from('campagne_marketing_logs').insert(logs.splice(0, 100));
       }
     }
 
-    // Insert remaining logs
     if (logs.length > 0) {
       await supabase.from('campagne_marketing_logs').insert(logs);
     }
@@ -86,7 +83,7 @@ export async function POST(
       sent_at: new Date().toISOString(),
     }).eq('id', id);
 
-    return NextResponse.json({ ok: true, envoyes, erreurs, total: clients.length, channel: 'whatsapp/email' });
+    return NextResponse.json({ ok: true, envoyes, erreurs, smsSent, emailSent, total: clients.length, channel: 'sms+email' });
   } catch (e: any) {
     console.error('[envoyer]', e.message);
     try { await supabase.from('campagnes_marketing').update({ statut: 'erreur' }).eq('id', id); } catch { /* non-blocking */ }

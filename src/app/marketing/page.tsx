@@ -65,7 +65,7 @@ export default function MarketingPage() {
   const [segmentLoading, setSegmentLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [sendingId, setSendingId] = useState<string | null>(null);
-  const [sendResult, setSendResult] = useState<{ ok: boolean; envoyes?: number; erreurs?: number; error?: string } | null>(null);
+  const [sendResult, setSendResult] = useState<{ ok: boolean; envoyes?: number; erreurs?: number; smsSent?: number; emailSent?: number; error?: string } | null>(null);
 
   // AI strategy
   const [aiStrategy, setAiStrategy] = useState<AiStrategy | null>(null);
@@ -114,7 +114,7 @@ export default function MarketingPage() {
       const sendRes = await fetch(`/api/marketing/campagnes/${data.id}/envoyer`, { method: 'POST' });
       const sendData = await safeJson(sendRes);
       if (sendRes.ok) {
-        setSendResult({ ok: true, envoyes: sendData.envoyes, erreurs: sendData.erreurs });
+        setSendResult({ ok: true, envoyes: sendData.envoyes, erreurs: sendData.erreurs, smsSent: sendData.smsSent, emailSent: sendData.emailSent });
         setNom(''); setMessage('');
         loadStats();
       } else {
@@ -134,7 +134,7 @@ export default function MarketingPage() {
     try {
       const res = await fetch(`/api/marketing/campagnes/${id}/envoyer`, { method: 'POST' });
       const data = await safeJson(res);
-      setSendResult(res.ok ? { ok: true, envoyes: data.envoyes, erreurs: data.erreurs } : { ok: false, error: data.error });
+      setSendResult(res.ok ? { ok: true, envoyes: data.envoyes, erreurs: data.erreurs, smsSent: data.smsSent, emailSent: data.emailSent } : { ok: false, error: data.error });
       if (res.ok) loadStats();
     } catch (e: any) {
       setSendResult({ ok: false, error: e.message });
@@ -168,7 +168,7 @@ export default function MarketingPage() {
       {/* Header */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-foreground">Portail Marketing</h1>
-        <p className="text-muted-foreground text-sm mt-1">Campagnes WhatsApp — segmentation clientes — stratégie IA</p>
+        <p className="text-muted-foreground text-sm mt-1">Campagnes multi-canal (SMS + Email) — segmentation clientes — stratégie IA</p>
       </div>
 
       {/* KPI row */}
@@ -211,7 +211,7 @@ export default function MarketingPage() {
           {/* Form */}
           <div className="lg:col-span-2 space-y-5">
             <div className="bg-white border border-border rounded-xl p-5 space-y-4">
-              <h2 className="font-semibold text-foreground">Nouvelle campagne WhatsApp</h2>
+              <h2 className="font-semibold text-foreground">Nouvelle campagne SMS + Email</h2>
 
               {/* Nom */}
               <div>
@@ -245,9 +245,9 @@ export default function MarketingPage() {
               {/* Message */}
               <div>
                 <div className="flex items-center justify-between">
-                  <label className="text-sm font-medium text-foreground">Message WhatsApp</label>
+                  <label className="text-sm font-medium text-foreground">Message (SMS + Email)</label>
                   <span className={`text-xs font-mono ${charCount > 160 ? 'text-orange-500' : 'text-muted-foreground'}`}>
-                    {charCount}/160
+                    {charCount} car.{charCount > 160 ? ' (multi-SMS)' : ''}
                   </span>
                 </div>
                 <textarea
@@ -257,17 +257,29 @@ export default function MarketingPage() {
                   placeholder={`Bonjour {prénom} 👋\n\nVotre message ici...\n\nLe Monde de l'Esthétique 💅`}
                   className="mt-1 w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 resize-none"
                 />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Utilisez <code className="bg-muted px-1 rounded">{'{prénom}'}</code> pour personnaliser chaque message.
-                </p>
+                <div className="flex items-center gap-3 mt-1">
+                  <p className="text-xs text-muted-foreground">
+                    Utilisez <code className="bg-muted px-1 rounded">{'{prénom}'}</code> pour personnaliser.
+                  </p>
+                  <div className="flex items-center gap-1.5 ml-auto">
+                    <span className="text-xs bg-blue-50 text-blue-600 border border-blue-200 rounded px-1.5 py-0.5">📱 SMS</span>
+                    <span className="text-xs bg-purple-50 text-purple-600 border border-purple-200 rounded px-1.5 py-0.5">✉️ Email</span>
+                  </div>
+                </div>
               </div>
 
               {/* Result feedback */}
               {sendResult && (
                 <div className={`rounded-lg p-3 text-sm ${sendResult.ok ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
-                  {sendResult.ok
-                    ? `✅ Campagne envoyée — ${sendResult.envoyes} messages envoyés${sendResult.erreurs ? `, ${sendResult.erreurs} erreurs` : ''}`
-                    : `❌ Erreur : ${sendResult.error}`}
+                  {sendResult.ok ? (
+                    <div className="space-y-1">
+                      <p className="font-medium">✅ Campagne envoyée — {sendResult.envoyes} clientes atteintes{sendResult.erreurs ? ` (${sendResult.erreurs} erreurs)` : ''}</p>
+                      <div className="flex gap-3 text-xs opacity-80">
+                        {sendResult.smsSent !== undefined && <span>📱 {sendResult.smsSent} SMS</span>}
+                        {sendResult.emailSent !== undefined && <span>✉️ {sendResult.emailSent} emails</span>}
+                      </div>
+                    </div>
+                  ) : `❌ Erreur : ${sendResult.error}`}
                 </div>
               )}
 
@@ -396,9 +408,15 @@ export default function MarketingPage() {
 
           {sendResult && (
             <div className={`m-4 rounded-lg p-3 text-sm ${sendResult.ok ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
-              {sendResult.ok
-                ? `✅ ${sendResult.envoyes} messages envoyés${sendResult.erreurs ? `, ${sendResult.erreurs} erreurs` : ''}`
-                : `❌ ${sendResult.error}`}
+              {sendResult.ok ? (
+                <div className="space-y-1">
+                  <p className="font-medium">✅ {sendResult.envoyes} clientes atteintes{sendResult.erreurs ? ` (${sendResult.erreurs} erreurs)` : ''}</p>
+                  <div className="flex gap-3 text-xs opacity-80">
+                    {sendResult.smsSent !== undefined && <span>📱 {sendResult.smsSent} SMS</span>}
+                    {sendResult.emailSent !== undefined && <span>✉️ {sendResult.emailSent} emails</span>}
+                  </div>
+                </div>
+              ) : `❌ ${sendResult.error}`}
             </div>
           )}
         </div>

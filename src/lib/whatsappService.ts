@@ -121,6 +121,65 @@ async function sendViaBrevo(phone: string, message: string): Promise<{ ok: boole
   return { ok: false, error: (data as any).message || `Brevo HTTP ${res.status}` };
 }
 
+async function sendViaBrevoSMS(phone: string, message: string): Promise<{ ok: boolean; error?: string }> {
+  const apiKey = process.env.BREVO_API_KEY;
+  if (!apiKey) return { ok: false, error: 'BREVO_API_KEY not configured' };
+
+  const recipient = phone.startsWith('+') ? phone : `+${phone}`;
+  const res = await fetch('https://api.brevo.com/v3/transactionalSMS/sms', {
+    method: 'POST',
+    headers: { 'api-key': apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sender: 'LMDE', recipient, content: message }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (res.ok) { console.log('[SMS] ✅ sent via Brevo SMS to', recipient); return { ok: true }; }
+  console.error('[SMS] Brevo SMS error:', JSON.stringify(data));
+  return { ok: false, error: (data as any).message || `Brevo SMS HTTP ${res.status}` };
+}
+
+async function sendViaBrevoEmail(
+  email: string,
+  clientName: string,
+  subject: string,
+  message: string
+): Promise<{ ok: boolean; error?: string }> {
+  const apiKey = process.env.BREVO_API_KEY;
+  if (!apiKey) return { ok: false, error: 'BREVO_API_KEY not configured' };
+
+  const fromEmail = process.env.BREVO_SENDER_EMAIL ?? 'lm.delesthetique@gmail.com';
+  const htmlContent = `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7;color:#18181b;max-width:600px;margin:0 auto;padding:24px">${message.replace(/\n/g, '<br/>')}</div>`;
+
+  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: { 'api-key': apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      sender: { name: "Le Monde de l'Esthétique", email: fromEmail },
+      to: [{ email, name: clientName }],
+      subject,
+      htmlContent,
+      textContent: message,
+    }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (res.ok) { console.log('[Email] ✅ sent via Brevo Email to', email); return { ok: true }; }
+  console.error('[Email] Brevo email error:', JSON.stringify(data));
+  return { ok: false, error: (data as any).message || `Brevo Email HTTP ${res.status}` };
+}
+
+export async function sendCampaignMultiChannel(
+  client: { phone?: string; email?: string; name: string },
+  subject: string,
+  message: string
+): Promise<{ sms: boolean; email: boolean; anyOk: boolean }> {
+  const [smsRes, emailRes] = await Promise.all([
+    client.phone ? sendViaBrevoSMS(cleanPhone(client.phone), message) : Promise.resolve({ ok: false }),
+    client.email ? sendViaBrevoEmail(client.email, client.name, subject, message) : Promise.resolve({ ok: false }),
+  ]);
+  return { sms: smsRes.ok, email: emailRes.ok, anyOk: smsRes.ok || emailRes.ok };
+}
+
 async function sendViaResend(email: string, message: string): Promise<{ ok: boolean; error?: string }> {
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.RESEND_FROM_EMAIL ?? "Le Monde de l'Esthétique <noreply@lmdecaisse.com>";
