@@ -62,9 +62,19 @@ async function fetchPeriodData(supabase: any, startDate: string, endDate: string
     .slice(0, 10)
     .map((p) => ({ name: p.name, qty: p.qty, revenue: parseFloat(p.revenue.toFixed(2)) }));
 
+  const normalizePM = (raw: string): string => {
+    if (!raw) return 'autre';
+    if (raw.startsWith('Mixte|') || raw === 'mixed') return 'Mixte';
+    if (raw === 'cash') return 'Espèces';
+    if (raw === 'card' || raw === 'CB') return 'SumUp (CB)';
+    if (raw === 'transfer') return 'Virement';
+    if (raw === 'alma') return 'Alma (3x/4x)';
+    if (raw === 'store_credit') return 'Avoir';
+    return raw;
+  };
   const paymentBreakdown: Record<string, number> = {};
   for (const r of receipts ?? []) {
-    const m = r.payment_method ?? 'autre';
+    const m = normalizePM(r.payment_method ?? 'autre');
     paymentBreakdown[m] = (paymentBreakdown[m] ?? 0) + parseFloat(r.total_amount ?? 0);
   }
 

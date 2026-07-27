@@ -1247,11 +1247,19 @@ ${notes ? `<h2>Notes de clôture</h2><p style="padding:8px;background:#f9f9f9;bo
                 </div>
               )}
 
-              {/* Net after expenses */}
+              {/* Flux de trésorerie net — CA inchangé, dépenses déduites pour le solde du jour */}
               {summary.totalExpenses > 0 && (
-                <div className="mt-4 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 flex items-center justify-between">
-                  <span className="text-sm font-600 text-slate-700">CA net après dépenses</span>
-                  <span className="text-lg font-700 tabular-nums text-slate-800">{fmt(summary.totalCA - summary.totalExpenses)} €</span>
+                <div className="mt-4 space-y-1.5">
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 flex items-center justify-between">
+                    <div>
+                      <span className="text-sm font-600 text-slate-700">Flux de trésorerie net du jour</span>
+                      <p className="text-[11px] text-slate-400 mt-0.5">CA {fmt(summary.totalCA)} € − Dépenses {fmt(summary.totalExpenses)} €</p>
+                    </div>
+                    <span className="text-lg font-700 tabular-nums text-slate-800">{fmt(summary.totalCA - summary.totalExpenses)} €</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground px-1">
+                    ⚠️ Le CA reste <strong>{fmt(summary.totalCA)} €</strong> — les dépenses ne réduisent pas le chiffre d'affaires.
+                  </p>
                 </div>
               )}
             </div>

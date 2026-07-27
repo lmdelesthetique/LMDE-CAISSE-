@@ -56,13 +56,35 @@ const TVA_RATE = 8.5;
 
 const PAYMENT_LABELS: Record<string, string> = {
   cash: 'Espèces',
-  card: 'Carte bancaire',
+  Espèces: 'Espèces',
+  card: 'SumUp (CB)',
+  CB: 'SumUp (CB)',
+  'SumUp (CB)': 'SumUp (CB)',
   check: 'Chèque',
   transfer: 'Virement',
+  Virement: 'Virement',
   mobile: 'Paiement mobile',
   voucher: 'Bon d\'achat',
-  mixed: 'Paiement mixte',
+  mixed: 'Mixte',
+  Mixte: 'Mixte',
+  alma: 'Alma (3x/4x)',
+  'Alma (3x/4x)': 'Alma (3x/4x)',
+  acompte: 'Acompte',
+  avoir: 'Avoir',
+  store_credit: 'Avoir',
 };
+
+// Normalise les valeurs DB : "Mixte|150|50" → "Mixte", alias → libellé canonique
+function normalizePM(raw: string): string {
+  if (!raw) return 'Autre';
+  if (raw.startsWith('Mixte|') || raw === 'mixed') return 'Mixte';
+  if (raw === 'cash') return 'Espèces';
+  if (raw === 'card' || raw === 'CB') return 'SumUp (CB)';
+  if (raw === 'transfer') return 'Virement';
+  if (raw === 'alma') return 'Alma (3x/4x)';
+  if (raw === 'store_credit') return 'Avoir';
+  return raw;
+}
 
 const CLIENT_TYPE_LABELS: Record<string, string> = {
   particulier: 'Particulier',
@@ -152,7 +174,7 @@ export default function VATReportPage() {
           ticket_number: t.ticket_number ?? t.id?.substring(0, 8) ?? '-',
           client_name: clientInfo?.name ?? 'Anonyme',
           client_type: clientInfo?.client_type ?? 'particulier',
-          payment_method: t.payment_method ?? 'cash',
+          payment_method: normalizePM(t.payment_method ?? 'cash'),
           total_ht: ht,
           tva_amount: tvaAmount,
           total_ttc: ttc,

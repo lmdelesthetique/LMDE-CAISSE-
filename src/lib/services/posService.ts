@@ -299,10 +299,20 @@ export async function computeDaySummary(date: string): Promise<DaySummaryData> {
   const ticketCount = receipts.length;
   const avgBasket = ticketCount > 0 ? totalCA / ticketCount : 0;
 
-  // Payment breakdown
+  // Payment breakdown — normalize Mixte|CB|cash → "Mixte", aliases → canonical labels
+  function normalizePM(raw: string): string {
+    if (!raw) return 'Autre';
+    if (raw.startsWith('Mixte|') || raw === 'mixed') return 'Mixte';
+    if (raw === 'cash') return 'Espèces';
+    if (raw === 'card' || raw === 'CB') return 'SumUp (CB)';
+    if (raw === 'transfer') return 'Virement';
+    if (raw === 'alma') return 'Alma (3x/4x)';
+    if (raw === 'store_credit') return 'Avoir';
+    return raw;
+  }
   const paymentBreakdown: Record<string, { count: number; total: number }> = {};
   receipts.forEach((r: any) => {
-    const m = r.payment_method || 'other';
+    const m = normalizePM(r.payment_method || 'other');
     if (!paymentBreakdown[m]) paymentBreakdown[m] = { count: 0, total: 0 };
     paymentBreakdown[m].count += 1;
     paymentBreakdown[m].total += Number(r.total_amount) || 0;

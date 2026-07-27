@@ -425,9 +425,21 @@ export async function fetchPaymentMethods(filters?: DashboardFiltersState): Prom
     'Alma': '#A8C4D4',
   };
 
+  // Normalize payment method: Mixte|CB|cash → "Mixte", aliases → canonical
+  const normalizePM = (raw: string): string => {
+    if (!raw) return 'Autre';
+    if (raw.startsWith('Mixte|') || raw === 'mixed') return 'Mixte';
+    if (raw === 'cash') return 'Espèces';
+    if (raw === 'card' || raw === 'CB') return 'SumUp (CB)';
+    if (raw === 'transfer') return 'Virement';
+    if (raw === 'alma') return 'Alma (3x/4x)';
+    if (raw === 'store_credit') return 'Avoir';
+    return raw;
+  };
+
   const byMethod: Record<string, number> = {};
   data.forEach((r) => {
-    const m = r.payment_method ?? 'Autre';
+    const m = normalizePM(r.payment_method ?? 'Autre');
     byMethod[m] = (byMethod[m] ?? 0) + (Number(r.total_amount) || 0);
   });
 
