@@ -27,14 +27,18 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const period = searchParams.get('period') ?? 'month';
 
-  const now = new Date();
+  // Use Martinique timezone (UTC-4) for correct month boundaries on Vercel
+  const MTQ = '-04:00';
+  const mtqNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Martinique' }));
+  const yr = mtqNow.getFullYear(), mo = mtqNow.getMonth();
   let startDate: string;
   if (period === 'month') {
-    startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+    startDate = `${yr}-${String(mo + 1).padStart(2, '0')}-01T00:00:00${MTQ}`;
   } else if (period === '3months') {
-    startDate = new Date(now.getFullYear(), now.getMonth() - 3, 1).toISOString().slice(0, 10);
+    const d = new Date(yr, mo - 3, 1);
+    startDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01T00:00:00${MTQ}`;
   } else {
-    startDate = new Date(now.getFullYear(), 0, 1).toISOString().slice(0, 10);
+    startDate = `${yr}-01-01T00:00:00${MTQ}`;
   }
 
   const supabase = makeClient();
@@ -45,7 +49,7 @@ export async function GET(req: NextRequest) {
         .from('receipts')
         .select('items, is_demo, client_name, total_amount')
         .eq('status', 'completed')
-        .gte('created_at', `${startDate}T00:00:00`)
+        .gte('created_at', startDate)
         .range(from, to)
     ),
     fetchAll<any>((from, to) =>
@@ -84,6 +88,14 @@ export async function GET(req: NextRequest) {
       continue;
     }
 
+    // item.total is pre-discount; scale to match actual receipt.total_amount
+    const rawItemTotal = items.reduce((s: number, i: any) => {
+      const qty = Number(i?.qty ?? i?.quantity ?? 1);
+      return s + (Number(i?.total ?? 0) || (Number(i?.price ?? 0) * qty));
+    }, 0);
+    const receiptTotal = parseFloat(String(receipt.total_amount ?? 0));
+    const scaleFactor = rawItemTotal > 0 ? receiptTotal / rawItemTotal : 1;
+
     for (const item of items) {
       const pid = item?.product_id ?? item?.id;
       let cat: string = item?.category ?? '';
@@ -93,7 +105,8 @@ export async function GET(req: NextRequest) {
       if (!cat) cat = 'Non catégorisé';
 
       const qty = Number(item?.qty ?? item?.quantity ?? 1);
-      const lineTotal = Number(item?.total ?? 0) || (Number(item?.price ?? 0) * qty);
+      const rawLine = Number(item?.total ?? 0) || (Number(item?.price ?? 0) * qty);
+      const lineTotal = rawLine * scaleFactor;
 
       if (!categoryMap[cat]) categoryMap[cat] = { revenue: 0, qty: 0 };
       categoryMap[cat].revenue += lineTotal;

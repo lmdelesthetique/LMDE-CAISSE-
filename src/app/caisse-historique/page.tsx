@@ -188,7 +188,7 @@ function getPeriodDates(period: PeriodFilter, customFrom: string, customTo: stri
     return { from: toISO(start), to: toISO(now) };
   }
   return {
-    from: customFrom ? new Date(customFrom).toISOString() : toISO(new Date(now.getFullYear(), now.getMonth(), 1)),
+    from: customFrom ? new Date(customFrom + 'T00:00:00').toISOString() : toISO(new Date(now.getFullYear(), now.getMonth(), 1)),
     to: customTo ? new Date(customTo + 'T23:59:59').toISOString() : toISO(now),
   };
 }
