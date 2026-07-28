@@ -1230,10 +1230,11 @@ export default function POSTerminal() {
       : 0;
   const finalTTC = Math.max(0, totalTTC - rewardDiscountAmount);
 
-  const handlePaymentConfirm = useCallback(async (method: string) => {
+  const handlePaymentConfirm = useCallback(async (method: string, almaFinalTotal?: number) => {
     if (paying) return;
     setPaying(true);
-    const total = finalTTC;
+    // When Alma fees are applied, almaFinalTotal overrides the cart total
+    const total = almaFinalTotal ?? finalTTC;
     const itemsCount = cart.length;
     const clientName = client?.name;
     const ticketRef = generateTicketNumber();

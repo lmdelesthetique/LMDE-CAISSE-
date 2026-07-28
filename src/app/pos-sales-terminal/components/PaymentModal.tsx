@@ -21,7 +21,7 @@ interface PaymentModalProps {
   client: POSClient | null;
   cartItems: CartItem[];
   onClose: () => void;
-  onConfirm: (method: string) => void;
+  onConfirm: (method: string, finalTotal?: number) => void;
   cashierName?: string;
 }
 
@@ -83,8 +83,21 @@ export default function PaymentModal({ mode, totalTTC, client, cartItems, onClos
       : method);
   };
 
+  // Alma fee helpers
+  const ALMA_RATE = 0.062;
+  const almaFeeImmediate = Math.round(totalTTC * ALMA_RATE * 100) / 100;
+  const almaTotalImmediate = totalTTC + almaFeeImmediate;
+  const almaFeeInstallment = parseFloat(dossierFee) || 0;
+  const almaTotalInstallment = totalTTC + almaFeeInstallment;
+
   const handleConfirmFinal = async (finalMethod: string) => {
     setLoading(true);
+
+    // Compute Alma final total (with fees) to pass to the receipt
+    const isAlma = mode === 'installment' || method === 'Alma (3x/4x)';
+    const almaFinalTotal = isAlma
+      ? (mode === 'installment' ? almaTotalInstallment : almaTotalImmediate)
+      : undefined;
 
     // If acompte mode — auto-create reservation
     if (mode === 'acompte' && depositNum > 0) {
@@ -132,7 +145,7 @@ export default function PaymentModal({ mode, totalTTC, client, cartItems, onClos
     const resolvedMethod = (mode === 'installment' || method === 'Alma (3x/4x)')
       ? 'Alma (3x/4x)'
       : finalMethod;
-    onConfirm(resolvedMethod);
+    onConfirm(resolvedMethod, almaFinalTotal);
   };
 
   const modeLabels: Record<PaymentMode, string> = {
@@ -219,16 +232,26 @@ export default function PaymentModal({ mode, totalTTC, client, cartItems, onClos
                       ))}
                     </div>
                   </div>
-                  <div className="bg-white rounded-lg px-3 py-2.5 border border-pink-200">
+                  <div className="bg-white rounded-lg px-3 py-2.5 border border-pink-200 space-y-1">
                     <div className="flex items-center justify-between text-xs">
-                      <span className="text-pink-700 font-500">Montant total encaissé par vous</span>
-                      <span className="font-700 text-pink-800 tabular-nums">{totalTTC.toFixed(2)} €</span>
+                      <span className="text-pink-600">Montant produits</span>
+                      <span className="tabular-nums text-pink-700">{totalTTC.toFixed(2)} €</span>
                     </div>
-                    <div className="flex items-center justify-between text-xs mt-1">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-pink-600">Frais Alma (6,2%)</span>
+                      <span className="tabular-nums text-pink-700">+{almaFeeImmediate.toFixed(2)} €</span>
+                    </div>
+                    <div className="border-t border-pink-200 pt-1 flex items-center justify-between text-xs">
+                      <span className="text-pink-800 font-700">Total à régler par le client</span>
+                      <span className="font-700 text-pink-900 tabular-nums text-sm">{almaTotalImmediate.toFixed(2)} €</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs pt-0.5">
                       <span className="text-pink-600">Échéance client ({almaInstallments}×)</span>
-                      <span className="text-pink-700 tabular-nums">{(totalTTC / almaInstallments).toFixed(2)} €/fois</span>
+                      <span className="text-pink-700 tabular-nums">{(almaTotalImmediate / almaInstallments).toFixed(2)} €/fois</span>
                     </div>
-                    <p className="text-[10px] text-pink-500 mt-1.5">Les échéances sont gérées par Alma directement avec le client. Le CA est comptabilisé en totalité.</p>
+                  </div>
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 text-xs text-emerald-700">
+                    CA enregistré : <span className="font-700">{almaTotalImmediate.toFixed(2)} €</span> (frais Alma inclus)
                   </div>
                 </div>
               )}
@@ -480,15 +503,10 @@ export default function PaymentModal({ mode, totalTTC, client, cartItems, onClos
                   <div className="flex items-center gap-2">
                     <Icon name="CheckCircleIcon" size={15} className="text-emerald-600 shrink-0" />
                     <div>
-                      <p className="text-xs font-700 text-emerald-800">Vous recevez {totalTTC.toFixed(2)} € immédiatement</p>
+                      <p className="text-xs font-700 text-emerald-800">CA enregistré : {almaTotalInstallment.toFixed(2)} € (frais inclus)</p>
                       <p className="text-[10px] text-emerald-600 mt-0.5">Alma vous vire la totalité. Les échéances sont gérées par Alma avec le client.</p>
                     </div>
                   </div>
-                </div>
-                <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
-                  <p className="text-[10px] text-blue-700">
-                    <span className="font-700">CA comptabilisé :</span> {totalTTC.toFixed(2)} € — Le montant total rentre dans votre chiffre d'affaires du jour.
-                  </p>
                 </div>
               </div>
             </div>
