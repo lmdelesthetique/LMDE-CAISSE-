@@ -193,6 +193,39 @@ function isImageType(mimeType: string, filename: string) {
   return /\.(jpe?g|png|heic|heif|webp|gif)$/i.test(filename);
 }
 
+function fmtSize(bytes: number) {
+  if (bytes >= 1073741824) return `${(bytes / 1073741824).toFixed(1)} Go`;
+  if (bytes >= 1048576) return `${(bytes / 1048576).toFixed(0)} Mo`;
+  return `${(bytes / 1024).toFixed(0)} Ko`;
+}
+
+function uploadViaXHR(
+  url: string,
+  file: File,
+  contentType: string,
+  onProgress: (pct: number) => void
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', url, true);
+    xhr.setRequestHeader('Content-Type', contentType);
+    xhr.setRequestHeader('cache-control', 'max-age=3600');
+    xhr.timeout = 10 * 60 * 1000; // 10 min
+
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+    });
+    xhr.addEventListener('load', () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new Error(`Upload échoué (${xhr.status}) : ${xhr.responseText.slice(0, 200)}`));
+    });
+    xhr.addEventListener('error', () => reject(new Error('Erreur réseau — vérifie ta connexion et réessaie')));
+    xhr.addEventListener('timeout', () => reject(new Error('Délai dépassé — fichier trop volumineux ou connexion trop lente')));
+    xhr.addEventListener('abort', () => reject(new Error('Upload annulé')));
+    xhr.send(file);
+  });
+}
+
 function MediaUploadSection({
   contenu,
   assignmentId,
@@ -208,6 +241,7 @@ function MediaUploadSection({
 }) {
   const [uploading, setUploading] = useState(false);
   const [uploadStep, setUploadStep] = useState<'idle' | 'presign' | 'upload' | 'saving'>('idle');
+  const [uploadPct, setUploadPct] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   const hasMedia = !!contenu.video_path && !contenu.video_deleted_at;
@@ -230,9 +264,12 @@ function MediaUploadSection({
 
     setUploading(true);
     setError(null);
+    setUploadPct(0);
     setUploadStep('presign');
 
     try {
+      const contentType = file.type || (isImg ? 'image/jpeg' : 'video/mp4');
+
       const presignRes = await fetch('/api/ambassadrice/upload-presigned', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -242,7 +279,7 @@ function MediaUploadSection({
           assignmentId,
           productId,
           filename: file.name,
-          contentType: file.type || (isImg ? 'image/jpeg' : 'video/mp4'),
+          contentType,
         }),
       });
       const presignData = await presignRes.json().catch(() => ({}));
@@ -253,18 +290,8 @@ function MediaUploadSection({
 
       setUploadStep('upload');
 
-      const uploadRes = await fetch(signedUrl, {
-        method: 'PUT',
-        body: file,
-        headers: {
-          'Content-Type': file.type || (isImg ? 'image/jpeg' : 'video/mp4'),
-          'cache-control': 'max-age=3600',
-        },
-      });
-      if (!uploadRes.ok) {
-        const errText = await uploadRes.text().catch(() => `HTTP ${uploadRes.status}`);
-        throw new Error(`Upload échoué (${uploadRes.status}) : ${errText}`);
-      }
+      // Use XHR for real progress tracking (fetch doesn't support upload progress)
+      await uploadViaXHR(signedUrl, file, contentType, setUploadPct);
 
       setUploadStep('saving');
 
@@ -283,15 +310,10 @@ function MediaUploadSection({
       setUploadStep('idle');
     } finally {
       setUploading(false);
+      setUploadPct(0);
       e.target.value = '';
     }
   }
-
-  const stepLabel: Record<string, string> = {
-    presign: '⏳ Préparation…',
-    upload: '📤 Envoi en cours… patience 🙏',
-    saving: '💾 Enregistrement…',
-  };
 
   if (hasMedia) {
     return (
@@ -318,26 +340,45 @@ function MediaUploadSection({
       <p className="text-xs font-bold text-pink-800 mb-2">📤 Déposer ma vidéo ou photo</p>
 
       {uploading && (
-        <div className="mb-3">
-          <div className="bg-pink-200 rounded-full h-2 overflow-hidden">
-            <div className="bg-pink-600 h-2 rounded-full animate-pulse w-full" />
+        <div className="mb-3 space-y-1.5">
+          <div className="bg-pink-200 rounded-full h-3 overflow-hidden">
+            <div
+              className="bg-pink-600 h-3 rounded-full transition-all duration-300"
+              style={{ width: uploadStep === 'upload' ? `${uploadPct}%` : uploadStep === 'saving' ? '100%' : '10%' }}
+            />
           </div>
-          <p className="text-xs text-pink-600 mt-1">{stepLabel[uploadStep] ?? '⏳ En cours…'}</p>
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-pink-600 font-medium">
+              {uploadStep === 'presign' && '⏳ Préparation…'}
+              {uploadStep === 'upload' && `📤 Envoi… ${uploadPct}%`}
+              {uploadStep === 'saving' && '💾 Enregistrement…'}
+            </p>
+            {uploadStep === 'upload' && (
+              <p className="text-xs text-pink-400">Ne ferme pas cette page</p>
+            )}
+          </div>
         </div>
       )}
 
       {error && (
-        <div className="mb-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-          <p className="text-xs text-red-700 font-semibold">❌ Erreur upload</p>
-          <p className="text-xs text-red-600 mt-0.5">{error}</p>
-          <button onClick={() => setError(null)} className="text-xs text-red-400 underline mt-1">Fermer</button>
+        <div className="mb-3 bg-red-50 border border-red-200 rounded-xl px-3 py-3">
+          <p className="text-sm font-bold text-red-700">❌ Échec de l'envoi</p>
+          <p className="text-xs text-red-600 mt-1 leading-relaxed">{error}</p>
+          <button
+            onClick={() => setError(null)}
+            className="mt-2 text-xs font-semibold text-red-500 underline"
+          >
+            Réessayer
+          </button>
         </div>
       )}
 
-      <label className={`flex items-center justify-center gap-2 w-full py-2.5 rounded-xl font-bold text-sm transition-colors ${
+      <label className={`flex items-center justify-center gap-2 w-full py-3 rounded-xl font-bold text-sm transition-colors ${
         uploading ? 'bg-gray-200 text-gray-400 cursor-not-allowed pointer-events-none' : 'bg-pink-600 text-white hover:bg-pink-700 active:scale-[0.98] cursor-pointer'
       }`}>
-        {uploading ? (stepLabel[uploadStep] ?? '⏳ En cours…') : '📱 Choisir une vidéo ou photo'}
+        {uploading
+          ? (uploadStep === 'upload' ? `📤 ${uploadPct}% envoyé…` : '⏳ Patience…')
+          : '📱 Choisir une vidéo ou photo'}
         <input
           type="file"
           accept={ACCEPTED_MEDIA}
@@ -346,7 +387,7 @@ function MediaUploadSection({
           onChange={handleFileSelect}
         />
       </label>
-      <p className="text-xs text-pink-400 text-center mt-1.5">Vidéo : MP4, MOV · Photo : JPG, PNG, HEIC · Toutes tailles</p>
+      <p className="text-xs text-pink-400 text-center mt-1.5">MP4, MOV, JPG, PNG, HEIC · Garde la page ouverte pendant l'envoi</p>
     </div>
   );
 }
