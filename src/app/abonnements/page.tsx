@@ -48,6 +48,14 @@ interface SubscriptionRow {
 
 type DriverOption = { id: string; name: string; phone: string | null };
 
+// ─── Phone → international format for wa.me ──────────────────────────────────
+function toWaPhone(raw: string): string {
+  const digits = raw.replace(/\D/g, '');
+  if (digits.startsWith('596') || digits.startsWith('590') || digits.startsWith('33') || digits.startsWith('262')) return digits;
+  if (digits.length === 10 && digits.startsWith('0')) return '596' + digits.slice(1);
+  return digits;
+}
+
 // ─── Stripe Payment Links ─────────────────────────────────────────────────────
 
 const STRIPE_PAYMENT_LINKS: Record<string, string> = {
@@ -169,12 +177,10 @@ function PrepModal({
           body: JSON.stringify({ to: phone, message: waMsg }),
         }).then((r) => r.json()).then((d) => {
           if (!d.ok && phone) {
-            const p = phone.replace(/[\s+]/g, '');
-            window.open(`https://wa.me/${p}?text=${encodeURIComponent(waMsg)}`, '_blank');
+            window.open(`https://wa.me/${toWaPhone(phone)}?text=${encodeURIComponent(waMsg)}`, '_blank');
           }
         }).catch(() => {
-          const p = phone.replace(/[\s+]/g, '');
-          window.open(`https://wa.me/${p}?text=${encodeURIComponent(waMsg)}`, '_blank');
+          window.open(`https://wa.me/${toWaPhone(phone)}?text=${encodeURIComponent(waMsg)}`, '_blank');
         });
       }
 
@@ -486,13 +492,10 @@ function DeliveryModal({
           body: JSON.stringify({ to: clientPhone, message: waMsg }),
         }).then((r) => r.json()).then((d) => {
           if (!d.ok) {
-            // Brevo not configured — open wa.me manually
-            const phone = clientPhone.replace(/[\s+]/g, '');
-            window.open(`https://wa.me/${phone}?text=${encodeURIComponent(waMsg)}`, '_blank');
+            window.open(`https://wa.me/${toWaPhone(clientPhone)}?text=${encodeURIComponent(waMsg)}`, '_blank');
           }
         }).catch(() => {
-          const phone = clientPhone.replace(/[\s+]/g, '');
-          window.open(`https://wa.me/${phone}?text=${encodeURIComponent(waMsg)}`, '_blank');
+          window.open(`https://wa.me/${toWaPhone(clientPhone)}?text=${encodeURIComponent(waMsg)}`, '_blank');
         });
       }
 
@@ -868,7 +871,7 @@ function SubscriptionSetupModal({
               )}
               {/* WhatsApp button — only if phone is set and non-empty */}
               {(() => {
-                const rawPhone = (portalPhone || '').replace(/[\s+\-().]/g, '');
+                const rawPhone = toWaPhone(portalPhone || '');
                 if (!rawPhone) return null;
                 const msg = `Bonjour ${client.firstName},\n\nVotre abonnement ${selectedPlan?.name ?? 'Box Beaute'} a bien ete cree !\n\nVoici votre lien de paiement securise :\n${stripeUrl}\n\nApres paiement, votre abonnement sera active automatiquement.\n\nTelephone portail : ${portalPhone}\nCode PIN : ${pinCode}\n\nLe Monde de l'Esthetique`;
                 return (
@@ -1736,7 +1739,7 @@ export default function AbonnementsPage() {
                             {sub.portal_phone && sub.plan && (() => {
                               const link = getStripePaymentLink(sub.plan.name, sub.client?.email);
                               if (!link) return null;
-                              const phone = sub.portal_phone.replace(/[\s+]/g, '');
+                              const phone = toWaPhone(sub.portal_phone);
                               const firstName = sub.client?.first_name ?? 'Abonnée';
                               const msg = `Bonjour ${firstName},\n\nVoici votre lien de paiement pour votre abonnement ${sub.plan.name} (${sub.plan.price} €/mois) :\n\n${link}\n\nAprès paiement, votre abonnement sera activé automatiquement.\n\nLe Monde de l'Esthétique`;
                               return (

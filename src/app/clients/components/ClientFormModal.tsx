@@ -211,6 +211,20 @@ export default function ClientFormModal({ client, onClose, onSaved }: ClientForm
           </div>
 
           <div>
+            <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1">Pays</label>
+            <select value={form.country ?? 'Martinique'} onChange={(e) => set('country', e.target.value)}
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white">
+              <option value="Martinique">Martinique</option>
+              <option value="Guadeloupe">Guadeloupe</option>
+              <option value="Guyane">Guyane</option>
+              <option value="La Réunion">La Réunion</option>
+              <option value="Mayotte">Mayotte</option>
+              <option value="France">France métropolitaine</option>
+              <option value="Autre">Autre</option>
+            </select>
+          </div>
+
+          <div>
             <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1">Notes internes</label>
             <textarea value={form.notes ?? ''} onChange={(e) => set('notes', e.target.value)} rows={2} placeholder="Préférences, informations importantes..."
               className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none" />

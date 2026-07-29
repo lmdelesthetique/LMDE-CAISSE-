@@ -209,7 +209,7 @@ export default function ClientDetailPage() {
                     {client.address && (
                       <div className="flex items-center gap-2 text-sm text-muted-foreground sm:col-span-2">
                         <Icon name="MapPinIcon" size={13} className="shrink-0" />
-                        <span>{[client.address, client.postalCode, client.city].filter(Boolean).join(', ')}</span>
+                        <span>{[client.address, client.postalCode, client.city, client.country].filter(Boolean).join(', ')}</span>
                       </div>
                     )}
                     {client.dateOfBirth && (
