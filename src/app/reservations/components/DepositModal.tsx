@@ -39,8 +39,10 @@ export default function DepositModal({ reservation, onClose, onSaved }: DepositM
   const [error, setError] = useState<string | null>(null);
 
   const paid = parseFloat(amount) || 0;
+  const almaFeeAmount = paid > 0 ? Math.round(paid * 0.062 * 100) / 100 : 0;
   const almaFirst = paid > 0 ? (paid / almaInstallments).toFixed(2) : '—';
-  const almaFee = paid > 0 ? (paid * 0.0146 * almaInstallments).toFixed(2) : '—';
+  const almaFee = paid > 0 ? almaFeeAmount.toFixed(2) : '—';
+  const almaTotalWithFees = paid > 0 ? (paid + almaFeeAmount).toFixed(2) : '—';
 
   const deposits: DepositEntry[] = reservation.deposits ?? [];
   const hasDeposits = deposits.length > 0;
@@ -228,7 +230,7 @@ export default function DepositModal({ reservation, onClose, onSaved }: DepositM
                 onChange={(e) => setAmount(e.target.value)}
                 className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
               />
-              <div className="flex gap-2 mt-1.5">
+              <div className="flex flex-wrap gap-3 mt-1.5">
                 <button
                   type="button"
                   onClick={() => setAmount(balanceDue.toFixed(2))}
@@ -236,6 +238,15 @@ export default function DepositModal({ reservation, onClose, onSaved }: DepositM
                 >
                   Tout le solde ({balanceDue.toFixed(2)} €)
                 </button>
+                {almaMode && balanceDue > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setAmount((Math.round(balanceDue * 1.062 * 100) / 100).toFixed(2))}
+                    className="text-xs text-orange-600 hover:underline font-500"
+                  >
+                    Solde + frais Alma ({(Math.round(balanceDue * 1.062 * 100) / 100).toFixed(2)} €)
+                  </button>
+                )}
               </div>
             </div>
 
@@ -289,8 +300,12 @@ export default function DepositModal({ reservation, onClose, onSaved }: DepositM
                     <span className="font-700 text-orange-900">{almaFirst} €</span>
                   </div>
                   <div className="flex justify-between text-xs">
-                    <span className="text-orange-600">Frais Alma (~{(1.46 * almaInstallments).toFixed(1)}%)</span>
-                    <span className="text-orange-700">≈ {almaFee} €</span>
+                    <span className="text-orange-600">Frais Alma (6,2%)</span>
+                    <span className="text-orange-700">{almaFee} €</span>
+                  </div>
+                  <div className="flex justify-between text-sm font-700 text-orange-900 border-t border-orange-200 pt-1.5 mt-1">
+                    <span>Total client avec frais</span>
+                    <span>{almaTotalWithFees} €</span>
                   </div>
                 </div>
               </div>

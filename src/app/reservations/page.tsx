@@ -18,6 +18,84 @@ import ReservationFormModal from './components/ReservationFormModal';
 import DepositModal from './components/DepositModal';
 import ReservationTicket from './components/ReservationTicket';
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function formatPhoneForWhatsApp(phone: string): string {
+  const digits = phone.replace(/\D/g, '');
+  if (digits.startsWith('596') || digits.startsWith('590') || digits.startsWith('33')) return digits;
+  if (digits.length === 10 && digits.startsWith('0')) return '596' + digits.slice(1);
+  return digits;
+}
+
+function detectCountry(address: string): string {
+  const lower = (address || '').toLowerCase();
+  if (lower.includes('guadeloupe')) return 'Guadeloupe';
+  if (lower.includes('martinique')) return 'Martinique';
+  if (lower.includes('guyane')) return 'Guyane';
+  if (lower.includes('réunion') || lower.includes('reunion')) return 'La Réunion';
+  if (lower.includes('france')) return 'France';
+  return 'votre région';
+}
+
+function printBon(res: Reservation) {
+  const win = window.open('', '_blank', 'width=820,height=1000,scrollbars=yes');
+  if (!win) { alert('Autorisez les popups pour imprimer le bon.'); return; }
+  const country = detectCountry(res.deliveryAddress ?? '');
+  const date = new Date().toLocaleDateString('fr-FR', { timeZone: 'America/Martinique', day: '2-digit', month: 'long', year: 'numeric' });
+  const itemsHtml = res.items.map((item: any) => `
+    <div style="display:flex;align-items:flex-start;gap:20px;padding:16px 0;border-bottom:1px solid #e5e7eb;">
+      ${item.imageUrl
+        ? `<img src="${item.imageUrl}" alt="${item.name}" style="width:180px;height:180px;object-fit:cover;border-radius:12px;border:1px solid #e5e7eb;flex-shrink:0;" />`
+        : `<div style="width:180px;height:180px;background:#f3f4f6;border-radius:12px;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:13px;flex-shrink:0;text-align:center;">Pas de photo</div>`}
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:20px;font-weight:700;color:#111827;margin-bottom:6px;">${item.name}</div>
+        ${[item.color, item.size, item.model, item.power, item.format, item.variant].filter(Boolean).length
+          ? `<div style="font-size:14px;color:#7c3aed;margin-bottom:6px;">${[item.color, item.size, item.model, item.power, item.format, item.variant].filter(Boolean).join(' · ')}</div>`
+          : ''}
+        ${item.sku ? `<div style="font-size:12px;color:#6b7280;">Réf: ${item.sku}</div>` : ''}
+        <div style="display:flex;gap:24px;margin-top:10px;">
+          <div><div style="font-size:11px;color:#6b7280;text-transform:uppercase;">Quantité</div><div style="font-weight:700;font-size:18px;">${item.qty}</div></div>
+          <div><div style="font-size:11px;color:#6b7280;text-transform:uppercase;">Prix unit.</div><div style="font-weight:700;font-size:18px;">${Number(item.price).toFixed(2)} €</div></div>
+          <div><div style="font-size:11px;color:#6b7280;text-transform:uppercase;">Sous-total</div><div style="font-weight:700;font-size:18px;color:#e11d48;">${(item.qty * item.price).toFixed(2)} €</div></div>
+        </div>
+      </div>
+    </div>`).join('');
+  win.document.write(`<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"/><title>Bon — ${res.reservationNumber}</title>
+<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#111827;background:#fff}.page{max-width:760px;margin:0 auto;padding:40px 32px}@media print{.no-print{display:none!important}}</style></head>
+<body><div class="page">
+  <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid #e11d48;padding-bottom:20px;margin-bottom:24px;">
+    <div><div style="font-size:24px;font-weight:800;color:#e11d48;">Le Monde de l'Esthétique</div><div style="font-size:13px;color:#6b7280;margin-top:2px;">BON DE LIVRAISON</div></div>
+    <div style="text-align:right;"><div style="font-size:17px;font-weight:700;">${res.reservationNumber}</div><div style="font-size:13px;color:#6b7280;">${date}</div></div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:28px;">
+    <div style="background:#f9fafb;border-radius:12px;padding:16px;">
+      <div style="font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;">Cliente</div>
+      <div style="font-size:18px;font-weight:700;">${res.clientName}</div>
+      ${res.clientPhone ? `<div style="font-size:14px;color:#374151;margin-top:4px;">📞 ${res.clientPhone}</div>` : ''}
+      ${res.clientEmail ? `<div style="font-size:12px;color:#6b7280;margin-top:2px;">${res.clientEmail}</div>` : ''}
+    </div>
+    <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:16px;">
+      <div style="font-size:10px;font-weight:700;color:#1d4ed8;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;">Livraison — ${country}</div>
+      ${res.deliveryAddress ? `<div style="font-size:14px;color:#1e3a8a;font-weight:600;line-height:1.6;">${res.deliveryAddress}</div>` : '<div style="font-size:13px;color:#6b7280;">Non renseignée</div>'}
+      ${res.deliveryPhone ? `<div style="font-size:14px;color:#1d4ed8;margin-top:6px;font-weight:600;">📞 ${res.deliveryPhone}</div>` : ''}
+      ${res.deliveryContact ? `<div style="font-size:13px;color:#374151;margin-top:2px;">Contact : ${res.deliveryContact}</div>` : ''}
+      ${res.deliveryNotes ? `<div style="font-size:12px;color:#6b7280;margin-top:4px;font-style:italic;">${res.deliveryNotes}</div>` : ''}
+    </div>
+  </div>
+  <div style="margin-bottom:24px;">
+    <div style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.08em;margin-bottom:12px;">Articles commandés</div>
+    ${itemsHtml}
+  </div>
+  <div style="background:#f9fafb;border-radius:12px;padding:16px;display:flex;justify-content:flex-end;">
+    <div style="text-align:right;"><div style="font-size:12px;color:#6b7280;">Total commande</div><div style="font-size:26px;font-weight:800;color:#111827;">${res.totalAmount.toFixed(2)} €</div></div>
+  </div>
+  ${res.notes ? `<div style="margin-top:14px;padding:12px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;font-size:13px;">${res.notes}</div>` : ''}
+  <div class="no-print" style="margin-top:32px;text-align:center;">
+    <button onclick="window.print()" style="background:#e11d48;color:#fff;border:none;padding:14px 40px;border-radius:10px;font-size:16px;font-weight:700;cursor:pointer;">🖨️ Imprimer ce bon</button>
+  </div>
+</div></body></html>`);
+  win.document.close();
+}
+
 // ─── Status config ────────────────────────────────────────────────────────────
 const STATUS_CONFIG: Record<ReservationStatus, { label: string; color: string; dot: string; icon: string }> = {
   pending:      { label: 'En attente',     color: 'text-amber-700 bg-amber-50 border-amber-200',        dot: 'bg-amber-400',   icon: 'ClockIcon' },
@@ -100,6 +178,7 @@ export default function ReservationsPage() {
   const [depositTarget, setDepositTarget] = useState<Reservation | null>(null);
   const [ticketTarget, setTicketTarget] = useState<Reservation | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [whatsappTarget, setWhatsappTarget] = useState<Reservation | null>(null);
   const [invoiceLoading, setInvoiceLoading] = useState<string | null>(null);
   const [invoiceSuccess, setInvoiceSuccess] = useState<{ resId: string; factureNumero: string } | null>(null);
   const [pickupLoading, setPickupLoading] = useState<string | null>(null);
@@ -687,6 +766,28 @@ export default function ReservationsPage() {
                               <Icon name="PrinterIcon" size={15} />
                             </button>
 
+                            {/* Bon de livraison */}
+                            <button
+                              onClick={() => printBon(res)}
+                              title="Bon de livraison imprimable"
+                              className="p-1.5 rounded-lg hover:bg-blue-100 text-muted-foreground hover:text-blue-700 transition-colors"
+                            >
+                              <Icon name="DocumentArrowDownIcon" size={15} />
+                            </button>
+
+                            {/* WhatsApp */}
+                            {res.clientPhone && (
+                              <button
+                                onClick={() => setWhatsappTarget(res)}
+                                title="Envoyer un message WhatsApp"
+                                className="p-1.5 rounded-lg hover:bg-green-100 text-muted-foreground hover:text-green-600 transition-colors"
+                              >
+                                <svg viewBox="0 0 24 24" fill="currentColor" width={15} height={15}>
+                                  <path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0012.04 2zm.01 1.67c2.2 0 4.26.86 5.82 2.42a8.22 8.22 0 012.41 5.83c0 4.54-3.7 8.23-8.24 8.23-1.48 0-2.93-.39-4.19-1.15l-.3-.17-3.12.82.83-3.04-.2-.32a8.19 8.19 0 01-1.11-4.17c.01-4.54 3.7-8.23 8.1-8.23zm-3.38 3.66c-.14 0-.37.05-.57.26-.19.21-.74.73-.74 1.77 0 1.04.76 2.05.87 2.19.11.14 1.5 2.29 3.64 3.12.51.22.9.35 1.21.44.5.16.97.14 1.33.08.41-.07 1.25-.51 1.43-1.01.18-.5.18-.92.12-1.01-.05-.1-.2-.14-.41-.24-.21-.1-1.25-.62-1.44-.68-.19-.07-.33-.1-.47.1-.14.21-.54.68-.66.82-.12.13-.24.15-.45.05-.21-.1-.88-.32-1.68-.99-.62-.54-1.04-1.2-1.16-1.41-.12-.21-.01-.32.09-.42.09-.09.21-.24.31-.36.1-.12.14-.21.21-.35.07-.14.04-.27-.02-.37-.06-.1-.47-1.13-.65-1.55-.17-.42-.34-.37-.47-.37z"/>
+                                </svg>
+                              </button>
+                            )}
+
                             {res.reservationStatus !== 'completed' && res.reservationStatus !== 'cancelled' && (
                               <button onClick={() => setEditTarget(res)} title="Modifier la réservation"
                                 className="p-1.5 rounded-lg hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors">
@@ -810,6 +911,72 @@ export default function ReservationsPage() {
       {ticketTarget && (
         <ReservationTicket reservation={ticketTarget} onClose={() => setTicketTarget(null)} />
       )}
+
+      {/* ── WhatsApp modal ─────────────────────────────────────────────────── */}
+      {whatsappTarget && (() => {
+        const res = whatsappTarget;
+        const phone = formatPhoneForWhatsApp(res.clientPhone ?? '');
+        const firstName = res.clientName.split(' ')[0];
+        const country = detectCountry(res.deliveryAddress ?? '');
+        const relayAddress = "Immeuble Kappa Voie Verte à Jarry, en face de Autour de Bébé Jarry, Chez les Tisanes d'Agatha";
+        const relayPhone = "0590259970";
+        const msgShipped = `Bonjour ${firstName},\n\nVotre colis est bien parti et sera disponible en ${country} à l'adresse suivante :\n${relayAddress}.\n\nPour récupérer votre colis, appelez le : ${relayPhone}\n\nMerci pour votre confiance ! 🌸\n— Le Monde de l'Esthétique`;
+        const msgAvailable = `Bonjour ${firstName},\n\nVotre colis est arrivé et disponible en ${country} à l'adresse suivante :\n${relayAddress}.\n\nPour récupérer votre colis, appelez le : ${relayPhone}\n\nMerci pour votre confiance ! 🌸\n— Le Monde de l'Esthétique`;
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+              <div className="flex items-center gap-3 mb-5">
+                <div className="w-10 h-10 rounded-xl bg-green-100 flex items-center justify-center shrink-0">
+                  <svg viewBox="0 0 24 24" fill="currentColor" width={22} height={22} className="text-green-600">
+                    <path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0012.04 2zm.01 1.67c2.2 0 4.26.86 5.82 2.42a8.22 8.22 0 012.41 5.83c0 4.54-3.7 8.23-8.24 8.23-1.48 0-2.93-.39-4.19-1.15l-.3-.17-3.12.82.83-3.04-.2-.32a8.19 8.19 0 01-1.11-4.17c.01-4.54 3.7-8.23 8.1-8.23zm-3.38 3.66c-.14 0-.37.05-.57.26-.19.21-.74.73-.74 1.77 0 1.04.76 2.05.87 2.19.11.14 1.5 2.29 3.64 3.12.51.22.9.35 1.21.44.5.16.97.14 1.33.08.41-.07 1.25-.51 1.43-1.01.18-.5.18-.92.12-1.01-.05-.1-.2-.14-.41-.24-.21-.1-1.25-.62-1.44-.68-.19-.07-.33-.1-.47.1-.14.21-.54.68-.66.82-.12.13-.24.15-.45.05-.21-.1-.88-.32-1.68-.99-.62-.54-1.04-1.2-1.16-1.41-.12-.21-.01-.32.09-.42.09-.09.21-.24.31-.36.1-.12.14-.21.21-.35.07-.14.04-.27-.02-.37-.06-.1-.47-1.13-.65-1.55-.17-.42-.34-.37-.47-.37z"/>
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-base font-700 text-foreground">Message WhatsApp</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">{res.clientName} · {res.clientPhone}</p>
+                </div>
+                <button onClick={() => setWhatsappTarget(null)} className="ml-auto p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
+                  <Icon name="XMarkIcon" size={18} />
+                </button>
+              </div>
+
+              <p className="text-xs font-600 text-muted-foreground uppercase tracking-wider mb-3">Choisir le message :</p>
+              <div className="space-y-3">
+                <a
+                  href={`https://wa.me/${phone}?text=${encodeURIComponent(msgShipped)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-start gap-3 w-full p-4 bg-green-50 border-2 border-green-300 rounded-xl hover:bg-green-100 transition-colors text-left"
+                >
+                  <span className="text-2xl shrink-0">📦</span>
+                  <div>
+                    <p className="text-sm font-700 text-green-800 mb-1">Colis expédié</p>
+                    <p className="text-xs text-green-700 leading-relaxed">Votre colis est bien parti et sera disponible en {country}…</p>
+                  </div>
+                </a>
+                <a
+                  href={`https://wa.me/${phone}?text=${encodeURIComponent(msgAvailable)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-start gap-3 w-full p-4 bg-emerald-50 border-2 border-emerald-300 rounded-xl hover:bg-emerald-100 transition-colors text-left"
+                >
+                  <span className="text-2xl shrink-0">✅</span>
+                  <div>
+                    <p className="text-sm font-700 text-emerald-800 mb-1">Colis disponible</p>
+                    <p className="text-xs text-emerald-700 leading-relaxed">Votre colis est arrivé et disponible en {country}…</p>
+                  </div>
+                </a>
+              </div>
+              <button
+                onClick={() => setWhatsappTarget(null)}
+                className="mt-4 w-full px-4 py-2 border border-border text-sm font-500 text-muted-foreground rounded-lg hover:bg-muted transition-colors"
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Delivery modal ─────────────────────────────────────────────────── */}
       {deliveryModalTarget && (

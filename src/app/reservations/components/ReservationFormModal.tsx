@@ -545,7 +545,20 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
               {/* Delivery fields */}
               {showDeliveryFields && (
                 <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 bg-blue-50 border border-blue-200 rounded-xl">
-                  <p className="col-span-full text-xs font-600 text-blue-700 uppercase tracking-wide">Informations livraison</p>
+                  <div className="col-span-full flex items-center justify-between flex-wrap gap-2">
+                    <p className="text-xs font-600 text-blue-700 uppercase tracking-wide">Informations livraison</p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDeliveryAddress("Immeuble Kappa Voie Verte à Jarry en face de Autour de Bébé Jarry Chez les Tisanes d'Agatha, Guadeloupe");
+                        setDeliveryPhone('0590259970');
+                        setDeliveryContact("Tisanes d'Agatha");
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-blue-300 text-blue-700 rounded-lg text-xs font-600 hover:bg-blue-100 transition-colors"
+                    >
+                      📦 Livraison Guadeloupe (Jarry)
+                    </button>
+                  </div>
                   <div className="col-span-full">
                     <label className="block text-xs font-500 text-foreground mb-1">Adresse de livraison</label>
                     <input type="text" value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} placeholder="Adresse complète"
