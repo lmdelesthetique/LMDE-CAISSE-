@@ -9,7 +9,11 @@ function makeClient() {
 }
 
 async function generateNumero(supabase: ReturnType<typeof makeClient>, docType: string): Promise<string> {
-  const prefix = docType === 'devis' ? 'DEV' : 'FAC';
+  const prefix =
+    docType === 'estimate' || docType === 'devis' ? 'DEV'
+    : docType === 'proforma' ? 'PRO'
+    : docType === 'credit_note' ? 'AVO'
+    : 'FAC';
   const year = new Date().getFullYear();
 
   // Find the highest sequence number for this prefix+year

@@ -55,6 +55,8 @@ export async function POST(
     cashier_name: cashierName || null,
   };
 
+  const isNowFullyPaid = newTotal + balancePaid >= totalAmount - 0.01;
+
   const updatePayload: Record<string, any> = {
     deposit_paid: newTotal,
     deposits: [...existingDeposits, newEntry],
@@ -68,8 +70,15 @@ export async function POST(
     updatePayload.deposit_accounting_date = today;
   }
 
-  // Advance status from pending to deposit_paid on first deposit
-  if (existing.reservation_status === 'pending') {
+  // If the total payments now cover the full amount → auto-complete
+  if (isNowFullyPaid) {
+    updatePayload.reservation_status = 'completed';
+    updatePayload.completed_at = now;
+    if (!existing.balance_accounting_date) {
+      updatePayload.balance_accounting_date = today;
+    }
+  } else if (existing.reservation_status === 'pending') {
+    // Advance from pending to deposit_paid on first deposit
     updatePayload.reservation_status = 'deposit_paid';
   }
 

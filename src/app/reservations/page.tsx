@@ -195,6 +195,8 @@ export default function ReservationsPage() {
 
   const loadAll = useCallback(async () => {
     setLoading(true);
+    // Auto-repair any reservations fully paid but stuck in wrong status (fire-and-forget)
+    fetch('/api/reservations/repair-status', { method: 'POST' }).catch(() => {});
     const [data, s] = await Promise.all([
       reservationService.getAll(filterStatus, filterType, filterRecovery),
       reservationService.getStats(),

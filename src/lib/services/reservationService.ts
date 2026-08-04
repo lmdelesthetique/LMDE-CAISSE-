@@ -438,7 +438,16 @@ export const reservationService = {
   async createFromPOS(input: CreateFromPOSInput): Promise<Reservation | null> {
     const supabase = createClient();
     try {
-      const today = new Date().toISOString().split('T')[0];
+      const now = new Date().toISOString();
+      const today = now.split('T')[0];
+      const posDepositEntry = input.depositPaid > 0 ? [{
+        id: crypto.randomUUID(),
+        amount: input.depositPaid,
+        method: input.depositPaymentMethod,
+        paid_at: now,
+        accounting_date: today,
+        cashier_name: input.cashierName || null,
+      }] : [];
       const { data, error } = await supabase
         .from('reservations')
         .insert({
@@ -454,7 +463,7 @@ export const reservationService = {
           balance_paid: 0,
           deposit_percent: input.depositPercent ?? null,
           deposit_payment_method: input.depositPaymentMethod,
-          deposit_paid_at: new Date().toISOString(),
+          deposit_paid_at: now,
           deposit_accounting_date: today,
           reservation_status: 'deposit_paid',
           reservation_type: input.reservationType || null,
@@ -462,6 +471,7 @@ export const reservationService = {
           notes: input.notes || null,
           cashier_name: input.cashierName || null,
           pos_sale_id: input.posSaleId || null,
+          deposits: posDepositEntry,
         })
         .select()
         .single();

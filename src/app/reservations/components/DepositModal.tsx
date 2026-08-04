@@ -30,7 +30,11 @@ export default function DepositModal({ reservation, onClose, onSaved }: DepositM
   const balanceDue = reservation.balanceDue;
   const isFinalPayment = balanceDue <= 0.01;
 
-  const [amount, setAmount] = useState(balanceDue > 0 ? balanceDue.toFixed(2) : '');
+  // First payment: suggest the configured acompte amount; subsequent payments: suggest remaining balance
+  const isFirstPayment = reservation.deposits.length === 0 && reservation.depositPaid <= 0;
+  const suggestedAmount =
+    isFirstPayment && reservation.depositAmount > 0 ? reservation.depositAmount : balanceDue;
+  const [amount, setAmount] = useState(suggestedAmount > 0 ? suggestedAmount.toFixed(2) : '');
   const [method, setMethod] = useState<ReservationPaymentMethod>('card');
   const [almaInstallments, setAlmaInstallments] = useState<3 | 4>(4);
   const [almaMode, setAlmaMode] = useState(false);
@@ -231,6 +235,15 @@ export default function DepositModal({ reservation, onClose, onSaved }: DepositM
                 className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
               />
               <div className="flex flex-wrap gap-3 mt-1.5">
+                {isFirstPayment && reservation.depositAmount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setAmount(reservation.depositAmount.toFixed(2))}
+                    className="text-xs text-blue-600 hover:underline font-500"
+                  >
+                    Acompte prévu ({reservation.depositAmount.toFixed(2)} €)
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setAmount(balanceDue.toFixed(2))}
@@ -330,6 +343,13 @@ export default function DepositModal({ reservation, onClose, onSaved }: DepositM
               <div className="flex items-start gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-xs text-blue-800">
                 <Icon name="InformationCircleIcon" size={14} className="shrink-0 mt-0.5" />
                 <p>Le solde sera comptabilisé aujourd'hui dans le CA du jour. Les acomptes précédents ({reservation.depositPaid.toFixed(2)} €) ont déjà été comptabilisés à leurs dates respectives.</p>
+              </div>
+            )}
+
+            {isFirstPayment && reservation.depositAmount > 0 && paid > reservation.depositAmount + 0.01 && (
+              <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
+                <Icon name="ExclamationCircleIcon" size={14} className="shrink-0 mt-0.5" />
+                <p>⚠️ Le montant saisi ({paid.toFixed(2)} €) dépasse l'acompte prévu ({reservation.depositAmount.toFixed(2)} €). Confirmez si le client règle plus que l'acompte.</p>
               </div>
             )}
 

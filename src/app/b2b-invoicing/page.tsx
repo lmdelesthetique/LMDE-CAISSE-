@@ -314,7 +314,7 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
       return;
     }
     try {
-      const res = await fetch(`/api/products/search?q=${encodeURIComponent(query.trim())}&limit=8`);
+      const res = await fetch(`/api/products/search?q=${encodeURIComponent(query.trim())}&limit=50`);
       const json = await res.json();
       const results: any[] = json.products ?? [];
       // Recalculate position after fetch so it reflects current scroll state
@@ -322,10 +322,11 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
       if (inputEl) {
         const rect = inputEl.getBoundingClientRect();
         const spaceBelow = window.innerHeight - rect.bottom;
+        const dropH = Math.min(results.length * 56 + 8, 440);
         setDropdownPos({
-          top: spaceBelow >= 120 ? rect.bottom + 4 : Math.max(8, rect.top - 292 - 4),
+          top: spaceBelow >= 200 ? rect.bottom + 4 : Math.max(8, rect.top - dropH - 4),
           left: rect.left,
-          width: Math.max(rect.width, 384),
+          width: Math.max(rect.width, 420),
         });
       }
       setProductResults((prev) => ({ ...prev, [lineId]: results }));
@@ -826,7 +827,8 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
       {activeDropdownLine && dropdownPos && (
         <div
           style={{ position: 'fixed', top: dropdownPos.top, left: dropdownPos.left, width: dropdownPos.width, zIndex: 9999 }}
-          className="bg-white border border-border rounded-xl shadow-2xl max-h-72 overflow-y-auto"
+          className="bg-white border border-border rounded-xl shadow-2xl overflow-y-auto"
+          style={{ maxHeight: 440 }}
         >
           {(productResults[activeDropdownLine] ?? []).length > 0 ? (
             (productResults[activeDropdownLine] ?? []).map((p: any) => {
@@ -1340,9 +1342,9 @@ export default function B2BInvoicingPage() {
   // Load B2B documents from DB
   useEffect(() => {
     fetch('/api/factures?type=b2b')
-      .then((r) => r.ok ? r.json() : [])
+      .then((r) => { if (!r.ok) throw new Error('fetch error'); return r.json(); })
       .then((rows) => { if (Array.isArray(rows)) setDocs(rows.map(apiRowToDoc)); })
-      .catch(() => {});
+      .catch(() => {}); // Keep existing state on error — never clear docs on network failure
   }, []);
 
   useEffect(() => {

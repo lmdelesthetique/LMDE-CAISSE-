@@ -11,7 +11,7 @@ function makeClient() {
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const q = (searchParams.get('q') ?? '').trim();
-  const limit = Math.min(parseInt(searchParams.get('limit') ?? '8', 10), 20);
+  const limit = Math.min(parseInt(searchParams.get('limit') ?? '8', 10), 50);
 
   if (q.length < 2) return NextResponse.json({ products: [] });
 
