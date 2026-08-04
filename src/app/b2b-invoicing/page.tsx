@@ -313,22 +313,23 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
       setDropdownPos(null);
       return;
     }
+
+    // Capture position SYNCHRONOUSLY before the async fetch so the ref is guaranteed available
+    const inputEl = inputRefs.current[lineId];
+    if (inputEl) {
+      const rect = inputEl.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      setDropdownPos({
+        top: spaceBelow >= 180 ? rect.bottom + 4 : Math.max(8, rect.top - 444),
+        left: rect.left,
+        width: Math.max(rect.width, 420),
+      });
+    }
+
     try {
       const res = await fetch(`/api/products/search?q=${encodeURIComponent(query.trim())}&limit=50`);
       const json = await res.json();
       const results: any[] = json.products ?? [];
-      // Recalculate position after fetch so it reflects current scroll state
-      const inputEl = inputRefs.current[lineId];
-      if (inputEl) {
-        const rect = inputEl.getBoundingClientRect();
-        const spaceBelow = window.innerHeight - rect.bottom;
-        const dropH = Math.min(results.length * 56 + 8, 440);
-        setDropdownPos({
-          top: spaceBelow >= 200 ? rect.bottom + 4 : Math.max(8, rect.top - dropH - 4),
-          left: rect.left,
-          width: Math.max(rect.width, 420),
-        });
-      }
       setProductResults((prev) => ({ ...prev, [lineId]: results }));
       setActiveDropdownLine(results.length > 0 ? lineId : null);
     } catch {
