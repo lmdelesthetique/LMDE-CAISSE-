@@ -827,9 +827,8 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
       {/* Product search dropdown — rendered fixed so overflow-y-auto modal can't clip it */}
       {activeDropdownLine && dropdownPos && (
         <div
-          style={{ position: 'fixed', top: dropdownPos.top, left: dropdownPos.left, width: dropdownPos.width, zIndex: 9999 }}
-          className="bg-white border border-border rounded-xl shadow-2xl overflow-y-auto"
-          style={{ maxHeight: 440 }}
+          style={{ position: 'fixed', top: dropdownPos.top, left: dropdownPos.left, width: dropdownPos.width, zIndex: 9999, maxHeight: 440, overflowY: 'auto' }}
+          className="bg-white border border-border rounded-xl shadow-2xl"
         >
           {(productResults[activeDropdownLine] ?? []).length > 0 ? (
             (productResults[activeDropdownLine] ?? []).map((p: any) => {
