@@ -281,11 +281,12 @@ function ExpenseFormModal({ expense, onClose, onSave }: ExpenseFormModalProps) {
 
 interface StructureFeePanelProps {
   expenses: BusinessExpense[];
+  selectedMonth: string;
 }
 
-function StructureFeePanel({ expenses }: StructureFeePanelProps) {
+function StructureFeePanel({ expenses, selectedMonth }: StructureFeePanelProps) {
   const supabase = createClient();
-  const currentMonth = new Date().toISOString().slice(0, 7);
+  const currentMonth = selectedMonth || new Date().toISOString().slice(0, 7);
   const [config, setConfig] = useState<StructureFeeConfig>({
     month_year: currentMonth,
     fixed_expenses: 0,
@@ -297,7 +298,29 @@ function StructureFeePanel({ expenses }: StructureFeePanelProps) {
   const [revenue, setRevenue] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // Auto-calculate from expenses
+  // Reload existing config when selected month changes
+  React.useEffect(() => {
+    let cancelled = false;
+    supabase
+      .from('structure_fee_config')
+      .select('*')
+      .eq('month_year', currentMonth)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled) return;
+        if (data) {
+          setConfig({ ...data });
+          setRevenue(String(data.reference_revenue || ''));
+        } else {
+          setConfig({ month_year: currentMonth, fixed_expenses: 0, variable_expenses: 0, reference_revenue: 0, recommended_pct: 0, applied_pct: 0 });
+          setRevenue('');
+        }
+      });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentMonth]);
+
+  // Auto-calculate from expenses for the selected month
   const monthExpenses = expenses.filter((e) => e.expense_date.startsWith(currentMonth));
   const autoFixed = monthExpenses.filter((e) => e.category === 'fixed_monthly').reduce((s, e) => s + e.amount, 0);
   const autoVariable = monthExpenses.filter((e) => e.category === 'variable').reduce((s, e) => s + e.amount, 0);
@@ -337,7 +360,9 @@ function StructureFeePanel({ expenses }: StructureFeePanelProps) {
         </div>
         <div>
           <h3 className="font-600 text-foreground">Calcul frais structure</h3>
-          <p className="text-xs text-muted-foreground">Pourcentage recommandé pour les commandes</p>
+          <p className="text-xs text-muted-foreground">
+            {new Date(currentMonth + '-01').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })} — Pourcentage recommandé pour les commandes
+          </p>
         </div>
       </div>
 
@@ -945,7 +970,7 @@ export default function DepensesFournisseursPage() {
         {activeTab === 'business' && (
           <div className="space-y-6">
             {/* Structure fee calculator */}
-            <StructureFeePanel expenses={expenses} />
+            <StructureFeePanel expenses={expenses} selectedMonth={filterMonth} />
 
             {/* KPIs */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
