@@ -43,6 +43,7 @@ interface SubscriptionRow {
     delivery_destination: string | null;
     delivery_address: string | null;
     delivery_payment_sent: boolean;
+    shipping_mode: 'delivery' | 'pickup' | null;
   } | null;
 }
 
@@ -138,11 +139,15 @@ function PrepModal({
   const [err, setErr] = useState('');
   const [localStatus, setLocalStatus] = useState(sub.currentOrder?.status ?? 'confirmed');
 
+  const [markingRemis, setMarkingRemis] = useState(false);
   const order = sub.currentOrder!;
   const clientName = sub.client ? `${sub.client.first_name} ${sub.client.last_name}` : '—';
   const monthLabel = new Date(currentMonth + '-01').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
-  const dest = order.delivery_destination;
-  const isPreparing = localStatus === 'preparing' || localStatus === 'shipped' || localStatus === 'en_livraison';
+  // shipping_mode='pickup' overrides delivery_destination for display
+  const dest = order.shipping_mode === 'pickup' ? 'retrait' : order.delivery_destination;
+  const isRetrait = dest === 'retrait';
+  const isRemis = order.statut_livraison === 'remis_client';
+  const isPreparing = localStatus === 'preparing' || localStatus === 'shipped' || localStatus === 'en_livraison' || isRemis;
 
   useEffect(() => {
     const supabase = createClient();
@@ -167,19 +172,17 @@ function PrepModal({
 
       setLocalStatus('preparing');
 
-      // WhatsApp to client
+      // WhatsApp to client — message differs by delivery mode
       const phone = sub.portal_phone;
       const firstName = sub.client?.first_name ?? clientName;
       if (phone) {
-        const waMsg = `Bonjour ${firstName} ! 🎁\n\nVotre box beauté du mois est en cours de préparation par notre équipe.\n\nNous vous préviendrons dès qu'elle sera prête à être remise ou expédiée.\n\nLe Monde de l'Esthétique 💅`;
+        const waMsg = isRetrait
+          ? `Bonjour ${firstName} ! 🏪\n\nVotre box beauté du mois est prête à être récupérée en magasin !\n\n${order.delivery_address ? `Votre créneau préféré : ${order.delivery_address}\n\n` : ''}Venez nous rendre visite quand vous le souhaitez.\n\nLe Monde de l'Esthétique 💅`
+          : `Bonjour ${firstName} ! 🎁\n\nVotre box beauté du mois est en cours de préparation par notre équipe.\n\nNous vous préviendrons dès qu'elle sera expédiée.\n\nLe Monde de l'Esthétique 💅`;
         fetch('/api/whatsapp/send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ to: phone, message: waMsg }),
-        }).then((r) => r.json()).then((d) => {
-          if (!d.ok && phone) {
-            window.open(`https://wa.me/${toWaPhone(phone)}?text=${encodeURIComponent(waMsg)}`, '_blank');
-          }
         }).catch(() => {
           window.open(`https://wa.me/${toWaPhone(phone)}?text=${encodeURIComponent(waMsg)}`, '_blank');
         });
@@ -192,9 +195,11 @@ function PrepModal({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             clientId: sub.client.id,
-            title: '🔧 Votre box est en préparation',
-            message: 'Notre équipe prépare votre box avec soin. Vous serez notifiée dès qu\'elle est prête !',
-            type: 'info',
+            title: isRetrait ? '🏪 Votre box est disponible en magasin !' : '🔧 Votre box est en préparation',
+            message: isRetrait
+              ? `Votre box beauté est prête !${order.delivery_address ? ` Créneau préféré : ${order.delivery_address}.` : ''} Venez la récupérer en magasin.`
+              : 'Notre équipe prépare votre box avec soin. Vous serez notifiée dès qu\'elle est expédiée !',
+            type: isRetrait ? 'success' : 'info',
           }),
         }).catch(() => {});
       }
@@ -301,6 +306,38 @@ function PrepModal({
     }
   };
 
+  const handleMarkRemis = async () => {
+    setMarkingRemis(true);
+    setErr('');
+    try {
+      const res = await fetch(`/api/subscriptions/orders/${order.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ statut_livraison: 'remis_client' }),
+      });
+      if (!res.ok) { setErr('Erreur mise à jour'); setMarkingRemis(false); return; }
+      const phone = sub.portal_phone;
+      const firstName = sub.client?.first_name ?? clientName;
+      if (phone) {
+        const waMsg = `Merci ${firstName} ! 🎁\n\nVotre box beauté du mois a bien été récupérée en magasin. Profitez bien de vos produits ! 💅\n\nLe Monde de l'Esthétique`;
+        fetch('/api/whatsapp/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to: phone, message: waMsg }) }).catch(() => {});
+      }
+      if (sub.client?.id) {
+        fetch('/api/client-portal/notifications', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ clientId: sub.client.id, title: '🎁 Box récupérée — Merci !', message: 'Merci pour votre visite ! Profitez bien de votre box beauté du mois. 💅', type: 'success' }),
+        }).catch(() => {});
+      }
+      onRefresh();
+      onClose();
+    } catch {
+      setErr('Erreur réseau');
+    } finally {
+      setMarkingRemis(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-0 sm:px-4">
       <div className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl shadow-2xl max-h-[92vh] flex flex-col">
@@ -316,26 +353,27 @@ function PrepModal({
         </div>
 
         {/* Destination + address info */}
-        {(dest || order.delivery_address) && (
-          <div className="px-5 pt-3 pb-1 flex flex-wrap items-center gap-2">
-            {dest && (
-              <span className={`text-xs font-bold px-2.5 py-1 rounded-full border ${DEST_COLOR[dest] ?? 'bg-gray-50 text-gray-600 border-gray-200'}`}>
-                {DEST_LABEL[dest] ?? dest}
-              </span>
-            )}
-            {order.delivery_address && (
-              <span className="text-xs text-gray-500 truncate max-w-[260px]">📍 {order.delivery_address}</span>
-            )}
-            {order.delivery_payment_sent && (
-              <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">💳 Paiement livraison envoyé</span>
-            )}
-          </div>
-        )}
-        {!dest && (
-          <div className="px-5 pt-3 pb-1">
-            <span className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full">⚠️ Mode de livraison non choisi par la cliente</span>
-          </div>
-        )}
+        <div className="px-5 pt-3 pb-1 flex flex-wrap items-center gap-2">
+          {dest ? (
+            <span className={`text-xs font-bold px-2.5 py-1 rounded-full border ${DEST_COLOR[dest] ?? 'bg-gray-50 text-gray-600 border-gray-200'}`}>
+              {DEST_LABEL[dest] ?? dest}
+            </span>
+          ) : (
+            <span className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full">⚠️ Mode de livraison non choisi</span>
+          )}
+          {isRetrait && order.delivery_address && (
+            <span className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-full">🕐 Créneau : {order.delivery_address}</span>
+          )}
+          {!isRetrait && order.delivery_address && (
+            <span className="text-xs text-gray-500 truncate max-w-[220px]">📍 {order.delivery_address}</span>
+          )}
+          {order.delivery_payment_sent && (
+            <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">💳 Paiement livraison envoyé</span>
+          )}
+          {sub.portal_phone && (
+            <span className="text-xs text-gray-500">📱 {sub.portal_phone}</span>
+          )}
+        </div>
 
         {/* Items */}
         <div className="flex-1 overflow-y-auto px-5 py-4">
@@ -389,51 +427,66 @@ function PrepModal({
 
         {/* Actions */}
         <div className="px-5 pb-5 pt-3 space-y-2">
-          {!isPreparing ? (
-            /* STEP 1: mark box as ready + notify client */
+          {isRemis ? (
+            /* Already picked up — show archived state */
+            <div className="flex items-center gap-3 p-3 bg-gray-50 border border-gray-200 rounded-xl">
+              <span className="text-2xl">✅</span>
+              <p className="text-sm font-bold text-gray-500">Box récupérée en magasin</p>
+            </div>
+          ) : !isPreparing ? (
+            /* STEP 1: confirm box ready + notify client */
             <button
               onClick={handleNotifyReady}
               disabled={notifying}
               className="w-full py-3.5 bg-emerald-500 text-white font-bold rounded-xl text-sm hover:bg-emerald-600 active:scale-95 transition-all disabled:opacity-50"
             >
-              {notifying ? 'Notification en cours…' : '✅ Box est prête — Notifier la cliente'}
+              {notifying ? 'Notification en cours…' : isRetrait ? '✅ Confirmer box prête — Notifier retrait' : '✅ Confirmer box prête — Notifier la cliente'}
             </button>
+          ) : isRetrait ? (
+            /* STEP 2 retrait: box ready, waiting for pickup */
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+                <span className="text-base">🏪</span>
+                <p className="text-xs font-semibold text-emerald-700">Box prête — en attente de récupération en magasin</p>
+              </div>
+              <button
+                onClick={handleMarkRemis}
+                disabled={markingRemis}
+                className="w-full py-3.5 bg-gray-700 text-white font-bold rounded-xl text-sm hover:bg-gray-800 active:scale-95 transition-all disabled:opacity-50"
+              >
+                {markingRemis ? 'En cours…' : '✓ Box récupérée en magasin'}
+              </button>
+            </div>
           ) : (
-            /* STEP 2: always show all 3 dispatch options, highlight the chosen one */
+            /* STEP 2 expédition: show dispatch options */
             <div className="space-y-2">
               <p className="text-xs font-bold text-gray-500 uppercase tracking-wide text-center">
-                {dest ? `Mode choisi : ${DEST_LABEL[dest] ?? dest}` : 'Expédier ou livrer'}
+                {dest ? `Mode : ${DEST_LABEL[dest] ?? dest}` : 'Expédier ou livrer'}
               </p>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={handleCreateExpedition}
                   disabled={creatingExpedition}
-                  className={`flex flex-col items-center gap-1.5 py-3.5 rounded-xl text-xs font-bold active:scale-95 transition-all disabled:opacity-50 ${dest && dest !== 'retrait' && dest !== 'livreur' ? 'bg-indigo-100 border-2 border-indigo-500 text-indigo-800 ring-2 ring-indigo-300' : 'bg-indigo-50 border-2 border-indigo-300 text-indigo-700 hover:bg-indigo-100'}`}
+                  className="flex flex-col items-center gap-1.5 py-3.5 bg-indigo-50 border-2 border-indigo-300 text-indigo-700 font-bold rounded-xl text-xs hover:bg-indigo-100 active:scale-95 transition-all disabled:opacity-50"
                 >
                   <span className="text-2xl">📦</span>
-                  {creatingExpedition ? '…' : <span className="text-center leading-tight">Créer<br/>étiquette</span>}
+                  {creatingExpedition ? '…' : <span className="text-center leading-tight">Créer étiquette<br/>(Colissimo)</span>}
                 </button>
                 <button
                   onClick={() => { onClose(); onDeliver(); }}
-                  className={`flex flex-col items-center gap-1.5 py-3.5 rounded-xl text-xs font-bold active:scale-95 transition-all ${dest === 'livreur' ? 'bg-orange-100 border-2 border-orange-500 text-orange-800 ring-2 ring-orange-300' : 'bg-orange-50 border-2 border-orange-300 text-orange-700 hover:bg-orange-100'}`}
+                  className="flex flex-col items-center gap-1.5 py-3.5 bg-orange-50 border-2 border-orange-300 text-orange-700 font-bold rounded-xl text-xs hover:bg-orange-100 active:scale-95 transition-all"
                 >
                   <span className="text-2xl">🚚</span>
-                  <span className="text-center leading-tight">Confier<br/>livreur</span>
-                </button>
-                <button
-                  onClick={handleMarkPickupReady}
-                  disabled={markingPickup}
-                  className={`flex flex-col items-center gap-1.5 py-3.5 rounded-xl text-xs font-bold active:scale-95 transition-all disabled:opacity-50 ${dest === 'retrait' ? 'bg-emerald-100 border-2 border-emerald-500 text-emerald-800 ring-2 ring-emerald-300' : 'bg-emerald-50 border-2 border-emerald-300 text-emerald-700 hover:bg-emerald-100'}`}
-                >
-                  <span className="text-2xl">🏪</span>
-                  {markingPickup ? '…' : <span className="text-center leading-tight">Retrait<br/>magasin</span>}
+                  <span className="text-center leading-tight">Confier à<br/>un livreur</span>
                 </button>
               </div>
-              {dest && (
-                <p className="text-[10px] text-center text-gray-400">
-                  ✓ Mode choisi par la cliente · bouton mis en évidence
-                </p>
-              )}
+              <button
+                onClick={handleMarkPickupReady}
+                disabled={markingPickup}
+                className="w-full py-2.5 bg-emerald-50 border-2 border-emerald-300 text-emerald-700 font-bold rounded-xl text-xs hover:bg-emerald-100 active:scale-95 transition-all disabled:opacity-50"
+              >
+                🏪 {markingPickup ? '…' : 'Finalement retrait en magasin'}
+              </button>
             </div>
           )}
           <button
@@ -1119,7 +1172,7 @@ export default function AbonnementsPage() {
     const subIds = subs.map((s: any) => s.id);
     const { data: orders } = await supabase
       .from('subscription_orders')
-      .select('id, subscription_id, status, total_products_cost, total_sell_price, benefit_amount, shipping_cost, statut_livraison, delivery_id, notified_at, delivery_destination, delivery_address, delivery_payment_sent')
+      .select('id, subscription_id, status, total_products_cost, total_sell_price, benefit_amount, shipping_cost, statut_livraison, delivery_id, notified_at, delivery_destination, delivery_address, delivery_payment_sent, shipping_mode')
       .in('subscription_id', subIds)
       .eq('order_month', currentMonth);
 
@@ -1523,11 +1576,12 @@ export default function AbonnementsPage() {
               const benefit = order?.benefit_amount ?? null;
               const isConfirmed = order?.status === 'confirmed' || order?.status === 'preparing' || order?.status === 'shipped';
               const isEnLivraison = order?.statut_livraison === 'en_livraison';
+              const isRemisClient = order?.statut_livraison === 'remis_client';
               const noOrder = !order || order.status === 'open';
               const notifiedAt = order?.notified_at;
 
               return (
-                <div key={sub.id} className="bg-card border border-border rounded-2xl overflow-hidden">
+                <div key={sub.id} className={`bg-card border border-border rounded-2xl overflow-hidden ${isRemisClient ? 'opacity-60 grayscale-[40%]' : ''}`}>
                   {/* Row */}
                   <button
                     onClick={() => handleExpand(sub.id, order?.id)}
@@ -1544,7 +1598,11 @@ export default function AbonnementsPage() {
                     </span>
 
                     {/* Order status badge */}
-                    {isEnLivraison ? (
+                    {isRemisClient ? (
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded-full border shrink-0 bg-gray-100 text-gray-500 border-gray-200">
+                        ✓ Récupérée
+                      </span>
+                    ) : isEnLivraison ? (
                       <span className="text-xs font-semibold px-2 py-0.5 rounded-full border shrink-0 bg-pink-50 text-pink-700 border-pink-200">
                         🚚 En livraison
                       </span>
@@ -1655,22 +1713,26 @@ export default function AbonnementsPage() {
                         </div>
                       </div>
 
-                      {/* Delivery mode chosen by client */}
-                      <div className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-xs font-bold ${order?.delivery_destination ? (DEST_COLOR[order.delivery_destination] ?? 'bg-gray-50 text-gray-700 border-gray-200') : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
-                        <span className="text-base">
-                          {order?.delivery_destination === 'retrait' ? '🏪' : order?.delivery_destination ? '📦' : '⚠️'}
-                        </span>
-                        <div className="min-w-0">
-                          <p className="text-[10px] font-semibold opacity-70 uppercase tracking-wide">Mode de livraison choisi</p>
-                          <p>{order?.delivery_destination ? (DEST_LABEL[order.delivery_destination] ?? order.delivery_destination) : 'Non choisi — en attente de la cliente'}</p>
-                          {order?.delivery_destination === 'retrait' && order.delivery_address && (
-                            <p className="text-[11px] mt-0.5 opacity-80">🕐 Créneau préféré : {order.delivery_address}</p>
-                          )}
-                          {order?.delivery_destination && order.delivery_destination !== 'retrait' && order.delivery_address && (
-                            <p className="text-[11px] mt-0.5 opacity-80 truncate">📍 {order.delivery_address}</p>
-                          )}
-                        </div>
-                      </div>
+                      {/* Delivery mode chosen by client — shipping_mode=pickup overrides destination */}
+                      {(() => {
+                        const effDest = order?.shipping_mode === 'pickup' ? 'retrait' : order?.delivery_destination;
+                        const effIsRetrait = effDest === 'retrait';
+                        return (
+                          <div className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-xs font-bold ${effDest ? (DEST_COLOR[effDest] ?? 'bg-gray-50 text-gray-700 border-gray-200') : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                            <span className="text-base">{effIsRetrait ? '🏪' : effDest ? '📦' : '⚠️'}</span>
+                            <div className="min-w-0">
+                              <p className="text-[10px] font-semibold opacity-70 uppercase tracking-wide">Mode de livraison choisi</p>
+                              <p>{effDest ? (DEST_LABEL[effDest] ?? effDest) : 'Non choisi — en attente de la cliente'}</p>
+                              {effIsRetrait && order?.delivery_address && (
+                                <p className="text-[11px] mt-0.5 opacity-80">🕐 Créneau préféré : {order.delivery_address}</p>
+                              )}
+                              {!effIsRetrait && order?.delivery_address && (
+                                <p className="text-[11px] mt-0.5 opacity-80 truncate">📍 {order.delivery_address}</p>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
 
                       {/* Launch offer toggle */}
                       <div className="flex items-center justify-between p-3 bg-violet-50 border border-violet-200 rounded-xl">
@@ -1829,7 +1891,7 @@ export default function AbonnementsPage() {
                                   className="flex-1 min-w-[120px] py-2 text-center bg-[#25D366]/10 border border-[#25D366]/40 text-[#128C7E] rounded-xl text-xs font-semibold hover:bg-[#25D366]/20 transition-colors flex items-center justify-center gap-1.5"
                                 >
                                   <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-                                  WhatsApp
+                                  WhatsApp — Paiement
                                 </a>
                               );
                             })()}
@@ -1849,18 +1911,19 @@ export default function AbonnementsPage() {
                         {waTrackingSubId === sub.id && sub.portal_phone && (() => {
                           const phone = toWaPhone(sub.portal_phone);
                           const firstName = sub.client?.first_name ?? 'Abonnée';
-                          const dest = sub.currentOrder?.delivery_destination;
-                          const isRetrait = dest === 'retrait';
-                          const waMessages = [
-                            { emoji: '🔧', label: 'Box en préparation', msg: `Bonjour ${firstName} ! 🔧\n\nVotre box beauté du mois est actuellement en cours de préparation par notre équipe.\n\nNous vous préviendrons dès qu'elle sera prête.\n\nLe Monde de l'Esthétique 💅` },
-                            isRetrait
-                              ? { emoji: '🏪', label: 'Box prête — retrait magasin', msg: `Bonjour ${firstName} ! 🏪\n\nVotre box beauté est prête à être récupérée en magasin !\n\nVenez nous rendre visite quand vous le souhaitez.\n\nLe Monde de l'Esthétique 💅` }
-                              : { emoji: '✅', label: 'Box prête — expédition', msg: `Bonjour ${firstName} ! ✅\n\nVotre box beauté du mois est prête et sera expédiée très prochainement.\n\nNous vous enverrons le numéro de suivi dès l'expédition.\n\nLe Monde de l'Esthétique 💅` },
+                          // use shipping_mode to determine retrait reliably
+                          const effectiveIsRetrait = sub.currentOrder?.shipping_mode === 'pickup' || sub.currentOrder?.delivery_destination === 'retrait';
+                          const isRetrait = effectiveIsRetrait;
+                          const pickupSlot = isRetrait ? sub.currentOrder?.delivery_address : null;
+                          const waMessages = isRetrait ? [
+                            { emoji: '🔧', label: 'Box en préparation', msg: `Bonjour ${firstName} ! 🔧\n\nVotre box beauté du mois est en cours de préparation par notre équipe.\n\nNous vous préviendrons dès qu'elle sera prête.\n\nLe Monde de l'Esthétique 💅` },
+                            { emoji: '🏪', label: 'Box prête — venez la récupérer !', msg: `Bonjour ${firstName} ! 🏪\n\nVotre box beauté est prête à être récupérée en magasin !${pickupSlot ? `\n\nCréneau prévu : ${pickupSlot}` : ''}\n\nVenez nous rendre visite.\n\nLe Monde de l'Esthétique 💅` },
+                            { emoji: '🎁', label: 'Box récupérée — Merci !', msg: `Merci ${firstName} ! 🎁\n\nVotre box beauté a bien été récupérée. Profitez bien de vos produits ! 💅\n\nLe Monde de l'Esthétique` },
+                          ] : [
+                            { emoji: '🔧', label: 'Box en préparation', msg: `Bonjour ${firstName} ! 🔧\n\nVotre box beauté du mois est en cours de préparation par notre équipe.\n\nNous vous préviendrons dès qu'elle sera expédiée.\n\nLe Monde de l'Esthétique 💅` },
+                            { emoji: '✅', label: 'Box prête — expédition imminente', msg: `Bonjour ${firstName} ! ✅\n\nVotre box beauté du mois est prête et sera expédiée très prochainement.\n\nNous vous enverrons le numéro de suivi dès l'expédition.\n\nLe Monde de l'Esthétique 💅` },
                             { emoji: '🚀', label: 'Box expédiée', msg: `Bonjour ${firstName} ! 🚀\n\nVotre box beauté du mois a été expédiée ! Vous devriez la recevoir sous 2 à 5 jours ouvrés. 📦\n\nLe Monde de l'Esthétique 💅` },
                             { emoji: '📬', label: 'Box bien arrivée / Reçue', msg: `Bonjour ${firstName} ! 📬\n\nNous espérons que votre box beauté du mois est bien arrivée et qu'elle vous plaît ! 💄\n\nN'hésitez pas à nous donner votre avis.\n\nLe Monde de l'Esthétique 💅` },
-                            isRetrait
-                              ? { emoji: '🎁', label: 'Box récupérée en magasin', msg: `Bonjour ${firstName} ! 🎁\n\nMerci d'être venue récupérer votre box beauté en magasin. Nous espérons qu'elle vous plaira ! 💅\n\nLe Monde de l'Esthétique` }
-                              : { emoji: '🏠', label: 'Box livrée à domicile', msg: `Bonjour ${firstName} ! 🏠\n\nNous espérons que votre box beauté a bien été livrée. Profitez bien de vos produits ! 💅\n\nLe Monde de l'Esthétique` },
                           ];
                           return (
                             <div className="w-full bg-[#075E54]/5 border border-[#25D366]/30 rounded-xl p-3 space-y-1.5">
