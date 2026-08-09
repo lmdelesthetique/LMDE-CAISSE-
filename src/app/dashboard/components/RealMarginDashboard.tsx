@@ -18,16 +18,34 @@ interface MarginData {
   structurePct: number;
 }
 
+function buildMonthOptions() {
+  const opts: { value: string; label: string }[] = [];
+  const now = new Date();
+  for (let i = 0; i < 13; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const value = d.toISOString().slice(0, 7);
+    const label = d.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+    opts.push({ value, label: label.charAt(0).toUpperCase() + label.slice(1) });
+  }
+  return opts;
+}
+
+const MONTH_OPTIONS = buildMonthOptions();
+
 export default function RealMarginDashboard() {
   const [data, setData] = useState<MarginData | null>(null);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState('month');
+  const [showMonthPicker, setShowMonthPicker] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState('');
+
+  const activePeriod = selectedMonth || period;
 
   useEffect(() => {
     const load = async () => {
       setLoading(true);
       try {
-        const res = await fetch(`/api/dashboard/margin?period=${period}`);
+        const res = await fetch(`/api/dashboard/margin?period=${activePeriod}`);
         if (!res.ok) throw new Error('fetch failed');
         const json = await res.json();
         setData(json);
@@ -38,7 +56,7 @@ export default function RealMarginDashboard() {
       }
     };
     load();
-  }, [period]);
+  }, [activePeriod]);
 
   const fmt = (v: number) => v.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, '\u00a0') + '\u00a0€';
   const pct = (v: number) => v.toFixed(1) + '%';
@@ -55,18 +73,46 @@ export default function RealMarginDashboard() {
             <p className="text-xs text-muted-foreground">Analyse revenus vs dépenses</p>
           </div>
         </div>
-        <div className="flex gap-1 p-1 bg-muted rounded-lg">
-          {[['month', 'Ce mois'], ['3months', '3 mois'], ['year', 'Cette année']].map(([val, lbl]) => (
+        <div className="flex items-center gap-2">
+          <div className="flex gap-1 p-1 bg-muted rounded-lg">
+            {[['month', 'Ce mois'], ['3months', '3 mois'], ['year', 'Cette année']].map(([val, lbl]) => (
+              <button
+                key={val}
+                onClick={() => { setPeriod(val); setSelectedMonth(''); setShowMonthPicker(false); }}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+                  activePeriod === val ? 'bg-white text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {lbl}
+              </button>
+            ))}
+          </div>
+          <div className="relative">
             <button
-              key={val}
-              onClick={() => setPeriod(val)}
-              className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
-                period === val ? 'bg-white text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+              onClick={() => setShowMonthPicker((v) => !v)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                selectedMonth ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white border-border text-muted-foreground hover:text-foreground'
               }`}
             >
-              {lbl}
+              <Icon name="CalendarDaysIcon" size={12} />
+              {selectedMonth ? MONTH_OPTIONS.find((m) => m.value === selectedMonth)?.label ?? 'Mois' : 'Par mois'}
             </button>
-          ))}
+            {showMonthPicker && (
+              <div className="absolute right-0 top-full mt-1 z-50 bg-white border border-border rounded-xl shadow-xl p-2 min-w-[200px] max-h-64 overflow-y-auto">
+                {MONTH_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => { setSelectedMonth(opt.value); setShowMonthPicker(false); }}
+                    className={`w-full text-left px-3 py-1.5 rounded-lg text-xs font-medium transition-all hover:bg-muted ${
+                      selectedMonth === opt.value ? 'bg-emerald-50 text-emerald-700' : 'text-foreground'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

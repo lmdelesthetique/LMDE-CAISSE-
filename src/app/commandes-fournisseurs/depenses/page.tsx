@@ -468,6 +468,64 @@ export default function DepensesFournisseursPage() {
     await loadExpenses();
   };
 
+  const exportCSV = () => {
+    const PAYMENT_LABEL: Record<string, string> = {
+      cash: 'Espèces', card: 'Carte', transfer: 'Virement', check: 'Chèque', other: 'Autre',
+    };
+    const CAT_LABEL: Record<string, string> = {
+      daily: 'Quotidiennes', fixed_monthly: 'Fixes mensuelles', variable: 'Variables',
+    };
+    const TYPE_LABELS: Record<string, string> = {
+      fuel: 'Essence', supplies: 'Petites fournitures', delivery: 'Livraison',
+      urgent_purchase: 'Achat urgent', shop_fees: 'Frais boutique', rent: 'Loyer',
+      salary: 'Salaires', insurance: 'Assurance', internet: 'Internet',
+      software: 'Abonnement logiciel', accounting: 'Comptabilité', electricity: 'Électricité',
+      advertising: 'Publicité', exceptional_transport: 'Transport exceptionnel',
+      repair: 'Réparation', one_time_purchase: 'Achat ponctuel', bank_fees: 'Frais bancaires',
+      other: 'Autre',
+    };
+
+    const rows: string[] = ['date,categorie,type,libelle,montant_eur,mode_paiement,note'];
+
+    // Supplier orders
+    const allOrders = [...orders].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    allOrders.forEach((o: any) => {
+      const date = new Date(o.createdAt).toISOString().slice(0, 10);
+      const supplierName = o.supplierName || 'Fournisseur';
+      const esc = (v: string) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+      if (o.subtotal > 0) rows.push([date, 'Dépenses fournisseurs', 'Achat produits', esc(`${supplierName} - produits`), o.subtotal.toFixed(2), 'Virement', esc(`Commande ${date}`)].join(','));
+      if (o.transportCost > 0) rows.push([date, 'Dépenses fournisseurs', 'Fret', esc(`${supplierName} - transport`), o.transportCost.toFixed(2), 'Virement', ''].join(','));
+      if (o.customsCost > 0) rows.push([date, 'Dépenses fournisseurs', 'Douane', esc(`Douane - ${supplierName}`), o.customsCost.toFixed(2), 'Virement', ''].join(','));
+      if (o.vatImport > 0) rows.push([date, 'Dépenses fournisseurs', 'TVA import', esc(`TVA import - ${supplierName}`), o.vatImport.toFixed(2), 'Virement', ''].join(','));
+      const otherCost = (o.freightForwarderCost || 0) + (o.bankFees || 0) + (o.exchangeFees || 0) + (o.localDelivery || 0) + (o.otherCosts || 0);
+      if (otherCost > 0) rows.push([date, 'Dépenses fournisseurs', 'Frais divers', esc(`Frais divers - ${supplierName}`), otherCost.toFixed(2), 'Virement', ''].join(','));
+    });
+
+    // Business expenses
+    const allExpenses = [...expenses].sort((a, b) => a.expense_date.localeCompare(b.expense_date));
+    allExpenses.forEach((e) => {
+      const esc = (v: string) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+      rows.push([
+        e.expense_date,
+        CAT_LABEL[e.category] || e.category,
+        TYPE_LABELS[e.expense_type] || e.expense_type,
+        esc(e.label),
+        e.amount.toFixed(2),
+        PAYMENT_LABEL[e.payment_method] || e.payment_method,
+        esc(e.note || ''),
+      ].join(','));
+    });
+
+    const blob = new Blob(['﻿' + rows.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const today = new Date().toISOString().slice(0, 10);
+    a.download = `beautypos-depenses-${today}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   // Filter expenses
   const filteredExpenses = expenses.filter((e) => {
     if (filterCategory !== 'all' && e.category !== filterCategory) return false;
@@ -522,8 +580,8 @@ export default function DepensesFournisseursPage() {
 
   const paidOrders = filteredOrders.filter((o: any) => ['paid', 'payment_received_by_supplier'].includes(o.orderStatus));
   const unpaidOrders = filteredOrders.filter((o: any) => ['payment_pending', 'payment_in_progress'].includes(o.orderStatus));
-  const totalPaid = paidOrders.reduce((s: number, o: any) => s + (o.supplierPaymentAmount || o.totalRealCost || 0), 0);
-  const totalUnpaid = unpaidOrders.reduce((s: number, o: any) => s + (o.supplierPaymentAmount || o.totalRealCost || 0), 0);
+  const totalPaid = paidOrders.reduce((s: number, o: any) => s + (o.supplierPaymentAmount || 0), 0);
+  const totalUnpaid = unpaidOrders.reduce((s: number, o: any) => s + (o.totalRealCost || 0), 0);
 
   return (
     <AppLayout>
@@ -539,15 +597,24 @@ export default function DepensesFournisseursPage() {
               <p className="text-sm text-muted-foreground mt-0.5">Analyse fournisseurs + dépenses entreprise</p>
             </div>
           </div>
-          {activeTab === 'business' && (
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => { setEditExpense(null); setShowForm(true); }}
-              className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors"
+              onClick={exportCSV}
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors"
             >
-              <Icon name="PlusIcon" size={16} />
-              Nouvelle dépense
+              <Icon name="ArrowDownTrayIcon" size={16} />
+              Exporter CSV
             </button>
-          )}
+            {activeTab === 'business' && (
+              <button
+                onClick={() => { setEditExpense(null); setShowForm(true); }}
+                className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors"
+              >
+                <Icon name="PlusIcon" size={16} />
+                Nouvelle dépense
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Tabs */}

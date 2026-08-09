@@ -13,7 +13,13 @@ export async function GET(req: NextRequest) {
 
   const now = new Date();
   let startDate: string;
-  if (period === 'month') {
+  let endDate: string | null = null;
+
+  if (/^\d{4}-\d{2}$/.test(period)) {
+    const [y, m] = period.split('-').map(Number);
+    startDate = new Date(y, m - 1, 1).toISOString().slice(0, 10);
+    endDate = new Date(y, m, 1).toISOString().slice(0, 10);
+  } else if (period === 'month') {
     startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
   } else if (period === '3months') {
     startDate = new Date(now.getFullYear(), now.getMonth() - 3, 1).toISOString().slice(0, 10);
@@ -23,24 +29,26 @@ export async function GET(req: NextRequest) {
 
   const supabase = makeClient();
 
+  const feeMonth = endDate ? period : now.toISOString().slice(0, 7);
+
+  let receiptsQ = supabase.from('receipts').select('total_amount').eq('status', 'completed').gte('created_at', `${startDate}T00:00:00`);
+  let ordersQ = supabase.from('fo_orders').select('subtotal, transport_cost, customs_cost, vat_import, freight_forwarder_cost, bank_fees, exchange_fees, local_delivery, other_costs, payment_amount, order_status').gte('created_at', startDate);
+  let expensesQ = supabase.from('business_expenses').select('amount, category').gte('expense_date', startDate);
+
+  if (endDate) {
+    receiptsQ = receiptsQ.lt('created_at', `${endDate}T00:00:00`);
+    ordersQ = ordersQ.lt('created_at', endDate);
+    expensesQ = expensesQ.lt('expense_date', endDate);
+  }
+
   const [receiptsRes, ordersRes, expensesRes, feeRes] = await Promise.all([
-    supabase
-      .from('receipts')
-      .select('total_amount')
-      .eq('status', 'completed')
-      .gte('created_at', `${startDate}T00:00:00`),
-    supabase
-      .from('fo_orders')
-      .select('subtotal, transport_cost, customs_cost, vat_import, freight_forwarder_cost, bank_fees, exchange_fees, local_delivery, other_costs, payment_amount, order_status')
-      .gte('created_at', startDate),
-    supabase
-      .from('business_expenses')
-      .select('amount, category')
-      .gte('expense_date', startDate),
+    receiptsQ,
+    ordersQ,
+    expensesQ,
     supabase
       .from('structure_fee_config')
       .select('applied_pct, reference_revenue')
-      .eq('month_year', now.toISOString().slice(0, 7))
+      .eq('month_year', feeMonth)
       .maybeSingle(),
   ]);
 
@@ -60,7 +68,7 @@ export async function GET(req: NextRequest) {
 
   const supplierPayments = orders
     .filter((o: any) => ['paid', 'payment_received_by_supplier'].includes(o.order_status))
-    .reduce((s: number, o: any) => s + (o.payment_amount || o.subtotal || 0), 0);
+    .reduce((s: number, o: any) => s + (o.payment_amount || 0), 0);
 
   const fixedExpenses = expenses.filter((e: any) => e.category === 'fixed_monthly').reduce((s: number, e: any) => s + e.amount, 0);
   const variableExpenses = expenses.filter((e: any) => e.category === 'variable').reduce((s: number, e: any) => s + e.amount, 0);
