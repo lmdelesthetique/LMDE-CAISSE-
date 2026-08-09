@@ -17,6 +17,7 @@ import {
   suspendProduct,
   markProductAsOrdered,
   fetchProductByBarcode,
+  setProductInactive,
   StockProduct,
   StockKPIs,
   StockMovement,
@@ -34,6 +35,7 @@ const STATUS_CONFIG = {
   rupture: { label: 'Rupture', color: 'bg-red-100 text-red-700 border-red-200', dot: 'bg-red-500', ring: 'ring-red-200' },
   commande: { label: 'Commande en cours', color: 'bg-blue-100 text-blue-700 border-blue-200', dot: 'bg-blue-500', ring: 'ring-blue-200' },
   suspendu: { label: 'Suspendu', color: 'bg-gray-100 text-gray-600 border-gray-200', dot: 'bg-gray-400', ring: 'ring-gray-200' },
+  inactif: { label: 'Inactif', color: 'bg-slate-100 text-slate-500 border-slate-200', dot: 'bg-slate-400', ring: 'ring-slate-200' },
 };
 
 const MOVEMENT_LABELS: Record<string, { label: string; color: string; icon: string }> = {
@@ -287,6 +289,15 @@ function QuickActionModal({ product, onClose, onSuccess, onOrderClick }: QuickAc
     onClose();
   };
 
+  const handleSetInactive = async (reactivate = false) => {
+    if (!reactivate && !confirm(`Marquer "${product.name}" comme inactif ? Il n'apparaîtra plus en caisse ni dans les alertes stock.`)) return;
+    setLoading(true);
+    await setProductInactive(product.id, reactivate);
+    setLoading(false);
+    onSuccess();
+    onClose();
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
@@ -349,6 +360,26 @@ function QuickActionModal({ product, onClose, onSuccess, onOrderClick }: QuickAc
               <Icon name="PauseCircleIcon" size={20} />
               <span className="text-sm font-500">Suspendre le produit</span>
             </button>
+            {product.productStatus === 'inactive' ? (
+              <button
+                onClick={() => handleSetInactive(true)}
+                disabled={loading}
+                className="flex items-center gap-3 p-4 rounded-xl border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-all col-span-2"
+              >
+                <Icon name="ArrowPathIcon" size={20} />
+                <span className="text-sm font-500">Réactiver le produit</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => handleSetInactive(false)}
+                disabled={loading}
+                className="flex items-center gap-3 p-4 rounded-xl border border-slate-300 text-slate-600 bg-slate-50 hover:bg-slate-100 transition-all col-span-2"
+              >
+                <Icon name="EyeSlashIcon" size={20} />
+                <span className="text-sm font-500">Marquer inactif</span>
+                <span className="ml-auto text-[10px] text-slate-400">Masqué en caisse</span>
+              </button>
+            )}
           </div>
         )}
 
@@ -481,7 +512,7 @@ export default function StockPage() {
   const [transitOrders, setTransitOrders] = useState<TransitOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string>('active');
   const [selectedProduct, setSelectedProduct] = useState<StockProduct | null>(null);
   const [orderProduct, setOrderProduct] = useState<StockProduct | null>(null);
   const [movementsLoading, setMovementsLoading] = useState(false);
@@ -564,8 +595,12 @@ export default function StockPage() {
         p.category.toLowerCase().includes(q)
       );
     }
-    if (statusFilter !== 'all') {
-      list = list.filter(p => p.stockStatus === statusFilter);
+    if (statusFilter === 'active') {
+      list = list.filter(p => p.stockStatus !== 'inactif');
+    } else if (statusFilter === 'inactif') {
+      list = list.filter(p => p.stockStatus === 'inactif');
+    } else if (statusFilter !== 'all') {
+      list = list.filter(p => p.stockStatus === statusFilter && p.stockStatus !== 'inactif');
     }
     return list;
   }, [products, search, statusFilter]);
@@ -1207,18 +1242,27 @@ export default function StockPage() {
                       />
                     </div>
                     <div className="flex gap-2 flex-wrap">
-                      {(['all', 'ok', 'faible', 'rupture', 'commande', 'suspendu'] as const).map(s => (
+                      {([
+                        { id: 'active', label: 'Actifs', dot: null },
+                        { id: 'all', label: 'Tous', dot: null },
+                        { id: 'ok', label: STATUS_CONFIG.ok.label, dot: STATUS_CONFIG.ok.dot },
+                        { id: 'faible', label: STATUS_CONFIG.faible.label, dot: STATUS_CONFIG.faible.dot },
+                        { id: 'rupture', label: STATUS_CONFIG.rupture.label, dot: STATUS_CONFIG.rupture.dot },
+                        { id: 'commande', label: STATUS_CONFIG.commande.label, dot: STATUS_CONFIG.commande.dot },
+                        { id: 'suspendu', label: STATUS_CONFIG.suspendu.label, dot: STATUS_CONFIG.suspendu.dot },
+                        { id: 'inactif', label: STATUS_CONFIG.inactif.label, dot: STATUS_CONFIG.inactif.dot },
+                      ]).map(s => (
                         <button
-                          key={s}
-                          onClick={() => setStatusFilter(s)}
+                          key={s.id}
+                          onClick={() => setStatusFilter(s.id)}
                           className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-500 border transition-all ${
-                            statusFilter === s
+                            statusFilter === s.id
                               ? 'bg-primary text-primary-foreground border-primary'
                               : 'bg-white border-border text-muted-foreground hover:bg-muted'
                           }`}
                         >
-                          {s !== 'all' && <span className={`w-2 h-2 rounded-full ${STATUS_CONFIG[s].dot}`} />}
-                          {s === 'all' ? 'Tous' : STATUS_CONFIG[s].label}
+                          {s.dot && <span className={`w-2 h-2 rounded-full ${s.dot}`} />}
+                          {s.label}
                         </button>
                       ))}
                     </div>

@@ -26,6 +26,7 @@ export async function GET(req: NextRequest) {
     .from('products')
     .select('id, name, ref, barcode, sell_price_ttc, sell_price_ht, tva, stock, image_url, status, product_status')
     .or(`name.ilike.%${q}%,ref.ilike.%${q}%,barcode.ilike.%${q}%`)
+    .neq('product_status', 'inactive')
     .order('name')
     .limit(limit);
 

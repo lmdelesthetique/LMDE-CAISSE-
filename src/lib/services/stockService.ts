@@ -35,7 +35,7 @@ export interface StockProduct {
   supplierLeadDays: number;
   isSuspended: boolean;
   status: string;
-  stockStatus: 'ok' | 'faible' | 'rupture' | 'commande' | 'suspendu';
+  stockStatus: 'ok' | 'faible' | 'rupture' | 'commande' | 'suspendu' | 'inactif';
   daysBeforeStockout: number | null;
   suggestedReorder: number;
   totalStockValue: number;
@@ -85,7 +85,9 @@ function computeStockStatus(p: {
   isSuspended: boolean;
   stockTransitContainer: number;
   stockTransitAvion: number;
-}): 'ok' | 'faible' | 'rupture' | 'commande' | 'suspendu' {
+  productStatus?: string;
+}): 'ok' | 'faible' | 'rupture' | 'commande' | 'suspendu' | 'inactif' {
+  if (p.productStatus === 'inactive') return 'inactif';
   if (p.isSuspended) return 'suspendu';
   if (p.stock <= 0) return 'rupture';
   if (p.stockTransitContainer > 0 || p.stockTransitAvion > 0) return 'commande';
@@ -137,7 +139,8 @@ function mapProduct(r: Record<string, unknown>): StockProduct {
   const sales30d = Number(r.sales_30d) || 0;
   const supplierLeadDays = Number(r.avg_restock_days) || Number(r.supplier_lead_days) || 21;
 
-  const stockStatus = computeStockStatus({ stock, minStock, isSuspended, stockTransitContainer, stockTransitAvion });
+  const productStatus = (r.product_status as string) || 'active';
+  const stockStatus = computeStockStatus({ stock, minStock, isSuspended, stockTransitContainer, stockTransitAvion, productStatus });
   const daysBeforeStockout = computeDaysBeforeStockout(stock, sales7d);
   const suggestedReorder = computeSuggestedReorder({ stock, minStock, sales30d, stockTransitContainer, stockTransitAvion, stockReserved, supplierLeadDays });
 
@@ -152,7 +155,7 @@ function mapProduct(r: Record<string, unknown>): StockProduct {
     purchasePriceSupplier: Number(r.purchase_price_supplier) || buyPrice,
     minOrderQty: Number(r.min_order_qty) || 1,
     avgRestockDays: supplierLeadDays,
-    productStatus: (r.product_status as string) || 'active',
+    productStatus,
     imageUrl: (r.image_url as string) || '',
     buyPrice,
     costPrice,
@@ -487,6 +490,15 @@ export async function fetchProductStockById(productId: string): Promise<{ stock:
     .maybeSingle();
   if (error || !data) return null;
   return { stock: Number(data.stock) || 0, name: data.name as string };
+}
+
+export async function setProductInactive(productId: string, reactivate = false): Promise<boolean> {
+  const res = await fetch(`/api/products/${productId}/set-inactive`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reactivate }),
+  });
+  return res.ok;
 }
 
 export async function fetchProductById(productId: string): Promise<StockProduct | null> {

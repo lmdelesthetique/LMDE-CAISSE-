@@ -318,66 +318,33 @@ export default function OrderDetailPage() {
 
   const updateStockForReception = useCallback(async (qtysToAdd: Record<string, number>) => {
     if (!order) return;
-    const supabase = createClient();
-
-    // DB-level idempotency guard — fresh fetch so it works after reloads and on any device
-    const { data: freshOrder } = await supabase
-      .from('fo_orders').select('stock_updated').eq('id', order.id).single();
-    if (freshOrder?.stock_updated) {
-      setStockUpdateBanner('⚠️ Stock déjà mis à jour pour cette commande');
-      setTimeout(() => setStockUpdateBanner(null), 5000);
-      return;
-    }
-
     setUpdatingStock(true);
-    let updatedCount = 0;
-    const shopifySyncItems: Array<{ productId: string; delta: number }> = [];
-    for (const line of (order.lines || [])) {
-      const qty = qtysToAdd[line.id] || 0;
-      if (qty <= 0) continue;
-      const { data: product } = await supabase
-        .from('products').select('id, stock').eq('ref', line.productRef).maybeSingle();
-      if (!product) continue;
-      const stockBefore = Number(product.stock) || 0;
-      const stockAfter = stockBefore + qty;
-      await supabase.from('products').update({ stock: stockAfter, updated_at: new Date().toISOString() }).eq('id', product.id);
-      if (line.color) {
-        const { data: varRow } = await supabase
-          .from('product_color_stock').select('id, quantity')
-          .eq('product_id', product.id).ilike('color_name', line.color).maybeSingle();
-        if (varRow) {
-          await supabase.from('product_color_stock').update({ quantity: Number(varRow.quantity || 0) + qty }).eq('id', varRow.id);
-        }
-      }
-      try {
-        await supabase.from('stock_movements').insert({
-          product_id: product.id, type: 'reception',
-          reason: `Commande fournisseur ${order.orderNumber}`,
-          quantity: qty, stock_before: stockBefore, stock_after: stockAfter,
-        });
-      } catch { /* non-blocking if table schema differs */ }
-      shopifySyncItems.push({ productId: product.id, delta: qty });
-      updatedCount++;
-    }
-
-    // Mark as done in DB — prevents any subsequent call from running again
-    await supabase.from('fo_orders').update({
-      stock_updated: true,
-      stock_updated_at: new Date().toISOString(),
-    }).eq('id', order.id);
-
-    // Non-blocking Shopify inventory sync
-    if (shopifySyncItems.length > 0) {
-      fetch('/api/shopify/sync-stock', {
+    try {
+      const res = await fetch(`/api/fo-orders/${order.id}/receive-stock`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: shopifySyncItems }),
-      }).catch(() => {});
+        body: JSON.stringify({ qtysToAdd }),
+      });
+      const json = await res.json();
+      if (json.alreadyDone) {
+        setStockUpdateBanner('⚠️ Stock déjà mis à jour pour cette commande');
+      } else if (json.ok) {
+        setStockUpdateBanner(`✅ Stock + prix coût mis à jour — ${json.updated} produit${json.updated > 1 ? 's' : ''} réapprovisionnés`);
+        // Non-blocking Shopify sync
+        fetch('/api/shopify/sync-stock', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orderId: order.id }),
+        }).catch(() => {});
+      } else {
+        setStockUpdateBanner(`❌ Erreur : ${json.error}`);
+      }
+    } catch (e: any) {
+      setStockUpdateBanner(`❌ Erreur : ${e.message}`);
+    } finally {
+      setUpdatingStock(false);
+      setTimeout(() => setStockUpdateBanner(null), 6000);
     }
-
-    setUpdatingStock(false);
-    setStockUpdateBanner(`✅ Stock mis à jour — ${updatedCount} produit${updatedCount > 1 ? 's' : ''} réapprovisionnés`);
-    setTimeout(() => setStockUpdateBanner(null), 6000);
   }, [order]);
 
   const handleStatusChange = async () => {
