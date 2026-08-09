@@ -404,6 +404,97 @@ function StructureFeePanel({ expenses }: StructureFeePanelProps) {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
+// ─── CSV import helpers ───────────────────────────────────────────────────────
+
+const CAT_MAP: Record<string, string> = {
+  'fixes mensuelles': 'fixed_monthly',
+  'quotidiennes': 'daily',
+  'variables': 'variable',
+};
+
+const TYPE_MAP: Record<string, string> = {
+  'essence': 'fuel', 'petites fournitures': 'supplies', 'livraison': 'delivery',
+  'achat urgent': 'urgent_purchase', 'frais boutique': 'shop_fees',
+  'loyer': 'rent', 'salaires': 'salary', 'assurance': 'insurance',
+  'internet': 'internet', 'abonnement logiciel': 'software', 'logiciel': 'software',
+  'comptabilité': 'accounting', 'électricité': 'electricity',
+  'publicité': 'advertising', 'transport exceptionnel': 'exceptional_transport',
+  'réparation': 'repair', 'achat ponctuel': 'one_time_purchase',
+  'frais bancaires': 'bank_fees',
+};
+
+const PAY_MAP: Record<string, string> = {
+  'espèces': 'cash', 'especes': 'cash', 'carte': 'card',
+  'virement': 'transfer', 'chèque': 'check', 'cheque': 'check',
+};
+
+interface CsvRow {
+  date: string;
+  categorie: string;
+  type: string;
+  libelle: string;
+  montant: number;
+  modePaiement: string;
+  note: string;
+  category: string;
+  expense_type: string;
+  payment_method: string;
+  valid: boolean;
+  skipReason?: string;
+}
+
+function parseCSV(text: string): CsvRow[] {
+  const lines = text.split(/\r?\n/).filter(Boolean);
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(',').map((h) => h.trim().toLowerCase().replace(/["﻿]/g, ''));
+  const rows: CsvRow[] = [];
+
+  for (let i = 1; i < lines.length; i++) {
+    const cols: string[] = [];
+    let cur = '';
+    let inQ = false;
+    for (const ch of lines[i]) {
+      if (ch === '"') { inQ = !inQ; }
+      else if (ch === ',' && !inQ) { cols.push(cur); cur = ''; }
+      else { cur += ch; }
+    }
+    cols.push(cur);
+
+    const get = (key: string) => (cols[headers.indexOf(key)] ?? '').trim().replace(/^"|"$/g, '');
+    const cat = get('categorie').toLowerCase();
+    const montant = parseFloat(get('montant_eur') || '0');
+    const category = CAT_MAP[cat] ?? '';
+    const rawType = get('type').toLowerCase();
+    const expense_type = TYPE_MAP[rawType] ?? 'other';
+    const rawPay = get('mode_paiement').toLowerCase();
+    const payment_method = PAY_MAP[rawPay] ?? 'other';
+
+    const skipReason = !category
+      ? `Catégorie ignorée : "${get('categorie')}"`
+      : montant <= 0 ? 'Montant invalide'
+      : !get('date') ? 'Date manquante'
+      : undefined;
+
+    rows.push({
+      date: get('date'),
+      categorie: get('categorie'),
+      type: get('type'),
+      libelle: get('libelle'),
+      montant,
+      modePaiement: get('mode_paiement'),
+      note: get('note'),
+      category,
+      expense_type,
+      payment_method,
+      valid: !skipReason,
+      skipReason,
+    });
+  }
+  return rows;
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
 export default function DepensesFournisseursPage() {
   const supabase = createClient();
   const [activeTab, setActiveTab] = useState<'supplier' | 'business'>('supplier');
@@ -413,6 +504,12 @@ export default function DepensesFournisseursPage() {
   const [editExpense, setEditExpense] = useState<BusinessExpense | null>(null);
   const [filterCategory, setFilterCategory] = useState<ExpenseCategory | 'all'>('all');
   const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7));
+
+  const [csvRows, setCsvRows] = useState<CsvRow[]>([]);
+  const [showImport, setShowImport] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<string | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   // Supplier analysis state (existing)
   const [orders, setOrders] = useState<any[]>([]);
@@ -526,6 +623,52 @@ export default function DepensesFournisseursPage() {
     URL.revokeObjectURL(url);
   };
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      const rows = parseCSV(text);
+      setCsvRows(rows);
+      setImportResult(null);
+      setShowImport(true);
+    };
+    reader.readAsText(file, 'utf-8');
+    e.target.value = '';
+  };
+
+  const handleImportConfirm = async () => {
+    const validRows = csvRows.filter((r) => r.valid);
+    if (validRows.length === 0) return;
+    setImporting(true);
+    try {
+      const payload = validRows.map((r) => ({
+        category: r.category,
+        expense_type: r.expense_type,
+        label: r.libelle,
+        amount: r.montant,
+        expense_date: r.date,
+        payment_method: r.payment_method,
+        note: r.note || null,
+        is_recurring: false,
+      }));
+      const res = await fetch('/api/expenses/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows: payload }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? 'Erreur import');
+      setImportResult(`✅ ${json.inserted} dépenses importées avec succès`);
+      await loadExpenses();
+    } catch (err: any) {
+      setImportResult(`❌ Erreur : ${err.message}`);
+    } finally {
+      setImporting(false);
+    }
+  };
+
   // Filter expenses
   const filteredExpenses = expenses.filter((e) => {
     if (filterCategory !== 'all' && e.category !== filterCategory) return false;
@@ -598,6 +741,14 @@ export default function DepensesFournisseursPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <input ref={fileInputRef} type="file" accept=".csv" className="hidden" onChange={handleFileSelect} />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Icon name="ArrowUpTrayIcon" size={16} />
+              Importer CSV
+            </button>
             <button
               onClick={exportCSV}
               className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors"
@@ -939,6 +1090,98 @@ export default function DepensesFournisseursPage() {
           onClose={() => { setShowForm(false); setEditExpense(null); }}
           onSave={handleSaveExpense}
         />
+      )}
+
+      {/* CSV Import modal */}
+      {showImport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+              <div>
+                <h2 className="text-lg font-700 text-foreground">Importer des dépenses</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {csvRows.filter((r) => r.valid).length} ligne(s) à importer ·{' '}
+                  {csvRows.filter((r) => !r.valid).length} ignorée(s)
+                </p>
+              </div>
+              <button onClick={() => setShowImport(false)} className="p-2 rounded-lg hover:bg-muted text-muted-foreground">
+                <Icon name="XMarkIcon" size={18} />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 p-6">
+              {importResult ? (
+                <div className={`rounded-xl p-4 text-sm font-medium ${importResult.startsWith('✅') ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+                  {importResult}
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-border bg-muted/30">
+                        <th className="text-left px-3 py-2 font-600 text-muted-foreground">Statut</th>
+                        <th className="text-left px-3 py-2 font-600 text-muted-foreground">Date</th>
+                        <th className="text-left px-3 py-2 font-600 text-muted-foreground">Catégorie</th>
+                        <th className="text-left px-3 py-2 font-600 text-muted-foreground">Type</th>
+                        <th className="text-left px-3 py-2 font-600 text-muted-foreground">Libellé</th>
+                        <th className="text-right px-3 py-2 font-600 text-muted-foreground">Montant</th>
+                        <th className="text-left px-3 py-2 font-600 text-muted-foreground">Paiement</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {csvRows.map((row, i) => (
+                        <tr key={i} className={`border-b border-border/50 ${row.valid ? '' : 'opacity-40'}`}>
+                          <td className="px-3 py-2">
+                            {row.valid
+                              ? <span className="text-emerald-600 font-600">✓</span>
+                              : <span className="text-muted-foreground text-[10px]">{row.skipReason}</span>}
+                          </td>
+                          <td className="px-3 py-2 text-foreground">{row.date}</td>
+                          <td className="px-3 py-2">
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-600 ${
+                              row.category === 'fixed_monthly' ? 'bg-purple-100 text-purple-700' :
+                              row.category === 'daily' ? 'bg-blue-100 text-blue-700' :
+                              row.category === 'variable' ? 'bg-amber-100 text-amber-700' : 'bg-muted text-muted-foreground'
+                            }`}>
+                              {row.categorie}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-muted-foreground">{row.type}</td>
+                          <td className="px-3 py-2 text-foreground max-w-[200px] truncate">{row.libelle}</td>
+                          <td className="px-3 py-2 text-right font-600 text-foreground">{row.montant.toFixed(2)} €</td>
+                          <td className="px-3 py-2 text-muted-foreground">{row.modePaiement}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {!importResult && (
+              <div className="flex items-center justify-between px-6 py-4 border-t border-border">
+                <button onClick={() => setShowImport(false)} className="px-4 py-2 border border-border rounded-lg text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">
+                  Annuler
+                </button>
+                <button
+                  onClick={handleImportConfirm}
+                  disabled={importing || csvRows.filter((r) => r.valid).length === 0}
+                  className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                >
+                  <Icon name="ArrowUpTrayIcon" size={15} />
+                  {importing ? 'Import en cours...' : `Importer ${csvRows.filter((r) => r.valid).length} dépense(s)`}
+                </button>
+              </div>
+            )}
+            {importResult && (
+              <div className="px-6 py-4 border-t border-border">
+                <button onClick={() => setShowImport(false)} className="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors">
+                  Fermer
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </AppLayout>
   );
