@@ -664,11 +664,25 @@ export default function ClientDashboardPage() {
   const [updatingShipping, setUpdatingShipping] = useState(false);
 
   // ── Delivery destination + address (post-confirmation) ───────────────────
-  const [deliveryStep, setDeliveryStep] = useState<'choice' | 'form' | null>(null);
+  const [deliveryStep, setDeliveryStep] = useState<'choice' | 'form' | 'pickup_slot' | null>(null);
   const [deliveryDestination, setDeliveryDestination] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [selectedPickupSlot, setSelectedPickupSlot] = useState('');
   const [savingDelivery, setSavingDelivery] = useState(false);
   const [deliverySaved, setDeliverySaved] = useState(false);
+
+  const PICKUP_SLOTS: string[] = (() => {
+    const slots: string[] = [];
+    let start = 8 * 60 + 30;
+    const maxEnd = 16 * 60 + 45;
+    while (start + 30 <= maxEnd) {
+      const end = start + 30;
+      const fmt = (m: number) => `${Math.floor(m / 60)}h${(m % 60).toString().padStart(2, '0')}`;
+      slots.push(`${fmt(start)} - ${fmt(end)}`);
+      start += 30;
+    }
+    return slots;
+  })();
 
   const handleSaveDelivery = async (destination: string, address?: string) => {
     if (!currentOrder) return;
@@ -1191,8 +1205,8 @@ export default function ClientDashboardPage() {
                 {isPastDeadline ? 'Date limite dépassée' : `${daysLeft} jour${daysLeft > 1 ? 's' : ''} avant clôture`}
               </span>
               {currentOrder && (
-                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${STATUS_COLOR[currentOrder.statut_livraison === 'en_livraison' ? 'en_livraison' : currentOrder.status]}`}>
-                  {STATUS_LABEL[currentOrder.statut_livraison === 'en_livraison' ? 'en_livraison' : currentOrder.status]}
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${currentOrder.statut_livraison === 'retrait_magasin' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : STATUS_COLOR[currentOrder.statut_livraison === 'en_livraison' ? 'en_livraison' : currentOrder.status]}`}>
+                  {currentOrder.statut_livraison === 'retrait_magasin' ? '🏪 Disponible en magasin' : STATUS_LABEL[currentOrder.statut_livraison === 'en_livraison' ? 'en_livraison' : currentOrder.status]}
                 </span>
               )}
             </div>
@@ -1383,12 +1397,22 @@ export default function ClientDashboardPage() {
                     <p className="text-xs text-emerald-700 font-semibold">Box confirmée ! Votre conseillère prépare votre commande.</p>
                   </div>
                 ) : currentOrder?.status === 'preparing' || currentOrder?.status === 'shipped' ? (
-                  /* ── Préparation / Expédiée ── */
-                  <div className="flex items-center gap-2 p-3 bg-blue-50 rounded-xl border border-blue-100">
-                    <span className="text-base shrink-0">{currentOrder.status === 'shipped' ? '🚀' : '🔧'}</span>
-                    <p className="text-xs text-blue-700 font-semibold">
-                      {currentOrder.status === 'shipped' ? 'Votre box a été expédiée !' : 'Votre box est en cours de préparation.'}
-                    </p>
+                  /* ── Préparation / Expédiée / Retrait dispo ── */
+                  <div className={`flex items-center gap-2 p-3 rounded-xl border ${currentOrder.statut_livraison === 'retrait_magasin' ? 'bg-emerald-50 border-emerald-100' : 'bg-blue-50 border-blue-100'}`}>
+                    <span className="text-base shrink-0">
+                      {currentOrder.statut_livraison === 'retrait_magasin' ? '🏪' : currentOrder.status === 'shipped' ? '🚀' : '🔧'}
+                    </span>
+                    <div>
+                      <p className={`text-xs font-semibold ${currentOrder.statut_livraison === 'retrait_magasin' ? 'text-emerald-700' : 'text-blue-700'}`}>
+                        {currentOrder.statut_livraison === 'retrait_magasin'
+                          ? 'Votre box est prête à être récupérée en magasin !'
+                          : currentOrder.status === 'shipped' ? 'Votre box a été expédiée !'
+                          : 'Votre box est en cours de préparation.'}
+                      </p>
+                      {currentOrder.statut_livraison === 'retrait_magasin' && currentOrder.delivery_address && (
+                        <p className="text-xs text-emerald-600 mt-0.5">🕐 Créneau préféré : {currentOrder.delivery_address}</p>
+                      )}
+                    </div>
                   </div>
                 ) : canEdit ? (
                   /* ── En cours (open) : bouton confirmer ── */
@@ -1424,10 +1448,11 @@ export default function ClientDashboardPage() {
               // Already saved — show summary + edit option
               if (dest) {
                 const DEST_LABELS: Record<string, string> = {
-                  retrait: '🏪 Retrait magasin', martinique: '🏝️ Martinique', guadeloupe: '✈️ Guadeloupe', guyane: '✈️ Guyane', france: '✈️ France métropolitaine',
+                  retrait: '🏪 Retrait en magasin', martinique: '📦 Expédition — Martinique', guadeloupe: '📦 Expédition — Guadeloupe', guyane: '📦 Expédition — Guyane', france: '📦 Expédition — France métropolitaine',
                 };
+                const isRetrait = dest === 'retrait';
                 return (
-                  <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 space-y-2">
+                  <div className={`bg-white rounded-2xl p-4 shadow-sm border space-y-2 ${isRetrait ? 'border-emerald-200' : 'border-gray-100'}`}>
                     <div className="flex items-center justify-between">
                       <p className="text-xs font-bold text-gray-700 uppercase tracking-wide">Mode de réception</p>
                       {currentOrder.status === 'confirmed' && (
@@ -1435,12 +1460,55 @@ export default function ClientDashboardPage() {
                       )}
                     </div>
                     <p className="text-sm font-semibold text-gray-800">{DEST_LABELS[dest] ?? dest}</p>
-                    {currentOrder.delivery_address && (
+                    {isRetrait && currentOrder.delivery_address && (
+                      <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-1.5">🕐 Créneau préféré : <strong>{currentOrder.delivery_address}</strong></p>
+                    )}
+                    {isRetrait && !currentOrder.delivery_address && (
+                      <p className="text-xs text-gray-400 italic">Aucun créneau préféré sélectionné</p>
+                    )}
+                    {!isRetrait && currentOrder.delivery_address && (
                       <p className="text-xs text-gray-500">📍 {currentOrder.delivery_address}</p>
                     )}
                     {currentOrder.delivery_payment_sent && (
                       <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-1.5">💳 Lien de paiement des frais de livraison envoyé</p>
                     )}
+                  </div>
+                );
+              }
+
+              // Retrait — slot picker
+              if (deliveryStep === 'pickup_slot') {
+                return (
+                  <div className="bg-white rounded-2xl p-4 shadow-sm border border-emerald-200 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-bold text-gray-800">🏪 Retrait en magasin</p>
+                        <p className="text-xs text-gray-500 mt-0.5">Choisissez votre créneau de visite préféré</p>
+                      </div>
+                      <button onClick={() => setDeliveryStep('choice')} className="text-xs text-gray-400 hover:text-gray-600">← Retour</button>
+                    </div>
+                    <p className="text-[11px] text-gray-500 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2">
+                      📍 <strong>Le Monde de l'Esthétique</strong> · Ouvert 8h30 – 16h45<br/>
+                      Nous vous confirmerons la disponibilité de votre box par WhatsApp.
+                    </p>
+                    <div className="grid grid-cols-3 gap-2">
+                      {PICKUP_SLOTS.map((slot) => (
+                        <button
+                          key={slot}
+                          onClick={() => setSelectedPickupSlot(slot === selectedPickupSlot ? '' : slot)}
+                          className={`py-2 px-1 text-xs font-semibold rounded-xl border-2 transition-all ${selectedPickupSlot === slot ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-gray-200 text-gray-600 hover:border-emerald-300'}`}
+                        >
+                          {slot}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      onClick={() => handleSaveDelivery('retrait', selectedPickupSlot || undefined)}
+                      disabled={savingDelivery}
+                      className="w-full py-3 bg-emerald-500 text-white rounded-xl text-sm font-bold hover:bg-emerald-600 transition-colors disabled:opacity-40"
+                    >
+                      {savingDelivery ? 'Enregistrement…' : selectedPickupSlot ? `✓ Confirmer — ${selectedPickupSlot}` : '✓ Confirmer sans préférence de créneau'}
+                    </button>
                   </div>
                 );
               }
@@ -1507,9 +1575,8 @@ export default function ClientDashboardPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <button
-                      onClick={() => handleSaveDelivery('retrait')}
-                      disabled={savingDelivery}
-                      className="flex flex-col items-center gap-1.5 py-4 rounded-xl border-2 border-gray-200 hover:border-emerald-400 hover:bg-emerald-50 text-gray-600 hover:text-emerald-700 font-semibold transition-all text-xs active:scale-95 disabled:opacity-50"
+                      onClick={() => { setDeliveryStep('pickup_slot'); setSelectedPickupSlot(''); }}
+                      className="flex flex-col items-center gap-1.5 py-4 rounded-xl border-2 border-gray-200 hover:border-emerald-400 hover:bg-emerald-50 text-gray-600 hover:text-emerald-700 font-semibold transition-all text-xs active:scale-95"
                     >
                       <span className="text-2xl">🏪</span>
                       Retrait magasin

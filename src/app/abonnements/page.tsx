@@ -101,11 +101,11 @@ const ORDER_COLOR: Record<OrderStatus, string> = {
 // ─── Destination helpers ──────────────────────────────────────────────────────
 
 const DEST_LABEL: Record<string, string> = {
-  retrait: '🏪 Retrait magasin',
-  martinique: '🏝️ Martinique',
-  guadeloupe: '✈️ Guadeloupe',
-  guyane: '✈️ Guyane',
-  france: '✈️ France métro',
+  retrait: '🏪 Retrait en magasin',
+  martinique: '📦 Expédition — Martinique',
+  guadeloupe: '📦 Expédition — Guadeloupe',
+  guyane: '📦 Expédition — Guyane',
+  france: '📦 Expédition — France métro',
 };
 const DEST_COLOR: Record<string, string> = {
   retrait: 'bg-emerald-50 text-emerald-700 border-emerald-200',
@@ -1660,9 +1660,15 @@ export default function AbonnementsPage() {
                         <span className="text-base">
                           {order?.delivery_destination === 'retrait' ? '🏪' : order?.delivery_destination ? '📦' : '⚠️'}
                         </span>
-                        <div>
+                        <div className="min-w-0">
                           <p className="text-[10px] font-semibold opacity-70 uppercase tracking-wide">Mode de livraison choisi</p>
                           <p>{order?.delivery_destination ? (DEST_LABEL[order.delivery_destination] ?? order.delivery_destination) : 'Non choisi — en attente de la cliente'}</p>
+                          {order?.delivery_destination === 'retrait' && order.delivery_address && (
+                            <p className="text-[11px] mt-0.5 opacity-80">🕐 Créneau préféré : {order.delivery_address}</p>
+                          )}
+                          {order?.delivery_destination && order.delivery_destination !== 'retrait' && order.delivery_address && (
+                            <p className="text-[11px] mt-0.5 opacity-80 truncate">📍 {order.delivery_address}</p>
+                          )}
                         </div>
                       </div>
 
