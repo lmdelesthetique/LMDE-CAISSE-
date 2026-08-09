@@ -399,57 +399,40 @@ function PrepModal({
               {notifying ? 'Notification en cours…' : '✅ Box est prête — Notifier la cliente'}
             </button>
           ) : (
-            /* STEP 2: dispatch options */
+            /* STEP 2: always show all 3 dispatch options, highlight the chosen one */
             <div className="space-y-2">
               <p className="text-xs font-bold text-gray-500 uppercase tracking-wide text-center">
-                {dest === 'retrait' ? '🏪 Mode choisi : Retrait en magasin' : 'Expédier ou livrer'}
+                {dest ? `Mode choisi : ${DEST_LABEL[dest] ?? dest}` : 'Expédier ou livrer'}
               </p>
-              {dest === 'retrait' ? (
-                <div className="space-y-2">
-                  <button
-                    onClick={handleMarkPickupReady}
-                    disabled={markingPickup}
-                    className="w-full flex flex-col items-center gap-1.5 py-4 bg-emerald-50 border-2 border-emerald-400 text-emerald-800 font-bold rounded-xl text-sm hover:bg-emerald-100 active:scale-95 transition-all disabled:opacity-50"
-                  >
-                    <span className="text-2xl">🏪</span>
-                    {markingPickup ? 'En cours…' : 'Box disponible — Notifier retrait magasin'}
-                  </button>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      onClick={handleCreateExpedition}
-                      disabled={creatingExpedition}
-                      className="flex flex-col items-center gap-1.5 py-3 bg-indigo-50 border border-indigo-200 text-indigo-600 font-semibold rounded-xl text-xs hover:bg-indigo-100 active:scale-95 transition-all disabled:opacity-50 opacity-60"
-                    >
-                      <span className="text-xl">📦</span>
-                      {creatingExpedition ? 'En cours…' : 'Colissimo'}
-                    </button>
-                    <button
-                      onClick={() => { onClose(); onDeliver(); }}
-                      className="flex flex-col items-center gap-1.5 py-3 bg-orange-50 border border-orange-200 text-orange-600 font-semibold rounded-xl text-xs hover:bg-orange-100 active:scale-95 transition-all opacity-60"
-                    >
-                      <span className="text-xl">🚚</span>
-                      Livreur
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={handleCreateExpedition}
-                    disabled={creatingExpedition}
-                    className="flex flex-col items-center gap-1.5 py-3.5 bg-indigo-50 border-2 border-indigo-300 text-indigo-700 font-bold rounded-xl text-xs hover:bg-indigo-100 active:scale-95 transition-all disabled:opacity-50"
-                  >
-                    <span className="text-2xl">📦</span>
-                    {creatingExpedition ? 'En cours…' : 'Créer étiquette\n(Colissimo)'}
-                  </button>
-                  <button
-                    onClick={() => { onClose(); onDeliver(); }}
-                    className="flex flex-col items-center gap-1.5 py-3.5 bg-orange-50 border-2 border-orange-300 text-orange-700 font-bold rounded-xl text-xs hover:bg-orange-100 active:scale-95 transition-all"
-                  >
-                    <span className="text-2xl">🚚</span>
-                    Confier à<br/>un livreur
-                  </button>
-                </div>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  onClick={handleCreateExpedition}
+                  disabled={creatingExpedition}
+                  className={`flex flex-col items-center gap-1.5 py-3.5 rounded-xl text-xs font-bold active:scale-95 transition-all disabled:opacity-50 ${dest && dest !== 'retrait' && dest !== 'livreur' ? 'bg-indigo-100 border-2 border-indigo-500 text-indigo-800 ring-2 ring-indigo-300' : 'bg-indigo-50 border-2 border-indigo-300 text-indigo-700 hover:bg-indigo-100'}`}
+                >
+                  <span className="text-2xl">📦</span>
+                  {creatingExpedition ? '…' : <span className="text-center leading-tight">Créer<br/>étiquette</span>}
+                </button>
+                <button
+                  onClick={() => { onClose(); onDeliver(); }}
+                  className={`flex flex-col items-center gap-1.5 py-3.5 rounded-xl text-xs font-bold active:scale-95 transition-all ${dest === 'livreur' ? 'bg-orange-100 border-2 border-orange-500 text-orange-800 ring-2 ring-orange-300' : 'bg-orange-50 border-2 border-orange-300 text-orange-700 hover:bg-orange-100'}`}
+                >
+                  <span className="text-2xl">🚚</span>
+                  <span className="text-center leading-tight">Confier<br/>livreur</span>
+                </button>
+                <button
+                  onClick={handleMarkPickupReady}
+                  disabled={markingPickup}
+                  className={`flex flex-col items-center gap-1.5 py-3.5 rounded-xl text-xs font-bold active:scale-95 transition-all disabled:opacity-50 ${dest === 'retrait' ? 'bg-emerald-100 border-2 border-emerald-500 text-emerald-800 ring-2 ring-emerald-300' : 'bg-emerald-50 border-2 border-emerald-300 text-emerald-700 hover:bg-emerald-100'}`}
+                >
+                  <span className="text-2xl">🏪</span>
+                  {markingPickup ? '…' : <span className="text-center leading-tight">Retrait<br/>magasin</span>}
+                </button>
+              </div>
+              {dest && (
+                <p className="text-[10px] text-center text-gray-400">
+                  ✓ Mode choisi par la cliente · bouton mis en évidence
+                </p>
               )}
             </div>
           )}
@@ -1669,6 +1652,17 @@ export default function AbonnementsPage() {
                           <p className="font-semibold text-foreground">
                             {sub.plan?.shipping_free ? 'Offerte' : `${sub.plan?.shipping_cost ?? '—'} €`}
                           </p>
+                        </div>
+                      </div>
+
+                      {/* Delivery mode chosen by client */}
+                      <div className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-xs font-bold ${order?.delivery_destination ? (DEST_COLOR[order.delivery_destination] ?? 'bg-gray-50 text-gray-700 border-gray-200') : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                        <span className="text-base">
+                          {order?.delivery_destination === 'retrait' ? '🏪' : order?.delivery_destination ? '📦' : '⚠️'}
+                        </span>
+                        <div>
+                          <p className="text-[10px] font-semibold opacity-70 uppercase tracking-wide">Mode de livraison choisi</p>
+                          <p>{order?.delivery_destination ? (DEST_LABEL[order.delivery_destination] ?? order.delivery_destination) : 'Non choisi — en attente de la cliente'}</p>
                         </div>
                       </div>
 
