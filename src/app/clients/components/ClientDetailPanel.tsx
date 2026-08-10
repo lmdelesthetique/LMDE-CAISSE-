@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Icon from '@/components/ui/AppIcon';
+import { normalizePhone } from '@/lib/utils/phoneUtils';
 import {
   clientService,
   type Client,
@@ -1159,7 +1160,7 @@ export default function ClientDetailPanel({
                     {(() => {
                       const planName = selectedPlan?.name ?? subscription?.subscriptionType ?? '';
                       const link = getStripePaymentLink(planName, client.email);
-                      const phone = (client.whatsapp || client.phone || portalPhone || '').replace(/[\s+]/g, '');
+                      const phone = normalizePhone(client.whatsapp || client.phone || portalPhone || '');
                       if (!link || !phone) return null;
                       const firstName = client.firstName ?? 'Abonnée';
                       const msg = `Bonjour ${firstName},\n\nVoici votre lien de paiement pour votre abonnement ${planName}${selectedPlan ? ` (${selectedPlan.price} €/mois)` : ''} :\n\n${link}\n\nAprès paiement, votre abonnement sera activé automatiquement.\n\nLe Monde de l'Esthétique`;

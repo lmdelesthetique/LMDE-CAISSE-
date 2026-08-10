@@ -11,37 +11,13 @@ export interface WhatsAppResult {
   provider?: 'meta' | 'brevo' | 'email' | 'manual';
 }
 
+import { normalizePhone } from '@/lib/utils/phoneUtils';
+
 function cleanPhone(raw: string): string {
-  // Strip spaces, dashes, dots, parentheses, then remove leading +
-  let phone = raw.replace(/[\s\-().]/g, '').replace(/^\+/, '');
-
-  // International dialing prefix 00xx → remove the 00
-  if (phone.startsWith('00')) phone = phone.slice(2);
-
-  // 10-digit local format starting with 0
-  if (phone.startsWith('0') && phone.length === 10) {
-    const local = phone.slice(1);
-    if (phone.startsWith('0590') || phone.startsWith('0690') || phone.startsWith('0691')) {
-      // Guadeloupe (+590) : landlines 0590, mobiles 0690/0691
-      phone = '590' + local;
-    } else if (phone.startsWith('069') || phone.startsWith('0596')) {
-      // Martinique (+596) : mobiles 0696/0692/0693/0694, landlines 0596
-      phone = '596' + local;
-    } else if (phone.startsWith('0692') || phone.startsWith('0693')) {
-      // Réunion (+262)
-      phone = '262' + local;
-    } else {
-      // France métropolitaine : 06, 07, 01-05, 08, 09
-      phone = '33' + local;
-    }
-  }
-  // 9-digit number without country code → assume Martinique local mobile
-  else if (phone.length === 9 && /^[67]/.test(phone)) {
-    phone = '596' + phone;
-  }
-  // Anything else: already has country code (33xxxxxxxxx, 86xxxxxxxxxx, 1xxxxxxxxxx, etc.)
-
-  return phone;
+  // Handle 00XX international prefix before delegating to shared normalizer
+  const stripped = raw.replace(/[\s\-().]/g, '').replace(/^\+/, '');
+  const withoutDoubleZero = stripped.startsWith('00') ? stripped.slice(2) : stripped;
+  return normalizePhone(withoutDoubleZero);
 }
 
 async function sendViaMeta(phone: string, message: string): Promise<{ ok: boolean; error?: string }> {

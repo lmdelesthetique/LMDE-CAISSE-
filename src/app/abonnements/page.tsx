@@ -5,6 +5,7 @@ import AppLayout from '@/components/AppLayout';
 import { createClient } from '@/lib/supabase/client';
 import ClientFormModal from '@/app/clients/components/ClientFormModal';
 import { clientService, type Client } from '@/lib/services/clientService';
+import { normalizePhone } from '@/lib/utils/phoneUtils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -50,12 +51,7 @@ interface SubscriptionRow {
 type DriverOption = { id: string; name: string; phone: string | null };
 
 // ─── Phone → international format for wa.me ──────────────────────────────────
-function toWaPhone(raw: string): string {
-  const digits = raw.replace(/\D/g, '');
-  if (digits.startsWith('596') || digits.startsWith('590') || digits.startsWith('33') || digits.startsWith('262')) return digits;
-  if (digits.length === 10 && digits.startsWith('0')) return '596' + digits.slice(1);
-  return digits;
-}
+const toWaPhone = normalizePhone;
 
 // ─── Stripe Payment Links ─────────────────────────────────────────────────────
 
