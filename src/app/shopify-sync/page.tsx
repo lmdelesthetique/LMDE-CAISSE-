@@ -384,6 +384,12 @@ export default function ShopifySyncPage() {
   const [pushProgress, setPushProgress] = useState<{ done: number; total: number } | null>(null);
   const [pushResult, setPushResult] = useState<{ ok: number; failed: number } | null>(null);
 
+  // ── Backfill state ─────────────────────────────────────────────────────────
+  const [backfillDays, setBackfillDays] = useState(90);
+  const [backfillRunning, setBackfillRunning] = useState(false);
+  const [backfillResult, setBackfillResult] = useState<any | null>(null);
+  const [showBackfill, setShowBackfill] = useState(false);
+
   // ── Load ignored from localStorage on mount ────────────────────────────────
   useEffect(() => {
     setIgnoredIds(loadIgnoredIds());
@@ -592,6 +598,35 @@ export default function ShopifySyncPage() {
     setTimeout(() => setPushResult(null), 8000);
   }, [matches]);
 
+  // ── Backfill handlers ──────────────────────────────────────────────────────
+  const handleBackfillAnalyze = useCallback(async () => {
+    setBackfillRunning(true);
+    setBackfillResult(null);
+    try {
+      const res = await fetch(`/api/shopify/backfill-stock?days=${backfillDays}`);
+      const data = await res.json();
+      setBackfillResult({ ...data, applied: false });
+    } catch (e: any) {
+      setBackfillResult({ error: e.message });
+    } finally {
+      setBackfillRunning(false);
+    }
+  }, [backfillDays]);
+
+  const handleBackfillApply = useCallback(async () => {
+    if (!confirm(`Appliquer le rattrapage de stock pour les ${backfillDays} derniers jours ? Cette action est irréversible.`)) return;
+    setBackfillRunning(true);
+    try {
+      const res = await fetch(`/api/shopify/backfill-stock?days=${backfillDays}`, { method: 'POST' });
+      const data = await res.json();
+      setBackfillResult({ ...data, applied: true });
+    } catch (e: any) {
+      setBackfillResult({ error: e.message });
+    } finally {
+      setBackfillRunning(false);
+    }
+  }, [backfillDays]);
+
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <AppLayout>
@@ -653,6 +688,143 @@ export default function ShopifySyncPage() {
                   />
                 </div>
                 <span className="text-xs font-medium text-muted-foreground w-12 text-right">{pct}%</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Backfill banner */}
+        <div className="border-b border-amber-200 bg-amber-50 px-6 lg:px-8 py-3">
+          <div className="max-w-screen-xl mx-auto">
+            <button
+              onClick={() => setShowBackfill((v) => !v)}
+              className="flex items-center gap-2 text-sm font-medium text-amber-800 hover:text-amber-900"
+            >
+              <span>🔍 Rattrapage stock Shopify — ventes non décomptées</span>
+              <span className="text-xs text-amber-600">{showBackfill ? '▲ Fermer' : '▼ Ouvrir'}</span>
+            </button>
+
+            {showBackfill && (
+              <div className="mt-3 space-y-4">
+                <p className="text-xs text-amber-700">
+                  Analyse les commandes Shopify payées et détecte celles dont le stock n&apos;a pas été décompté dans BeautyPOS.
+                  Lance d&apos;abord <strong>Analyser</strong> pour voir le rapport, puis <strong>Appliquer</strong> pour corriger.
+                </p>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <label className="text-xs text-amber-800 font-medium">Période :</label>
+                  {[30, 60, 90, 180, 365].map((d) => (
+                    <button
+                      key={d}
+                      onClick={() => setBackfillDays(d)}
+                      className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition-colors ${
+                        backfillDays === d
+                          ? 'bg-amber-600 text-white border-amber-600'
+                          : 'bg-white text-amber-700 border-amber-300 hover:bg-amber-100'
+                      }`}
+                    >
+                      {d} jours
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleBackfillAnalyze}
+                    disabled={backfillRunning}
+                    className="text-sm font-medium bg-amber-600 text-white rounded-lg px-4 py-2 hover:bg-amber-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+                  >
+                    {backfillRunning && !backfillResult ? <><span className="animate-spin">⟳</span> Analyse…</> : '🔍 Analyser (sans modifier)'}
+                  </button>
+                  {backfillResult && !backfillResult.error && backfillResult.summary?.orders_needing_backfill > 0 && !backfillResult.applied && (
+                    <button
+                      onClick={handleBackfillApply}
+                      disabled={backfillRunning}
+                      className="text-sm font-medium bg-red-600 text-white rounded-lg px-4 py-2 hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+                    >
+                      {backfillRunning ? <><span className="animate-spin">⟳</span> Application…</> : `⚡ Appliquer (${backfillResult.summary.total_lines_deducted} lignes)`}
+                    </button>
+                  )}
+                </div>
+
+                {backfillResult?.error && (
+                  <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
+                    ❌ {backfillResult.error}
+                  </div>
+                )}
+
+                {backfillResult && !backfillResult.error && (
+                  <div className="space-y-3">
+                    {/* Summary */}
+                    <div className={`rounded-xl p-4 border ${backfillResult.applied ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-amber-200'}`}>
+                      <p className={`text-sm font-600 mb-3 ${backfillResult.applied ? 'text-emerald-800' : 'text-amber-800'}`}>
+                        {backfillResult.applied ? '✅ Rattrapage appliqué' : '📊 Rapport d\'analyse'} — {backfillResult.period_days} derniers jours
+                      </p>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div className="text-center">
+                          <p className="text-2xl font-700 text-foreground">{backfillResult.summary.total_shopify_orders}</p>
+                          <p className="text-[11px] text-muted-foreground">Commandes Shopify</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-2xl font-700 text-emerald-700">{backfillResult.summary.already_processed}</p>
+                          <p className="text-[11px] text-muted-foreground">Déjà décomptées ✅</p>
+                        </div>
+                        <div className="text-center">
+                          <p className={`text-2xl font-700 ${backfillResult.summary.orders_needing_backfill > 0 ? 'text-red-600' : 'text-emerald-700'}`}>
+                            {backfillResult.summary.orders_needing_backfill}
+                          </p>
+                          <p className="text-[11px] text-muted-foreground">{backfillResult.applied ? 'Rattrapées' : 'À rattraper'}</p>
+                        </div>
+                        <div className="text-center">
+                          <p className={`text-2xl font-700 ${backfillResult.summary.orders_unmatched > 0 ? 'text-amber-600' : 'text-emerald-700'}`}>
+                            {backfillResult.summary.orders_unmatched}
+                          </p>
+                          <p className="text-[11px] text-muted-foreground">Produit introuvable</p>
+                        </div>
+                      </div>
+                      {backfillResult.summary.orders_needing_backfill === 0 && (
+                        <p className="text-sm text-emerald-700 font-500 mt-3 text-center">✅ Tout est à jour — aucune commande manquante.</p>
+                      )}
+                    </div>
+
+                    {/* Order details */}
+                    {backfillResult.orders_needing_backfill?.length > 0 && (
+                      <div className="space-y-2 max-h-96 overflow-y-auto">
+                        {backfillResult.orders_needing_backfill.map((order: any) => (
+                          <div key={order.order_number} className="bg-white border border-border rounded-xl p-3">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-sm font-600 text-foreground">{order.order_name} — {new Date(order.created_at).toLocaleDateString('fr-FR')}</span>
+                              <div className="flex items-center gap-2">
+                                {order.deducted_count > 0 && (
+                                  <span className="text-[11px] font-600 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                                    {order.deducted_count} ligne{order.deducted_count > 1 ? 's' : ''} {backfillResult.applied ? 'corrigée' : 'à corriger'}{order.deducted_count > 1 ? 's' : ''}
+                                  </span>
+                                )}
+                                {order.skipped_count > 0 && (
+                                  <span className="text-[11px] font-600 px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                                    {order.skipped_count} introuvable{order.skipped_count > 1 ? 's' : ''}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="space-y-1">
+                              {order.lines.map((line: any, i: number) => (
+                                <div key={i} className={`text-xs flex items-center justify-between py-1 px-2 rounded-lg ${line.deducted ? 'bg-emerald-50' : 'bg-amber-50'}`}>
+                                  <span className={`${line.deducted ? 'text-emerald-800' : 'text-amber-800'}`}>
+                                    {line.deducted ? '✅' : '⚠️'} {line.title} {line.sku ? `(SKU: ${line.sku})` : ''} × {line.qty}
+                                  </span>
+                                  {line.deducted ? (
+                                    <span className="text-emerald-700 font-500">{line.stock_before} → {line.stock_after}</span>
+                                  ) : (
+                                    <span className="text-amber-700">{line.reason}</span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
