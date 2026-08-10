@@ -620,7 +620,17 @@ export default function POSTerminal() {
   const [pendingReferral, setPendingReferral] = useState<{ referralId: string; parrainId: string; discountPct: number } | null>(null);
   const [demoProductRef, setDemoProductRef] = useState<{ id: string; name: string; ref: string } | null>(null);
   const [client, setClient] = useState<POSClient | null>(null);
-  const [heldTickets, setHeldTickets] = useState<HeldTicket[]>([]);
+  const [heldTickets, setHeldTickets] = useState<HeldTicket[]>(() => {
+    try {
+      const saved = typeof window !== 'undefined' ? localStorage.getItem('beautypos_held_tickets') : null;
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+  // Persist held tickets to localStorage so they survive page refresh
+  React.useEffect(() => {
+    try { localStorage.setItem('beautypos_held_tickets', JSON.stringify(heldTickets)); } catch { /* ignore */ }
+  }, [heldTickets]);
+
   const [showHeld, setShowHeld] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
   const [showFreePrice, setShowFreePrice] = useState(false);
