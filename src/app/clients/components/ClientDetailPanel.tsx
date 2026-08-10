@@ -15,6 +15,21 @@ import {
 import { loyaltyService, getNextTier, pointsToNextTier, REWARD_TYPE_ICONS, REWARD_TYPE_LABELS, type LoyaltyTier, type LoyaltyRedemption, type ClientLoyaltyReward } from '@/lib/services/loyaltyService';
 import { createClient as createSupabaseClient } from '@/lib/supabase/client';
 
+function countryFlag(country: string): string {
+  const c = country.toLowerCase().trim();
+  if (c === 'martinique' || c === 'martinique (france)') return '🇲🇶';
+  if (c === 'guadeloupe' || c === 'guadeloupe (france)') return '🇬🇵';
+  if (c === 'réunion' || c === 'reunion' || c === 'la réunion') return '🇷🇪';
+  if (c === 'guyane' || c === 'guyane française') return '🇬🇫';
+  if (c === 'france' || c === 'france métropolitaine' || c === 'france metropolitaine') return '🇫🇷';
+  if (c === 'belgique' || c === 'belgium') return '🇧🇪';
+  if (c === 'suisse' || c === 'switzerland') return '🇨🇭';
+  if (c === 'canada') return '🇨🇦';
+  if (c === 'usa' || c === 'états-unis' || c === 'etats-unis') return '🇺🇸';
+  if (c === 'royaume-uni' || c === 'uk' || c === 'united kingdom') return '🇬🇧';
+  return '🌍';
+}
+
 interface SubscriptionPlan {
   id: string;
   name: string;
@@ -442,7 +457,7 @@ export default function ClientDetailPanel({
                     { icon: 'PhoneIcon', label: 'Téléphone', value: client.phone },
                     { icon: 'ChatBubbleLeftIcon', label: 'WhatsApp', value: client.whatsapp },
                     { icon: 'EnvelopeIcon', label: 'Email', value: client.email },
-                    { icon: 'MapPinIcon', label: 'Adresse', value: [client.address, client.postalCode, client.city, client.country].filter(Boolean).join(', ') || null },
+                    { icon: 'MapPinIcon', label: 'Adresse', value: [client.address, client.postalCode, client.city].filter(Boolean).join(', ') || null },
                   ].map((item) => item.value ? (
                     <div key={item.label} className="flex items-center gap-3">
                       <Icon name={item.icon as any} size={15} className="text-muted-foreground shrink-0" />
@@ -450,6 +465,13 @@ export default function ClientDetailPanel({
                       <span className="text-sm text-foreground">{item.value}</span>
                     </div>
                   ) : null)}
+                  {client.country && (
+                    <div className="flex items-center gap-3">
+                      <span className="text-base shrink-0 w-[15px] text-center">{countryFlag(client.country)}</span>
+                      <span className="text-xs text-muted-foreground w-20 shrink-0">Pays</span>
+                      <span className="text-sm text-foreground font-500">{client.country}</span>
+                    </div>
+                  )}
                 </div>
               </div>
 

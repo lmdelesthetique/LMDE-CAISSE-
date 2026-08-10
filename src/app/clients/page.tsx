@@ -17,6 +17,22 @@ import ClientDetailPanel from './components/ClientDetailPanel';
 import ClientReminders from './components/ClientReminders';
 import Link from 'next/link';
 
+function countryFlag(country?: string | null): string {
+  if (!country) return '';
+  const c = country.toLowerCase().trim();
+  if (c === 'martinique' || c === 'martinique (france)') return '🇲🇶';
+  if (c === 'guadeloupe' || c === 'guadeloupe (france)') return '🇬🇵';
+  if (c === 'réunion' || c === 'reunion' || c === 'la réunion') return '🇷🇪';
+  if (c === 'guyane' || c === 'guyane française') return '🇬🇫';
+  if (c === 'france' || c === 'france métropolitaine' || c === 'france metropolitaine') return '🇫🇷';
+  if (c === 'belgique' || c === 'belgium') return '🇧🇪';
+  if (c === 'suisse' || c === 'switzerland') return '🇨🇭';
+  if (c === 'canada') return '🇨🇦';
+  if (c === 'usa' || c === 'états-unis' || c === 'etats-unis') return '🇺🇸';
+  if (c === 'royaume-uni' || c === 'uk' || c === 'united kingdom') return '🇬🇧';
+  return '🌍';
+}
+
 const TIER_CONFIG = {
   bronze: { label: 'Bronze', color: 'text-amber-700 bg-amber-50 border-amber-200' },
   silver: { label: 'Argent', color: 'text-slate-600 bg-slate-50 border-slate-200' },
@@ -267,7 +283,10 @@ export default function ClientsPage() {
                               <span className="text-xs font-700 text-primary">{client.firstName.charAt(0)}{client.lastName.charAt(0)}</span>
                             </div>
                             <div>
-                              <p className="font-600 text-foreground">{client.fullName}</p>
+                              <div className="flex items-center gap-1.5">
+                                <p className="font-600 text-foreground">{client.fullName}</p>
+                                {client.country && <span className="text-sm" title={client.country}>{countryFlag(client.country)}</span>}
+                              </div>
                               {client.city && <p className="text-xs text-muted-foreground">{client.city}</p>}
                             </div>
                           </div>
@@ -359,6 +378,7 @@ function ClientCard({ client, hasActiveSub, onClick }: { client: Client; hasActi
           <div className="flex items-center gap-1.5 flex-wrap">
             <p className="text-sm font-600 text-foreground truncate">{client.fullName}</p>
             <span className={`text-[10px] font-600 px-1.5 py-0.5 rounded-full border shrink-0 ${tier.color}`}>{tier.label}</span>
+            {client.country && <span className="text-sm shrink-0" title={client.country}>{countryFlag(client.country)}</span>}
           </div>
           <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
             <span className={`text-[10px] font-600 px-1.5 py-0.5 rounded-full border ${typeCfg.color}`}>{typeCfg.label}</span>
