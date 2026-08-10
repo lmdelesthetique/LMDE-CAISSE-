@@ -477,13 +477,17 @@ export default function ShopifySyncPage() {
   // ── Link / Unlink ──────────────────────────────────────────────────────────
   const handleLink = useCallback(async (posId: string, sp: ShopifyProduct, sv: ShopifyVariant) => {
     setLinking((prev) => new Set(prev).add(posId));
-    const { error } = await supabase.from('products').update({
-      shopify_variant_id: String(sv.id),
-      shopify_inventory_item_id: String(sv.inventory_item_id),
-      shopify_product_id: String(sp.id),
-      shopify: true,
-    }).eq('id', posId);
-    if (!error) {
+    const res = await fetch('/api/shopify/link-product', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        posProductId: posId,
+        shopifyVariantId: sv.id,
+        shopifyInventoryItemId: sv.inventory_item_id,
+        shopifyProductId: sp.id,
+      }),
+    });
+    if (res.ok) {
       setMatches((prev) => prev.map((m) =>
         m.pos.id === posId
           ? { ...m, shopifyProduct: sp, shopifyVariant: sv, confidence: 100, reason: 'Lié manuellement', linked: true, ignored: false }
@@ -497,23 +501,22 @@ export default function ShopifySyncPage() {
       }).catch(() => {});
     }
     setLinking((prev) => { const s = new Set(prev); s.delete(posId); return s; });
-  }, [supabase]);
+  }, []);
 
   const handleUnlink = useCallback(async (posId: string) => {
     setLinking((prev) => new Set(prev).add(posId));
-    const { error } = await supabase.from('products').update({
-      shopify_variant_id: null,
-      shopify_inventory_item_id: null,
-      shopify_product_id: null,
-      shopify: false,
-    }).eq('id', posId);
-    if (!error) {
+    const res = await fetch('/api/shopify/link-product', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ posProductId: posId, unlink: true }),
+    });
+    if (res.ok) {
       setMatches((prev) => prev.map((m) =>
         m.pos.id === posId ? { ...m, linked: false, confidence: 0, reason: 'Délié', shopifyProduct: null, shopifyVariant: null } : m
       ));
     }
     setLinking((prev) => { const s = new Set(prev); s.delete(posId); return s; });
-  }, [supabase]);
+  }, []);
 
   // ── Ignore / Restore ───────────────────────────────────────────────────────
   const handleIgnore = useCallback((posId: string) => {
