@@ -549,8 +549,14 @@ export default function ClientDetailPanel({
                         <button
                           onClick={() => {
                             const link = `https://mondedelesthetique.fr/?ref=${referralCode}`;
-                            const msg = `Bonjour ! 👋\n\nJe te recommande *Le Monde de l'Esthétique* pour tes produits beauté ! 💅\n\nCode parrainage *${referralCode}* ou 👉 ${link}\n\n🎁 -10% sur ta 1ère commande !`;
-                            window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
+                            const firstName = client.firstName ?? '';
+                            const greeting = firstName ? `Bonjour ${firstName} ! 👋` : `Bonjour ! 👋`;
+                            const msg = `${greeting}\n\nVoici votre code de parrainage personnel 🌸\n\n✨ Code : *${referralCode}*\n\n━━━━━━━━━━━━━━━━━━━━\n🎁 *Comment ça marche ?*\n\n1️⃣ Partagez ce code à vos amies\n2️⃣ Elles commandent sur notre boutique\n3️⃣ Elles entrent le code *${referralCode}* → elles reçoivent *-10% sur leur 1ère commande* 💄\n4️⃣ Vous gagnez des *points fidélité* à chaque filleule ! ⭐\n━━━━━━━━━━━━━━━━━━━━\n\n🛍️ *Lien direct pour vos amies :*\n👉 ${link}\n\nPlus vous parrainez, plus vous gagnez !\nMerci pour votre confiance 🤍\n\n*Le Monde de l'Esthétique* 💅`;
+                            const phone = normalizePhone(client.whatsapp || client.phone || portalPhone || '');
+                            const url = phone
+                              ? `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`
+                              : `https://wa.me/?text=${encodeURIComponent(msg)}`;
+                            window.open(url, '_blank');
                           }}
                           className="px-2.5 py-1.5 bg-green-500 text-white rounded-lg text-[11px] font-600 hover:bg-green-600 transition-colors"
                         >
