@@ -40,6 +40,13 @@ export default function CampagneDetailPage() {
   const [deletingVideo, setDeletingVideo] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
   const [toast, setToast] = useState<{ ok: boolean; msg: string } | null>(null);
+  // Product / ambassadrice edit states
+  const [removingProduct, setRemovingProduct] = useState<string | null>(null); // `${assignmentId}:${productId}`
+  const [removingAmbassadrice, setRemovingAmbassadrice] = useState<string | null>(null); // assignmentId
+  const [replaceTarget, setReplaceTarget] = useState<{ assignmentId: string; productId: string; productName: string } | null>(null);
+  const [replaceSearch, setReplaceSearch] = useState('');
+  const [replaceResults, setReplaceResults] = useState<any[]>([]);
+  const [replaceSearching, setReplaceSearching] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -212,6 +219,79 @@ export default function CampagneDetailPage() {
     } finally {
       setDeletingVideo(null);
     }
+  };
+
+  const handleRemoveProduct = async (assignmentId: string, productId: string, productName: string) => {
+    if (!window.confirm(`Retirer "${productName}" de la campagne ?\n\nLe stock sera restauré automatiquement.`)) return;
+    const key = `${assignmentId}:${productId}`;
+    setRemovingProduct(key);
+    try {
+      const res = await fetch(`/api/campagnes-ambassadrices/${id}/assignments/${assignmentId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'remove_product', productId }),
+      });
+      if (!res.ok) { showToast(false, 'Erreur suppression produit'); return; }
+      showToast(true, `"${productName}" retiré — stock restauré`);
+      load();
+    } catch { showToast(false, 'Erreur réseau'); }
+    finally { setRemovingProduct(null); }
+  };
+
+  const handleRemoveAmbassadrice = async (assignmentId: string, ambName: string) => {
+    if (!window.confirm(`Retirer ${ambName} de la campagne ?\n\nTous ses produits seront retirés et le stock restauré.`)) return;
+    setRemovingAmbassadrice(assignmentId);
+    try {
+      const res = await fetch(`/api/campagnes-ambassadrices/${id}/assignments/${assignmentId}`, { method: 'DELETE' });
+      if (!res.ok) { showToast(false, 'Erreur suppression ambassadrice'); return; }
+      showToast(true, `${ambName} retirée — stock restauré`);
+      load();
+    } catch { showToast(false, 'Erreur réseau'); }
+    finally { setRemovingAmbassadrice(null); }
+  };
+
+  const handleReplaceSearch = async (q: string) => {
+    setReplaceSearch(q);
+    if (q.length < 2) { setReplaceResults([]); return; }
+    setReplaceSearching(true);
+    try {
+      const res = await fetch(`/api/products/search?q=${encodeURIComponent(q)}&limit=6`);
+      const data = await res.json();
+      setReplaceResults(data.products ?? []);
+    } catch { setReplaceResults([]); }
+    finally { setReplaceSearching(false); }
+  };
+
+  const handleConfirmReplace = async (newProd: any) => {
+    if (!replaceTarget) return;
+    const { assignmentId, productId, productName } = replaceTarget;
+    const assignment = (data?.assignments ?? []).find((a: any) => a.id === assignmentId);
+    const oldProduct = (assignment?.products ?? []).find((p: any) => p.id === productId);
+    const qty = oldProduct?.quantity ?? 1;
+    try {
+      const res = await fetch(`/api/campagnes-ambassadrices/${id}/assignments/${assignmentId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'replace_product',
+          oldProductId: productId,
+          newProduct: {
+            id: newProd.id,
+            name: newProd.name,
+            price: newProd.sell_price_ttc ?? 0,
+            cout_achat: newProd.cost_price ?? 0,
+            quantity: qty,
+            image_url: newProd.image_url ?? null,
+          },
+        }),
+      });
+      if (!res.ok) { showToast(false, 'Erreur remplacement produit'); return; }
+      showToast(true, `"${productName}" remplacé par "${newProd.name}" — stock mis à jour`);
+      setReplaceTarget(null);
+      setReplaceSearch('');
+      setReplaceResults([]);
+      load();
+    } catch { showToast(false, 'Erreur réseau'); }
   };
 
   if (loading) {
@@ -410,12 +490,65 @@ export default function CampagneDetailPage() {
                     <div className="px-5 pb-3">
                       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Produits</p>
                       <div className="flex gap-2 flex-wrap">
-                        {products.map((p: any) => (
-                          <span key={p.id} className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded-lg">
-                            {p.name} × {p.quantity}
-                          </span>
-                        ))}
+                        {products.map((p: any) => {
+                          const rmKey = `${assignment.id}:${p.id}`;
+                          const isRemoving = removingProduct === rmKey;
+                          const isReplaceTarget = replaceTarget?.assignmentId === assignment.id && replaceTarget?.productId === p.id;
+                          return (
+                            <div key={p.id} className="flex flex-col gap-1">
+                              <div className={`flex items-center gap-1 text-xs px-2 py-1 rounded-lg border ${isReplaceTarget ? 'bg-blue-50 border-blue-300' : 'bg-gray-100 border-gray-200'}`}>
+                                <span className="text-gray-700">{p.name} × {p.quantity}</span>
+                                <button
+                                  onClick={() => {
+                                    if (isReplaceTarget) { setReplaceTarget(null); setReplaceSearch(''); setReplaceResults([]); }
+                                    else { setReplaceTarget({ assignmentId: assignment.id, productId: p.id, productName: p.name }); setReplaceSearch(''); setReplaceResults([]); }
+                                  }}
+                                  title="Remplacer ce produit"
+                                  className="text-blue-400 hover:text-blue-600 ml-1 shrink-0"
+                                >↔</button>
+                                <button
+                                  onClick={() => handleRemoveProduct(assignment.id, p.id, p.name)}
+                                  disabled={isRemoving}
+                                  title="Retirer ce produit (stock restauré)"
+                                  className="text-red-400 hover:text-red-600 shrink-0 disabled:opacity-40"
+                                >
+                                  {isRemoving ? '…' : '×'}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
+                      {/* Replace product search panel */}
+                      {replaceTarget?.assignmentId === assignment.id && (
+                        <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-xl space-y-2">
+                          <p className="text-xs font-medium text-blue-700">Remplacer "{replaceTarget?.productName}" par :</p>
+                          <input
+                            type="text"
+                            value={replaceSearch}
+                            onChange={(e) => handleReplaceSearch(e.target.value)}
+                            placeholder="Rechercher un produit…"
+                            className="w-full px-3 py-1.5 border border-blue-200 rounded-lg text-xs bg-white focus:outline-none focus:border-blue-400"
+                            autoFocus
+                          />
+                          {replaceSearching && <p className="text-xs text-blue-400">Recherche…</p>}
+                          {replaceResults.length > 0 && (
+                            <div className="space-y-1">
+                              {replaceResults.map((r: any) => (
+                                <button
+                                  key={r.id}
+                                  onClick={() => handleConfirmReplace(r)}
+                                  className="w-full text-left px-3 py-1.5 text-xs bg-white border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors flex items-center justify-between gap-2"
+                                >
+                                  <span className="font-medium text-gray-800 truncate">{r.name}</span>
+                                  <span className="text-gray-400 shrink-0">Stock: {r.stock ?? 0}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          <button onClick={() => { setReplaceTarget(null); setReplaceSearch(''); setReplaceResults([]); }} className="text-xs text-blue-500 underline">Annuler</button>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -499,6 +632,20 @@ export default function CampagneDetailPage() {
                       {assignment.notes}
                     </div>
                   )}
+
+                  {/* Remove ambassadrice */}
+                  <div className="px-5 pb-4 border-t border-border pt-3 flex justify-end">
+                    <button
+                      onClick={() => handleRemoveAmbassadrice(assignment.id, `${amb?.prenom ?? ''} ${amb?.nom ?? ''}`.trim())}
+                      disabled={removingAmbassadrice === assignment.id}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 border border-red-200 bg-red-50 hover:bg-red-100 rounded-lg transition-colors disabled:opacity-40"
+                    >
+                      {removingAmbassadrice === assignment.id
+                        ? <span className="inline-block w-3 h-3 border border-red-400 border-t-transparent rounded-full animate-spin" />
+                        : '🗑️'}
+                      Retirer {amb?.prenom ?? 'cette ambassadrice'} de la campagne
+                    </button>
+                  </div>
                 </div>
               );
             })}
