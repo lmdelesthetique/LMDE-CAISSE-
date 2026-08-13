@@ -316,20 +316,23 @@ export default function OrderDetailPage() {
       .catch(() => {});
   }, [backfilledImages, id, loading, load]);
 
-  const updateStockForReception = useCallback(async (qtysToAdd: Record<string, number>) => {
+  const updateStockForReception = useCallback(async (qtysToAdd: Record<string, number>, force = false) => {
     if (!order) return;
     setUpdatingStock(true);
     try {
       const res = await fetch(`/api/fo-orders/${order.id}/receive-stock`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ qtysToAdd }),
+        body: JSON.stringify({ qtysToAdd, force }),
       });
       const json = await res.json();
       if (json.alreadyDone) {
         setStockUpdateBanner('⚠️ Stock déjà mis à jour pour cette commande');
       } else if (json.ok) {
-        setStockUpdateBanner(`✅ Stock + prix coût mis à jour — ${json.updated} produit${json.updated > 1 ? 's' : ''} réapprovisionnés`);
+        const notMatched = json.notMatched ?? 0;
+        const warning = notMatched > 0 ? ` (⚠️ ${notMatched} ligne${notMatched > 1 ? 's' : ''} non trouvée${notMatched > 1 ? 's' : ''} — vérifier les refs produits)` : '';
+        setStockUpdateBanner(`✅ Stock + prix coût mis à jour — ${json.updated} produit${json.updated !== 1 ? 's' : ''} réapprovisionnés${warning}`);
+        load();
         // Non-blocking Shopify sync
         fetch('/api/shopify/sync-stock', {
           method: 'POST',
@@ -343,9 +346,16 @@ export default function OrderDetailPage() {
       setStockUpdateBanner(`❌ Erreur : ${e.message}`);
     } finally {
       setUpdatingStock(false);
-      setTimeout(() => setStockUpdateBanner(null), 6000);
+      setTimeout(() => setStockUpdateBanner(null), 8000);
     }
-  }, [order]);
+  }, [order, load]);
+
+  const handleForceRestock = async () => {
+    if (!order) return;
+    const qtys: Record<string, number> = {};
+    (order.lines || []).forEach(l => { qtys[l.id] = l.qtyOrdered; });
+    await updateStockForReception(qtys, true);
+  };
 
   const handleStatusChange = async () => {
     if (!targetStatus || !order) return;
@@ -2412,7 +2422,17 @@ export default function OrderDetailPage() {
                           </p>
                         )}
                       </div>
-                      <span className="shrink-0 text-[10px] font-700 uppercase tracking-wide bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full">Verrouillé</span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-[10px] font-700 uppercase tracking-wide bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full">Verrouillé</span>
+                        <button
+                          onClick={handleForceRestock}
+                          disabled={updatingStock}
+                          title="Forcer la re-intégration du stock (si le stock n'a pas été mis à jour correctement)"
+                          className="text-[11px] font-500 text-orange-600 hover:text-orange-800 underline underline-offset-2 disabled:opacity-40"
+                        >
+                          {updatingStock ? '...' : 'Forcer re-sync'}
+                        </button>
+                      </div>
                     </div>
                   ) : stockUpdateBanner && (
                     <div className="flex items-center gap-3 px-4 py-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-700 font-500 text-sm">

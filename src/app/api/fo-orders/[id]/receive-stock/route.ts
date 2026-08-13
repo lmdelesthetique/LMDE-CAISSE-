@@ -12,6 +12,7 @@ function makeAdminClient() {
 // - Adds qty_received to products.stock
 // - Updates products.buy_price with real per-unit cost (proportional fee allocation)
 // - Marks fo_orders.stock_updated = true (idempotent)
+// Pass force=true in body to bypass the idempotency guard (e.g. if previous run matched 0 products)
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const { id } = params;
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
@@ -19,6 +20,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const body = await req.json().catch(() => ({}));
   // qtysToAdd: { [lineId]: qty } — if omitted defaults to qty_ordered per line
   const qtysToAdd: Record<string, number> = body.qtysToAdd ?? {};
+  const force: boolean = body.force === true;
 
   const supabase = makeAdminClient();
 
@@ -30,7 +32,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     .single();
 
   if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
-  if (order.stock_updated) return NextResponse.json({ ok: true, updated: 0, alreadyDone: true });
+  if (order.stock_updated && !force) return NextResponse.json({ ok: true, updated: 0, alreadyDone: true });
 
   const { data: lines } = await supabase
     .from('fo_order_lines')
@@ -64,7 +66,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       const { data: p } = await supabase.from('products').select('id, stock').eq('id', productId).maybeSingle();
       currentStock = Number(p?.stock || 0);
     } else if (line.product_ref) {
-      const { data: p } = await supabase.from('products').select('id, stock').eq('ref', line.product_ref).maybeSingle();
+      // Use limit(1) instead of maybeSingle() to avoid null when there are duplicate refs
+      const { data: rows } = await supabase.from('products').select('id, stock').eq('ref', line.product_ref).limit(1);
+      const p = rows?.[0];
       if (p) { productId = p.id; currentStock = Number(p.stock || 0); }
     }
 
@@ -117,13 +121,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     updated++;
   }
 
-  // Mark order as stock integrated
-  await supabase.from('fo_orders').update({
-    stock_updated: true,
-    stock_updated_at: now,
-    order_status: 'stock_integrated',
-    updated_at: now,
-  }).eq('id', id);
+  // Only lock the order if at least one product was actually updated
+  // (prevents false locks when product_id/ref matching fails)
+  if (updated > 0) {
+    await supabase.from('fo_orders').update({
+      stock_updated: true,
+      stock_updated_at: now,
+      order_status: 'stock_integrated',
+      updated_at: now,
+    }).eq('id', id);
+  }
 
-  return NextResponse.json({ ok: true, updated });
+  return NextResponse.json({ ok: true, updated, notMatched: lines.length - updated });
 }
