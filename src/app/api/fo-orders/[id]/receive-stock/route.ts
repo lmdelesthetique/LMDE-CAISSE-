@@ -106,8 +106,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       }
     }
 
-    // Movement log
-    await supabase.from('stock_movements_log').insert({
+    // Movement log (best-effort, non-blocking)
+    supabase.from('stock_movements_log').insert({
       product_id: productId,
       product_name: line.product_ref || '',
       movement_type: 'entry',
@@ -116,7 +116,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       quantity_change: qty,
       reason: `Réception commande fournisseur ${order.order_number || id}`,
       performed_by: 'Admin',
-    }).catch(() => {});
+    });
 
     updated++;
   }

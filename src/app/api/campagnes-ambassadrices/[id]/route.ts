@@ -65,11 +65,15 @@ export async function PATCH(
   try {
     const supabase = makeClient();
 
-    // If patching assignment reception status
-    if (body.assignment_id && body.statut_reception) {
+    // If patching assignment fields (reception status, colis date)
+    if (body.assignment_id) {
+      const assignUpdate: any = { updated_at: new Date().toISOString() };
+      if (body.statut_reception) assignUpdate.statut_reception = body.statut_reception;
+      if ('date_colis_recu' in body) assignUpdate.date_colis_recu = body.date_colis_recu;
+
       const { data, error } = await supabase
         .from('campagne_assignments')
-        .update({ statut_reception: body.statut_reception, updated_at: new Date().toISOString() })
+        .update(assignUpdate)
         .eq('id', body.assignment_id)
         .eq('campagne_id', id)
         .select('*')

@@ -34,6 +34,7 @@ export default function CampagneDetailPage() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [updatingReception, setUpdatingReception] = useState<string | null>(null);
+  const [updatingDateColis, setUpdatingDateColis] = useState<string | null>(null);
   const [updatingStatut, setUpdatingStatut] = useState(false);
   const [downloadingVideo, setDownloadingVideo] = useState<string | null>(null);
   const [deletingVideo, setDeletingVideo] = useState<string | null>(null);
@@ -58,13 +59,18 @@ export default function CampagneDetailPage() {
     setTimeout(() => setToast(null), 3500);
   };
 
-  const handleUpdateReception = async (assignmentId: string, statut_reception: StatutReception) => {
+  const handleUpdateReception = async (assignmentId: string, statut_reception: StatutReception, currentDateColis?: string | null) => {
     setUpdatingReception(assignmentId);
     try {
+      const body: any = { assignment_id: assignmentId, statut_reception };
+      // Auto-set reception date when status becomes "recu" or "confirme" and no date yet
+      if ((statut_reception === 'recu' || statut_reception === 'confirme') && !currentDateColis) {
+        body.date_colis_recu = new Date().toISOString().split('T')[0];
+      }
       const res = await fetch(`/api/campagnes-ambassadrices/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assignment_id: assignmentId, statut_reception }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) { showToast(false, 'Erreur mise à jour'); return; }
       showToast(true, 'Statut réception mis à jour');
@@ -74,6 +80,63 @@ export default function CampagneDetailPage() {
     } finally {
       setUpdatingReception(null);
     }
+  };
+
+  const handleUpdateDateColis = async (assignmentId: string, date_colis_recu: string) => {
+    setUpdatingDateColis(assignmentId);
+    try {
+      const res = await fetch(`/api/campagnes-ambassadrices/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assignment_id: assignmentId, date_colis_recu: date_colis_recu || null }),
+      });
+      if (!res.ok) { showToast(false, 'Erreur mise à jour date'); return; }
+      load();
+    } catch {
+      showToast(false, 'Erreur réseau');
+    } finally {
+      setUpdatingDateColis(null);
+    }
+  };
+
+  const buildRelanceWhatsApp = (assignment: any, campagneNom: string, dateFin?: string) => {
+    const amb = assignment.ambassadrice;
+    const tel = amb?.telephone ?? '';
+    if (!tel) return null;
+    const digits = tel.replace(/\D/g, '');
+    let phone = digits;
+    if (digits.startsWith('0') && digits.length === 10) {
+      const local = digits.slice(1);
+      if (digits.startsWith('069') || digits.startsWith('0596')) phone = '596' + local;
+      else if (digits.startsWith('059') || digits.startsWith('0690') || digits.startsWith('0691')) phone = '590' + local;
+      else phone = '33' + local;
+    } else if (digits.length === 9 && /^[67]/.test(digits)) {
+      phone = '596' + digits;
+    }
+    const prenom = amb?.prenom ?? 'Ambassadrice';
+    const dateColisStr = assignment.date_colis_recu
+      ? new Date(assignment.date_colis_recu).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
+      : null;
+    const dateFinStr = dateFin
+      ? new Date(dateFin).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
+      : null;
+
+    const msg = [
+      `Bonjour ${prenom} 👋`,
+      ``,
+      `On te contacte concernant ta campagne *${campagneNom}*.`,
+      dateColisStr ? `Tu as reçu tes produits le ${dateColisStr}.` : `Tu as reçu tes produits pour cette campagne.`,
+      dateFinStr ? `Les contenus sont attendus pour le *${dateFinStr}* au plus tard.` : ``,
+      ``,
+      `⚠️ Si la campagne n'est pas réalisée dans les délais convenus, nous serons dans l'obligation de *mettre fin à la collaboration*.`,
+      ``,
+      `Nous comptons sur toi et savons que tu peux le faire ! 💪`,
+      `N'hésite pas à nous écrire si tu as besoin d'aide ou si tu as un imprévu.`,
+      ``,
+      `— Le Monde de l'Esthétique 🌸`,
+    ].filter(l => l !== undefined).join('\n');
+
+    return `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
   };
 
   const handleUpdateCampagneStatut = async (statut: CampagneStatut) => {
@@ -299,10 +362,23 @@ export default function CampagneDetailPage() {
                         <span>💰 {(assignment.cout_total ?? 0).toFixed(2)} €</span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                      {/* Date réception colis */}
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs text-gray-400 shrink-0">📦 Reçu le</span>
+                        <input
+                          type="date"
+                          value={assignment.date_colis_recu ?? ''}
+                          onChange={(e) => handleUpdateDateColis(assignment.id, e.target.value)}
+                          disabled={updatingDateColis === assignment.id}
+                          title="Date de réception du colis"
+                          className="px-2 py-1 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none focus:border-primary disabled:opacity-50 w-[130px]"
+                        />
+                      </div>
+                      {/* Statut réception */}
                       <select
                         value={assignment.statut_reception}
-                        onChange={(e) => handleUpdateReception(assignment.id, e.target.value as StatutReception)}
+                        onChange={(e) => handleUpdateReception(assignment.id, e.target.value as StatutReception, assignment.date_colis_recu)}
                         disabled={updatingReception === assignment.id}
                         className="px-2 py-1.5 border-2 border-gray-200 rounded-lg text-xs font-medium bg-white focus:outline-none focus:border-primary disabled:opacity-50"
                       >
@@ -311,9 +387,21 @@ export default function CampagneDetailPage() {
                         <option value="recu">Reçu</option>
                         <option value="confirme">Confirmé</option>
                       </select>
-                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${RECEPTION_COLOR[assignment.statut_reception as StatutReception]}`}>
-                        {RECEPTION_LABEL[assignment.statut_reception as StatutReception]}
-                      </span>
+                      {/* WhatsApp relance */}
+                      {(() => {
+                        const waLink = buildRelanceWhatsApp(assignment, data.nom, data.date_fin);
+                        return waLink ? (
+                          <a
+                            href={waLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Envoyer une relance WhatsApp — si la campagne n'est pas réalisée, arrêt de la collaboration"
+                            className="flex items-center gap-1 px-2 py-1.5 bg-orange-50 text-orange-600 border border-orange-200 rounded-lg text-xs font-medium hover:bg-orange-100 transition-colors shrink-0"
+                          >
+                            ⚠️ Relance WA
+                          </a>
+                        ) : null;
+                      })()}
                     </div>
                   </div>
 

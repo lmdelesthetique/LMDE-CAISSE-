@@ -304,6 +304,7 @@ function Step4({
   const handleGenerate = async (ambassadriceId: string, assignmentId: string) => {
     const draft = assignments[ambassadriceId];
     if (!draft || draft.products.length === 0) return;
+    const amb = ambassadrices.find((x) => x.id === ambassadriceId);
     setGenerating((p) => ({ ...p, [ambassadriceId]: true }));
     setErrors((p) => ({ ...p, [ambassadriceId]: '' }));
 
@@ -313,9 +314,9 @@ function Step4({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           assignmentId,
-          ambassadriceName: a ? `${a.prenom} ${a.nom}` : 'Ambassadrice',
-          ambassadriceGrade: a?.grade ?? 'confirmee',
-          ambassadriceFollowers: a?.instagram_followers ?? 0,
+          ambassadriceName: amb ? `${amb.prenom} ${amb.nom}` : 'Ambassadrice',
+          ambassadriceGrade: amb?.grade ?? 'confirmee',
+          ambassadriceFollowers: amb?.instagram_followers ?? 0,
           products: draft.products.map((p) => ({
             id: p.id,
             name: p.name,
