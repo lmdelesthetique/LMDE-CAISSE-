@@ -41,6 +41,15 @@ export async function POST(
     // Calculate total cost based on buy price × quantity
     const coutTotal = products.reduce((sum, p) => sum + (p.cout_achat ?? 0) * (p.quantity ?? 1), 0);
 
+    // Check if assignment already exists (to prevent double stock deduction on upsert updates)
+    const { data: existing } = await supabase
+      .from('campagne_assignments')
+      .select('id')
+      .eq('campagne_id', campagneId)
+      .eq('ambassadrice_id', ambassadriceId)
+      .maybeSingle();
+    const isNew = !existing;
+
     // Upsert campagne_assignments
     const { data: assignment, error: assignError } = await supabase
       .from('campagne_assignments')
@@ -90,8 +99,12 @@ export async function POST(
       if (contenusError) console.error('[assign] contenus insert error:', contenusError.message);
     }
 
-    // Deduct stock for each product (same pattern as existing code)
+    // Deduct stock only on first creation — never on updates (prevents double-deduction)
+    if (!isNew) {
+      console.log(`[assign] assignment already exists for campagne=${campagneId} amb=${ambassadriceId} — skipping stock deduction`);
+    }
     for (const p of products) {
+      if (!isNew) break;
       if (!p.id || !p.quantity) continue;
 
       const { data: prod, error: prodErr } = await supabase
