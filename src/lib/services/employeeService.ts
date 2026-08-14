@@ -141,18 +141,19 @@ function mapEmployee(row: any): Employee {
   };
 }
 
+// Maps a row from receipts table (the source of truth for employee sales)
 function mapSale(row: any): EmployeeSale {
   return {
     id: row.id,
     employeeId: row.employee_id,
-    receiptNumber: row.receipt_number,
-    totalTtc: parseFloat(row.total_ttc ?? 0),
+    receiptNumber: row.ticket_number,
+    totalTtc: parseFloat(row.total_amount ?? 0),
     discountAmount: parseFloat(row.discount_amount ?? 0),
     itemsCount: row.items_count ?? 0,
     paymentMethod: row.payment_method ?? null,
-    wasCancelled: row.was_cancelled ?? false,
+    wasCancelled: (row.status ?? '') === 'cancelled',
     clientId: row.client_id ?? null,
-    soldAt: row.sold_at,
+    soldAt: row.created_at,
     createdAt: row.created_at,
   };
 }
@@ -295,13 +296,28 @@ export const employeeService = {
 
   async getSales(employeeId: string, from?: string, to?: string): Promise<EmployeeSale[]> {
     const supabase = createClient();
+    // Fetch employee name for cashier_name fallback (tickets saved without PIN use cashier_name only)
+    const { data: emp } = await supabase
+      .from('employees')
+      .select('first_name, last_name')
+      .eq('id', employeeId)
+      .maybeSingle();
+    const fullName = emp ? `${emp.first_name ?? ''} ${emp.last_name ?? ''}`.trim() : null;
+
     let query = supabase
-      .from('employee_sales')
-      .select('*')
-      .eq('employee_id', employeeId)
-      .order('sold_at', { ascending: false });
-    if (from) query = query.gte('sold_at', from);
-    if (to) query = query.lte('sold_at', to);
+      .from('receipts')
+      .select('id, employee_id, ticket_number, total_amount, discount_amount, items_count, payment_method, status, client_id, created_at, cashier_name')
+      .order('created_at', { ascending: false });
+
+    // Match by employee_id (PIN login) OR cashier_name (no-PIN / default mode)
+    if (fullName) {
+      query = query.or(`employee_id.eq.${employeeId},cashier_name.eq.${fullName}`);
+    } else {
+      query = query.eq('employee_id', employeeId);
+    }
+    if (from) query = query.gte('created_at', from);
+    if (to) query = query.lte('created_at', to);
+
     const { data, error } = await query;
     if (error) throw error;
     return (data ?? []).map(mapSale);

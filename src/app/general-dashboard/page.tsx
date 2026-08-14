@@ -259,27 +259,35 @@ export default function GeneralDashboardPage() {
       const reservationDeposits = (resDeposits ?? []).reduce((sum, r) => sum + (r.deposit_paid ?? 0), 0);
       const reservationBalances = (resBalances ?? []).reduce((sum, r) => sum + (r.balance_paid ?? 0), 0);
 
-      // Employee performance
+      // Employee performance — read from receipts grouped by cashier_name (always set, even without PIN)
       const { data: empSales } = await supabase
-        .from('employee_sales')
-        .select('employee_id, total_ttc, was_cancelled')
-        .gte('sold_at', from)
-        .lte('sold_at', to);
-
-      const empMap: Record<string, { revenue: number; tickets: number }> = {};
-      for (const s of (empSales ?? []).filter(s => !s.was_cancelled)) {
-        if (!empMap[s.employee_id]) empMap[s.employee_id] = { revenue: 0, tickets: 0 };
-        empMap[s.employee_id].revenue += s.total_ttc ?? 0;
-        empMap[s.employee_id].tickets += 1;
-      }
+        .from('receipts')
+        .select('cashier_name, employee_id, total_amount, status')
+        .gte('created_at', from)
+        .lte('created_at', to);
 
       const { data: empDetails } = await supabase
         .from('employees')
         .select('id, first_name, last_name, monthly_objective');
 
-      const empPerfs: EmployeePerf[] = Object.entries(empMap).map(([empId, data]) => {
-        const emp = (empDetails ?? []).find(e => e.id === empId);
-        const name = emp ? `${emp.first_name} ${emp.last_name}`.trim() : 'Inconnu';
+      // Build name→objective map from employees table
+      const empByName: Record<string, { id: string; monthly_objective: number }> = {};
+      for (const e of (empDetails ?? [])) {
+        const fullName = `${e.first_name ?? ''} ${e.last_name ?? ''}`.trim();
+        if (fullName) empByName[fullName] = { id: e.id, monthly_objective: e.monthly_objective ?? 0 };
+      }
+
+      const empMap: Record<string, { revenue: number; tickets: number }> = {};
+      for (const s of (empSales ?? []).filter((s: any) => s.status !== 'cancelled')) {
+        const key = (s.cashier_name || '').trim();
+        if (!key || key === 'Caisse') continue; // skip generic/anonymous
+        if (!empMap[key]) empMap[key] = { revenue: 0, tickets: 0 };
+        empMap[key].revenue += Number(s.total_amount ?? 0);
+        empMap[key].tickets += 1;
+      }
+
+      const empPerfs: EmployeePerf[] = Object.entries(empMap).map(([name, data]) => {
+        const emp = empByName[name];
         const monthlyObj = emp?.monthly_objective ?? 0;
         const progress = monthlyObj > 0 ? Math.min(100, (data.revenue / monthlyObj) * 100) : 0;
         return { name, revenue: data.revenue, tickets: data.tickets, progress };
