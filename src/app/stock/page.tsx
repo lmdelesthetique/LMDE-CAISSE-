@@ -62,7 +62,14 @@ interface OrderModalProps {
 function MettreEnCommandeModal({ product, suppliers, onClose, onSuccess }: OrderModalProps) {
   const router = useRouter();
   const [qty, setQty] = useState(Math.max(product.suggestedReorder, product.minOrderQty, 1));
-  const [selectedSupplierId, setSelectedSupplierId] = useState(product.supplierId || '');
+  const [selectedSupplierId, setSelectedSupplierId] = useState(() => {
+    if (product.supplierId) return product.supplierId;
+    // Fallback: match by supplier name (text field) if no UUID set
+    const byName = suppliers.find(s =>
+      s.companyName?.toLowerCase().trim() === product.supplier?.toLowerCase().trim()
+    );
+    return byName?.id || '';
+  });
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<'choose' | 'new_order' | 'done'>('choose');
 
@@ -173,8 +180,8 @@ function MettreEnCommandeModal({ product, suppliers, onClose, onSuccess }: Order
                   <option key={s.id} value={s.id}>{s.companyName}</option>
                 ))}
               </select>
-              {product.supplierId && !selectedSupplierId && (
-                <p className="text-xs text-amber-600 mt-1">⚠️ Ce produit n&apos;a pas de fournisseur principal défini</p>
+              {!selectedSupplierId && (
+                <p className="text-xs text-amber-600 mt-1">⚠️ Aucun fournisseur rattaché à ce produit</p>
               )}
             </div>
 
