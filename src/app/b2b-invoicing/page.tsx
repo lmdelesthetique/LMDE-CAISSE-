@@ -22,6 +22,13 @@ interface LineItem {
   imageUrl?: string;
 }
 
+function normalizePhoneWA(phone: string): string {
+  const d = (phone || '').replace(/\D/g, '');
+  if (d.startsWith('596') || d.startsWith('590') || d.startsWith('33')) return d;
+  if (d.length === 10 && d.startsWith('0')) return '596' + d.slice(1);
+  return d;
+}
+
 interface B2BDocument {
   id: string;
   type: DocType;
@@ -29,6 +36,7 @@ interface B2BDocument {
   status: DocStatus;
   clientId: string;
   clientName: string;
+  clientPhone: string;
   clientEmail: string;
   clientAddress: string;
   clientSiret: string;
@@ -98,6 +106,7 @@ const SEED_DOCS: B2BDocument[] = [
     status: 'paid',
     clientId: 'c1',
     clientName: 'Salon Élégance SARL',
+    clientPhone: '',
     clientEmail: 'contact@elegance-salon.fr',
     clientAddress: '12 Rue de la Paix, 75001 Paris',
     clientSiret: '123 456 789 00012',
@@ -123,6 +132,7 @@ const SEED_DOCS: B2BDocument[] = [
     status: 'sent',
     clientId: 'c2',
     clientName: 'Beauty Pro SAS',
+    clientPhone: '',
     clientEmail: 'achats@beautypro.fr',
     clientAddress: '45 Avenue des Fleurs, 69001 Lyon',
     clientSiret: '987 654 321 00034',
@@ -147,6 +157,7 @@ const SEED_DOCS: B2BDocument[] = [
     status: 'draft',
     clientId: 'c3',
     clientName: 'Institut Beauté & Co',
+    clientPhone: '',
     clientEmail: 'commandes@beaute-co.fr',
     clientAddress: '8 Rue du Commerce, 33000 Bordeaux',
     clientSiret: '456 789 123 00056',
@@ -239,6 +250,7 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
   const [status, setStatus] = useState<DocStatus>(doc?.status ?? 'draft');
   const [clientId, setClientId] = useState(doc?.clientId ?? '');
   const [clientName, setClientName] = useState(doc?.clientName ?? '');
+  const [clientPhone, setClientPhone] = useState(doc?.clientPhone ?? '');
   const [clientEmail, setClientEmail] = useState(doc?.clientEmail ?? '');
   const [clientAddress, setClientAddress] = useState(doc?.clientAddress ?? '');
   const [clientSiret, setClientSiret] = useState(doc?.clientSiret ?? '');
@@ -367,6 +379,7 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
   function selectClient(c: Client) {
     setClientId(c.id);
     setClientName(c.fullName);
+    setClientPhone(c.phone ?? '');
     setClientEmail(c.email ?? '');
     setClientAddress([c.address, c.city, c.postalCode].filter(Boolean).join(', '));
     setClientSiret('');
@@ -400,6 +413,7 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
       status,
       clientId,
       clientName,
+      clientPhone,
       clientEmail,
       clientAddress,
       clientSiret,
@@ -561,6 +575,10 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
               <div>
                 <label className="block text-xs text-muted-foreground mb-1">Nom / Raison sociale</label>
                 <input value={clientName} onChange={(e) => setClientName(e.target.value)} className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" placeholder="Salon Élégance SARL" />
+              </div>
+              <div>
+                <label className="block text-xs text-muted-foreground mb-1">Téléphone / WhatsApp</label>
+                <input value={clientPhone} onChange={(e) => setClientPhone(e.target.value)} className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" placeholder="+596 696 00 00 00" />
               </div>
               <div>
                 <label className="block text-xs text-muted-foreground mb-1">Email</label>
@@ -1051,6 +1069,26 @@ function DocPreviewModal({ doc, onClose, onSendEmail }: { doc: B2BDocument; onCl
               <Icon name="EnvelopeIcon" size={13} />
               Envoyer par email
             </button>
+            {doc.clientPhone && (() => {
+              const phone = normalizePhoneWA(doc.clientPhone);
+              const typeLabel = DOC_TYPE_CONFIG[doc.type]?.label ?? doc.type;
+              const dateStr = doc.issueDate ? new Date(doc.issueDate).toLocaleDateString('fr-FR') : '';
+              const msg = `Bonjour ${doc.clientName} 🌸\n\nVoici votre *${typeLabel}* n° *${doc.number}* de Le Monde de l'Esthétique.\n\n💶 Montant TTC : *${doc.totalTtc.toFixed(2)} €*\n📅 Date d'émission : ${dateStr}\n📋 ${doc.paymentTerms}\n\nMerci de votre confiance ! 💕\n— Le Monde de l'Esthétique`;
+              return (
+                <a
+                  href={`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
+                  title="Envoyer par WhatsApp"
+                >
+                  <svg viewBox="0 0 24 24" fill="currentColor" width={13} height={13}>
+                    <path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0012.04 2zm.01 1.67c2.2 0 4.26.86 5.82 2.42a8.22 8.22 0 012.41 5.83c0 4.54-3.7 8.23-8.24 8.23-1.48 0-2.93-.39-4.19-1.15l-.3-.17-3.12.82.83-3.04-.2-.32a8.19 8.19 0 01-1.11-4.17c.01-4.54 3.7-8.23 8.1-8.23zm-3.38 3.66c-.14 0-.37.05-.57.26-.19.21-.74.73-.74 1.77 0 1.04.76 2.05.87 2.19.11.14 1.5 2.29 3.64 3.12.51.22.9.35 1.21.44.5.16.97.14 1.33.08.41-.07 1.25-.51 1.43-1.01.18-.5.18-.92.12-1.01-.05-.1-.2-.14-.41-.24-.21-.1-1.25-.62-1.44-.68-.19-.07-.33-.1-.47.1-.14.21-.54.68-.66.82-.12.13-.24.15-.45.05-.21-.1-.88-.32-1.68-.99-.62-.54-1.04-1.2-1.16-1.41-.12-.21-.01-.32.09-.42.09-.09.21-.24.31-.36.1-.12.14-.21.21-.35.07-.14.04-.27-.02-.37-.06-.1-.47-1.13-.65-1.55-.17-.42-.34-.37-.47-.37z"/>
+                  </svg>
+                  WhatsApp
+                </a>
+              );
+            })()}
             <button
               onClick={() => printB2BDocument(doc)}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
@@ -1301,6 +1339,7 @@ function apiRowToDoc(row: any): B2BDocument {
     clientName: row.client_name ?? '',
     clientEmail: row.client_email ?? '',
     clientId: meta.clientId ?? '',
+    clientPhone: meta.clientPhone ?? '',
     clientAddress: meta.clientAddress ?? '',
     clientSiret: meta.clientSiret ?? '',
     clientTva: meta.clientTva ?? '',
@@ -1383,6 +1422,7 @@ export default function B2BInvoicingPage() {
         _b2b: true,
         lines: doc.lines,
         clientId: doc.clientId,
+        clientPhone: doc.clientPhone,
         clientAddress: doc.clientAddress,
         clientSiret: doc.clientSiret,
         clientTva: doc.clientTva,
@@ -1634,6 +1674,25 @@ export default function B2BInvoicingPage() {
                           >
                             <Icon name="EnvelopeIcon" size={14} />
                           </button>
+                          {doc.clientPhone && (() => {
+                            const phone = normalizePhoneWA(doc.clientPhone);
+                            const typeLabel = DOC_TYPE_CONFIG[doc.type]?.label ?? doc.type;
+                            const dateStr = doc.issueDate ? new Date(doc.issueDate).toLocaleDateString('fr-FR') : '';
+                            const msg = `Bonjour ${doc.clientName} 🌸\n\nVoici votre *${typeLabel}* n° *${doc.number}* de Le Monde de l'Esthétique.\n\n💶 Montant TTC : *${doc.totalTtc.toFixed(2)} €*\n📅 Date d'émission : ${dateStr}\n📋 ${doc.paymentTerms}\n\nMerci de votre confiance ! 💕\n— Le Monde de l'Esthétique`;
+                            return (
+                              <a
+                                href={`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-1.5 rounded-lg hover:bg-green-50 text-muted-foreground hover:text-green-600 transition-colors"
+                                title="Envoyer par WhatsApp"
+                              >
+                                <svg viewBox="0 0 24 24" fill="currentColor" width={14} height={14}>
+                                  <path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0012.04 2zm.01 1.67c2.2 0 4.26.86 5.82 2.42a8.22 8.22 0 012.41 5.83c0 4.54-3.7 8.23-8.24 8.23-1.48 0-2.93-.39-4.19-1.15l-.3-.17-3.12.82.83-3.04-.2-.32a8.19 8.19 0 01-1.11-4.17c.01-4.54 3.7-8.23 8.1-8.23zm-3.38 3.66c-.14 0-.37.05-.57.26-.19.21-.74.73-.74 1.77 0 1.04.76 2.05.87 2.19.11.14 1.5 2.29 3.64 3.12.51.22.9.35 1.21.44.5.16.97.14 1.33.08.41-.07 1.25-.51 1.43-1.01.18-.5.18-.92.12-1.01-.05-.1-.2-.14-.41-.24-.21-.1-1.25-.62-1.44-.68-.19-.07-.33-.1-.47.1-.14.21-.54.68-.66.82-.12.13-.24.15-.45.05-.21-.1-.88-.32-1.68-.99-.62-.54-1.04-1.2-1.16-1.41-.12-.21-.01-.32.09-.42.09-.09.21-.24.31-.36.1-.12.14-.21.21-.35.07-.14.04-.27-.02-.37-.06-.1-.47-1.13-.65-1.55-.17-.42-.34-.37-.47-.37z"/>
+                                </svg>
+                              </a>
+                            );
+                          })()}
                           <button
                             onClick={() => handleDelete(doc.id)}
                             className="p-1.5 rounded-lg hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-colors"
