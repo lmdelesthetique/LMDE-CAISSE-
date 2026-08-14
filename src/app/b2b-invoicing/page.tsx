@@ -1046,7 +1046,10 @@ ${(() => {
   const prePhone = d ? ((d.startsWith('596') || d.startsWith('590') || d.startsWith('33')) ? d : (d.length === 10 && d.startsWith('0') ? '596' + d.slice(1) : d)) : '';
   const typeLabel = DOC_TYPE_CONFIG[doc.type]?.label ?? doc.type;
   const dateStr = doc.issueDate ? new Date(doc.issueDate).toLocaleDateString('fr-FR') : '';
-  const msg = `Bonjour ${doc.clientName} 🌸\n\nVoici votre *${typeLabel}* n° *${doc.number}* de Le Monde de l'Esthétique.\n\n💶 Montant TTC : *${doc.totalTtc.toFixed(2)} €*\n📅 Date d'émission : ${dateStr}\n📋 ${doc.paymentTerms}\n\nMerci de votre confiance ! 💕\n— Le Monde de l'Esthétique`;
+  const isSaved = doc.id && !doc.id.startsWith('doc-');
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
+  const docLink = isSaved ? `${siteUrl}/facture/${doc.id}` : '';
+  const msg = `Bonjour ${doc.clientName} 🌸\n\nVoici votre *${typeLabel}* n° *${doc.number}* de Le Monde de l'Esthétique.\n\n💶 Montant TTC : *${doc.totalTtc.toFixed(2)} €*\n📅 Date d'émission : ${dateStr}${doc.paymentTerms ? '\n📋 ' + doc.paymentTerms : ''}${docLink ? '\n\n🔗 Consulter en ligne : ' + docLink : ''}\n\nMerci de votre confiance ! 💕\n— Le Monde de l'Esthétique`;
   const encodedMsg = encodeURIComponent(msg);
   if (prePhone) {
     return `<div class="no-print" style="text-align:center;padding:16px 24px 24px;border-top:1px solid #fce4ec;margin-top:8px;background:#fdf6f9;">
@@ -1102,7 +1105,10 @@ function DocPreviewModal({ doc, onClose, onSendEmail }: { doc: B2BDocument; onCl
             {(() => {
               const typeLabel = DOC_TYPE_CONFIG[doc.type]?.label ?? doc.type;
               const dateStr = doc.issueDate ? new Date(doc.issueDate).toLocaleDateString('fr-FR') : '';
-              const msg = `Bonjour ${doc.clientName} 🌸\n\nVoici votre *${typeLabel}* n° *${doc.number}* de Le Monde de l'Esthétique.\n\n💶 Montant TTC : *${doc.totalTtc.toFixed(2)} €*\n📅 Date d'émission : ${dateStr}\n📋 ${doc.paymentTerms}\n\nMerci de votre confiance ! 💕\n— Le Monde de l'Esthétique`;
+              const isSaved = doc.id && !doc.id.startsWith('doc-');
+              const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || (typeof window !== 'undefined' ? window.location.origin : 'https://lmdecaisse.com');
+              const docLink = isSaved ? `${siteUrl}/facture/${doc.id}` : '';
+              const msg = `Bonjour ${doc.clientName} 🌸\n\nVoici votre *${typeLabel}* n° *${doc.number}* de Le Monde de l'Esthétique.\n\n💶 Montant TTC : *${doc.totalTtc.toFixed(2)} €*\n📅 Date d'émission : ${dateStr}${doc.paymentTerms ? '\n📋 ' + doc.paymentTerms : ''}${docLink ? '\n\n🔗 Consulter en ligne : ' + docLink : ''}\n\nMerci de votre confiance ! 💕\n— Le Monde de l'Esthétique`;
               const handleWA = () => {
                 const raw = doc.clientPhone || window.prompt('Numéro WhatsApp du client (ex: 0696 00 00 00) :') || '';
                 if (!raw.trim()) return;

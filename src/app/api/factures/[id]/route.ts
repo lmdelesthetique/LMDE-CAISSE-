@@ -8,6 +8,18 @@ function makeClient() {
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const supabase = makeClient();
+  const { data, error } = await supabase
+    .from('factures')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+  if (error || !data) return NextResponse.json({ error: 'Document introuvable' }, { status: 404 });
+  return NextResponse.json(data);
+}
+
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
