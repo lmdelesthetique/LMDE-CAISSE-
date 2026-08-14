@@ -270,7 +270,9 @@ ${(() => {
   const dRaw = (reservation.clientPhone || '').replace(/\D/g, '');
   const prePhone = dRaw ? ((dRaw.startsWith('596') || dRaw.startsWith('590') || dRaw.startsWith('33')) ? dRaw : (dRaw.length === 10 && dRaw.startsWith('0') ? '596' + dRaw.slice(1) : dRaw)) : '';
   const firstName = reservation.clientName.split(' ')[0];
-  const msgText = `Bonjour ${firstName} 🌸\n\nVoici votre ticket de réservation n° *${reservation.reservationNumber}* de Le Monde de l'Esthétique.\n\n${reservation.items.map((it) => `• ${it.name} ×${it.qty} — ${(it.qty * it.price).toFixed(2)} €`).join('\n')}\n\n💰 Total : *${reservation.totalAmount.toFixed(2)} €*\n✅ Acompte versé : ${reservation.depositPaid.toFixed(2)} €\n💳 Solde à régler : *${reservation.balanceDue.toFixed(2)} €*\n\nMerci de votre confiance ! À très bientôt 💕\n— Le Monde de l'Esthétique`;
+  const siteUrl = typeof window !== 'undefined' ? window.location.origin : 'https://lmdecaisse.com';
+  const resLink = `${siteUrl}/reservation/${reservation.id}`;
+  const msgText = `Bonjour ${firstName} 🌸\n\nVoici votre ticket de réservation n° *${reservation.reservationNumber}* de Le Monde de l'Esthétique.\n\n${reservation.items.map((it) => `• ${it.name} ×${it.qty} — ${(it.qty * it.price).toFixed(2)} €`).join('\n')}\n\n💰 Total : *${reservation.totalAmount.toFixed(2)} €*\n✅ Acompte versé : ${reservation.depositPaid.toFixed(2)} €\n💳 Solde à régler : *${reservation.balanceDue.toFixed(2)} €*\n\n🔗 Voir votre ticket en ligne : ${resLink}\n\nMerci de votre confiance ! À très bientôt 💕\n— Le Monde de l'Esthétique`;
   const encodedMsg = encodeURIComponent(msgText);
   if (prePhone) {
     return `<div class="no-print" style="text-align:center;padding:16px 20px 20px;border-top:2px dashed #000;margin-top:16px;background:#f0fdf4;">
@@ -575,7 +577,9 @@ ${(() => {
             const phone = normalizePhone(reservation.clientPhone);
             const firstName = reservation.clientName.split(' ')[0];
             const itemsList = reservation.items.map((it) => `• ${it.name} ×${it.qty} — ${(it.qty * it.price).toFixed(2)} €`).join('\n');
-            const msg = `Bonjour ${firstName} 🌸\n\nVoici votre ticket de réservation n° *${reservation.reservationNumber}* de Le Monde de l'Esthétique.\n\n${itemsList}\n\n💰 Total : *${reservation.totalAmount.toFixed(2)} €*\n✅ Acompte versé : ${reservation.depositPaid.toFixed(2)} €\n💳 Solde à régler : *${reservation.balanceDue.toFixed(2)} €*\n\nMerci de votre confiance ! À très bientôt 💕\n— Le Monde de l'Esthétique`;
+            const origin = typeof window !== 'undefined' ? window.location.origin : 'https://lmdecaisse.com';
+            const ticketLink = `${origin}/reservation/${reservation.id}`;
+            const msg = `Bonjour ${firstName} 🌸\n\nVoici votre ticket de réservation n° *${reservation.reservationNumber}* de Le Monde de l'Esthétique.\n\n${itemsList}\n\n💰 Total : *${reservation.totalAmount.toFixed(2)} €*\n✅ Acompte versé : ${reservation.depositPaid.toFixed(2)} €\n💳 Solde à régler : *${reservation.balanceDue.toFixed(2)} €*\n\n🔗 Voir votre ticket en ligne : ${ticketLink}\n\nMerci de votre confiance ! À très bientôt 💕\n— Le Monde de l'Esthétique`;
             return (
               <a
                 href={`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`}

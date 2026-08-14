@@ -8,6 +8,15 @@ function makeAdminClient() {
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+  const { id } = params;
+  if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
+  const supabase = makeAdminClient();
+  const { data, error } = await supabase.from('reservations').select('*').eq('id', id).maybeSingle();
+  if (error || !data) return NextResponse.json({ error: 'Réservation introuvable' }, { status: 404 });
+  return NextResponse.json(data);
+}
+
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const { id } = params;
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
