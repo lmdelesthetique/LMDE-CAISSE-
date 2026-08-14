@@ -1478,6 +1478,26 @@ export default function StockPage() {
                                   <span className="text-xs font-600 text-foreground">{p.minStock}</span>
                                 </div>
                               </div>
+
+                              {/* Sales stats row */}
+                              <div className="flex flex-wrap gap-2 mt-1.5">
+                                <div className="flex items-center gap-1">
+                                  <span className="text-[10px] text-muted-foreground">Ventes 7j:</span>
+                                  <span className="text-xs font-600 text-foreground">{p.sales7d}</span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <span className="text-[10px] text-muted-foreground">30j:</span>
+                                  <span className="text-xs font-600 text-foreground">{p.sales30d}</span>
+                                </div>
+                                <div className={`flex items-center gap-1 ${stockSort === 'best_sellers' ? 'bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-lg' : ''}`}>
+                                  <span className={`text-[10px] font-600 ${stockSort === 'best_sellers' ? 'text-emerald-700' : 'text-amber-700'}`}>
+                                    {stockSort === 'best_sellers' ? '🔥 90j:' : '90j:'}
+                                  </span>
+                                  <span className={`text-xs font-700 ${p.sales90d >= 10 ? 'text-emerald-600' : p.sales90d >= 3 ? 'text-amber-600' : 'text-muted-foreground'}`}>
+                                    {p.sales90d} vendu{p.sales90d !== 1 ? 's' : ''}
+                                  </span>
+                                </div>
+                              </div>
                             </div>
 
                             <div className="hidden md:flex flex-col items-end gap-1 shrink-0">
