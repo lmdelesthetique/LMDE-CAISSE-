@@ -690,5 +690,52 @@ export async function deductStockForSale(
     }).catch(() => {});
   }
 
+  // Non-blocking: recalculate sales_7d / sales_30d from movement history
+  const soldIds = [...new Set(
+    items.filter(i => !i.isFreePrice && i.productId && !i.productId.startsWith('free-')).map(i => i.productId)
+  )];
+  if (soldIds.length > 0) {
+    recalculateSalesCounters(soldIds).catch(() => {});
+  }
+
   return { success: errors.length === 0, errors };
+}
+
+/**
+ * Recompute sales_7d and sales_30d for one or more products from stock_movements_log.
+ * Called after each sale (non-blocking) and by the admin recalculate endpoint.
+ */
+export async function recalculateSalesCounters(productIds: string[]): Promise<void> {
+  if (productIds.length === 0) return;
+  const now = new Date();
+  const since7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const since30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data: movements } = await supabase
+    .from('stock_movements_log')
+    .select('product_id, quantity_change, created_at')
+    .in('product_id', productIds)
+    .eq('movement_type', 'sale')
+    .gte('created_at', since30d);
+
+  if (!movements) return;
+
+  const counters: Record<string, { s7: number; s30: number }> = {};
+  for (const id of productIds) counters[id] = { s7: 0, s30: 0 };
+
+  for (const m of movements) {
+    const id = m.product_id as string;
+    if (!counters[id]) continue;
+    const qty = Math.abs(Number(m.quantity_change) || 0);
+    counters[id].s30 += qty;
+    if ((m.created_at as string) >= since7d) counters[id].s7 += qty;
+  }
+
+  await Promise.all(
+    productIds.map(id =>
+      supabase.from('products')
+        .update({ sales_7d: counters[id].s7, sales_30d: counters[id].s30 })
+        .eq('id', id)
+    )
+  );
 }

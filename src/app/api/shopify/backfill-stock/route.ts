@@ -248,6 +248,36 @@ async function runBackfill(req: NextRequest, dryRun: boolean) {
     results.push(orderResult);
   }
 
+  // Recalculate sales_7d/sales_30d for all deducted products
+  if (!dryRun && totalDeducted > 0) {
+    const deductedProductIds = [...new Set(
+      results.flatMap(r => r.lines.filter(l => l.deducted && l.product_id).map(l => l.product_id!))
+    )];
+    if (deductedProductIds.length > 0) {
+      const nowTs = new Date();
+      const since7d = new Date(nowTs.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const since30d = new Date(nowTs.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const { data: mvs } = await supabase
+        .from('stock_movements_log')
+        .select('product_id, quantity_change, created_at')
+        .in('product_id', deductedProductIds)
+        .eq('movement_type', 'sale')
+        .gte('created_at', since30d);
+      const cnt: Record<string, { s7: number; s30: number }> = {};
+      for (const id of deductedProductIds) cnt[id] = { s7: 0, s30: 0 };
+      for (const m of mvs ?? []) {
+        const id = m.product_id as string;
+        if (!cnt[id]) continue;
+        const qty = Math.abs(Number(m.quantity_change) || 0);
+        cnt[id].s30 += qty;
+        if ((m.created_at as string) >= since7d) cnt[id].s7 += qty;
+      }
+      await Promise.all(deductedProductIds.map(id =>
+        supabase.from('products').update({ sales_7d: cnt[id].s7, sales_30d: cnt[id].s30 }).eq('id', id)
+      ));
+    }
+  }
+
   const unprocessedOrders = results.filter((r) => !r.already_processed);
   const ordersWithDeduction = unprocessedOrders.filter((r) => r.deducted_count > 0);
   const ordersFullyUnmatched = unprocessedOrders.filter((r) => r.deducted_count === 0 && r.skipped_count > 0);

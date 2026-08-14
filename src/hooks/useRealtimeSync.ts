@@ -4,7 +4,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
-type SyncTable = 'products' | 'receipts' | 'stock_movements';
+type SyncTable = 'products' | 'receipts' | 'stock_movements' | 'stock_movements_log';
 
 interface UseRealtimeSyncOptions {
   /** Tables to subscribe to */

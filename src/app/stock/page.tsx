@@ -526,6 +526,7 @@ export default function StockPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [stockSort, setStockSort] = useState<'default' | 'best_sellers' | 'urgent' | 'margin'>('default');
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [recalcLoading, setRecalcLoading] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -552,8 +553,8 @@ export default function StockPage() {
   useEffect(() => { loadData(); }, [loadData]);
   useEffect(() => { if (activeTab === 'historique') loadMovements(); }, [activeTab, loadMovements]);
 
-  // Real-time sync: refresh stock when products or stock_movements change
-  useRealtimeSync({ tables: ['products', 'stock_movements'], onRefresh: loadData });
+  // Real-time sync: refresh stock when products or stock_movements_log change
+  useRealtimeSync({ tables: ['products', 'stock_movements_log'], onRefresh: loadData });
 
   // ── Barcode scanner handler for stock management ──────────────────────────
   const handleBarcodeScan = useCallback(async (barcode: string) => {
@@ -570,6 +571,19 @@ export default function StockPage() {
   }, []);
 
   useBarcodeScanner({ onScan: handleBarcodeScan });
+
+  const handleRecalculateSales = async () => {
+    setRecalcLoading(true);
+    try {
+      const res = await fetch('/api/admin/recalculate-sales', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) await loadData();
+    } catch (e) {
+      console.error('recalculate-sales', e);
+    } finally {
+      setRecalcLoading(false);
+    }
+  };
 
   const handleBulkSuspend = async () => {
     setBulkLoading(true);
@@ -710,6 +724,15 @@ export default function StockPage() {
                    barcodeStatus === 'notfound'? 'Code inconnu ✗' : 'Scanner actif'}
                 </span>
               </div>
+              <button
+                onClick={handleRecalculateSales}
+                disabled={recalcLoading}
+                title="Recalculer les ventes 7j/30j depuis l'historique réel"
+                className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border text-sm font-500 hover:bg-muted transition-colors disabled:opacity-50"
+              >
+                <Icon name="ChartBarIcon" size={15} className={recalcLoading ? 'text-primary animate-pulse' : 'text-muted-foreground'} />
+                <span className="hidden sm:inline">Sync ventes</span>
+              </button>
               <button
                 onClick={loadData}
                 className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border text-sm font-500 hover:bg-muted transition-colors"
