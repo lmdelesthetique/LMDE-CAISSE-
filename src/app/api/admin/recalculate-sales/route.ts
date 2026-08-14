@@ -13,24 +13,51 @@ export async function POST() {
   const since30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
   const since90d = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString();
 
-  // Fetch all sale movements in last 90 days
-  const { data: movements, error: mvErr } = await supabase
-    .from('stock_movements_log')
-    .select('product_id, quantity_change, created_at')
-    .eq('movement_type', 'sale')
-    .gte('created_at', since90d)
-    .limit(200000);
+  // Fetch all POS receipts (true sales source) + Shopify movements in last 90 days
+  const [{ data: receiptRows, error: rcErr }, { data: shopifyMoves }] = await Promise.all([
+    supabase
+      .from('receipts')
+      .select('items, created_at')
+      .gte('created_at', since90d)
+      .neq('is_demo', true)
+      .neq('payment_type', 'avoir')
+      .limit(200000),
+    supabase
+      .from('stock_movements_log')
+      .select('product_id, quantity_change, created_at')
+      .eq('movement_type', 'sale')
+      .gte('created_at', since90d)
+      .limit(100000),
+  ]);
 
-  if (mvErr) return NextResponse.json({ error: mvErr.message }, { status: 500 });
+  if (rcErr) return NextResponse.json({ error: rcErr.message }, { status: 500 });
 
-  // Aggregate per product for 7d, 30d, 90d windows
+  // Aggregate per product for 7d and 30d windows
   const counters: Record<string, { s7: number; s30: number }> = {};
-  for (const m of movements ?? []) {
+
+  // Source 1: POS receipts — items JSONB contains { product_id, qty }
+  for (const receipt of receiptRows ?? []) {
+    const items = Array.isArray(receipt.items) ? receipt.items : [];
+    const createdAt = receipt.created_at as string;
+    for (const item of items) {
+      const id = item.product_id as string;
+      if (!id || item.is_free_price) continue;
+      if (!counters[id]) counters[id] = { s7: 0, s30: 0 };
+      const qty = Number(item.qty) || Number(item.quantity) || 0;
+      if (createdAt >= since30d) counters[id].s30 += qty;
+      if (createdAt >= since7d)  counters[id].s7  += qty;
+    }
+  }
+
+  // Source 2: Shopify movements log (sales not captured in POS receipts)
+  for (const m of shopifyMoves ?? []) {
     const id = m.product_id as string;
+    if (!id) continue;
     if (!counters[id]) counters[id] = { s7: 0, s30: 0 };
     const qty = Math.abs(Number(m.quantity_change) || 0);
-    counters[id].s30 += qty;
-    if ((m.created_at as string) >= since7d) counters[id].s7 += qty;
+    const createdAt = m.created_at as string;
+    if (createdAt >= since30d) counters[id].s30 += qty;
+    if (createdAt >= since7d)  counters[id].s7  += qty;
   }
 
   const productIds = Object.keys(counters);
@@ -49,6 +76,7 @@ export async function POST() {
   return NextResponse.json({
     success: true,
     updated,
-    message: `${updated} produits mis à jour — ventes 7j/30j/90j recalculées depuis l'historique réel`,
+    receipts: receiptRows?.length ?? 0,
+    message: `${updated} produits mis à jour — ventes 7j/30j recalculées depuis ${receiptRows?.length ?? 0} tickets de caisse`,
   });
 }

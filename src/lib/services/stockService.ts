@@ -189,8 +189,8 @@ export async function fetchStockProducts(search?: string): Promise<StockProduct[
   const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
   const since7d  = new Date(Date.now() -  7 * 24 * 60 * 60 * 1000).toISOString();
 
-  // Parallel: products + live sales aggregation from movements log (90 days)
-  const [data, { data: salesRows }] = await Promise.all([
+  // Parallel: products + POS receipts (true sales source) + Shopify log
+  const [data, { data: receiptRows }, { data: shopifyMoves }] = await Promise.all([
     fetchAll<Record<string, unknown>>((from, to) => {
       if (search && search.trim()) {
         return supabase
@@ -206,6 +206,15 @@ export async function fetchStockProducts(search?: string): Promise<StockProduct[
         .order('name')
         .range(from, to);
     }),
+    // POS receipts — items JSONB has { product_id, qty }
+    supabase
+      .from('receipts')
+      .select('items, created_at, is_demo, payment_type')
+      .gte('created_at', since90d)
+      .neq('is_demo', true)
+      .neq('payment_type', 'avoir')
+      .limit(200000),
+    // Shopify sales recorded in movements log
     supabase
       .from('stock_movements_log')
       .select('product_id, quantity_change, created_at')
@@ -214,15 +223,34 @@ export async function fetchStockProducts(search?: string): Promise<StockProduct[
       .limit(100000),
   ]);
 
-  // Aggregate live sales per product over 7 / 30 / 90 day windows
+  // Aggregate sales per product over 7 / 30 / 90 day windows
   const salesMap: Record<string, { s7: number; s30: number; s90: number }> = {};
-  for (const m of salesRows ?? []) {
+
+  // Source 1: POS receipts (main source)
+  for (const receipt of receiptRows ?? []) {
+    const items = Array.isArray(receipt.items) ? receipt.items : [];
+    const createdAt = receipt.created_at as string;
+    for (const item of items) {
+      const id = item.product_id as string;
+      if (!id || item.is_free_price) continue;
+      if (!salesMap[id]) salesMap[id] = { s7: 0, s30: 0, s90: 0 };
+      const qty = Number(item.qty) || Number(item.quantity) || 0;
+      salesMap[id].s90 += qty;
+      if (createdAt >= since30d) salesMap[id].s30 += qty;
+      if (createdAt >= since7d)  salesMap[id].s7  += qty;
+    }
+  }
+
+  // Source 2: Shopify movements log (Shopify-originated sales not in receipts)
+  for (const m of shopifyMoves ?? []) {
     const id = m.product_id as string;
+    if (!id) continue;
     if (!salesMap[id]) salesMap[id] = { s7: 0, s30: 0, s90: 0 };
     const qty = Math.abs(Number(m.quantity_change) || 0);
+    const createdAt = m.created_at as string;
     salesMap[id].s90 += qty;
-    if ((m.created_at as string) >= since30d) salesMap[id].s30 += qty;
-    if ((m.created_at as string) >= since7d)  salesMap[id].s7  += qty;
+    if (createdAt >= since30d) salesMap[id].s30 += qty;
+    if (createdAt >= since7d)  salesMap[id].s7  += qty;
   }
 
   return data.map(r => {
@@ -750,8 +778,8 @@ export async function deductStockForSale(
 }
 
 /**
- * Recompute sales_7d and sales_30d for one or more products from stock_movements_log.
- * Called after each sale (non-blocking) and by the admin recalculate endpoint.
+ * Recompute sales_7d and sales_30d for one or more products from receipts (primary)
+ * and stock_movements_log (Shopify sales). Called after each sale (non-blocking).
  */
 export async function recalculateSalesCounters(productIds: string[]): Promise<void> {
   if (productIds.length === 0) return;
@@ -760,25 +788,46 @@ export async function recalculateSalesCounters(productIds: string[]): Promise<vo
   const since30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
   const since90d = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString();
 
-  const { data: movements } = await supabase
-    .from('stock_movements_log')
-    .select('product_id, quantity_change, created_at')
-    .in('product_id', productIds)
-    .eq('movement_type', 'sale')
-    .gte('created_at', since90d);
+  const [{ data: receiptRows }, { data: shopifyMoves }] = await Promise.all([
+    supabase
+      .from('receipts')
+      .select('items, created_at')
+      .gte('created_at', since90d)
+      .neq('is_demo', true)
+      .neq('payment_type', 'avoir')
+      .limit(200000),
+    supabase
+      .from('stock_movements_log')
+      .select('product_id, quantity_change, created_at')
+      .in('product_id', productIds)
+      .eq('movement_type', 'sale')
+      .gte('created_at', since90d),
+  ]);
 
-  if (!movements) return;
+  const counters: Record<string, { s7: number; s30: number }> = {};
+  for (const id of productIds) counters[id] = { s7: 0, s30: 0 };
 
-  const counters: Record<string, { s7: number; s30: number; s90: number }> = {};
-  for (const id of productIds) counters[id] = { s7: 0, s30: 0, s90: 0 };
+  // Source 1: POS receipts
+  for (const receipt of receiptRows ?? []) {
+    const items = Array.isArray(receipt.items) ? receipt.items : [];
+    const createdAt = receipt.created_at as string;
+    for (const item of items) {
+      const id = item.product_id as string;
+      if (!id || !counters[id] || item.is_free_price) continue;
+      const qty = Number(item.qty) || Number(item.quantity) || 0;
+      if (createdAt >= since30d) counters[id].s30 += qty;
+      if (createdAt >= since7d)  counters[id].s7  += qty;
+    }
+  }
 
-  for (const m of movements) {
+  // Source 2: Shopify movements (already filtered by productIds)
+  for (const m of shopifyMoves ?? []) {
     const id = m.product_id as string;
     if (!counters[id]) continue;
     const qty = Math.abs(Number(m.quantity_change) || 0);
-    counters[id].s90 += qty;
-    if ((m.created_at as string) >= since30d) counters[id].s30 += qty;
-    if ((m.created_at as string) >= since7d)  counters[id].s7  += qty;
+    const createdAt = m.created_at as string;
+    if (createdAt >= since30d) counters[id].s30 += qty;
+    if (createdAt >= since7d)  counters[id].s7  += qty;
   }
 
   await Promise.all(
