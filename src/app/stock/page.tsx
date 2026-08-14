@@ -649,7 +649,7 @@ export default function StockPage() {
       list = list.filter(p => p.stockStatus === statusFilter && p.stockStatus !== 'inactif');
     }
     const sorted = [...list];
-    if (stockSort === 'best_sellers') sorted.sort((a, b) => b.sales30d - a.sales30d);
+    if (stockSort === 'best_sellers') sorted.sort((a, b) => b.sales90d - a.sales90d);
     else if (stockSort === 'urgent') sorted.sort((a, b) => (a.daysBeforeStockout ?? 999) - (b.daysBeforeStockout ?? 999));
     else if (stockSort === 'margin') sorted.sort((a, b) => b.marginRate - a.marginRate);
     return sorted;
@@ -663,12 +663,12 @@ export default function StockPage() {
   );
 
   const topSellers = useMemo(() =>
-    [...products].sort((a, b) => b.sales30d - a.sales30d).slice(0, 6),
+    [...products].sort((a, b) => b.sales90d - a.sales90d).slice(0, 6),
     [products]
   );
 
   const dormantProducts = useMemo(() =>
-    products.filter(p => p.sales30d === 0 && p.stock > 0).slice(0, 6),
+    products.filter(p => p.sales90d === 0 && p.stock > 0).slice(0, 6),
     [products]
   );
 
@@ -727,7 +727,7 @@ export default function StockPage() {
               <button
                 onClick={handleRecalculateSales}
                 disabled={recalcLoading}
-                title="Recalculer les ventes 7j/30j depuis l'historique réel"
+                title="Recalculer les ventes 7j/30j/90j depuis l'historique réel"
                 className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border text-sm font-500 hover:bg-muted transition-colors disabled:opacity-50"
               >
                 <Icon name="ChartBarIcon" size={15} className={recalcLoading ? 'text-primary animate-pulse' : 'text-muted-foreground'} />
@@ -806,11 +806,15 @@ export default function StockPage() {
                                 </div>
                                 <div className="flex items-center gap-1">
                                   <span className="text-[10px] text-muted-foreground">7j:</span>
-                                  <span className="text-xs font-600 text-foreground">{p.sales7d} ventes</span>
+                                  <span className="text-xs font-600 text-foreground">{p.sales7d}</span>
                                 </div>
                                 <div className="flex items-center gap-1">
                                   <span className="text-[10px] text-muted-foreground">30j:</span>
-                                  <span className="text-xs font-600 text-foreground">{p.sales30d} ventes</span>
+                                  <span className="text-xs font-600 text-foreground">{p.sales30d}</span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <span className="text-[10px] font-600 text-amber-700">90j:</span>
+                                  <span className={`text-xs font-700 ${p.sales90d >= 10 ? 'text-emerald-700' : p.sales90d >= 3 ? 'text-amber-700' : 'text-muted-foreground'}`}>{p.sales90d}</span>
                                 </div>
                                 <div className="flex items-center gap-1">
                                   <span className="text-[10px] text-muted-foreground">Marge:</span>
@@ -1088,6 +1092,7 @@ export default function StockPage() {
                                   <div className="flex items-center gap-3 text-xs text-muted-foreground">
                                     <span>7j: <strong className="text-foreground">{p.sales7d}</strong></span>
                                     <span>30j: <strong className="text-foreground">{p.sales30d}</strong></span>
+                                    <span className="text-amber-700">90j: <strong className={p.sales90d >= 5 ? 'text-emerald-700' : 'text-foreground'}>{p.sales90d}</strong></span>
                                     <span>Délai: <strong className="text-foreground">{p.supplierLeadDays}j</strong></span>
                                   </div>
                                   <button
@@ -1134,8 +1139,8 @@ export default function StockPage() {
                               <p className="text-xs text-muted-foreground">{p.category}</p>
                             </div>
                             <div className="text-right shrink-0">
-                              <p className="text-sm font-700 text-emerald-600">{p.sales30d} ventes</p>
-                              <p className="text-xs text-muted-foreground">30 jours</p>
+                              <p className="text-sm font-700 text-emerald-600">{p.sales90d} ventes</p>
+                              <p className="text-xs text-muted-foreground">90 jours</p>
                             </div>
                           </div>
                         ))}
@@ -1333,7 +1338,7 @@ export default function StockPage() {
                       <span className="text-xs text-muted-foreground font-500">Trier par :</span>
                       {([
                         { id: 'default', label: 'Défaut' },
-                        { id: 'best_sellers', label: '🔥 Plus vendus (30j)' },
+                        { id: 'best_sellers', label: '🔥 Plus vendus (90j)' },
                         { id: 'urgent', label: '⚡ Urgence stock' },
                         { id: 'margin', label: '💰 Meilleure marge' },
                       ] as { id: typeof stockSort; label: string }[]).map(s => (

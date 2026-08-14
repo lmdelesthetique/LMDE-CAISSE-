@@ -30,8 +30,10 @@ export interface StockProduct {
   stockDamaged: number;
   stockSuspended: number;
   minStock: number;
+  /** Live-computed from stock_movements_log — always accurate */
   sales7d: number;
   sales30d: number;
+  sales90d: number;
   supplierLeadDays: number;
   isSuspended: boolean;
   status: string;
@@ -171,6 +173,7 @@ function mapProduct(r: Record<string, unknown>): StockProduct {
     minStock,
     sales7d,
     sales30d,
+    sales90d: 0,
     supplierLeadDays,
     isSuspended,
     status: (r.status as string) || 'active',
@@ -182,22 +185,67 @@ function mapProduct(r: Record<string, unknown>): StockProduct {
 }
 
 export async function fetchStockProducts(search?: string): Promise<StockProduct[]> {
-  const data = await fetchAll<Record<string, unknown>>((from, to) => {
-    if (search && search.trim()) {
+  const since90d = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+  const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const since7d  = new Date(Date.now() -  7 * 24 * 60 * 60 * 1000).toISOString();
+
+  // Parallel: products + live sales aggregation from movements log (90 days)
+  const [data, { data: salesRows }] = await Promise.all([
+    fetchAll<Record<string, unknown>>((from, to) => {
+      if (search && search.trim()) {
+        return supabase
+          .from('products')
+          .select('*')
+          .or(`name.ilike.%${search.trim()}%,ref.ilike.%${search.trim()}%,supplier.ilike.%${search.trim()}%,category.ilike.%${search.trim()}%`)
+          .order('name')
+          .range(from, to);
+      }
       return supabase
         .from('products')
         .select('*')
-        .or(`name.ilike.%${search.trim()}%,ref.ilike.%${search.trim()}%,supplier.ilike.%${search.trim()}%,category.ilike.%${search.trim()}%`)
         .order('name')
         .range(from, to);
+    }),
+    supabase
+      .from('stock_movements_log')
+      .select('product_id, quantity_change, created_at')
+      .eq('movement_type', 'sale')
+      .gte('created_at', since90d)
+      .limit(100000),
+  ]);
+
+  // Aggregate live sales per product over 7 / 30 / 90 day windows
+  const salesMap: Record<string, { s7: number; s30: number; s90: number }> = {};
+  for (const m of salesRows ?? []) {
+    const id = m.product_id as string;
+    if (!salesMap[id]) salesMap[id] = { s7: 0, s30: 0, s90: 0 };
+    const qty = Math.abs(Number(m.quantity_change) || 0);
+    salesMap[id].s90 += qty;
+    if ((m.created_at as string) >= since30d) salesMap[id].s30 += qty;
+    if ((m.created_at as string) >= since7d)  salesMap[id].s7  += qty;
+  }
+
+  return data.map(r => {
+    const p = mapProduct(r);
+    const s = salesMap[p.id];
+    if (s) {
+      p.sales7d  = s.s7;
+      p.sales30d = s.s30;
+      p.sales90d = s.s90;
+      // Recompute derived metrics with live sales data
+      p.daysBeforeStockout = computeDaysBeforeStockout(p.stock, s.s7);
+      p.suggestedReorder   = computeSuggestedReorder({
+        stock: p.stock,
+        minStock: p.minStock,
+        sales30d: s.s30,
+        stockTransitContainer: p.stockTransitContainer,
+        stockTransitAvion: p.stockTransitAvion,
+        stockReserved: p.stockReserved,
+        supplierLeadDays: p.supplierLeadDays,
+      });
     }
-    return supabase
-      .from('products')
-      .select('*')
-      .order('name')
-      .range(from, to);
+    return p;
   });
-  return data.map(mapProduct);
 }
 
 /**
@@ -708,27 +756,29 @@ export async function deductStockForSale(
 export async function recalculateSalesCounters(productIds: string[]): Promise<void> {
   if (productIds.length === 0) return;
   const now = new Date();
-  const since7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const since7d  = new Date(now.getTime() -  7 * 24 * 60 * 60 * 1000).toISOString();
   const since30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const since90d = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString();
 
   const { data: movements } = await supabase
     .from('stock_movements_log')
     .select('product_id, quantity_change, created_at')
     .in('product_id', productIds)
     .eq('movement_type', 'sale')
-    .gte('created_at', since30d);
+    .gte('created_at', since90d);
 
   if (!movements) return;
 
-  const counters: Record<string, { s7: number; s30: number }> = {};
-  for (const id of productIds) counters[id] = { s7: 0, s30: 0 };
+  const counters: Record<string, { s7: number; s30: number; s90: number }> = {};
+  for (const id of productIds) counters[id] = { s7: 0, s30: 0, s90: 0 };
 
   for (const m of movements) {
     const id = m.product_id as string;
     if (!counters[id]) continue;
     const qty = Math.abs(Number(m.quantity_change) || 0);
-    counters[id].s30 += qty;
-    if ((m.created_at as string) >= since7d) counters[id].s7 += qty;
+    counters[id].s90 += qty;
+    if ((m.created_at as string) >= since30d) counters[id].s30 += qty;
+    if ((m.created_at as string) >= since7d)  counters[id].s7  += qty;
   }
 
   await Promise.all(

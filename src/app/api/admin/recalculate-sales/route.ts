@@ -9,19 +9,21 @@ function getSupabase() {
 export async function POST() {
   const supabase = getSupabase();
   const now = new Date();
-  const since7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const since7d  = new Date(now.getTime() -  7 * 24 * 60 * 60 * 1000).toISOString();
   const since30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const since90d = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString();
 
-  // Fetch all sale movements in last 30 days
+  // Fetch all sale movements in last 90 days
   const { data: movements, error: mvErr } = await supabase
     .from('stock_movements_log')
     .select('product_id, quantity_change, created_at')
     .eq('movement_type', 'sale')
-    .gte('created_at', since30d);
+    .gte('created_at', since90d)
+    .limit(200000);
 
   if (mvErr) return NextResponse.json({ error: mvErr.message }, { status: 500 });
 
-  // Aggregate per product
+  // Aggregate per product for 7d, 30d, 90d windows
   const counters: Record<string, { s7: number; s30: number }> = {};
   for (const m of movements ?? []) {
     const id = m.product_id as string;
@@ -44,16 +46,9 @@ export async function POST() {
     })
   );
 
-  // Also zero out products with no sales in last 30 days
-  const { error: zeroErr } = await supabase
-    .from('products')
-    .update({ sales_7d: 0, sales_30d: 0 })
-    .not('id', 'in', `(${productIds.map(id => `"${id}"`).join(',')})`.replace(/"/g, "'"));
-
   return NextResponse.json({
     success: true,
     updated,
-    zeroed: !zeroErr,
-    message: `${updated} produits mis à jour avec les compteurs de ventes recalculés`,
+    message: `${updated} produits mis à jour — ventes 7j/30j/90j recalculées depuis l'historique réel`,
   });
 }
