@@ -45,9 +45,16 @@ function getVariantLabel(item: Reservation['items'][0]): string {
 type DriverOption = { id: string; name: string; driverStatus: string };
 
 function normalizePhone(phone: string): string {
-  const d = phone.replace(/\D/g, '');
-  if (d.startsWith('596') || d.startsWith('590') || d.startsWith('33')) return d;
-  if (d.length === 10 && d.startsWith('0')) return '596' + d.slice(1);
+  const d = (phone || '').replace(/\D/g, '');
+  if (d.startsWith('596') || d.startsWith('590') || d.startsWith('594') || d.startsWith('262') || d.startsWith('33')) return d;
+  if (d.length === 10 && d.startsWith('0')) {
+    const local = d.slice(1);
+    if (d.startsWith('0696') || d.startsWith('0697')) return '596' + local; // Martinique
+    if (d.startsWith('0690') || d.startsWith('0691')) return '590' + local; // Guadeloupe
+    if (d.startsWith('0694'))                          return '594' + local; // Guyane
+    if (d.startsWith('0692') || d.startsWith('0693')) return '262' + local; // La Réunion
+    return '33' + local; // France métro
+  }
   return d;
 }
 
@@ -268,7 +275,7 @@ export default function ReservationTicket({ reservation, onClose }: ReservationT
 
 ${(() => {
   const dRaw = (reservation.clientPhone || '').replace(/\D/g, '');
-  const prePhone = dRaw ? ((dRaw.startsWith('596') || dRaw.startsWith('590') || dRaw.startsWith('33')) ? dRaw : (dRaw.length === 10 && dRaw.startsWith('0') ? '596' + dRaw.slice(1) : dRaw)) : '';
+  const prePhone = dRaw ? (() => { if (dRaw.startsWith('596')||dRaw.startsWith('590')||dRaw.startsWith('594')||dRaw.startsWith('262')||dRaw.startsWith('33')) return dRaw; if (dRaw.length===10&&dRaw.startsWith('0')){const l=dRaw.slice(1);if(dRaw.startsWith('0696')||dRaw.startsWith('0697'))return '596'+l;if(dRaw.startsWith('0690')||dRaw.startsWith('0691'))return '590'+l;if(dRaw.startsWith('0694'))return '594'+l;if(dRaw.startsWith('0692')||dRaw.startsWith('0693'))return '262'+l;return '33'+l;} return dRaw; })() : '';
   const firstName = reservation.clientName.split(' ')[0];
   const siteUrl = typeof window !== 'undefined' ? window.location.origin : 'https://lmdecaisse.com';
   const resLink = `${siteUrl}/reservation/${reservation.id}`;
@@ -288,7 +295,7 @@ ${(() => {
     <p style="font-family:'Courier New',monospace;font-size:10px;color:#555;margin-bottom:8px;">📱 Partager par WhatsApp</p>
     <div style="display:flex;align-items:center;gap:8px;justify-content:center;flex-wrap:wrap;">
       <input id="wa-res-phone" type="tel" placeholder="0696 00 00 00" style="padding:8px 12px;border:1px solid #ccc;border-radius:8px;font-size:13px;width:150px;font-family:Arial,sans-serif;" />
-      <button onclick="(function(){var v=document.getElementById('wa-res-phone').value.replace(/\\D/g,'');if(!v)return;var p=(v.startsWith('596')||v.startsWith('590')||v.startsWith('33'))?v:(v.length===10&&v.startsWith('0')?'596'+v.slice(1):v);window.open('https://wa.me/'+p+'?text=${encodedMsg}','_blank');})()" style="padding:8px 16px;background:#25d366;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;font-family:Arial,sans-serif;">Envoyer</button>
+      <button onclick="(function(){var v=document.getElementById('wa-res-phone').value.replace(/\\D/g,'');if(!v)return;var p;if(v.startsWith('596')||v.startsWith('590')||v.startsWith('594')||v.startsWith('262')||v.startsWith('33')){p=v;}else if(v.length===10&&v.startsWith('0')){var l=v.slice(1);if(v.startsWith('0696')||v.startsWith('0697'))p='596'+l;else if(v.startsWith('0690')||v.startsWith('0691'))p='590'+l;else if(v.startsWith('0694'))p='594'+l;else if(v.startsWith('0692')||v.startsWith('0693'))p='262'+l;else p='33'+l;}else{p=v;}window.open('https://wa.me/'+p+'?text=${encodedMsg}','_blank');})()" style="padding:8px 16px;background:#25d366;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;font-family:Arial,sans-serif;">Envoyer</button>
     </div>
     <p style="font-family:Arial,sans-serif;font-size:9px;color:#aaa;margin-top:6px;">Sauvegardez le PDF avant d'envoyer · Message pré-rempli</p>
   </div>`;

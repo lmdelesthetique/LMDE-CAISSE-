@@ -24,8 +24,16 @@ interface LineItem {
 
 function normalizePhoneWA(phone: string): string {
   const d = (phone || '').replace(/\D/g, '');
-  if (d.startsWith('596') || d.startsWith('590') || d.startsWith('33')) return d;
-  if (d.length === 10 && d.startsWith('0')) return '596' + d.slice(1);
+  // Already has country code
+  if (d.startsWith('596') || d.startsWith('590') || d.startsWith('594') || d.startsWith('262') || d.startsWith('33')) return d;
+  if (d.length === 10 && d.startsWith('0')) {
+    const local = d.slice(1);
+    if (d.startsWith('0696') || d.startsWith('0697')) return '596' + local; // Martinique
+    if (d.startsWith('0690') || d.startsWith('0691')) return '590' + local; // Guadeloupe
+    if (d.startsWith('0694'))                          return '594' + local; // Guyane
+    if (d.startsWith('0692') || d.startsWith('0693')) return '262' + local; // La Réunion
+    return '33' + local; // France métro
+  }
   return d;
 }
 
@@ -1043,7 +1051,7 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#1a0a1e;backgro
 
 ${(() => {
   const d = (doc.clientPhone || '').replace(/\D/g, '');
-  const prePhone = d ? ((d.startsWith('596') || d.startsWith('590') || d.startsWith('33')) ? d : (d.length === 10 && d.startsWith('0') ? '596' + d.slice(1) : d)) : '';
+  const prePhone = d ? (() => { if (d.startsWith('596')||d.startsWith('590')||d.startsWith('594')||d.startsWith('262')||d.startsWith('33')) return d; if (d.length===10&&d.startsWith('0')){const l=d.slice(1);if(d.startsWith('0696')||d.startsWith('0697'))return '596'+l;if(d.startsWith('0690')||d.startsWith('0691'))return '590'+l;if(d.startsWith('0694'))return '594'+l;if(d.startsWith('0692')||d.startsWith('0693'))return '262'+l;return '33'+l;} return d; })() : '';
   const typeLabel = DOC_TYPE_CONFIG[doc.type]?.label ?? doc.type;
   const dateStr = doc.issueDate ? new Date(doc.issueDate).toLocaleDateString('fr-FR') : '';
   const isSaved = doc.id && !doc.id.startsWith('doc-');
@@ -1065,7 +1073,7 @@ ${(() => {
     <p style="font-family:Arial,sans-serif;font-size:12px;color:#888;margin-bottom:8px;">📱 Partager par WhatsApp</p>
     <div style="display:flex;align-items:center;gap:8px;justify-content:center;flex-wrap:wrap;">
       <input id="wa-phone-input" type="tel" placeholder="0696 00 00 00" style="padding:8px 12px;border:1px solid #ccc;border-radius:8px;font-size:13px;width:160px;font-family:Arial,sans-serif;" />
-      <button onclick="(function(){var v=document.getElementById('wa-phone-input').value.replace(/\\D/g,'');if(!v)return;var p=(v.startsWith('596')||v.startsWith('590')||v.startsWith('33'))?v:(v.length===10&&v.startsWith('0')?'596'+v.slice(1):v);window.open('https://wa.me/'+p+'?text=${encodedMsg}','_blank');})()" style="padding:8px 16px;background:#25d366;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;font-family:Arial,sans-serif;">Envoyer</button>
+      <button onclick="(function(){var v=document.getElementById('wa-phone-input').value.replace(/\\D/g,'');if(!v)return;var p;if(v.startsWith('596')||v.startsWith('590')||v.startsWith('594')||v.startsWith('262')||v.startsWith('33')){p=v;}else if(v.length===10&&v.startsWith('0')){var l=v.slice(1);if(v.startsWith('0696')||v.startsWith('0697'))p='596'+l;else if(v.startsWith('0690')||v.startsWith('0691'))p='590'+l;else if(v.startsWith('0694'))p='594'+l;else if(v.startsWith('0692')||v.startsWith('0693'))p='262'+l;else p='33'+l;}else{p=v;}window.open('https://wa.me/'+p+'?text=${encodedMsg}','_blank');})()" style="padding:8px 16px;background:#25d366;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;font-family:Arial,sans-serif;">Envoyer</button>
     </div>
     <p style="font-family:Arial,sans-serif;font-size:10px;color:#aaa;margin-top:8px;">Sauvegardez le PDF avant d'envoyer · Le message est pré-rempli</p>
   </div>`;
