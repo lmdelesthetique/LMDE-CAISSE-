@@ -266,21 +266,31 @@ export default function ReservationTicket({ reservation, onClose }: ReservationT
   </div>
 </div>
 
-${reservation.clientPhone ? (() => {
-  const d = reservation.clientPhone.replace(/\D/g, '');
-  const phone = (d.startsWith('596') || d.startsWith('590') || d.startsWith('33')) ? d : (d.length === 10 && d.startsWith('0') ? '596' + d.slice(1) : d);
+${(() => {
+  const dRaw = (reservation.clientPhone || '').replace(/\D/g, '');
+  const prePhone = dRaw ? ((dRaw.startsWith('596') || dRaw.startsWith('590') || dRaw.startsWith('33')) ? dRaw : (dRaw.length === 10 && dRaw.startsWith('0') ? '596' + dRaw.slice(1) : dRaw)) : '';
   const firstName = reservation.clientName.split(' ')[0];
-  const itemsList = reservation.items.map((it) => `• ${it.name} ×${it.qty} — ${(it.qty * it.price).toFixed(2)} €`).join('%0A');
-  const msg = encodeURIComponent(`Bonjour ${firstName} 🌸\n\nVoici votre ticket de réservation n° *${reservation.reservationNumber}* de Le Monde de l'Esthétique.\n\n${reservation.items.map((it) => `• ${it.name} ×${it.qty} — ${(it.qty * it.price).toFixed(2)} €`).join('\n')}\n\n💰 Total : *${reservation.totalAmount.toFixed(2)} €*\n✅ Acompte versé : ${reservation.depositPaid.toFixed(2)} €\n💳 Solde à régler : *${reservation.balanceDue.toFixed(2)} €*\n\nMerci de votre confiance ! À très bientôt 💕\n— Le Monde de l'Esthétique`);
-  return `<div class="no-print" style="text-align:center;padding:16px 20px 20px;border-top:2px dashed #000;margin-top:16px;background:#f0fdf4;">
+  const msgText = `Bonjour ${firstName} 🌸\n\nVoici votre ticket de réservation n° *${reservation.reservationNumber}* de Le Monde de l'Esthétique.\n\n${reservation.items.map((it) => `• ${it.name} ×${it.qty} — ${(it.qty * it.price).toFixed(2)} €`).join('\n')}\n\n💰 Total : *${reservation.totalAmount.toFixed(2)} €*\n✅ Acompte versé : ${reservation.depositPaid.toFixed(2)} €\n💳 Solde à régler : *${reservation.balanceDue.toFixed(2)} €*\n\nMerci de votre confiance ! À très bientôt 💕\n— Le Monde de l'Esthétique`;
+  const encodedMsg = encodeURIComponent(msgText);
+  if (prePhone) {
+    return `<div class="no-print" style="text-align:center;padding:16px 20px 20px;border-top:2px dashed #000;margin-top:16px;background:#f0fdf4;">
     <p style="font-family:'Courier New',monospace;font-size:10px;color:#555;margin-bottom:8px;">📱 Partager par WhatsApp</p>
-    <a href="https://wa.me/${phone}?text=${msg}" target="_blank" style="display:inline-flex;align-items:center;gap:8px;padding:11px 20px;background:#25d366;color:#fff;text-decoration:none;border-radius:10px;font-family:Arial,sans-serif;font-size:13px;font-weight:bold;box-shadow:0 2px 6px rgba(37,211,102,0.3);">
+    <a href="https://wa.me/${prePhone}?text=${encodedMsg}" target="_blank" style="display:inline-flex;align-items:center;gap:8px;padding:11px 20px;background:#25d366;color:#fff;text-decoration:none;border-radius:10px;font-family:Arial,sans-serif;font-size:13px;font-weight:bold;box-shadow:0 2px 6px rgba(37,211,102,0.3);">
       <svg viewBox="0 0 24 24" fill="white" width="16" height="16"><path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0012.04 2zm.01 1.67c2.2 0 4.26.86 5.82 2.42a8.22 8.22 0 012.41 5.83c0 4.54-3.7 8.23-8.24 8.23-1.48 0-2.93-.39-4.19-1.15l-.3-.17-3.12.82.83-3.04-.2-.32a8.19 8.19 0 01-1.11-4.17c.01-4.54 3.7-8.23 8.1-8.23zm-3.38 3.66c-.14 0-.37.05-.57.26-.19.21-.74.73-.74 1.77 0 1.04.76 2.05.87 2.19.11.14 1.5 2.29 3.64 3.12.51.22.9.35 1.21.44.5.16.97.14 1.33.08.41-.07 1.25-.51 1.43-1.01.18-.5.18-.92.12-1.01-.05-.1-.2-.14-.41-.24-.21-.1-1.25-.62-1.44-.68-.19-.07-.33-.1-.47.1-.14.21-.54.68-.66.82-.12.13-.24.15-.45.05-.21-.1-.88-.32-1.68-.99-.62-.54-1.04-1.2-1.16-1.41-.12-.21-.01-.32.09-.42.09-.09.21-.24.31-.36.1-.12.14-.21.21-.35.07-.14.04-.27-.02-.37-.06-.1-.47-1.13-.65-1.55-.17-.42-.34-.37-.47-.37z"/></svg>
       Envoyer par WhatsApp
     </a>
-    <p style="font-family:Arial,sans-serif;font-size:9px;color:#aaa;margin-top:6px;">Sauvegardez le PDF avant d'envoyer</p>
+    <p style="font-family:Arial,sans-serif;font-size:9px;color:#aaa;margin-top:6px;">Sauvegardez le PDF avant d'envoyer · Message pré-rempli</p>
   </div>`;
-})() : ''}
+  }
+  return `<div class="no-print" style="text-align:center;padding:16px 20px 20px;border-top:2px dashed #000;margin-top:16px;background:#f0fdf4;">
+    <p style="font-family:'Courier New',monospace;font-size:10px;color:#555;margin-bottom:8px;">📱 Partager par WhatsApp</p>
+    <div style="display:flex;align-items:center;gap:8px;justify-content:center;flex-wrap:wrap;">
+      <input id="wa-res-phone" type="tel" placeholder="0696 00 00 00" style="padding:8px 12px;border:1px solid #ccc;border-radius:8px;font-size:13px;width:150px;font-family:Arial,sans-serif;" />
+      <button onclick="(function(){var v=document.getElementById('wa-res-phone').value.replace(/\\D/g,'');if(!v)return;var p=(v.startsWith('596')||v.startsWith('590')||v.startsWith('33'))?v:(v.length===10&&v.startsWith('0')?'596'+v.slice(1):v);window.open('https://wa.me/'+p+'?text=${encodedMsg}','_blank');})()" style="padding:8px 16px;background:#25d366;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;font-family:Arial,sans-serif;">Envoyer</button>
+    </div>
+    <p style="font-family:Arial,sans-serif;font-size:9px;color:#aaa;margin-top:6px;">Sauvegardez le PDF avant d'envoyer · Message pré-rempli</p>
+  </div>`;
+})()}
 
 </body>
 </html>`;
