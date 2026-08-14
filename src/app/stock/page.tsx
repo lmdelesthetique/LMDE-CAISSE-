@@ -523,6 +523,9 @@ export default function StockPage() {
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiMock, setAiMock] = useState(false);
   const [globalSearch, setGlobalSearch] = useState('');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [stockSort, setStockSort] = useState<'default' | 'best_sellers' | 'urgent' | 'margin'>('default');
+  const [bulkLoading, setBulkLoading] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -568,6 +571,35 @@ export default function StockPage() {
 
   useBarcodeScanner({ onScan: handleBarcodeScan });
 
+  const handleBulkSuspend = async () => {
+    setBulkLoading(true);
+    for (const id of selectedIds) {
+      const p = products.find(x => x.id === id);
+      if (p) await suspendProduct(p.id, p.name, p.stock, 'Admin');
+    }
+    setSelectedIds(new Set());
+    setBulkLoading(false);
+    await loadData();
+  };
+
+  const handleBulkInactive = async () => {
+    setBulkLoading(true);
+    for (const id of selectedIds) {
+      await setProductInactive(id, false);
+    }
+    setSelectedIds(new Set());
+    setBulkLoading(false);
+    await loadData();
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
   const handleAiAnalysis = async () => {
     setAiLoading(true);
     setAiError(null);
@@ -602,8 +634,12 @@ export default function StockPage() {
     } else if (statusFilter !== 'all') {
       list = list.filter(p => p.stockStatus === statusFilter && p.stockStatus !== 'inactif');
     }
-    return list;
-  }, [products, search, statusFilter]);
+    const sorted = [...list];
+    if (stockSort === 'best_sellers') sorted.sort((a, b) => b.sales30d - a.sales30d);
+    else if (stockSort === 'urgent') sorted.sort((a, b) => (a.daysBeforeStockout ?? 999) - (b.daysBeforeStockout ?? 999));
+    else if (stockSort === 'margin') sorted.sort((a, b) => b.marginRate - a.marginRate);
+    return sorted;
+  }, [products, search, statusFilter, stockSort]);
 
   const restockProducts = useMemo(() =>
     products.filter(p => p.stockStatus === 'rupture' || p.stockStatus === 'faible' || (p.daysBeforeStockout !== null && p.daysBeforeStockout < 7))
@@ -1268,14 +1304,96 @@ export default function StockPage() {
                     </div>
                   </div>
 
-                  <p className="text-xs text-muted-foreground mb-3">{filteredProducts.length} produit(s)</p>
+                  {/* Smart sort — visible when filter is rupture or faible */}
+                  {(statusFilter === 'rupture' || statusFilter === 'faible') && (
+                    <div className="flex items-center gap-2 mb-3 flex-wrap">
+                      <span className="text-xs text-muted-foreground font-500">Trier par :</span>
+                      {([
+                        { id: 'default', label: 'Défaut' },
+                        { id: 'best_sellers', label: '🔥 Plus vendus (30j)' },
+                        { id: 'urgent', label: '⚡ Urgence stock' },
+                        { id: 'margin', label: '💰 Meilleure marge' },
+                      ] as { id: typeof stockSort; label: string }[]).map(s => (
+                        <button
+                          key={s.id}
+                          onClick={() => setStockSort(s.id)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-500 border transition-all ${
+                            stockSort === s.id
+                              ? 'bg-amber-500 text-white border-amber-500'
+                              : 'bg-white border-border text-muted-foreground hover:bg-muted'
+                          }`}
+                        >
+                          {s.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Select all + count */}
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-xs text-muted-foreground">{filteredProducts.length} produit(s)</p>
+                    <button
+                      onClick={() => {
+                        if (selectedIds.size === filteredProducts.length) {
+                          setSelectedIds(new Set());
+                        } else {
+                          setSelectedIds(new Set(filteredProducts.map(p => p.id)));
+                        }
+                      }}
+                      className="text-xs text-primary hover:underline font-500"
+                    >
+                      {selectedIds.size === filteredProducts.length && filteredProducts.length > 0 ? 'Tout désélectionner' : 'Tout sélectionner'}
+                    </button>
+                  </div>
+
+                  {/* Bulk action bar */}
+                  {selectedIds.size > 0 && (
+                    <div className="flex items-center gap-3 mb-4 px-4 py-3 bg-primary/5 border border-primary/20 rounded-2xl flex-wrap">
+                      <span className="text-xs font-600 text-primary">{selectedIds.size} produit(s) sélectionné(s)</span>
+                      <div className="flex gap-2 ml-auto flex-wrap">
+                        <button
+                          onClick={handleBulkSuspend}
+                          disabled={bulkLoading}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gray-600 text-white text-xs font-600 hover:bg-gray-700 disabled:opacity-50 transition-colors"
+                        >
+                          <Icon name="PauseCircleIcon" size={13} />
+                          Mettre en Suspendu
+                        </button>
+                        <button
+                          onClick={handleBulkInactive}
+                          disabled={bulkLoading}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-500 text-white text-xs font-600 hover:bg-slate-600 disabled:opacity-50 transition-colors"
+                        >
+                          <Icon name="ArchiveBoxXMarkIcon" size={13} />
+                          Retirer du stock
+                        </button>
+                        <button
+                          onClick={() => setSelectedIds(new Set())}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-border text-xs font-500 text-muted-foreground hover:bg-muted transition-colors"
+                        >
+                          <Icon name="XMarkIcon" size={13} />
+                          Annuler
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="space-y-2">
                     {filteredProducts.map(p => {
                       const cfg = STATUS_CONFIG[p.stockStatus as keyof typeof STATUS_CONFIG] ?? STATUS_CONFIG.ok;
+                      const isSelected = selectedIds.has(p.id);
                       return (
-                        <div key={p.id} className="bg-white border border-border rounded-2xl p-4 hover:shadow-md transition-all">
+                        <div key={p.id} className={`bg-white border rounded-2xl p-4 hover:shadow-md transition-all ${isSelected ? 'border-primary ring-1 ring-primary/20' : 'border-border'}`}>
                           <div className="flex items-center gap-4">
+                            {/* Checkbox */}
+                            <button
+                              onClick={() => toggleSelect(p.id)}
+                              className={`shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+                                isSelected ? 'bg-primary border-primary' : 'border-border bg-white hover:border-primary'
+                              }`}
+                            >
+                              {isSelected && <Icon name="CheckIcon" size={12} className="text-white" />}
+                            </button>
                             <div className="w-14 h-14 rounded-xl overflow-hidden bg-muted shrink-0">
                               {p.imageUrl ? (
                                 <AppImage src={p.imageUrl} alt={p.name} width={56} height={56} className="w-full h-full object-cover" />
