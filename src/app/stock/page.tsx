@@ -525,6 +525,7 @@ export default function StockPage() {
   const [globalSearch, setGlobalSearch] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [stockSort, setStockSort] = useState<'default' | 'best_sellers' | 'urgent' | 'margin'>('default');
+  const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [bulkLoading, setBulkLoading] = useState(false);
   const [recalcLoading, setRecalcLoading] = useState(false);
 
@@ -630,6 +631,11 @@ export default function StockPage() {
     }
   };
 
+  const categories = useMemo(() =>
+    [...new Set(products.map(p => p.category).filter(Boolean))].sort(),
+    [products]
+  );
+
   const filteredProducts = useMemo(() => {
     let list = products;
     if (search.trim()) {
@@ -648,12 +654,15 @@ export default function StockPage() {
     } else if (statusFilter !== 'all') {
       list = list.filter(p => p.stockStatus === statusFilter && p.stockStatus !== 'inactif');
     }
+    if (categoryFilter !== 'all') {
+      list = list.filter(p => p.category === categoryFilter);
+    }
     const sorted = [...list];
     if (stockSort === 'best_sellers') sorted.sort((a, b) => b.sales90d - a.sales90d);
     else if (stockSort === 'urgent') sorted.sort((a, b) => (a.daysBeforeStockout ?? 999) - (b.daysBeforeStockout ?? 999));
     else if (stockSort === 'margin') sorted.sort((a, b) => b.marginRate - a.marginRate);
     return sorted;
-  }, [products, search, statusFilter, stockSort]);
+  }, [products, search, statusFilter, categoryFilter, stockSort]);
 
   const restockProducts = useMemo(() =>
     products.filter(p => p.stockStatus === 'rupture' || p.stockStatus === 'faible' || (p.daysBeforeStockout !== null && p.daysBeforeStockout < 7))
@@ -1354,6 +1363,45 @@ export default function StockPage() {
                           {s.label}
                         </button>
                       ))}
+                    </div>
+                  )}
+
+                  {/* Category filter */}
+                  {categories.length > 0 && (
+                    <div className="mb-3">
+                      <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+                        <span className="text-xs text-muted-foreground font-500 shrink-0">Catégorie :</span>
+                        <button
+                          onClick={() => setCategoryFilter('all')}
+                          className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-500 border transition-all ${
+                            categoryFilter === 'all'
+                              ? 'bg-foreground text-background border-foreground'
+                              : 'bg-white border-border text-muted-foreground hover:bg-muted'
+                          }`}
+                        >
+                          Toutes
+                        </button>
+                        {categories.map(cat => {
+                          const count = filteredProducts.filter(p => p.category === cat).length;
+                          const isActive = categoryFilter === cat;
+                          return (
+                            <button
+                              key={cat}
+                              onClick={() => setCategoryFilter(isActive ? 'all' : cat)}
+                              className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-500 border transition-all ${
+                                isActive
+                                  ? 'bg-foreground text-background border-foreground'
+                                  : 'bg-white border-border text-muted-foreground hover:bg-muted'
+                              }`}
+                            >
+                              {cat}
+                              <span className={`text-[10px] font-600 px-1 rounded-full ${isActive ? 'bg-white/20 text-background' : 'bg-muted text-muted-foreground'}`}>
+                                {count}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
 
