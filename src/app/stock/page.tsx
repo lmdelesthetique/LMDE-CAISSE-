@@ -1366,95 +1366,116 @@ export default function StockPage() {
                     </div>
                   )}
 
-                  {/* Category filter */}
-                  {categories.length > 0 && (
-                    <div className="mb-3">
-                      <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
-                        <span className="text-xs text-muted-foreground font-500 shrink-0">Catégorie :</span>
+                  {/* Sidebar + list layout */}
+                  <div className="flex gap-4">
+                    {/* Category sidebar */}
+                    {categories.length > 0 && (
+                      <div className="w-48 shrink-0">
+                        <div className="sticky top-2 bg-white border border-border rounded-2xl overflow-hidden">
+                          <div className="px-3 py-2.5 border-b border-border bg-muted/30">
+                            <p className="text-[10px] font-700 text-muted-foreground uppercase tracking-wide">Catégories</p>
+                          </div>
+                          <div className="overflow-y-auto max-h-[65vh] py-1">
+                            {(() => {
+                              const baseList = (() => {
+                                let l = products;
+                                if (search.trim()) {
+                                  const q = search.toLowerCase();
+                                  l = l.filter(p => p.name.toLowerCase().includes(q) || p.ref.toLowerCase().includes(q) || p.supplier.toLowerCase().includes(q) || p.category.toLowerCase().includes(q));
+                                }
+                                if (statusFilter === 'active') l = l.filter(p => p.stockStatus !== 'inactif');
+                                else if (statusFilter === 'inactif') l = l.filter(p => p.stockStatus === 'inactif');
+                                else if (statusFilter !== 'all') l = l.filter(p => p.stockStatus === statusFilter && p.stockStatus !== 'inactif');
+                                return l;
+                              })();
+                              const totalCount = baseList.length;
+                              return (
+                                <>
+                                  <button
+                                    onClick={() => setCategoryFilter('all')}
+                                    className={`w-full flex items-center justify-between px-3 py-2 text-xs font-500 transition-all hover:bg-muted/50 ${
+                                      categoryFilter === 'all' ? 'bg-foreground/5 text-foreground font-700 border-l-2 border-foreground' : 'text-muted-foreground'
+                                    }`}
+                                  >
+                                    <span>Toutes</span>
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${categoryFilter === 'all' ? 'bg-foreground text-background' : 'bg-muted'}`}>{totalCount}</span>
+                                  </button>
+                                  {categories.map(cat => {
+                                    const count = baseList.filter(p => p.category === cat).length;
+                                    const isActive = categoryFilter === cat;
+                                    return (
+                                      <button
+                                        key={cat}
+                                        onClick={() => setCategoryFilter(isActive ? 'all' : cat)}
+                                        className={`w-full flex items-center justify-between px-3 py-2 text-xs font-500 transition-all hover:bg-muted/50 ${
+                                          isActive ? 'bg-foreground/5 text-foreground font-700 border-l-2 border-foreground' : 'text-muted-foreground border-l-2 border-transparent'
+                                        }`}
+                                      >
+                                        <span className="text-left truncate pr-1">{cat}</span>
+                                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full shrink-0 ${isActive ? 'bg-foreground text-background' : 'bg-muted'}`}>{count}</span>
+                                      </button>
+                                    );
+                                  })}
+                                </>
+                              );
+                            })()}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Main content */}
+                    <div className="flex-1 min-w-0">
+                      {/* Select all + count */}
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-xs text-muted-foreground">{filteredProducts.length} produit(s){categoryFilter !== 'all' && ` · ${categoryFilter}`}</p>
                         <button
-                          onClick={() => setCategoryFilter('all')}
-                          className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-500 border transition-all ${
-                            categoryFilter === 'all'
-                              ? 'bg-foreground text-background border-foreground'
-                              : 'bg-white border-border text-muted-foreground hover:bg-muted'
-                          }`}
+                          onClick={() => {
+                            if (selectedIds.size === filteredProducts.length) {
+                              setSelectedIds(new Set());
+                            } else {
+                              setSelectedIds(new Set(filteredProducts.map(p => p.id)));
+                            }
+                          }}
+                          className="text-xs text-primary hover:underline font-500"
                         >
-                          Toutes
+                          {selectedIds.size === filteredProducts.length && filteredProducts.length > 0 ? 'Tout désélectionner' : 'Tout sélectionner'}
                         </button>
-                        {categories.map(cat => {
-                          const count = filteredProducts.filter(p => p.category === cat).length;
-                          const isActive = categoryFilter === cat;
-                          return (
+                      </div>
+
+                      {/* Bulk action bar */}
+                      {selectedIds.size > 0 && (
+                        <div className="flex items-center gap-3 mb-4 px-4 py-3 bg-primary/5 border border-primary/20 rounded-2xl flex-wrap">
+                          <span className="text-xs font-600 text-primary">{selectedIds.size} produit(s) sélectionné(s)</span>
+                          <div className="flex gap-2 ml-auto flex-wrap">
                             <button
-                              key={cat}
-                              onClick={() => setCategoryFilter(isActive ? 'all' : cat)}
-                              className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-500 border transition-all ${
-                                isActive
-                                  ? 'bg-foreground text-background border-foreground'
-                                  : 'bg-white border-border text-muted-foreground hover:bg-muted'
-                              }`}
+                              onClick={handleBulkSuspend}
+                              disabled={bulkLoading}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gray-600 text-white text-xs font-600 hover:bg-gray-700 disabled:opacity-50 transition-colors"
                             >
-                              {cat}
-                              <span className={`text-[10px] font-600 px-1 rounded-full ${isActive ? 'bg-white/20 text-background' : 'bg-muted text-muted-foreground'}`}>
-                                {count}
-                              </span>
+                              <Icon name="PauseCircleIcon" size={13} />
+                              Mettre en Suspendu
                             </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
+                            <button
+                              onClick={handleBulkInactive}
+                              disabled={bulkLoading}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-500 text-white text-xs font-600 hover:bg-slate-600 disabled:opacity-50 transition-colors"
+                            >
+                              <Icon name="ArchiveBoxXMarkIcon" size={13} />
+                              Retirer du stock
+                            </button>
+                            <button
+                              onClick={() => setSelectedIds(new Set())}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-border text-xs font-500 text-muted-foreground hover:bg-muted transition-colors"
+                            >
+                              <Icon name="XMarkIcon" size={13} />
+                              Annuler
+                            </button>
+                          </div>
+                        </div>
+                      )}
 
-                  {/* Select all + count */}
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="text-xs text-muted-foreground">{filteredProducts.length} produit(s)</p>
-                    <button
-                      onClick={() => {
-                        if (selectedIds.size === filteredProducts.length) {
-                          setSelectedIds(new Set());
-                        } else {
-                          setSelectedIds(new Set(filteredProducts.map(p => p.id)));
-                        }
-                      }}
-                      className="text-xs text-primary hover:underline font-500"
-                    >
-                      {selectedIds.size === filteredProducts.length && filteredProducts.length > 0 ? 'Tout désélectionner' : 'Tout sélectionner'}
-                    </button>
-                  </div>
-
-                  {/* Bulk action bar */}
-                  {selectedIds.size > 0 && (
-                    <div className="flex items-center gap-3 mb-4 px-4 py-3 bg-primary/5 border border-primary/20 rounded-2xl flex-wrap">
-                      <span className="text-xs font-600 text-primary">{selectedIds.size} produit(s) sélectionné(s)</span>
-                      <div className="flex gap-2 ml-auto flex-wrap">
-                        <button
-                          onClick={handleBulkSuspend}
-                          disabled={bulkLoading}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gray-600 text-white text-xs font-600 hover:bg-gray-700 disabled:opacity-50 transition-colors"
-                        >
-                          <Icon name="PauseCircleIcon" size={13} />
-                          Mettre en Suspendu
-                        </button>
-                        <button
-                          onClick={handleBulkInactive}
-                          disabled={bulkLoading}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-500 text-white text-xs font-600 hover:bg-slate-600 disabled:opacity-50 transition-colors"
-                        >
-                          <Icon name="ArchiveBoxXMarkIcon" size={13} />
-                          Retirer du stock
-                        </button>
-                        <button
-                          onClick={() => setSelectedIds(new Set())}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-border text-xs font-500 text-muted-foreground hover:bg-muted transition-colors"
-                        >
-                          <Icon name="XMarkIcon" size={13} />
-                          Annuler
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="space-y-2">
+                      <div className="space-y-2">
                     {filteredProducts.map(p => {
                       const cfg = STATUS_CONFIG[p.stockStatus as keyof typeof STATUS_CONFIG] ?? STATUS_CONFIG.ok;
                       const isSelected = selectedIds.has(p.id);
@@ -1592,6 +1613,8 @@ export default function StockPage() {
                         <p className="text-sm text-muted-foreground">Aucun produit trouvé</p>
                       </div>
                     )}
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
