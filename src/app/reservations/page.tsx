@@ -36,6 +36,21 @@ function detectCountry(address: string): string {
   return 'votre région';
 }
 
+function getCountryInfo(address: string | null): { flag: string; label: string; bg: string; text: string; border: string } | null {
+  const lower = (address || '').toLowerCase();
+  if (lower.includes('guadeloupe'))    return { flag: '🇬🇵', label: 'Guadeloupe',  bg: 'bg-blue-50',    text: 'text-blue-700',    border: 'border-blue-200' };
+  if (lower.includes('martinique'))   return { flag: '🇲🇶', label: 'Martinique',  bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' };
+  if (lower.includes('guyane'))       return { flag: '🇬🇫', label: 'Guyane',      bg: 'bg-amber-50',   text: 'text-amber-700',   border: 'border-amber-200' };
+  if (lower.includes('réunion') || lower.includes('reunion')) return { flag: '🇷🇪', label: 'La Réunion', bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200' };
+  if (lower.includes('saint-martin') || lower.includes('st-martin')) return { flag: '🇲🇫', label: 'Saint-Martin', bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200' };
+  if (lower.includes('saint-barth') || lower.includes('st-barth'))   return { flag: '🇧🇱', label: 'St-Barthélemy', bg: 'bg-violet-50', text: 'text-violet-700', border: 'border-violet-200' };
+  if (lower.includes('france'))       return { flag: '🇫🇷', label: 'France',      bg: 'bg-slate-50',   text: 'text-slate-600',   border: 'border-slate-200' };
+  if (lower.includes('belgique') || lower.includes('belgium')) return { flag: '🇧🇪', label: 'Belgique', bg: 'bg-yellow-50', text: 'text-yellow-700', border: 'border-yellow-200' };
+  if (lower.includes('suisse') || lower.includes('switzerland'))     return { flag: '🇨🇭', label: 'Suisse',    bg: 'bg-red-50',     text: 'text-red-700',     border: 'border-red-200' };
+  if (lower.trim().length > 0) return { flag: '🌍', label: 'International', bg: 'bg-slate-50', text: 'text-slate-500', border: 'border-slate-200' };
+  return null;
+}
+
 function printBon(res: Reservation) {
   const win = window.open('', '_blank', 'width=820,height=1000,scrollbars=yes');
   if (!win) { alert('Autorisez les popups pour imprimer le bon.'); return; }
@@ -670,6 +685,16 @@ export default function ReservationsPage() {
                         <td className="px-4 py-3">
                           <p className="font-500 text-foreground">{res.clientName}</p>
                           {res.clientPhone && <p className="text-xs text-muted-foreground">{res.clientPhone}</p>}
+                          {(() => {
+                            const ci = getCountryInfo(res.deliveryAddress);
+                            if (!ci) return null;
+                            return (
+                              <span className={`inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded text-[10px] font-600 border ${ci.bg} ${ci.text} ${ci.border}`}>
+                                <span>{ci.flag}</span>
+                                {ci.label}
+                              </span>
+                            );
+                          })()}
                         </td>
 
                         {/* Product + variant */}
