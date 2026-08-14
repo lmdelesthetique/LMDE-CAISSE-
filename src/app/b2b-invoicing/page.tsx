@@ -942,7 +942,9 @@ function printB2BDocument(doc: B2BDocument) {
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#1a0a1e;background:#fff;}
 .page{width:190mm;margin:0 auto;padding:0 0 15mm;}
-@media print{@page{size:A4;margin:10mm;}body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}.page{padding:0;}}
+@media print{@page{size:A4;margin:10mm;}body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}.page{padding:0;}.no-print{display:none!important;}}
+.wa-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;max-width:320px;margin:18px auto 0;padding:13px 24px;background:#25d366;color:#fff;text-decoration:none;border-radius:12px;font-family:Arial,sans-serif;font-size:14px;font-weight:bold;box-shadow:0 2px 8px rgba(37,211,102,0.3);}
+.wa-btn:hover{background:#1da851;}
 </style></head><body>
 <div class="page">
   <!-- Brand header -->
@@ -1038,6 +1040,23 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:10pt;color:#1a0a1e;backgro
     ${doc.sellerTva ? `N° TVA Intracommunautaire : ${esc(doc.sellerTva)}` : ''}
   </div>
 </div>
+
+${doc.clientPhone ? (() => {
+  const d = doc.clientPhone.replace(/\D/g, '');
+  const phone = (d.startsWith('596') || d.startsWith('590') || d.startsWith('33')) ? d : (d.length === 10 && d.startsWith('0') ? '596' + d.slice(1) : d);
+  const typeLabel = DOC_TYPE_CONFIG[doc.type]?.label ?? doc.type;
+  const dateStr = doc.issueDate ? new Date(doc.issueDate).toLocaleDateString('fr-FR') : '';
+  const msg = `Bonjour ${doc.clientName} 🌸\n\nVoici votre *${typeLabel}* n° *${doc.number}* de Le Monde de l'Esthétique.\n\n💶 Montant TTC : *${doc.totalTtc.toFixed(2)} €*\n📅 Date d'émission : ${dateStr}\n📋 ${doc.paymentTerms}\n\nMerci de votre confiance ! 💕\n— Le Monde de l'Esthétique`;
+  return `<div class="no-print" style="text-align:center;padding:16px 24px 24px;border-top:1px solid #fce4ec;margin-top:8px;background:#fdf6f9;">
+    <p style="font-family:Arial,sans-serif;font-size:12px;color:#888;margin-bottom:8px;">📱 Partager par WhatsApp</p>
+    <a href="https://wa.me/${phone}?text=${encodeURIComponent(msg)}" target="_blank" class="wa-btn">
+      <svg viewBox="0 0 24 24" fill="white" width="20" height="20"><path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0012.04 2zm.01 1.67c2.2 0 4.26.86 5.82 2.42a8.22 8.22 0 012.41 5.83c0 4.54-3.7 8.23-8.24 8.23-1.48 0-2.93-.39-4.19-1.15l-.3-.17-3.12.82.83-3.04-.2-.32a8.19 8.19 0 01-1.11-4.17c.01-4.54 3.7-8.23 8.1-8.23zm-3.38 3.66c-.14 0-.37.05-.57.26-.19.21-.74.73-.74 1.77 0 1.04.76 2.05.87 2.19.11.14 1.5 2.29 3.64 3.12.51.22.9.35 1.21.44.5.16.97.14 1.33.08.41-.07 1.25-.51 1.43-1.01.18-.5.18-.92.12-1.01-.05-.1-.2-.14-.41-.24-.21-.1-1.25-.62-1.44-.68-.19-.07-.33-.1-.47.1-.14.21-.54.68-.66.82-.12.13-.24.15-.45.05-.21-.1-.88-.32-1.68-.99-.62-.54-1.04-1.2-1.16-1.41-.12-.21-.01-.32.09-.42.09-.09.21-.24.31-.36.1-.12.14-.21.21-.35.07-.14.04-.27-.02-.37-.06-.1-.47-1.13-.65-1.55-.17-.42-.34-.37-.47-.37z"/></svg>
+      Envoyer par WhatsApp
+    </a>
+    <p style="font-family:Arial,sans-serif;font-size:10px;color:#aaa;margin-top:8px;">Le message sera pré-rempli — sauvegardez le PDF avant d'envoyer</p>
+  </div>`;
+})() : ''}
+
 <script>window.onload=function(){window.print();}</script>
 </body></html>`;
 
