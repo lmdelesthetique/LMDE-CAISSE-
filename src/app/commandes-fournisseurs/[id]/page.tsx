@@ -83,6 +83,71 @@ interface SupplierPaymentIncludes {
 
 type Tab = 'overview' | 'lines' | 'reception' | 'costs' | 'margins' | 'history' | 'payment' | 'messaging';
 
+function getFileExt(url: string): string {
+  try {
+    const path = new URL(url).pathname;
+    return path.split('.').pop()?.toLowerCase().split('?')[0] ?? '';
+  } catch {
+    return url.split('.').pop()?.toLowerCase().split('?')[0] ?? '';
+  }
+}
+
+function InvoiceViewer({ url }: { url: string }) {
+  const ext = getFileExt(url);
+  const isExcel = ['xlsx', 'xls', 'ods', 'csv'].includes(ext);
+  const isPdf = ext === 'pdf';
+
+  if (isPdf) {
+    return (
+      <iframe
+        src={url}
+        className="w-full rounded-lg border border-border"
+        style={{ height: 420 }}
+        title="Facture fournisseur"
+      />
+    );
+  }
+
+  if (isExcel) {
+    const viewerUrl = `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(url)}`;
+    return (
+      <iframe
+        src={viewerUrl}
+        className="w-full rounded-lg border border-border"
+        style={{ height: 420 }}
+        title="Facture fournisseur"
+      />
+    );
+  }
+
+  // Image or other — show download card
+  const isImage = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic'].includes(ext);
+  if (isImage) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={url} alt="Facture fournisseur" className="w-full rounded-lg border border-border object-contain" style={{ maxHeight: 420 }} />
+    );
+  }
+
+  return (
+    <div className="w-full rounded-lg border border-border bg-muted flex flex-col items-center justify-center gap-3 py-10">
+      <span className="text-4xl">📄</span>
+      <p className="text-sm text-muted-foreground">Aperçu non disponible pour ce format</p>
+      <a href={url} target="_blank" rel="noopener noreferrer" className="px-4 py-2 bg-violet-600 text-white rounded-lg text-sm font-600 hover:bg-violet-700 transition-colors">
+        Télécharger le fichier
+      </a>
+    </div>
+  );
+}
+
+function invoiceButtonLabel(url: string): string {
+  const ext = getFileExt(url);
+  if (['xlsx', 'xls', 'ods'].includes(ext)) return 'Voir la facture Excel';
+  if (ext === 'csv') return 'Voir la facture CSV';
+  if (['jpg', 'jpeg', 'png', 'webp'].includes(ext)) return 'Voir la facture (image)';
+  return 'Voir la facture PDF';
+}
+
 export default function OrderDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -2221,17 +2286,12 @@ export default function OrderDetailPage() {
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white rounded-lg text-sm font-500 hover:bg-violet-700 transition-colors"
                     >
                       <Icon name="DocumentIcon" size={14} />
-                      Voir la facture PDF
+                      {invoiceButtonLabel(order.supplierInvoiceUrl)}
                     </a>
                   )}
                 </div>
                 {order.supplierInvoiceUrl && (
-                  <iframe
-                    src={order.supplierInvoiceUrl}
-                    className="w-full rounded-lg border border-border"
-                    style={{ height: 420 }}
-                    title="Facture fournisseur"
-                  />
+                  <InvoiceViewer url={order.supplierInvoiceUrl} />
                 )}
 
                 {/* Real price entry per line */}
