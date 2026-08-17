@@ -9,11 +9,14 @@ import { POSAuthProvider, usePOSAuth } from '@/contexts/POSAuthContext';
 function POSGuard() {
   const { isLocked } = usePOSAuth();
 
-  if (isLocked) {
-    return <EmployeePINModal />;
-  }
-
-  return <POSTerminal />;
+  // Keep POSTerminal always mounted so held tickets / cart state survive
+  // employee lock/unlock cycles. EmployeePINModal overlays on top (fixed inset-0).
+  return (
+    <>
+      <POSTerminal />
+      {isLocked && <EmployeePINModal />}
+    </>
+  );
 }
 
 export default function POSSalesTerminalPage() {

@@ -1189,7 +1189,12 @@ export default function POSTerminal() {
       client: client?.name,
       heldAt: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
     };
-    setHeldTickets((prev) => [...prev, ticket]);
+    setHeldTickets((prev) => {
+      const next = [...prev, ticket];
+      // Synchronous save so the ticket survives a component remount
+      try { localStorage.setItem('beautypos_held_tickets', JSON.stringify(next)); } catch { }
+      return next;
+    });
     const total = cart.reduce((s, i) => s + calcItemTotal(i), 0);
     logAction('hold', `Ticket mis en attente${client ? ` — Client : ${client.name}` : ''}`, total, { itemsCount: cart.length, clientName: client?.name });
     setCart([]);
@@ -1200,7 +1205,11 @@ export default function POSTerminal() {
 
   const recallTicket = useCallback((ticket: HeldTicket) => {
     setCart(ticket.items);
-    setHeldTickets((prev) => prev.filter((t) => t.id !== ticket.id));
+    setHeldTickets((prev) => {
+      const next = prev.filter((t) => t.id !== ticket.id);
+      try { localStorage.setItem('beautypos_held_tickets', JSON.stringify(next)); } catch { }
+      return next;
+    });
     setShowHeld(false);
     toast.info(`Ticket ${ticket.label} récupéré`);
   }, []);
