@@ -92,23 +92,26 @@ interface ImportHistoryEntry {
 // ─── Column auto-detection heuristics ────────────────────────────────────────
 
 // Exact matches are listed first — autoDetect tries exact before partial
+// More specific hints must come before generic ones to avoid false partial matches.
+// French export columns: code_barres, nom, categorie, fournisseur, pv_ttc,
+// prix_achat_fournisseur, pv_ht, tva, cout_de_revient, frais_douane, etc.
 const COLUMN_HINTS: Record<keyof ColumnMapping, string[]> = {
-  reference:        ['reference', 'ref', 'référence', 'ref_produit', 'code_article', 'code produit', 'sku', 'code'],
-  barcode:          ['barcode', 'code_barre', 'code barre', 'code-barres', 'ean13', 'ean', 'gtin', 'upc'],
+  reference:        ['reference', 'ref', 'référence', 'ref_produit', 'code_article', 'code produit', 'sku'],
+  barcode:          ['barcode', 'code_barres', 'code_barre', 'code barre', 'code-barres', 'ean13', 'ean', 'gtin', 'upc'],
   product_name:     ['product_name', 'name', 'nom', 'libelle', 'libellé', 'designation', 'désignation', 'produit', 'article'],
   category:         ['category', 'categorie', 'catégorie', 'famille', 'rayon'],
   supplier:         ['supplier', 'fournisseur', 'vendor', 'fabricant'],
   stock_quantity:   ['stock_quantity', 'stock', 'quantite', 'quantité', 'qty', 'qté'],
-  purchase_price:   ['purchase_price', 'buy_price', 'prix_achat', 'prix achat', 'achat', 'coût achat'],
-  sell_price_ttc:   ['sell_price_ttc', 'prix_ttc', 'prix ttc', 'prixttc', 'tarif ttc', 'price', 'prix', 'tarif'],
-  sell_price_ht:    ['sell_price_ht', 'prix_ht', 'prix ht', 'ht', 'prix hors taxe'],
+  purchase_price:   ['purchase_price', 'buy_price', 'prix_achat_fournisseur', 'prix achat fournisseur', 'prix_achat', 'prix achat', 'achat', 'coût achat'],
+  sell_price_ttc:   ['sell_price_ttc', 'pv_ttc', 'pv ttc', 'prix_vente_ttc', 'prix_ttc', 'prix ttc', 'prixttc', 'tarif ttc', 'price', 'tarif'],
+  sell_price_ht:    ['sell_price_ht', 'pv_ht', 'pv ht', 'prix_ht', 'prix ht', 'prix hors taxe'],
   vat_rate:         ['vat_rate', 'tva', 'vat', 'taux_tva', 'taux tva', '% tva'],
   status:           ['status', 'statut', 'état', 'etat', 'actif'],
   description:      ['description', 'descriptif', 'details', 'détails', 'notes'],
-  min_stock:        ['min_stock', 'stock_min', 'stock min', 'seuil alerte', 'quantité minimum'],
-  transport_cost:   ['transport_cost', 'transport', 'frais_transport', 'frais transport', 'livraison'],
-  customs_cost:     ['customs_cost', 'customs', 'douane', 'droits_douane', 'droits douane', 'frais douane'],
-  structure_cost_pct: ['structure_cost_pct', 'structure_pct', 'structure', '% structure', 'overhead'],
+  min_stock:        ['min_stock', 'stock_minimum', 'stock_min', 'stock min', 'seuil alerte', 'quantité minimum'],
+  transport_cost:   ['transport_cost', 'cout_de_revient', 'coût de revient', 'transport', 'frais_transport', 'frais transport', 'livraison'],
+  customs_cost:     ['customs_cost', 'frais_douane', 'customs', 'douane', 'droits_douane', 'droits douane', 'frais douane'],
+  structure_cost_pct: ['structure_cost_pct', 'frais_structure_pct', 'structure_pct', 'structure', '% structure', 'overhead'],
   location:         ['location', 'emplacement', 'zone', 'etagere', 'étag'],
   image_url:        ['image_url', 'image', 'photo', 'photo_url', 'img', 'image_link', 'url_image'],
 };
@@ -123,14 +126,21 @@ const EMPTY_MAPPING: ColumnMapping = {
 function autoDetectColumns(headers: string[]): ColumnMapping {
   const mapping: ColumnMapping = { ...EMPTY_MAPPING };
   const lowerHeaders = headers.map((h) => h.toLowerCase().trim());
+  const used = new Set<number>();
 
+  // Pass 1: exact matches for all fields — deduped
   for (const [field, hints] of Object.entries(COLUMN_HINTS) as [keyof ColumnMapping, string[]][]) {
-    // 1. Exact match (header === hint)
-    let idx = lowerHeaders.findIndex((h) => hints.includes(h));
-    // 2. Partial match (header contains hint)
-    if (idx === -1) idx = lowerHeaders.findIndex((h) => hints.some((hint) => h.includes(hint)));
-    if (idx !== -1) mapping[field] = headers[idx];
+    const idx = lowerHeaders.findIndex((h, i) => !used.has(i) && hints.includes(h));
+    if (idx !== -1) { mapping[field] = headers[idx]; used.add(idx); }
   }
+
+  // Pass 2: partial matches for still-unmatched fields — deduped
+  for (const [field, hints] of Object.entries(COLUMN_HINTS) as [keyof ColumnMapping, string[]][]) {
+    if (mapping[field as keyof ColumnMapping]) continue;
+    const idx = lowerHeaders.findIndex((h, i) => !used.has(i) && hints.some((hint) => h.includes(hint)));
+    if (idx !== -1) { mapping[field] = headers[idx]; used.add(idx); }
+  }
+
   return mapping;
 }
 
@@ -460,26 +470,26 @@ function DemoCleanupModal({ onClose, onDone }: CleanupModalProps) {
 // sell_price_ht, sell_price_ttc, tva, stock, min_stock, structure_pct, gross_margin,
 // margin_rate, product_status, description, location
 const EXPORT_COLUMNS = [
-  { key: 'barcode',         label: 'barcode' },
+  { key: 'barcode',         label: 'code_barres' },
   { key: 'ref',             label: 'reference' },
-  { key: 'name',            label: 'product_name' },
-  { key: 'category',        label: 'category' },
-  { key: 'supplier',        label: 'supplier' },
-  { key: 'buy_price',       label: 'purchase_price' },
-  { key: 'sell_price_ttc',  label: 'sell_price_ttc' },
-  { key: 'sell_price_ht',   label: 'sell_price_ht' },
-  { key: 'tva',             label: 'vat_rate' },
-  { key: 'transport',       label: 'transport_cost' },
-  { key: 'customs',         label: 'customs_cost' },
-  { key: 'other_fees',      label: 'other_fees' },
-  { key: 'structure_pct',   label: 'structure_cost_pct' },
-  { key: 'gross_margin',    label: 'gross_margin' },
-  { key: 'margin_rate',     label: 'margin_rate' },
-  { key: 'stock',           label: 'stock_quantity' },
-  { key: 'min_stock',       label: 'min_stock' },
-  { key: 'product_status',  label: 'status' },
+  { key: 'name',            label: 'nom' },
+  { key: 'category',        label: 'categorie' },
+  { key: 'supplier',        label: 'fournisseur' },
+  { key: 'buy_price',       label: 'prix_achat_fournisseur' },
+  { key: 'sell_price_ttc',  label: 'pv_ttc' },
+  { key: 'sell_price_ht',   label: 'pv_ht' },
+  { key: 'tva',             label: 'tva' },
+  { key: 'transport',       label: 'cout_de_revient' },
+  { key: 'customs',         label: 'frais_douane' },
+  { key: 'other_fees',      label: 'autres_frais' },
+  { key: 'structure_pct',   label: 'frais_structure_pct' },
+  { key: 'gross_margin',    label: 'marge_brute' },
+  { key: 'margin_rate',     label: 'taux_marge' },
+  { key: 'stock',           label: 'stock' },
+  { key: 'min_stock',       label: 'stock_minimum' },
+  { key: 'product_status',  label: 'statut' },
   { key: 'description',     label: 'description' },
-  { key: 'location',        label: 'location' },
+  { key: 'location',        label: 'emplacement' },
   { key: 'image_url',       label: 'image_url' },
 ];
 
