@@ -477,13 +477,14 @@ const EXPORT_COLUMNS = [
   { key: 'product_status',  label: 'status' },
   { key: 'description',     label: 'description' },
   { key: 'location',        label: 'location' },
+  { key: 'image_url',       label: 'image_url' },
 ];
 
 async function exportProductsCSV() {
   const client = createClient();
   const { data, error } = await client
     .from('products')
-    .select('barcode,ref,name,category,supplier,buy_price,sell_price_ttc,sell_price_ht,tva,transport,customs,other_fees,structure_pct,gross_margin,margin_rate,stock,min_stock,product_status,description,location')
+    .select('barcode,ref,name,category,supplier,buy_price,sell_price_ttc,sell_price_ht,tva,transport,customs,other_fees,structure_pct,gross_margin,margin_rate,stock,min_stock,product_status,description,location,image_url')
     .order('name');
   if (error || !data) return;
 
