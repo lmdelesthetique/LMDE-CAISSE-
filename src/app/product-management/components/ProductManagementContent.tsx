@@ -397,12 +397,13 @@ EXECUTE FUNCTION sync_product_status();`;
 
   const handleExport = () => {
     const today = new Date().toISOString().slice(0, 10);
-    const headers = ['code_barres', 'reference', 'nom', 'categorie', 'fournisseur', 'prix_achat_fournisseur', 'cout_de_revient', 'pv_ttc', 'marge_pct', 'stock', 'statut', 'shopify'];
+    const headers = ['code_barres', 'reference', 'nom', 'categorie', 'fournisseur', 'prix_achat_fournisseur', 'cout_de_revient', 'pv_ttc', 'marge_pct', 'stock', 'statut', 'shopify', 'image_url'];
     const csvRows = filtered.map((p) => [
       p.barcode, p.ref, p.name, p.category, p.supplier,
       (p.purchasePriceSupplier && p.purchasePriceSupplier > 0 ? p.purchasePriceSupplier : p.buyPrice).toFixed(2),
       p.costPrice.toFixed(2), p.sellPriceTTC.toFixed(2),
       p.marginPct.toFixed(1), p.stock, p.status, p.shopify ? 'Oui' : 'Non',
+      p.imageUrl || '',
     ]);
     const csv = [headers, ...csvRows]
       .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))

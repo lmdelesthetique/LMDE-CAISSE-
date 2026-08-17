@@ -35,6 +35,7 @@ interface ColumnMapping {
   customs_cost: string;
   structure_cost_pct: string;
   location: string;
+  image_url: string;
 }
 
 interface MappedProduct {
@@ -55,6 +56,7 @@ interface MappedProduct {
   customs_cost: number;
   structure_cost_pct: number;
   location: string;
+  image_url: string;
   rawRow: ParsedRow;
 }
 
@@ -108,13 +110,14 @@ const COLUMN_HINTS: Record<keyof ColumnMapping, string[]> = {
   customs_cost:     ['customs_cost', 'customs', 'douane', 'droits_douane', 'droits douane', 'frais douane'],
   structure_cost_pct: ['structure_cost_pct', 'structure_pct', 'structure', '% structure', 'overhead'],
   location:         ['location', 'emplacement', 'zone', 'etagere', 'étag'],
+  image_url:        ['image_url', 'image', 'photo', 'photo_url', 'img', 'image_link', 'url_image'],
 };
 
 const EMPTY_MAPPING: ColumnMapping = {
   reference: '', barcode: '', product_name: '', category: '', supplier: '',
   stock_quantity: '', purchase_price: '', sell_price_ttc: '', sell_price_ht: '',
   vat_rate: '', status: '', description: '', min_stock: '', transport_cost: '',
-  customs_cost: '', structure_cost_pct: '', location: '',
+  customs_cost: '', structure_cost_pct: '', location: '', image_url: '',
 };
 
 function autoDetectColumns(headers: string[]): ColumnMapping {
@@ -720,6 +723,7 @@ export default function ProductImportPage() {
           customs_cost: num('customs_cost'),
           structure_cost_pct: num('structure_cost_pct'),
           location: str('location'),
+          image_url: str('image_url'),
           rawRow: row,
         };
       })
@@ -932,6 +936,7 @@ export default function ProductImportPage() {
         status:         prodStatus,
         description:    product.description || '',
         location:       product.location || '',
+        image_url:      product.image_url || null,
       };
       if (existingId) payload.id = existingId;
       return payload;
@@ -1123,6 +1128,7 @@ export default function ProductImportPage() {
     customs_cost:       'Frais douane',
     structure_cost_pct: 'Frais structure %',
     location:           'Emplacement',
+    image_url:          'Photo (URL image)',
   };
 
   return (
