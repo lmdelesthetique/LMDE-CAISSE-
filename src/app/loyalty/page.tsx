@@ -505,7 +505,77 @@ function SuggestionConfigModal({
   );
 }
 
+// ── Reward Product Card ────────────────────────────────────────────────────────
+
+function RewardProductCard({
+  p,
+  linkedTier,
+  onEdit,
+  onDelete,
+}: {
+  p: LoyaltyRewardProduct;
+  linkedTier: LoyaltyTier | undefined;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const isLinkedToCatalogue = p.sku !== null && UUID_RE.test(p.sku);
+  return (
+    <div className="bg-white rounded-xl border border-border p-4">
+      <div className="flex items-start justify-between gap-2 mb-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+            <p className="text-sm font-700 text-foreground truncate">{p.productName}</p>
+            {isLinkedToCatalogue && (
+              <span className="text-[10px] font-600 px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200 shrink-0">
+                Lié catalogue
+              </span>
+            )}
+          </div>
+          {linkedTier && (
+            <p className="text-[11px] text-purple-600 font-600">Palier : {linkedTier.name}</p>
+          )}
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <button onClick={onEdit} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
+            <Icon name="PencilIcon" size={13} />
+          </button>
+          <button onClick={onDelete} className="p-1.5 rounded-lg hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-colors">
+            <Icon name="TrashIcon" size={13} />
+          </button>
+        </div>
+      </div>
+      {p.description && (
+        <p className="text-xs text-muted-foreground mb-3 line-clamp-2">{p.description}</p>
+      )}
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-600 px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+          {CATEGORY_LABELS[p.rewardCategory] ?? p.rewardCategory}
+        </span>
+        <div className="flex items-center gap-1.5">
+          <Icon name="ArchiveBoxIcon" size={12} className="text-muted-foreground" />
+          <span className={`text-xs font-700 tabular-nums ${p.stockQuantity <= 3 ? 'text-red-600' : p.stockQuantity <= 10 ? 'text-amber-600' : 'text-emerald-600'}`}>
+            {p.stockQuantity} en stock
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ──────────────────────────────────────────────────────────────────
+
+const PRODUCT_CATEGORY_FILTERS = [
+  { id: 'all', label: 'Tous', icon: '🎁' },
+  { id: 'extensions_cils', label: 'Extensions Cils', icon: '✨' },
+  { id: 'manucure', label: 'Manucure', icon: '💅' },
+  { id: 'pedicure', label: 'Pédicure', icon: '🦶' },
+  { id: 'gift', label: 'Cadeau', icon: '🎀' },
+  { id: 'old_stock', label: 'Ancien stock', icon: '📦' },
+  { id: 'surprise', label: 'Surprise', icon: '🎊' },
+  { id: 'vip', label: 'VIP', icon: '💎' },
+] as const;
+
+type ProductCategoryFilter = typeof PRODUCT_CATEGORY_FILTERS[number]['id'];
 
 export default function LoyaltyPage() {
   const [tab, setTab] = useState<Tab>('dashboard');
@@ -521,6 +591,7 @@ export default function LoyaltyPage() {
   const [suggestionTarget, setSuggestionTarget] = useState<SlowMoverProduct | null>(null);
   const [recalculating, setRecalculating] = useState(false);
   const [recalcPoints, setRecalcPoints] = useState(false);
+  const [productCategoryFilter, setProductCategoryFilter] = useState<ProductCategoryFilter>('all');
 
   const handleRecalculatePoints = async () => {
     setRecalcPoints(true);
@@ -928,76 +999,117 @@ export default function LoyaltyPage() {
 
               {/* ── PRODUCTS ── */}
               {tab === 'products' && (
-                <div className="p-6 space-y-6">
+                <div className="p-6 space-y-5">
                   <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-800">
                     <strong>💡 Conseil :</strong> Tous les produits récompenses sont liés au catalogue réel. En caisse, le stock est automatiquement déduit quand une récompense &quot;Produit offert&quot; est utilisée.
                   </div>
 
-                  {/* Registered reward products */}
-                  {rewardProducts.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-12 text-center bg-white rounded-xl border border-border">
-                      <span className="text-5xl mb-4">🎁</span>
-                      <p className="text-base font-600 text-foreground">Aucun produit récompense</p>
-                      <p className="text-sm text-muted-foreground mt-1 mb-4">Ajoutez des produits à offrir en récompense fidélité</p>
-                      <button onClick={() => setShowProductForm(true)}
-                        className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-600 hover:opacity-90 transition-opacity">
-                        <Icon name="PlusIcon" size={15} />
-                        Ajouter un produit
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {rewardProducts.map((p) => {
-                        const isLinkedToCatalogue = p.sku !== null && UUID_RE.test(p.sku);
-                        const linkedTier = tierForProduct(p.id);
+                  {/* Category filter tabs */}
+                  <div className="flex gap-2 flex-wrap">
+                    {PRODUCT_CATEGORY_FILTERS.map(cat => {
+                      const count = cat.id === 'all' ? rewardProducts.length : rewardProducts.filter(p => p.rewardCategory === cat.id).length;
+                      const isSpecialty = ['extensions_cils', 'manucure', 'pedicure'].includes(cat.id);
+                      const isActive = productCategoryFilter === cat.id;
+                      return (
+                        <button
+                          key={cat.id}
+                          onClick={() => setProductCategoryFilter(cat.id)}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-600 transition-all ${
+                            isActive
+                              ? isSpecialty
+                                ? 'bg-violet-600 border-violet-600 text-white shadow-sm'
+                                : 'bg-primary border-primary text-primary-foreground shadow-sm'
+                              : isSpecialty
+                                ? 'border-violet-200 text-violet-700 hover:bg-violet-50'
+                                : 'border-border text-muted-foreground hover:bg-muted'
+                          }`}
+                        >
+                          <span>{cat.icon}</span>
+                          <span>{cat.label}</span>
+                          <span className={`ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-700 ${isActive ? 'bg-white/20' : 'bg-muted text-muted-foreground'}`}>
+                            {count}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Specialty category sections */}
+                  {productCategoryFilter === 'all' && ['extensions_cils', 'manucure', 'pedicure'].some(cat =>
+                    rewardProducts.some(p => p.rewardCategory === cat)
+                  ) && (
+                    <div className="space-y-4">
+                      {(['extensions_cils', 'manucure', 'pedicure'] as const).map(catId => {
+                        const catInfo = PRODUCT_CATEGORY_FILTERS.find(c => c.id === catId)!;
+                        const catProducts = rewardProducts.filter(p => p.rewardCategory === catId);
+                        if (catProducts.length === 0) return null;
                         return (
-                          <div key={p.id} className="bg-white rounded-xl border border-border p-4">
-                            <div className="flex items-start justify-between gap-2 mb-3">
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
-                                  <p className="text-sm font-700 text-foreground truncate">{p.productName}</p>
-                                  {isLinkedToCatalogue && (
-                                    <span className="text-[10px] font-600 px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200 shrink-0">
-                                      Lié catalogue
-                                    </span>
-                                  )}
-                                </div>
-                                {linkedTier && (
-                                  <p className="text-[11px] text-purple-600 font-600">
-                                    Palier : {linkedTier.name}
-                                  </p>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-1 shrink-0">
-                                <button onClick={() => { setEditingProduct(p); setShowProductForm(true); }}
-                                  className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
-                                  <Icon name="PencilIcon" size={13} />
-                                </button>
-                                <button onClick={() => handleDeleteProduct(p.id)}
-                                  className="p-1.5 rounded-lg hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-colors">
-                                  <Icon name="TrashIcon" size={13} />
-                                </button>
-                              </div>
-                            </div>
-                            {p.description && (
-                              <p className="text-xs text-muted-foreground mb-3 line-clamp-2">{p.description}</p>
-                            )}
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs font-600 px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
-                                {CATEGORY_LABELS[p.rewardCategory] ?? p.rewardCategory}
+                          <div key={catId}>
+                            <div className="flex items-center gap-2 mb-3">
+                              <span className="text-lg">{catInfo.icon}</span>
+                              <h3 className="text-sm font-700 text-foreground">{catInfo.label}</h3>
+                              <span className="text-[10px] font-600 px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200">
+                                {catProducts.length} produit{catProducts.length > 1 ? 's' : ''}
                               </span>
-                              <div className="flex items-center gap-1.5">
-                                <Icon name="ArchiveBoxIcon" size={12} className="text-muted-foreground" />
-                                <span className={`text-xs font-700 tabular-nums ${p.stockQuantity <= 3 ? 'text-red-600' : p.stockQuantity <= 10 ? 'text-amber-600' : 'text-emerald-600'}`}>
-                                  {p.stockQuantity} en stock
-                                </span>
-                              </div>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                              {catProducts.map(p => <RewardProductCard key={p.id} p={p} linkedTier={tierForProduct(p.id)} onEdit={() => { setEditingProduct(p); setShowProductForm(true); }} onDelete={() => handleDeleteProduct(p.id)} />)}
                             </div>
                           </div>
                         );
                       })}
                     </div>
                   )}
+
+                  {/* Registered reward products */}
+                  {(() => {
+                    const displayed = productCategoryFilter === 'all'
+                      ? rewardProducts.filter(p => !['extensions_cils', 'manucure', 'pedicure'].includes(p.rewardCategory))
+                      : rewardProducts.filter(p => p.rewardCategory === productCategoryFilter);
+                    if (rewardProducts.length === 0) {
+                      return (
+                        <div className="flex flex-col items-center justify-center py-12 text-center bg-white rounded-xl border border-border">
+                          <span className="text-5xl mb-4">🎁</span>
+                          <p className="text-base font-600 text-foreground">Aucun produit récompense</p>
+                          <p className="text-sm text-muted-foreground mt-1 mb-4">Ajoutez des produits à offrir en récompense fidélité</p>
+                          <button onClick={() => setShowProductForm(true)}
+                            className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-600 hover:opacity-90 transition-opacity">
+                            <Icon name="PlusIcon" size={15} />
+                            Ajouter un produit
+                          </button>
+                        </div>
+                      );
+                    }
+                    if (displayed.length === 0) {
+                      return (
+                        <div className="flex flex-col items-center justify-center py-10 text-center bg-white rounded-xl border border-border">
+                          <span className="text-4xl mb-3">{PRODUCT_CATEGORY_FILTERS.find(c => c.id === productCategoryFilter)?.icon}</span>
+                          <p className="text-sm font-600 text-muted-foreground">Aucun produit dans cette catégorie</p>
+                          <button onClick={() => setShowProductForm(true)}
+                            className="mt-3 flex items-center gap-2 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-600 hover:opacity-90 transition-opacity">
+                            <Icon name="PlusIcon" size={13} />
+                            Ajouter un produit
+                          </button>
+                        </div>
+                      );
+                    }
+                    const sectionLabel = productCategoryFilter === 'all' ? 'Autres récompenses' : null;
+                    return (
+                      <div>
+                        {sectionLabel && rewardProducts.some(p => ['extensions_cils','manucure','pedicure'].includes(p.rewardCategory)) && (
+                          <div className="flex items-center gap-2 mb-3">
+                            <h3 className="text-sm font-700 text-foreground">{sectionLabel}</h3>
+                            <span className="text-[10px] font-600 px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+                              {displayed.length}
+                            </span>
+                          </div>
+                        )}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {displayed.map(p => <RewardProductCard key={p.id} p={p} linkedTier={tierForProduct(p.id)} onEdit={() => { setEditingProduct(p); setShowProductForm(true); }} onDelete={() => handleDeleteProduct(p.id)} />)}
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {/* Suggestions intelligentes */}
                   {slowMovers.length > 0 && (
