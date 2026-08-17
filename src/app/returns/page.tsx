@@ -192,6 +192,13 @@ function NewReturnModal({ onClose, onCreated }: NewReturnModalProps) {
     else if (returnCase === 'good_condition') setRefundType('refund_cash');
   }, [returnCase]);
 
+  // Auto-switch to avoir client when a client is selected
+  useEffect(() => {
+    if (selectedClient && returnCase === 'good_condition') {
+      setReturnCase('store_credit');
+    }
+  }, [selectedClient]);
+
   const filteredProducts = products.filter(p =>
     p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
     p.ref.toLowerCase().includes(productSearch.toLowerCase())
