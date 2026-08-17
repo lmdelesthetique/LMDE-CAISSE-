@@ -347,34 +347,47 @@ export default function SupplierTokenPortal() {
     setSendError(null);
 
     try {
-      const fd = new FormData();
-      // Rebuild file with correct MIME type if browser left it empty
       const mimeType = guessMimeType(file);
-      const correctedFile = file.type ? file : new File([file], file.name, { type: mimeType });
-      fd.append('file', correctedFile);
-      fd.append('supplierId', info.supplierId);
+      const contentType = file.type || mimeType;
 
-      const res = await fetch('/api/supplier-messages/upload', { method: 'POST', body: fd });
-      const json = await res.json().catch(() => ({}));
-
-      if (!res.ok || !json.url) {
-        setSendError(json.error ?? 'Erreur lors de l\'envoi du fichier. Veuillez réessayer.');
+      // Step 1: get presigned upload URL (bypasses Vercel 4.5MB limit)
+      const presignRes = await fetch('/api/supplier-messages/upload-presigned', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ supplierId: info.supplierId, filename: file.name, contentType }),
+      });
+      const presignJson = await presignRes.json().catch(() => ({}));
+      if (!presignRes.ok || !presignJson.signedUrl) {
+        setSendError(presignJson.error ?? 'Erreur lors de la préparation de l\'envoi.');
         return;
       }
 
-      const isImg = IS_IMG(json.url, json.type ?? mimeType);
-      const isPdf = IS_PDF(json.url);
+      // Step 2: upload file directly to Supabase Storage (browser → Supabase, no Vercel middleman)
+      const uploadRes = await fetch(presignJson.signedUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': contentType },
+        body: file,
+      });
+      if (!uploadRes.ok) {
+        setSendError('Erreur lors de l\'envoi du fichier. Veuillez réessayer.');
+        return;
+      }
+
+      const publicUrl: string = presignJson.publicUrl;
+      const isImg = IS_IMG(publicUrl, contentType);
+      const isPdf = IS_PDF(publicUrl);
       const msgType = isImg ? 'photo' : isPdf ? 'pdf' : 'other';
 
+      // Step 3: record the message with the file URL
       const msgRes = await fetch('/api/supplier-messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           supplierId: info.supplierId,
           messageType: msgType,
-          attachmentUrl: json.url,
-          attachmentName: json.name,
-          attachmentType: json.type ?? mimeType,
+          attachmentUrl: publicUrl,
+          attachmentName: file.name,
+          attachmentType: contentType,
         }),
       });
 
@@ -555,7 +568,7 @@ export default function SupplierTokenPortal() {
           </form>
 
           <p style={{ textAlign: 'center', fontSize: 11, color: '#9ca3af', padding: '4px 0 8px', background: '#f0f2f5', flexShrink: 0 }}>
-            📎 Facture · PDF · Photo · Excel/CSV acceptés (max 20 Mo)
+            📎 Facture · PDF · Photo · Excel/CSV acceptés (max 50 Mo)
           </p>
         </>
       )}
