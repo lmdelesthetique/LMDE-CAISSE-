@@ -15,24 +15,38 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (!id || !lineId) return NextResponse.json({ error: 'Missing id or lineId' }, { status: 400 });
 
   const body = await req.json().catch(() => ({}));
-  const { qtyOrdered } = body;
-  if (qtyOrdered === undefined) return NextResponse.json({ error: 'qtyOrdered required' }, { status: 400 });
+  const { qtyOrdered, salePrice } = body;
+  if (qtyOrdered === undefined && salePrice === undefined) {
+    return NextResponse.json({ error: 'qtyOrdered or salePrice required' }, { status: 400 });
+  }
 
   const supabase = makeAdminClient();
 
-  const qty = Math.max(1, Math.round(Number(qtyOrdered)));
-  const { data: line } = await supabase.from('fo_order_lines').select('unit_price').eq('id', lineId).eq('order_id', id).maybeSingle();
+  const { data: line } = await supabase.from('fo_order_lines').select('unit_price, qty_ordered').eq('id', lineId).eq('order_id', id).maybeSingle();
   if (!line) return NextResponse.json({ error: 'Line not found' }, { status: 404 });
 
-  const lineTotal = qty * Number(line.unit_price || 0);
-  await supabase.from('fo_order_lines').update({ qty_ordered: qty, line_total: lineTotal }).eq('id', lineId);
+  const update: Record<string, unknown> = {};
 
-  // Recalculate order subtotal
-  const { data: allLines } = await supabase.from('fo_order_lines').select('line_total').eq('order_id', id);
-  const subtotal = (allLines ?? []).reduce((s: number, l: any) => s + Number(l.line_total || 0), 0);
-  await supabase.from('fo_orders').update({ subtotal, updated_at: new Date().toISOString() }).eq('id', id);
+  if (qtyOrdered !== undefined) {
+    const qty = Math.max(1, Math.round(Number(qtyOrdered)));
+    update.qty_ordered = qty;
+    update.line_total = qty * Number(line.unit_price || 0);
+  }
 
-  return NextResponse.json({ ok: true, qtyOrdered: qty, lineTotal });
+  if (salePrice !== undefined) {
+    update.sale_price = Math.max(0, Number(salePrice));
+  }
+
+  await supabase.from('fo_order_lines').update(update).eq('id', lineId);
+
+  // Recalculate order subtotal when qty changed
+  if (qtyOrdered !== undefined) {
+    const { data: allLines } = await supabase.from('fo_order_lines').select('line_total').eq('order_id', id);
+    const subtotal = (allLines ?? []).reduce((s: number, l: any) => s + Number(l.line_total || 0), 0);
+    await supabase.from('fo_orders').update({ subtotal, updated_at: new Date().toISOString() }).eq('id', id);
+  }
+
+  return NextResponse.json({ ok: true });
 }
 
 // DELETE — remove a single line by ?lineId=...

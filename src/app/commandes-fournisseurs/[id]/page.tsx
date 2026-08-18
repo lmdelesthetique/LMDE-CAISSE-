@@ -625,13 +625,29 @@ export default function OrderDetailPage() {
     setCostHistory(allCostHistory);
     localStorage.setItem(`beautypos_cost_history_${order.id}`, JSON.stringify(allCostHistory));
 
-    // ── Sync new price to products table via API route (service role) ──
+    // ── 1. Update fo_order_lines.sale_price (persists the new tarif on the line) ──
+    await fetch(`/api/fo-orders/${order.id}/lines?lineId=${line.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ salePrice: newPrice }),
+    });
+
+    // ── 2. Sync new sell price to the products table (catalogue) ──
     try {
       const tvaRate = 8.5;
       const newSellPriceHT = newPrice / (1 + tvaRate / 100);
 
-      if (line.productId) {
-        await fetch(`/api/products/${line.productId}`, {
+      let productId: string | null = line.productId ?? null;
+
+      // Fallback: find product by ref if no productId on the line
+      if (!productId && line.productRef) {
+        const res = await fetch(`/api/products/search?q=${encodeURIComponent(line.productRef)}&limit=1`);
+        const json = await res.json();
+        productId = json?.products?.[0]?.id ?? null;
+      }
+
+      if (productId) {
+        await fetch(`/api/products/${productId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -640,22 +656,6 @@ export default function OrderDetailPage() {
             updated_at: new Date().toISOString(),
           }),
         });
-      } else if (line.productRef) {
-        // fallback: find product id by ref then update
-        const res = await fetch(`/api/products/search?ref=${encodeURIComponent(line.productRef)}`);
-        const json = await res.json();
-        const pid = json?.id || json?.[0]?.id;
-        if (pid) {
-          await fetch(`/api/products/${pid}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              sell_price_ht: newSellPriceHT,
-              sell_price_ttc: newPrice,
-              updated_at: new Date().toISOString(),
-            }),
-          });
-        }
       }
     } catch (syncErr) {
       console.warn('Price sync to products failed (non-blocking):', syncErr);
