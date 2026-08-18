@@ -265,6 +265,8 @@ export default function OrderDetailPage() {
   const [deletingLineId, setDeletingLineId] = useState<string | null>(null);
   const [addLineSource, setAddLineSource] = useState<'lines' | 'reception'>('lines');
   const [savingDirectLine, setSavingDirectLine] = useState(false);
+  const [receptionQtys, setReceptionQtys] = useState<Record<string, string>>({});
+  const [savingQtyId, setSavingQtyId] = useState<string | null>(null);
   const [showAddLineModal, setShowAddLineModal] = useState(false);
   const [productSearch, setProductSearch] = useState('');
   const [productResults, setProductResults] = useState<any[]>([]);
@@ -331,16 +333,19 @@ export default function OrderDetailPage() {
         // Load saved structure pct for this order if exists
         const savedPct = localStorage.getItem(`beautypos_structure_pct_${id}`);
         if (savedPct !== null) setStructurePct(parseFloat(savedPct));
-        // Init received quantities and real prices per line
+        // Init received quantities, real prices, and reception qtys per line
         if (o.lines) {
           const rq: Record<string, number> = {};
           const rp: Record<string, string> = {};
+          const rqty: Record<string, string> = {};
           o.lines.forEach(l => {
             rq[l.id] = l.qtyReceived || 0;
             rp[l.id] = l.confirmedUnitPrice != null ? String(l.confirmedUnitPrice) : String(l.unitPrice || '');
+            rqty[l.id] = String(l.qtyOrdered || 1);
           });
           setReceivedQtys(rq);
           setRealPrices(rp);
+          setReceptionQtys(rqty);
         }
       }
     } finally {
@@ -774,6 +779,24 @@ export default function OrderDetailPage() {
       await load();
     } finally {
       setSavingDirectLine(false);
+    }
+  };
+
+  const handleSaveLineQty = async (lineId: string) => {
+    if (!order) return;
+    const newQty = parseInt(receptionQtys[lineId] || '1', 10);
+    const originalLine = lines.find((l) => l.id === lineId);
+    if (!originalLine || isNaN(newQty) || newQty < 1 || newQty === originalLine.qtyOrdered) return;
+    setSavingQtyId(lineId);
+    try {
+      await fetch(`/api/fo-orders/${order.id}/lines?lineId=${lineId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ qtyOrdered: newQty }),
+      });
+      await load();
+    } finally {
+      setSavingQtyId(null);
     }
   };
 
@@ -2447,7 +2470,26 @@ export default function OrderDetailPage() {
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-500 text-foreground truncate">{line.productName}</p>
-                              <p className="text-xs text-muted-foreground">{line.productRef} · Commandé: {line.qtyOrdered}</p>
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                {line.productRef && <span className="text-xs text-muted-foreground font-mono">{line.productRef}</span>}
+                                {line.productRef && <span className="text-xs text-muted-foreground">·</span>}
+                                <span className="text-xs text-muted-foreground">Qté:</span>
+                                <div className="relative flex items-center">
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    step="1"
+                                    value={receptionQtys[line.id] ?? String(line.qtyOrdered)}
+                                    onChange={(e) => setReceptionQtys(prev => ({ ...prev, [line.id]: e.target.value }))}
+                                    onBlur={() => handleSaveLineQty(line.id)}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                                    className="w-14 px-1.5 py-0.5 border border-border rounded text-xs text-center focus:outline-none focus:ring-1 focus:ring-violet-400 focus:border-violet-400 bg-white"
+                                  />
+                                  {savingQtyId === line.id && (
+                                    <span className="absolute -right-4 top-1/2 -translate-y-1/2 w-3 h-3 border-2 border-violet-400 border-t-transparent rounded-full animate-spin" />
+                                  )}
+                                </div>
+                              </div>
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
                               <span className="text-xs text-muted-foreground hidden sm:inline">

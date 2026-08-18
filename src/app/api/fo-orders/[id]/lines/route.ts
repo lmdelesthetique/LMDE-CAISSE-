@@ -8,6 +8,33 @@ function makeAdminClient() {
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
+// PATCH — update a single line field (?lineId=...) and recalculate order subtotal
+export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+  const { id } = params;
+  const lineId = req.nextUrl.searchParams.get('lineId');
+  if (!id || !lineId) return NextResponse.json({ error: 'Missing id or lineId' }, { status: 400 });
+
+  const body = await req.json().catch(() => ({}));
+  const { qtyOrdered } = body;
+  if (qtyOrdered === undefined) return NextResponse.json({ error: 'qtyOrdered required' }, { status: 400 });
+
+  const supabase = makeAdminClient();
+
+  const qty = Math.max(1, Math.round(Number(qtyOrdered)));
+  const { data: line } = await supabase.from('fo_order_lines').select('unit_price').eq('id', lineId).eq('order_id', id).maybeSingle();
+  if (!line) return NextResponse.json({ error: 'Line not found' }, { status: 404 });
+
+  const lineTotal = qty * Number(line.unit_price || 0);
+  await supabase.from('fo_order_lines').update({ qty_ordered: qty, line_total: lineTotal }).eq('id', lineId);
+
+  // Recalculate order subtotal
+  const { data: allLines } = await supabase.from('fo_order_lines').select('line_total').eq('order_id', id);
+  const subtotal = (allLines ?? []).reduce((s: number, l: any) => s + Number(l.line_total || 0), 0);
+  await supabase.from('fo_orders').update({ subtotal, updated_at: new Date().toISOString() }).eq('id', id);
+
+  return NextResponse.json({ ok: true, qtyOrdered: qty, lineTotal });
+}
+
 // DELETE — remove a single line by ?lineId=...
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   const { id } = params;
