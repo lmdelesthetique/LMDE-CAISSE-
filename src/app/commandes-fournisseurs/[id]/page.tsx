@@ -263,6 +263,8 @@ export default function OrderDetailPage() {
   const [notifyWaLink, setNotifyWaLink] = useState<string | null>(null);
   const [notifyPortalLink, setNotifyPortalLink] = useState<string | null>(null);
   const [deletingLineId, setDeletingLineId] = useState<string | null>(null);
+  const [addLineSource, setAddLineSource] = useState<'lines' | 'reception'>('lines');
+  const [savingDirectLine, setSavingDirectLine] = useState(false);
   const [showAddLineModal, setShowAddLineModal] = useState(false);
   const [productSearch, setProductSearch] = useState('');
   const [productResults, setProductResults] = useState<any[]>([]);
@@ -752,6 +754,29 @@ export default function OrderDetailPage() {
     }
   };
 
+  // Immediately persist a new line to DB (used from Reception tab to bypass editedLines buffer)
+  const insertLineDirectly = async (newLine: FoOrderLine) => {
+    if (!order) return;
+    setSavingDirectLine(true);
+    try {
+      const currentLines = order.lines ?? [];
+      const allLines = [...currentLines, newLine];
+      const newSubtotal = allLines.reduce((s, l) => s + l.qtyOrdered * l.unitPrice, 0);
+      await fetch(`/api/fo-orders/${order.id}/lines`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lines: allLines,
+          originalLineIds: currentLines.map((l) => l.id),
+          subtotal: newSubtotal,
+        }),
+      });
+      await load();
+    } finally {
+      setSavingDirectLine(false);
+    }
+  };
+
   const searchProducts = async (q: string) => {
     if (!q.trim()) { setProductResults([]); return; }
     setSearchingProducts(true);
@@ -779,8 +804,6 @@ export default function OrderDetailPage() {
 
   const handleAddProductToOrder = (product: any) => {
     const rate = addModalCurrency === 'USD' && addModalUsdRate ? addModalUsdRate : 1;
-    // Use raw supplier price (purchase_price_supplier) if available — it's what we pay the supplier
-    // buy_price now stores the loaded cost (with fees), which is not the correct order unit price
     const rawSupplierPrice = product.purchase_price_supplier || product.buy_price;
     const buyPriceEur = Math.round((rawSupplierPrice ?? 0) * rate * 100) / 100;
     const sellPriceEur = Math.round((product.sell_price_ttc ?? 0) * rate * 100) / 100;
@@ -800,10 +823,14 @@ export default function OrderDetailPage() {
       grossMargin: 0, marginRate: 0, previousCost: 0,
       qtyMissing: 0, qtyDamaged: 0, weightKg: 0, volumeM3: 0, customCostShare: 0,
     };
-    setEditedLines((prev) => [...prev, newLine]);
     setShowAddLineModal(false);
     setProductSearch('');
     setProductResults([]);
+    if (addLineSource === 'reception') {
+      insertLineDirectly(newLine);
+    } else {
+      setEditedLines((prev) => [...prev, newLine]);
+    }
   };
 
   const handleCreateNewProduct = async (data: any, imageUrl?: string, colorVariants?: any[]) => {
@@ -886,8 +913,12 @@ export default function OrderDetailPage() {
       grossMargin: 0, marginRate: 0, previousCost: 0,
       qtyMissing: 0, qtyDamaged: 0, weightKg: 0, volumeM3: 0, customCostShare: 0,
     };
-    setEditedLines((prev) => [...prev, newLine]);
     setShowNewProductModal(false);
+    if (addLineSource === 'reception') {
+      insertLineDirectly(newLine);
+    } else {
+      setEditedLines((prev) => [...prev, newLine]);
+    }
   };
 
   const handleSaveEdit = async () => {
@@ -1933,14 +1964,14 @@ export default function OrderDetailPage() {
                       {savingEdit ? 'Enregistrement…' : 'Sauvegarder'}
                     </button>
                     <button
-                      onClick={() => setShowAddLineModal(true)}
+                      onClick={() => { setAddLineSource('lines'); setShowAddLineModal(true); }}
                       className="flex items-center gap-2 px-4 py-2 border border-border rounded-lg text-sm font-500 hover:bg-muted transition-colors"
                     >
                       <Icon name="PlusIcon" size={15} />
                       Ajouter produit
                     </button>
                     <button
-                      onClick={() => setShowNewProductModal(true)}
+                      onClick={() => { setAddLineSource('lines'); setShowNewProductModal(true); }}
                       className="flex items-center gap-2 px-4 py-2 border border-emerald-300 bg-emerald-50 text-emerald-700 rounded-lg text-sm font-500 hover:bg-emerald-100 transition-colors"
                     >
                       <Icon name="SparklesIcon" size={15} />
@@ -2316,15 +2347,17 @@ export default function OrderDetailPage() {
                           Saisir les prix réels (d'après la facture) :
                         </p>
                         <button
-                          onClick={() => setShowAddLineModal(true)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 border border-border rounded-lg text-xs font-600 hover:bg-muted transition-colors"
+                          onClick={() => { setAddLineSource('reception'); setShowAddLineModal(true); }}
+                          disabled={savingDirectLine}
+                          className="flex items-center gap-1.5 px-3 py-1.5 border border-border rounded-lg text-xs font-600 hover:bg-muted transition-colors disabled:opacity-50"
                         >
-                          <Icon name="PlusIcon" size={13} />
+                          {savingDirectLine ? <span className="w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" /> : <Icon name="PlusIcon" size={13} />}
                           Ajouter produit
                         </button>
                         <button
-                          onClick={() => setShowNewProductModal(true)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 border border-emerald-300 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-600 hover:bg-emerald-100 transition-colors"
+                          onClick={() => { setAddLineSource('reception'); setShowNewProductModal(true); }}
+                          disabled={savingDirectLine}
+                          className="flex items-center gap-1.5 px-3 py-1.5 border border-emerald-300 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-600 hover:bg-emerald-100 transition-colors disabled:opacity-50"
                         >
                           <Icon name="SparklesIcon" size={13} />
                           Nouveau produit
