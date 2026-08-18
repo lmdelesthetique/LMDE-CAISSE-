@@ -166,16 +166,34 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
     e.target.value = '';
     setUploadingFile(true);
     try {
-      const fd = new FormData();
-      fd.append('file', file);
-      fd.append('supplierId', supplierId);
+      // Step 1 — get presigned upload URL (bypasses Vercel 4.5MB limit, supports up to 50MB)
+      const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+      const mimeMap: Record<string, string> = {
+        xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        xls: 'application/vnd.ms-excel', csv: 'text/csv', pdf: 'application/pdf',
+        jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp',
+      };
+      const contentType = file.type || mimeMap[ext] || 'application/octet-stream';
 
-      const res = await fetch('/api/supplier-messages/upload', { method: 'POST', body: fd });
-      const json = await res.json();
-      if (!res.ok || !json.url) throw new Error(json.error || 'Erreur upload');
+      const presignRes = await fetch('/api/supplier-messages/upload-presigned', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ supplierId, filename: file.name, contentType }),
+      });
+      const presignJson = await presignRes.json();
+      if (!presignRes.ok || !presignJson.signedUrl) throw new Error(presignJson.error || 'Erreur préparation upload');
 
-      const isImg = IS_IMG(json.url, json.type);
-      const isPdf = IS_PDF(json.url);
+      // Step 2 — upload directly to Supabase (browser → Supabase, no Vercel middleman)
+      const uploadRes = await fetch(presignJson.signedUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': contentType },
+        body: file,
+      });
+      if (!uploadRes.ok) throw new Error('Erreur upload fichier');
+
+      const publicUrl: string = presignJson.publicUrl;
+      const isImg = IS_IMG(publicUrl, contentType);
+      const isPdf = IS_PDF(publicUrl);
       const msgType = isImg ? 'photo' : isPdf ? 'pdf' : 'other';
 
       const msgRes = await fetch('/api/supplier-messages', {
@@ -186,9 +204,9 @@ export default function MessagingPanel({ supplierId, supplierName, orders = [], 
           messageType: msgType,
           orderId: selectedOrderId || null,
           sender: 'store',
-          attachmentUrl: json.url,
-          attachmentName: json.name,
-          attachmentType: json.type,
+          attachmentUrl: publicUrl,
+          attachmentName: file.name,
+          attachmentType: contentType,
         }),
       });
       if (!msgRes.ok) throw new Error('Erreur enregistrement pièce jointe');
