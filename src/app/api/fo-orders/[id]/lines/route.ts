@@ -8,6 +8,57 @@ function makeAdminClient() {
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
+// POST — insert a single new line (safe: no deletion, just INSERT + subtotal update)
+export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+  const { id } = params;
+  if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
+
+  const body = await req.json().catch(() => ({}));
+  const { line } = body;
+  if (!line) return NextResponse.json({ error: 'line required' }, { status: 400 });
+
+  const supabase = makeAdminClient();
+
+  // Fetch image from catalog if not provided
+  let imageUrl = line.productImageUrl || null;
+  if (!imageUrl && (line.productId || line.productRef)) {
+    const q = line.productId
+      ? supabase.from('products').select('image_url').eq('id', line.productId).maybeSingle()
+      : supabase.from('products').select('image_url').eq('ref', line.productRef).maybeSingle();
+    const { data: prod } = await q;
+    imageUrl = prod?.image_url || null;
+  }
+
+  const lineTotal = (line.qtyOrdered || 1) * (line.unitPrice || 0);
+
+  const { data: inserted, error } = await supabase.from('fo_order_lines').insert({
+    order_id: id,
+    product_id: line.productId || null,
+    product_name: line.productName,
+    product_ref: line.productRef || null,
+    product_image_url: imageUrl,
+    qty_ordered: line.qtyOrdered || 1,
+    qty_received: 0,
+    unit_price: line.unitPrice || 0,
+    line_total: lineTotal,
+    sale_price: line.salePrice || 0,
+    weight_kg: 0, volume_m3: 0,
+    unit_transport: 0, unit_customs: 0, unit_vat_import: 0,
+    unit_freight: 0, unit_other: 0,
+    unit_real_cost: 0, gross_margin: 0, margin_rate: 0,
+    previous_cost: 0, qty_missing: 0, qty_damaged: 0, custom_cost_share: 0,
+  }).select('id').single();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Recalculate order subtotal
+  const { data: allLines } = await supabase.from('fo_order_lines').select('line_total').eq('order_id', id);
+  const subtotal = (allLines ?? []).reduce((s: number, l: any) => s + Number(l.line_total || 0), 0);
+  await supabase.from('fo_orders').update({ subtotal, updated_at: new Date().toISOString() }).eq('id', id);
+
+  return NextResponse.json({ ok: true, id: inserted?.id });
+}
+
 // PATCH — update a single line field (?lineId=...) and recalculate order subtotal
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const { id } = params;

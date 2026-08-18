@@ -759,22 +759,15 @@ export default function OrderDetailPage() {
     }
   };
 
-  // Immediately persist a new line to DB (used from Reception tab to bypass editedLines buffer)
+  // Immediately persist a new line to DB via safe INSERT (no diff/delete logic)
   const insertLineDirectly = async (newLine: FoOrderLine) => {
     if (!order) return;
     setSavingDirectLine(true);
     try {
-      const currentLines = order.lines ?? [];
-      const allLines = [...currentLines, newLine];
-      const newSubtotal = allLines.reduce((s, l) => s + l.qtyOrdered * l.unitPrice, 0);
       await fetch(`/api/fo-orders/${order.id}/lines`, {
-        method: 'PUT',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          lines: allLines,
-          originalLineIds: currentLines.map((l) => l.id),
-          subtotal: newSubtotal,
-        }),
+        body: JSON.stringify({ line: newLine }),
       });
       await load();
     } finally {
