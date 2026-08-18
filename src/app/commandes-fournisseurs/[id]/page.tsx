@@ -2299,9 +2299,25 @@ export default function OrderDetailPage() {
                   <div className="mt-5">
                     {/* Header + currency toggle */}
                     <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-                      <p className="text-sm font-600 text-foreground">
-                        Saisir les prix réels (d'après la facture) :
-                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-600 text-foreground mr-auto">
+                          Saisir les prix réels (d'après la facture) :
+                        </p>
+                        <button
+                          onClick={() => setShowAddLineModal(true)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 border border-border rounded-lg text-xs font-600 hover:bg-muted transition-colors"
+                        >
+                          <Icon name="PlusIcon" size={13} />
+                          Ajouter produit
+                        </button>
+                        <button
+                          onClick={() => setShowNewProductModal(true)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 border border-emerald-300 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-600 hover:bg-emerald-100 transition-colors"
+                        >
+                          <Icon name="SparklesIcon" size={13} />
+                          Nouveau produit
+                        </button>
+                      </div>
                       <div className="flex items-center gap-2">
                         {/* Toggle USD / EUR */}
                         <div className="flex rounded-lg border border-border overflow-hidden text-xs font-600">
