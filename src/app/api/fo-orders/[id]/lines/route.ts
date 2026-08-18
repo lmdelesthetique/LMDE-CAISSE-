@@ -8,6 +8,27 @@ function makeAdminClient() {
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
+// DELETE — remove a single line by ?lineId=...
+export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+  const { id } = params;
+  const lineId = req.nextUrl.searchParams.get('lineId');
+  if (!id || !lineId) return NextResponse.json({ error: 'Missing id or lineId' }, { status: 400 });
+
+  const supabase = makeAdminClient();
+  const { error } = await supabase.from('fo_order_lines').delete().eq('id', lineId).eq('order_id', id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Recalculate order subtotal from remaining lines
+  const { data: remaining } = await supabase
+    .from('fo_order_lines')
+    .select('line_total')
+    .eq('order_id', id);
+  const subtotal = (remaining ?? []).reduce((s: number, l: any) => s + (l.line_total ?? 0), 0);
+  await supabase.from('fo_orders').update({ subtotal, updated_at: new Date().toISOString() }).eq('id', id);
+
+  return NextResponse.json({ ok: true });
+}
+
 // PUT — full line sync: delete removed, update existing, insert new, then update order totals
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const { id } = params;

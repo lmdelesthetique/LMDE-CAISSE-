@@ -262,6 +262,7 @@ export default function OrderDetailPage() {
   // Notify supplier wa.me link (from notify-supplier route)
   const [notifyWaLink, setNotifyWaLink] = useState<string | null>(null);
   const [notifyPortalLink, setNotifyPortalLink] = useState<string | null>(null);
+  const [deletingLineId, setDeletingLineId] = useState<string | null>(null);
   const [showAddLineModal, setShowAddLineModal] = useState(false);
   const [productSearch, setProductSearch] = useState('');
   const [productResults, setProductResults] = useState<any[]>([]);
@@ -738,6 +739,17 @@ export default function OrderDetailPage() {
 
   const handleRemoveEditLine = (lineId: string) => {
     setEditedLines((prev) => prev.filter((l) => l.id !== lineId));
+  };
+
+  const handleDeleteLine = async (lineId: string) => {
+    if (!order || !window.confirm('Supprimer ce produit de la commande ?')) return;
+    setDeletingLineId(lineId);
+    try {
+      const res = await fetch(`/api/fo-orders/${order.id}/lines?lineId=${lineId}`, { method: 'DELETE' });
+      if (res.ok) await load();
+    } finally {
+      setDeletingLineId(null);
+    }
   };
 
   const searchProducts = async (q: string) => {
@@ -2427,6 +2439,16 @@ export default function OrderDetailPage() {
                                   <span className="text-[11px] text-blue-600 font-600">= {eurVal.toFixed(2)} €</span>
                                 )}
                               </div>
+                              <button
+                                onClick={() => handleDeleteLine(line.id)}
+                                disabled={deletingLineId === line.id}
+                                title="Supprimer ce produit de la commande"
+                                className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-40"
+                              >
+                                {deletingLineId === line.id
+                                  ? <span className="w-3.5 h-3.5 border-2 border-red-400 border-t-transparent rounded-full animate-spin inline-block" />
+                                  : <Icon name="TrashIcon" size={15} />}
+                              </button>
                             </div>
                           </div>
                         );
