@@ -2349,6 +2349,20 @@ export default function OrderDetailPage() {
                       </div>
                     </div>
 
+                    {lines.some((l) => !l.productImageUrl) && (
+                      <div className="flex items-center gap-3 px-3 py-2 mb-2 bg-blue-50 border border-blue-200 rounded-lg text-xs">
+                        <Icon name="PhotoIcon" size={13} className="text-blue-500 shrink-0" />
+                        <span className="flex-1 text-blue-700">Certains produits n'ont pas d'image.</span>
+                        <button
+                          onClick={() => setBackfilledImages(false)}
+                          className="shrink-0 flex items-center gap-1 px-2.5 py-1 bg-blue-600 text-white font-600 rounded-lg hover:bg-blue-700 transition-colors"
+                        >
+                          <Icon name="ArrowPathIcon" size={12} />
+                          Sync photos
+                        </button>
+                      </div>
+                    )}
+
                     <div className="space-y-2">
                       {lines.map((line) => {
                         const rawVal = parseFloat(realPrices[line.id] || '0') || 0;
@@ -2356,6 +2370,20 @@ export default function OrderDetailPage() {
                           ? rawVal * effectiveRate : null;
                         return (
                           <div key={line.id} className="flex items-center gap-3 py-2 border-b border-border last:border-0">
+                            {/* Photo thumbnail */}
+                            <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center overflow-hidden shrink-0">
+                              {line.productImageUrl ? (
+                                <Image
+                                  src={line.productImageUrl}
+                                  alt={line.productName}
+                                  width={40}
+                                  height={40}
+                                  className="object-cover w-full h-full"
+                                />
+                              ) : (
+                                <Icon name="PhotoIcon" size={16} className="text-muted-foreground" />
+                              )}
+                            </div>
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-500 text-foreground truncate">{line.productName}</p>
                               <p className="text-xs text-muted-foreground">{line.productRef} · Commandé: {line.qtyOrdered}</p>
