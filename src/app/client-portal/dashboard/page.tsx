@@ -141,6 +141,10 @@ export default function ClientDashboardPage() {
   // Next billing date (refreshed from DB)
   const [nextBillingDate, setNextBillingDate] = useState<string | null>(null);
 
+  // Subscription status (pending = new subscriber awaiting payment)
+  const [subscriptionStatus, setSubscriptionStatus] = useState<string>('active');
+  const [clientEmail, setClientEmail] = useState<string>('');
+
   // App review
   const [review, setReview] = useState<{ rating: number; comment: string | null } | null>(null);
   const [reviewRating, setReviewRating] = useState(0);
@@ -280,6 +284,18 @@ export default function ClientDashboardPage() {
   // Effective shipping: free if plan includes it, if launch offer, or if client picks up in store
   const effectiveShippingCost = (shippingFree || launchOffer || shippingMode === 'pickup') ? 0 : shippingCost;
 
+  const PENDING_STRIPE_LINKS: Record<string, string> = {
+    starter: 'https://buy.stripe.com/14A4gAdjtgy3cb89pJ7IY06',
+    pro: 'https://buy.stripe.com/aFa28sdjt95B2Ay45p7IY08',
+    elite: 'https://buy.stripe.com/6oUdRaa7h3Lh8YWeK37IY07',
+  };
+  const pendingStripeLink = (() => {
+    const name = (clientUser?.planName ?? '').toLowerCase();
+    const key = Object.keys(PENDING_STRIPE_LINKS).find(k => name.includes(k)) ?? 'pro';
+    const base = PENDING_STRIPE_LINKS[key];
+    return clientEmail ? `${base}?prefilled_email=${encodeURIComponent(clientEmail)}` : base;
+  })();
+
   // ── Auth redirect ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!authLoading && !clientUser) router.replace('/client-portal/login');
@@ -293,13 +309,15 @@ export default function ClientDashboardPage() {
     // Refresh subscription row to get fresh plan_name/quota/billing_date
     supabase
       .from('client_subscriptions')
-      .select('next_billing_date, plan:subscription_plans(id, name, price, quota_amount, shipping_free, shipping_cost, description, is_active)')
+      .select('next_billing_date, status, payment_email, plan:subscription_plans(id, name, price, quota_amount, shipping_free, shipping_cost, description, is_active)')
       .eq('id', clientUser.subscriptionId)
       .maybeSingle()
       .then(({ data }) => {
         const plan = Array.isArray((data as any)?.plan) ? (data as any)?.plan[0] : (data as any)?.plan;
         if (plan) setPlanData(plan as SubscriptionPlan);
         if ((data as any)?.next_billing_date) setNextBillingDate((data as any).next_billing_date);
+        if ((data as any)?.status) setSubscriptionStatus((data as any).status);
+        if ((data as any)?.payment_email) setClientEmail((data as any).payment_email);
       });
 
     // Also load all plans for upgrade modal
@@ -1134,8 +1152,29 @@ export default function ClientDashboardPage() {
         </div>
       </div>
 
+      {/* Pending payment banner */}
+      {subscriptionStatus === 'pending' && (
+        <div className="bg-amber-50 border-b border-amber-200 px-4 py-3 w-full">
+          <div className="max-w-lg mx-auto flex items-center gap-3">
+            <span className="text-xl shrink-0">⏳</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold text-amber-900">Abonnement en attente de paiement</p>
+              <p className="text-[11px] text-amber-700 mt-0.5">Active ton abonnement pour commencer à composer ta box.</p>
+            </div>
+            <a
+              href={pendingStripeLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="shrink-0 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold px-3 py-2 rounded-full transition-colors"
+            >
+              Payer
+            </a>
+          </div>
+        </div>
+      )}
+
       {/* Push notification banner */}
-      {pushStatus === 'default' && (
+      {pushStatus === 'default' && subscriptionStatus !== 'pending' && (
         <div className="bg-rose-50 border-b border-rose-200 px-4 py-2.5 flex items-center gap-3 max-w-lg mx-auto w-full">
           <span className="text-lg">🔔</span>
           <p className="flex-1 text-xs text-rose-800 font-medium">Recevez vos notifications même app fermée</p>
@@ -1414,6 +1453,17 @@ export default function ClientDashboardPage() {
                       )}
                     </div>
                   </div>
+                ) : subscriptionStatus === 'pending' ? (
+                  /* ── Pending payment: block order confirmation ── */
+                  <a
+                    href={pendingStripeLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-bold transition-colors flex items-center justify-center gap-2"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" /></svg>
+                    Active ton abonnement pour confirmer
+                  </a>
                 ) : canEdit ? (
                   /* ── En cours (open) : bouton confirmer ── */
                   <button
