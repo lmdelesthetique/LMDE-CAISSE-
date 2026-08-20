@@ -76,6 +76,10 @@ export default function CommandesFournisseursPage() {
   // Delete mode
   const [deleteMode, setDeleteMode] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deleteConfirming, setDeleteConfirming] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  // Sort
+  const [sortBySupplier, setSortBySupplier] = useState<'asc' | 'desc' | null>(null);
   const [newGroupName, setNewGroupName] = useState('');
   const [assigningGroup, setAssigningGroup] = useState(false);
   const [groupSuccess, setGroupSuccess] = useState<string | null>(null);
@@ -207,6 +211,11 @@ export default function CommandesFournisseursPage() {
     const matchGroup = !groupFilter || o.orderGroup === groupFilter;
     const matchSupplier = !supplierFilter || o.supplierName === supplierFilter;
     return matchSearch && matchTab && matchGroup && matchSupplier;
+  }).sort((a, b) => {
+    if (!sortBySupplier) return 0;
+    const sa = (a.supplierName || '').toLowerCase();
+    const sb = (b.supplierName || '').toLowerCase();
+    return sortBySupplier === 'asc' ? sa.localeCompare(sb) : sb.localeCompare(sa);
   });
 
   const toggleSelect = (id: string) => {
@@ -244,14 +253,25 @@ export default function CommandesFournisseursPage() {
 
   const handleDeleteSelected = async () => {
     if (selectedIds.size === 0) return;
-    const count = selectedIds.size;
-    if (!confirm(`Supprimer définitivement ${count} commande${count > 1 ? 's' : ''} ? Cette action est irréversible.`)) return;
+    setDeleteError(null);
     setDeleting(true);
     try {
-      await Promise.all([...selectedIds].map(id => fetch(`/api/fo-orders/${id}`, { method: 'DELETE' })));
-      setSelectedIds(new Set());
-      setDeleteMode(false);
-      load();
+      const results = await Promise.all(
+        [...selectedIds].map(id =>
+          fetch(`/api/fo-orders/${id}`, { method: 'DELETE' }).then(r => r.json().then(j => ({ id, ok: r.ok, err: j.error })))
+        )
+      );
+      const failed = results.filter(r => !r.ok);
+      if (failed.length > 0) {
+        setDeleteError(`${failed.length} commande(s) n'ont pas pu être supprimées : ${failed[0].err ?? 'erreur inconnue'}`);
+      } else {
+        setSelectedIds(new Set());
+        setDeleteMode(false);
+        setDeleteConfirming(false);
+        load();
+      }
+    } catch (e: any) {
+      setDeleteError(e.message ?? 'Erreur réseau');
     } finally {
       setDeleting(false);
     }
@@ -420,27 +440,52 @@ export default function CommandesFournisseursPage() {
                 <span className="text-xs text-red-600">— Cochez les commandes à supprimer définitivement</span>
               </div>
               <div className="flex items-center gap-2">
-                {selectedIds.size > 0 && (
+                {selectedIds.size > 0 && !deleteConfirming && (
                   <button
-                    onClick={handleDeleteSelected}
-                    disabled={deleting}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-600 hover:bg-red-700 transition-colors disabled:opacity-50"
+                    onClick={() => setDeleteConfirming(true)}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-600 hover:bg-red-700 transition-colors"
                   >
-                    {deleting
-                      ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      : <Icon name="TrashIcon" size={14} />
-                    }
+                    <Icon name="TrashIcon" size={14} />
                     Supprimer {selectedIds.size} commande{selectedIds.size > 1 ? 's' : ''}
                   </button>
                 )}
                 <button
-                  onClick={() => { setDeleteMode(false); setSelectedIds(new Set()); }}
+                  onClick={() => { setDeleteMode(false); setSelectedIds(new Set()); setDeleteConfirming(false); setDeleteError(null); }}
                   className="px-3 py-2 border border-red-200 rounded-lg text-sm text-red-600 hover:bg-red-100 transition-colors"
                 >
                   Annuler
                 </button>
               </div>
             </div>
+            {deleteConfirming && (
+              <div className="mt-3 bg-red-100 border border-red-300 rounded-lg p-3 flex items-center justify-between gap-3 flex-wrap">
+                <p className="text-sm font-700 text-red-800">
+                  ⚠️ Supprimer définitivement {selectedIds.size} commande{selectedIds.size > 1 ? 's' : ''} ? Irréversible.
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleDeleteSelected}
+                    disabled={deleting}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-red-700 text-white rounded-lg text-sm font-700 hover:bg-red-800 transition-colors disabled:opacity-50"
+                  >
+                    {deleting
+                      ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      : '🗑️'
+                    }
+                    {deleting ? 'Suppression...' : 'Confirmer la suppression'}
+                  </button>
+                  <button
+                    onClick={() => setDeleteConfirming(false)}
+                    className="px-3 py-2 border border-red-300 rounded-lg text-sm text-red-700 hover:bg-red-200 transition-colors"
+                  >
+                    Non, annuler
+                  </button>
+                </div>
+              </div>
+            )}
+            {deleteError && (
+              <p className="mt-2 text-sm text-red-700 font-500">⚠️ {deleteError}</p>
+            )}
           </div>
         )}
 
@@ -648,7 +693,16 @@ export default function CommandesFournisseursPage() {
                       </th>
                     )}
                     <th className="text-left px-4 py-3 font-600 text-muted-foreground text-xs uppercase tracking-wide">N° Commande</th>
-                    <th className="text-left px-4 py-3 font-600 text-muted-foreground text-xs uppercase tracking-wide">Fournisseur</th>
+                    <th className="text-left px-4 py-3 font-600 text-muted-foreground text-xs uppercase tracking-wide">
+                      <button
+                        onClick={() => setSortBySupplier(s => s === 'asc' ? 'desc' : s === 'desc' ? null : 'asc')}
+                        className={`flex items-center gap-1 hover:text-foreground transition-colors ${sortBySupplier ? 'text-primary' : ''}`}
+                        title="Trier par fournisseur"
+                      >
+                        Fournisseur
+                        <span className="text-[10px]">{sortBySupplier === 'asc' ? '▲' : sortBySupplier === 'desc' ? '▼' : '⇅'}</span>
+                      </button>
+                    </th>
                     <th className="text-left px-4 py-3 font-600 text-muted-foreground text-xs uppercase tracking-wide">Groupe</th>
                     <th className="text-left px-4 py-3 font-600 text-muted-foreground text-xs uppercase tracking-wide">Statut</th>
                     <th className="text-left px-4 py-3 font-600 text-muted-foreground text-xs uppercase tracking-wide">Paiement</th>
