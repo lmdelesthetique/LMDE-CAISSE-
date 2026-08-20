@@ -106,6 +106,11 @@ const STATUS_COLOR: Record<OrderStatus, string> = {
 
 const WA_LINK = 'https://wa.me/message/QBWQFIG2EHXCI1';
 const STRIPE_DELIVERY_LINK = 'https://buy.stripe.com/00wfZi5R16Xt4IGeK37IY09';
+const PENDING_STRIPE_LINKS: Record<string, string> = {
+  starter: 'https://buy.stripe.com/14A4gAdjtgy3cb89pJ7IY06',
+  pro: 'https://buy.stripe.com/aFa28sdjt95B2Ay45p7IY08',
+  elite: 'https://buy.stripe.com/6oUdRaa7h3Lh8YWeK37IY07',
+};
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -141,8 +146,8 @@ export default function ClientDashboardPage() {
   // Next billing date (refreshed from DB)
   const [nextBillingDate, setNextBillingDate] = useState<string | null>(null);
 
-  // Subscription status (pending = new subscriber awaiting payment)
-  const [subscriptionStatus, setSubscriptionStatus] = useState<string>('active');
+  // Subscription status — empty until DB confirms (avoids flashing active UI to pending users)
+  const [subscriptionStatus, setSubscriptionStatus] = useState<string>('');
   const [clientEmail, setClientEmail] = useState<string>('');
 
   // App review
@@ -284,17 +289,12 @@ export default function ClientDashboardPage() {
   // Effective shipping: free if plan includes it, if launch offer, or if client picks up in store
   const effectiveShippingCost = (shippingFree || launchOffer || shippingMode === 'pickup') ? 0 : shippingCost;
 
-  const PENDING_STRIPE_LINKS: Record<string, string> = {
-    starter: 'https://buy.stripe.com/14A4gAdjtgy3cb89pJ7IY06',
-    pro: 'https://buy.stripe.com/aFa28sdjt95B2Ay45p7IY08',
-    elite: 'https://buy.stripe.com/6oUdRaa7h3Lh8YWeK37IY07',
-  };
-  const pendingStripeLink = (() => {
+  const pendingStripeLink = useMemo(() => {
     const name = (clientUser?.planName ?? '').toLowerCase();
     const key = Object.keys(PENDING_STRIPE_LINKS).find(k => name.includes(k)) ?? 'pro';
     const base = PENDING_STRIPE_LINKS[key];
     return clientEmail ? `${base}?prefilled_email=${encodeURIComponent(clientEmail)}` : base;
-  })();
+  }, [clientUser?.planName, clientEmail]);
 
   // ── Auth redirect ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -824,7 +824,7 @@ export default function ClientDashboardPage() {
     })).filter((g) => g.products.length > 0);
   }, [visibleCategories, products, searchQuery]);
 
-  const canEdit = (!currentOrder || currentOrder.status === 'open' || currentOrder.status === 'cancelled') && !isPastDeadline && currentOrder?.statut_livraison !== 'en_livraison';
+  const canEdit = subscriptionStatus !== 'pending' && (!currentOrder || currentOrder.status === 'open' || currentOrder.status === 'cancelled') && !isPastDeadline && currentOrder?.statut_livraison !== 'en_livraison';
   const totalCartQty = orderItems.reduce((s, i) => s + i.quantity, 0);
 
   // ── Upgrade section ────────────────────────────────────────────────────────

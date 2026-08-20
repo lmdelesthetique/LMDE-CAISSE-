@@ -110,56 +110,27 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Tentative 4 : correspondance par prénom dans clients
-      if (email) {
-        const nameParts = (session.customer_details?.name ?? '').trim().split(/\s+/);
-        if (nameParts.length >= 1 && nameParts[0]) {
-          const { data: clientByName } = await supabase
-            .from('clients')
-            .select('id')
-            .ilike('first_name', `%${nameParts[0]}%`)
-            .maybeSingle();
-
-          if (clientByName) {
-            const { data: sub } = await supabase
-              .from('client_subscriptions')
-              .select('id')
-              .eq('client_id', clientByName.id)
-              .eq('status', 'pending')
-              .order('created_at', { ascending: false })
-              .limit(1)
-              .maybeSingle();
-
-            if (sub) {
-              await supabase.from('client_subscriptions').update(activateUpdates).eq('id', sub.id);
-              console.log('[stripe/webhook] Abonnement activé via first_name:', sub.id);
-              break;
-            }
-          }
-        }
-      }
-
       console.warn('[stripe/webhook] checkout.session.completed: abonnement pending introuvable — email:', email, 'customer:', stripeCustomerId);
       break;
     }
 
-    // ── 2. Renouvellement mensuel réussi → réactiver si suspendu
+    // ── 2. Renouvellement mensuel réussi → réactiver si suspendu (ou activer si pending avec stripe_subscription_id)
     case 'invoice.payment_succeeded': {
       const invoice = event.data.object;
       const stripeSubscriptionId: string | undefined = invoice.subscription;
       if (!stripeSubscriptionId) break;
 
-      const { error } = await supabase
+      await supabase
         .from('client_subscriptions')
         .update({ status: 'active' })
         .eq('stripe_subscription_id', stripeSubscriptionId)
-        .eq('status', 'suspended');
+        .in('status', ['suspended', 'pending']);
 
-      if (!error) console.log('[stripe/webhook] Abonnement réactivé après paiement réussi:', stripeSubscriptionId);
+      console.log('[stripe/webhook] Abonnement activé/réactivé après paiement:', stripeSubscriptionId);
       break;
     }
 
-    // ── 3. Paiement échoué → suspendre
+    // ── 3. Paiement échoué → suspendre uniquement les actifs (pas les pending non encore activés)
     case 'invoice.payment_failed': {
       const invoice = event.data.object;
       const stripeSubscriptionId: string | undefined = invoice.subscription;
@@ -169,7 +140,7 @@ export async function POST(req: NextRequest) {
         .from('client_subscriptions')
         .update({ status: 'suspended' })
         .eq('stripe_subscription_id', stripeSubscriptionId)
-        .in('status', ['active', 'pending']);
+        .eq('status', 'active');
 
       console.log('[stripe/webhook] Abonnement suspendu — paiement échoué:', stripeSubscriptionId);
       break;

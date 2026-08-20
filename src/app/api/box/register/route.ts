@@ -20,9 +20,12 @@ export async function POST(req: NextRequest) {
     const { data: plans } = await supabase
       .from('subscription_plans')
       .select('id, name, price, quota_amount')
-      .eq('is_active', true);
+      .eq('is_active', true)
+      .order('price');
 
-    const plan = plans?.find((p: any) => p.name.toLowerCase().includes(planKey.toLowerCase()));
+    // Exact match first, then partial — avoids "Pro Étendu" matching key "pro" before "Pro"
+    const plan = plans?.find((p: any) => p.name.toLowerCase() === planKey.toLowerCase())
+      ?? plans?.find((p: any) => p.name.toLowerCase().includes(planKey.toLowerCase()));
     if (!plan) {
       return NextResponse.json({ error: `Formule "${planKey}" introuvable. Vérifiez les noms dans subscription_plans.` }, { status: 400 });
     }
