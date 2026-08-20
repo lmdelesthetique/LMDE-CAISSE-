@@ -151,6 +151,7 @@ ${d.returnConditions
     .tl span:first-child{flex:1;text-align:left;}
     .item-name{font-weight:700;margin-top:3px;word-break:break-word;text-align:center;}
     .disc{font-size:${baseFontSize};font-style:italic;text-align:center;}
+    img{display:block;margin:3px auto;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
     .ttc{font-size:${ttcSize};font-weight:900;
       border-top:2px solid #000;border-bottom:2px solid #000;
       padding:3px 0;margin:3px 0;text-align:center;}
@@ -234,6 +235,14 @@ ${d.referralCode ? `<p class="tc">${SEP}</p>
 <p class="tc" style="font-size:15px;letter-spacing:4px"><strong>${esc(d.referralCode)}</strong></p>
 <p class="tc">Offrez -10% a vos amies</p>
 <p class="tc">et gagnez + 300 points a chaque client !</p>` : ''}
+
+<p class="tc">${SEP}</p>
+<p class="tc">*** BOX BEAUTE DU MOIS ***</p>
+<p class="tc" style="font-size:${baseFontSize};font-weight:900">Economise jusqu'a 200€/mois</p>
+<p class="tc" style="font-size:${baseFontSize}">sur tes produits professionnels !</p>
+<img src="https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=https%3A%2F%2Flmdecaisse.com%2Fbox&color=000000&bgcolor=ffffff&qzone=1" width="110" height="110" alt="QR Box Beaute"/>
+<p class="tc" style="font-size:${baseFontSize};font-weight:900;letter-spacing:1px">lmdecaisse.com/box</p>
+<p class="tc">Scanner pour s'inscrire en 2 min</p>
 
 ${loyaltyHTML ? `<p>${SEP}</p>
 ${loyaltyHTML}` : ''}
