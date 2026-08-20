@@ -419,7 +419,7 @@ export default function CommandesFournisseursPage() {
             )}
           </button>
           <button
-            onClick={() => { setDeleteMode(p => !p); setSelectedIds(new Set()); if (showGroupPanel) { setShowGroupPanel(false); } }}
+            onClick={() => { setDeleteMode(p => !p); setSelectedIds(new Set()); setDeleteConfirming(false); setDeleteError(null); if (showGroupPanel) { setShowGroupPanel(false); } }}
             className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-500 transition-colors ${deleteMode ? 'bg-red-50 border-red-300 text-red-700' : 'border-border text-muted-foreground hover:bg-muted'}`}
           >
             <Icon name="TrashIcon" size={15} />

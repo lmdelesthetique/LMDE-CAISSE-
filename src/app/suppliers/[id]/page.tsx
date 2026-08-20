@@ -163,8 +163,9 @@ export default function SupplierDetailPage() {
     }
   }, [supplierId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); loadRestock(); }, [load, loadRestock]);
   useEffect(() => { if (activeTab === 'products') loadLinkedProducts(); }, [activeTab, loadLinkedProducts]);
+  // Refresh restock when switching to the tab (to pick up changes made elsewhere)
   useEffect(() => { if (activeTab === 'restock') loadRestock(); }, [activeTab, loadRestock]);
 
   const handleUpdateOrderStatus = async (orderId: string, status: OrderStatus) => {
@@ -784,14 +785,14 @@ export default function SupplierDetailPage() {
                             />
                           </div>
                           <button
-                            onClick={() => { supplierOrderService.updateRestockStatus(s.id, 'ordered'); loadRestock(); }}
+                            onClick={async () => { await supplierOrderService.updateRestockStatus(s.id, 'ordered'); loadRestock(); }}
                             className="flex items-center gap-1.5 px-3 py-2 bg-primary text-primary-foreground rounded-lg text-xs font-600 hover:bg-primary/90 transition-colors"
                           >
                             <Icon name="ShoppingCartIcon" size={13} />
                             Marquer commandé
                           </button>
                           <button
-                            onClick={() => { supplierOrderService.updateRestockStatus(s.id, 'ignored'); loadRestock(); }}
+                            onClick={async () => { await supplierOrderService.updateRestockStatus(s.id, 'ignored'); loadRestock(); }}
                             className="px-3 py-2 border border-border rounded-lg text-xs font-500 hover:bg-muted transition-colors text-muted-foreground"
                           >
                             Ignorer
