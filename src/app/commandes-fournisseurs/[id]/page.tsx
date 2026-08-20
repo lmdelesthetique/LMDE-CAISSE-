@@ -6,7 +6,7 @@ import Image from 'next/image';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
-import { supplierOrderService, FoOrder, FoOrderLine, FoOrderStatus, FoStatusHistory, FoRestockSuggestion } from '@/lib/services/supplierOrderService';
+import { supplierOrderService, FoOrder, FoOrderLine, FoOrderStatus, FoStatusHistory } from '@/lib/services/supplierOrderService';
 import { exportPurchaseOrderPDF } from '@/lib/utils/purchaseOrderPDF';
 import BarcodeLabelModal from '@/app/product-management/components/BarcodeLabelModal';
 import { type ProductRecord } from '@/app/product-management/components/mockProducts';
@@ -280,9 +280,7 @@ export default function OrderDetailPage() {
 
   // Restock drawer
   const [showRestockDrawer, setShowRestockDrawer] = useState(false);
-  const [restockItems, setRestockItems] = useState<FoRestockSuggestion[]>([]);
   const [restockLoading, setRestockLoading] = useState(false);
-  const [restockQty, setRestockQty] = useState<Record<string, number>>({});
   const [lowStockProducts, setLowStockProducts] = useState<any[]>([]);
   const [restockProdQty, setRestockProdQty] = useState<Record<string, number>>({});
   const [addingToOrderId, setAddingToOrderId] = useState<string | null>(null);
@@ -290,40 +288,13 @@ export default function OrderDetailPage() {
   const loadRestockForSupplier = useCallback(async (supplierId: string) => {
     setRestockLoading(true);
     try {
-      const all = await supplierOrderService.getRestockSuggestions();
-      const filtered = all.filter(s => s.supplierId === supplierId && s.restockStatus !== 'suspended');
-      filtered.sort((a, b) => {
-        const ua = a.currentStock === 0 ? 0 : a.currentStock < a.minStock ? 1 : 2;
-        const ub = b.currentStock === 0 ? 0 : b.currentStock < b.minStock ? 1 : 2;
-        return ua !== ub ? ua - ub : b.recentSales - a.recentSales;
-      });
-      setRestockItems(filtered);
-      const q: Record<string, number> = {};
-      filtered.forEach(s => { q[s.id] = s.suggestedQty; });
-      setRestockQty(q);
-
-      // Also fetch low/zero stock products directly from catalog for this supplier
-      const supabase = createClient();
-      const { data: prods } = await supabase
-        .from('products')
-        .select('id, name, ref, image_url, stock, min_stock, buy_price')
-        .eq('supplier_id', supplierId)
-        .neq('is_suspended', true)
-        .order('stock', { ascending: true })
-        .limit(100);
-      if (prods) {
-        const suggestionRefs = new Set(filtered.map(s => s.productRef).filter(Boolean));
-        const suggestionProductIds = new Set(filtered.map(s => (s as any).productId).filter(Boolean));
-        const lowStock = prods.filter(p =>
-          (p.stock === 0 || (p.min_stock && p.stock < p.min_stock)) &&
-          !suggestionRefs.has(p.ref) && !suggestionProductIds.has(p.id)
-        );
-        lowStock.sort((a, b) => (a.stock ?? 0) - (b.stock ?? 0));
-        setLowStockProducts(lowStock);
-        const pq: Record<string, number> = {};
-        lowStock.forEach(p => { pq[p.id] = Math.max(1, (p.min_stock || 5) - (p.stock || 0)); });
-        setRestockProdQty(pq);
-      }
+      const res = await fetch(`/api/products/restock?supplierId=${supplierId}`);
+      const json = await res.json();
+      const items: any[] = json.items ?? [];
+      setLowStockProducts(items);
+      const pq: Record<string, number> = {};
+      items.forEach(p => { pq[p.id] = p.suggestedQty; });
+      setRestockProdQty(pq);
     } finally {
       setRestockLoading(false);
     }
@@ -831,14 +802,14 @@ export default function OrderDetailPage() {
     setAddingToOrderId(product.id);
     try {
       const qty = restockProdQty[product.id] ?? 1;
-      const buyPrice = product.buy_price ?? 0;
+      const buyPrice = product.buyPrice ?? 0;
       const newLine: FoOrderLine = {
         id: `new-${Date.now()}`,
         orderId: order.id,
         productId: product.id,
-        productName: product.name,
-        productRef: product.ref ?? '',
-        productImageUrl: product.image_url ?? undefined,
+        productName: product.productName,
+        productRef: product.productRef ?? '',
+        productImageUrl: product.productImageUrl ?? undefined,
         qtyOrdered: qty,
         qtyReceived: 0,
         unitPrice: buyPrice,
@@ -3663,13 +3634,13 @@ export default function OrderDetailPage() {
               </button>
             </div>
 
-            {/* KPIs */}
-            {!restockLoading && (restockItems.length > 0 || lowStockProducts.length > 0) && (
+            {/* KPIs temps réel */}
+            {!restockLoading && lowStockProducts.length > 0 && (
               <div className="grid grid-cols-3 gap-3 px-5 py-3 border-b border-border shrink-0 bg-muted/30">
                 {[
-                  { label: 'Rupture', value: restockItems.filter(s => s.currentStock === 0).length + lowStockProducts.filter(p => p.stock === 0).length, color: 'text-red-600' },
-                  { label: 'Stock faible', value: restockItems.filter(s => s.currentStock > 0 && s.currentStock < s.minStock).length + lowStockProducts.filter(p => p.stock > 0 && p.min_stock && p.stock < p.min_stock).length, color: 'text-amber-600' },
-                  { label: 'Best-sellers', value: restockItems.filter(s => s.recentSales >= 10).length, color: 'text-emerald-600' },
+                  { label: 'Rupture', value: lowStockProducts.filter(p => p.currentStock === 0).length, color: 'text-red-600' },
+                  { label: 'Stock faible', value: lowStockProducts.filter(p => p.currentStock > 0 && p.currentStock < p.minStock).length, color: 'text-amber-600' },
+                  { label: 'Best-sellers', value: lowStockProducts.filter(p => p.recentSales >= 10).length, color: 'text-emerald-600' },
                 ].map(k => (
                   <div key={k.label} className="text-center">
                     <p className={`text-xl font-700 ${k.color}`}>{k.value}</p>
@@ -3685,7 +3656,7 @@ export default function OrderDetailPage() {
                 <div className="flex items-center justify-center py-20">
                   <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                 </div>
-              ) : restockItems.length === 0 && lowStockProducts.length === 0 ? (
+              ) : lowStockProducts.length === 0 ? (
                 <div className="text-center py-16">
                   <Icon name="CheckCircleIcon" size={40} className="text-emerald-500 mx-auto mb-3" />
                   <p className="font-500 text-foreground">Aucun produit à réapprovisionner</p>
@@ -3693,27 +3664,28 @@ export default function OrderDetailPage() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {restockItems.map((s) => {
-                    const isOut = s.currentStock === 0;
-                    const isLow = s.currentStock > 0 && s.currentStock < s.minStock;
+                  {lowStockProducts.map((p) => {
+                    const isOut = p.currentStock === 0;
+                    const isLow = p.currentStock > 0 && p.currentStock < p.minStock;
+                    const isAdding = addingToOrderId === p.id;
                     return (
-                      <div key={s.id} className={`border rounded-xl p-4 ${isOut ? 'border-red-200 bg-red-50/40' : isLow ? 'border-amber-200 bg-amber-50/30' : 'border-border bg-white'}`}>
+                      <div key={p.id} className={`border rounded-xl p-4 ${isOut ? 'border-red-200 bg-red-50/40' : isLow ? 'border-amber-200 bg-amber-50/30' : 'border-border bg-white'}`}>
                         <div className="flex items-start gap-3 mb-3">
                           <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center shrink-0 overflow-hidden border border-border/50">
-                            {s.productImageUrl
-                              ? <img src={s.productImageUrl} alt={s.productName} className="w-full h-full object-cover" />
+                            {p.productImageUrl
+                              ? <img src={p.productImageUrl} alt={p.productName} className="w-full h-full object-cover" />
                               : <Icon name="PhotoIcon" size={16} className="text-muted-foreground" />
                             }
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="font-600 text-sm text-foreground leading-snug">{s.productName}</p>
-                            {s.productRef && <p className="text-[10px] text-muted-foreground font-mono mt-0.5">{s.productRef}</p>}
+                            <p className="font-600 text-sm text-foreground leading-snug">{p.productName}</p>
+                            {p.productRef && <p className="text-[10px] text-muted-foreground font-mono mt-0.5">{p.productRef}</p>}
                             <div className="flex flex-wrap gap-2 mt-1.5">
                               {isOut && <span className="px-2 py-0.5 rounded-full text-[10px] font-600 bg-red-100 text-red-700">🔴 Rupture</span>}
                               {isLow && <span className="px-2 py-0.5 rounded-full text-[10px] font-600 bg-amber-100 text-amber-700">🟡 Stock faible</span>}
-                              <span className="text-[10px] text-muted-foreground">Stock : <strong className={isOut ? 'text-red-600' : isLow ? 'text-amber-600' : 'text-foreground'}>{s.currentStock}</strong> / min {s.minStock}</span>
-                              <span className="text-[10px] text-muted-foreground">🔥 <strong className="text-emerald-600">{s.recentSales}</strong> vendus/30j</span>
-                              <span className="text-[10px] text-muted-foreground">Prix : <strong>{s.lastPurchasePrice.toFixed(2)} €</strong></span>
+                              <span className="text-[10px] text-muted-foreground">Stock : <strong className={isOut ? 'text-red-600' : isLow ? 'text-amber-600' : 'text-foreground'}>{p.currentStock}</strong>{p.minStock > 0 ? ` / min ${p.minStock}` : ''}</span>
+                              <span className="text-[10px] text-muted-foreground">🔥 <strong className="text-emerald-600">{p.recentSales}</strong> vendus/30j</span>
+                              {p.buyPrice > 0 && <span className="text-[10px] text-muted-foreground">Prix achat : <strong>{p.buyPrice.toFixed(2)} €</strong></span>}
                             </div>
                           </div>
                         </div>
@@ -3721,84 +3693,22 @@ export default function OrderDetailPage() {
                           <label className="text-[10px] text-muted-foreground shrink-0">Qté conseillée :</label>
                           <input
                             type="number" min="1"
-                            value={restockQty[s.id] ?? s.suggestedQty}
-                            onChange={(e) => setRestockQty(prev => ({ ...prev, [s.id]: parseInt(e.target.value) || 1 }))}
+                            value={restockProdQty[p.id] ?? p.suggestedQty}
+                            onChange={(e) => setRestockProdQty(prev => ({ ...prev, [p.id]: parseInt(e.target.value) || 1 }))}
                             className="w-16 px-2 py-1 border border-border rounded-lg text-xs text-center font-700 focus:outline-none focus:ring-2 focus:ring-primary/20"
                           />
                           <button
-                            onClick={async () => { await supplierOrderService.updateRestockStatus(s.id, 'ordered'); loadRestockForSupplier(order!.supplierId!); }}
-                            className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-600 hover:bg-primary/90 transition-colors"
+                            onClick={() => handleAddRestockProductToOrder(p)}
+                            disabled={isAdding}
+                            className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-600 hover:bg-emerald-700 transition-colors disabled:opacity-60"
                           >
-                            <Icon name="ShoppingCartIcon" size={12} />
-                            Marquer commandé
-                          </button>
-                          <button
-                            onClick={async () => { await supplierOrderService.updateRestockStatus(s.id, 'ignored'); loadRestockForSupplier(order!.supplierId!); }}
-                            className="px-3 py-1.5 border border-border rounded-lg text-xs text-muted-foreground hover:bg-muted transition-colors"
-                          >
-                            Ignorer
+                            {isAdding ? <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" /> : <Icon name="PlusIcon" size={12} />}
+                            Ajouter à la commande
                           </button>
                         </div>
                       </div>
                     );
                   })}
-
-                  {/* Products from catalog with low/zero stock not yet in suggestions */}
-                  {lowStockProducts.length > 0 && (
-                    <>
-                      {restockItems.length > 0 && (
-                        <div className="flex items-center gap-2 py-1">
-                          <div className="flex-1 h-px bg-border" />
-                          <span className="text-[10px] text-muted-foreground font-600 uppercase tracking-wide">Catalogue</span>
-                          <div className="flex-1 h-px bg-border" />
-                        </div>
-                      )}
-                      {lowStockProducts.map((p) => {
-                        const isOut = p.stock === 0;
-                        const isLow = p.stock > 0 && p.min_stock && p.stock < p.min_stock;
-                        const isAdding = addingToOrderId === p.id;
-                        return (
-                          <div key={p.id} className={`border rounded-xl p-4 ${isOut ? 'border-red-200 bg-red-50/40' : isLow ? 'border-amber-200 bg-amber-50/30' : 'border-border bg-white'}`}>
-                            <div className="flex items-start gap-3 mb-3">
-                              <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center shrink-0 overflow-hidden border border-border/50">
-                                {p.image_url
-                                  ? <img src={p.image_url} alt={p.name} className="w-full h-full object-cover" />
-                                  : <Icon name="PhotoIcon" size={16} className="text-muted-foreground" />
-                                }
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="font-600 text-sm text-foreground leading-snug">{p.name}</p>
-                                {p.ref && <p className="text-[10px] text-muted-foreground font-mono mt-0.5">{p.ref}</p>}
-                                <div className="flex flex-wrap gap-2 mt-1.5">
-                                  {isOut && <span className="px-2 py-0.5 rounded-full text-[10px] font-600 bg-red-100 text-red-700">🔴 Rupture</span>}
-                                  {isLow && <span className="px-2 py-0.5 rounded-full text-[10px] font-600 bg-amber-100 text-amber-700">🟡 Stock faible</span>}
-                                  <span className="text-[10px] text-muted-foreground">Stock : <strong className={isOut ? 'text-red-600' : isLow ? 'text-amber-600' : 'text-foreground'}>{p.stock ?? 0}</strong>{p.min_stock ? ` / min ${p.min_stock}` : ''}</span>
-                                  {(p.buy_price ?? 0) > 0 && <span className="text-[10px] text-muted-foreground">Prix achat : <strong>{(p.buy_price).toFixed(2)} €</strong></span>}
-                                </div>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <label className="text-[10px] text-muted-foreground shrink-0">Qté :</label>
-                              <input
-                                type="number" min="1"
-                                value={restockProdQty[p.id] ?? 1}
-                                onChange={(e) => setRestockProdQty(prev => ({ ...prev, [p.id]: parseInt(e.target.value) || 1 }))}
-                                className="w-16 px-2 py-1 border border-border rounded-lg text-xs text-center font-700 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                              />
-                              <button
-                                onClick={() => handleAddRestockProductToOrder(p)}
-                                disabled={isAdding}
-                                className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-600 hover:bg-emerald-700 transition-colors disabled:opacity-60"
-                              >
-                                {isAdding ? <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" /> : <Icon name="PlusIcon" size={12} />}
-                                Ajouter à la commande
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </>
-                  )}
                 </div>
               )}
             </div>
