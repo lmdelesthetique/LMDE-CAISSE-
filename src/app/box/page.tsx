@@ -122,7 +122,7 @@ function Brand() {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type Step = 'quiz' | 'reassurance' | 'result' | 'form' | 'loading';
+type Step = 'quiz' | 'reassurance' | 'result' | 'form' | 'loading' | 'credentials';
 
 export default function BoxOnboardingPage() {
   const router = useRouter();
@@ -132,6 +132,9 @@ export default function BoxOnboardingPage() {
   const [recommendedPlan, setRecommendedPlan] = useState<PlanKey>('pro');
   const [reassuranceText, setReassuranceText] = useState('');
   const [animating, setAnimating] = useState(false);
+
+  // Fallback credentials shown if auto-login fails
+  const [credentials, setCredentials] = useState<{ phone: string; pin: string } | null>(null);
 
   // Form
   const [form, setForm] = useState({
@@ -226,8 +229,14 @@ export default function BoxOnboardingPage() {
           launchOffer: Boolean(r.launch_offer),
         };
         localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+        router.push('/client-portal/dashboard');
+      } else {
+        // Auto-login impossible (migration SQL non encore appliquée ou autre) :
+        // afficher les identifiants pour connexion manuelle
+        setCredentials({ phone: json.phone, pin: json.pin });
+        setStep('credentials');
+        setSubmitting(false);
       }
-      router.push('/client-portal/dashboard');
     } catch (err: any) {
       setFormError(err.message);
       setStep('form');
@@ -235,8 +244,57 @@ export default function BoxOnboardingPage() {
     }
   };
 
+  const stripeLink = (() => {
+    const base = STRIPE_LINKS[form.plan] ?? STRIPE_LINKS.pro;
+    return form.email ? `${base}?prefilled_email=${encodeURIComponent(form.email)}` : base;
+  })();
+
   const losses = calcLosses(numericAnswers);
   const plan = PLANS[recommendedPlan];
+
+  // ── CREDENTIALS FALLBACK ───────────────────────────────────────────────────
+  if (step === 'credentials' && credentials) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-rose-50 via-pink-50/30 to-fuchsia-50 flex flex-col items-center justify-center p-5">
+        <div className="w-full max-w-md">
+          <div className="text-center mb-6">
+            <div className="text-5xl mb-3">🎉</div>
+            <h2 className="text-2xl font-black text-gray-900">Ton compte est créé !</h2>
+            <p className="text-sm text-gray-500 mt-1">Note tes identifiants de connexion</p>
+          </div>
+          <div className="bg-white rounded-3xl shadow-xl p-6 border border-rose-100 space-y-4">
+            <div className="bg-pink-50 rounded-2xl p-4 space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-semibold text-gray-500">Téléphone</span>
+                <span className="text-sm font-bold text-gray-900 font-mono">{credentials.phone}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-semibold text-gray-500">Code PIN</span>
+                <span className="text-2xl font-black text-pink-600 font-mono tracking-widest">{credentials.pin}</span>
+              </div>
+            </div>
+            <p className="text-xs text-gray-400 text-center">Utilise ces identifiants sur <strong>lmdecaisse.com/client-portal/login</strong></p>
+            <div className="space-y-3 pt-2">
+              <a
+                href={stripeLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-4 bg-gradient-to-r from-pink-500 to-rose-500 text-white font-bold rounded-2xl shadow-lg hover:opacity-90 active:scale-[.98] transition-all text-sm flex items-center justify-center gap-2"
+              >
+                💳 Activer mon abonnement — payer maintenant
+              </a>
+              <button
+                onClick={() => router.push('/client-portal/login')}
+                className="w-full py-3 border border-gray-200 text-gray-600 font-medium rounded-2xl text-sm hover:bg-gray-50 transition-colors"
+              >
+                Se connecter à mon espace
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // ── LOADING ────────────────────────────────────────────────────────────────
   if (step === 'loading') {
@@ -332,8 +390,8 @@ export default function BoxOnboardingPage() {
           )}
 
           {/* Plan card */}
-          <div className={`bg-white rounded-3xl shadow-xl p-6 border-2 mb-4 ${plan.recommended ? 'border-pink-400' : 'border-rose-100'}`}>
-            {plan.recommended && (
+          <div className={`bg-white rounded-3xl shadow-xl p-6 border-2 mb-4 ${'recommended' in plan && plan.recommended ? 'border-pink-400' : 'border-rose-100'}`}>
+            {'recommended' in plan && plan.recommended && (
               <div className="text-center mb-4">
                 <span className="bg-gradient-to-r from-pink-500 to-rose-500 text-white text-xs font-bold px-4 py-1.5 rounded-full shadow">
                   ⭐ PLAN RECOMMANDÉ POUR TOI
