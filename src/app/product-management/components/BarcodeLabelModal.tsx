@@ -648,6 +648,13 @@ window.addEventListener('load', function() { window.print(); });
             checked={isExpanded ? variants.some((v) => selectedVariantIds.has(`${product.id}::${v.colorName}`)) : isSelected}
             onChange={() => { if (isExpanded) { variants.forEach((v) => toggleVariant(`${product.id}::${v.colorName}`)); } else { toggleProduct(product.id); } }}
             className="accent-primary shrink-0" />
+          {product.imageUrl ? (
+            <img src={product.imageUrl} alt="" className="w-8 h-8 rounded-lg object-cover shrink-0 border border-border/50" />
+          ) : (
+            <div className="w-8 h-8 rounded-lg shrink-0 bg-muted flex items-center justify-center text-muted-foreground/40 border border-border/30">
+              <Icon name="PhotoIcon" size={14} />
+            </div>
+          )}
           <div className="flex-1 min-w-0">
             <p className="text-xs font-600 text-foreground truncate">{product.name}</p>
             {product.variantName && (

@@ -77,6 +77,34 @@ export default function SuppliersPage() {
 
   const countries = [...new Set(suppliers.map((s) => s.country).filter(Boolean))].sort();
 
+  const handleExportSuppliers = () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const headers = [
+      'id', 'company_name', 'contact_name', 'email', 'phone', 'whatsapp', 'wechat',
+      'address', 'country', 'language', 'website', 'alibaba_link', 'categories',
+      'bank_details', 'payment_conditions', 'production_delay_days', 'shipping_delay_days',
+      'minimum_order', 'notes', 'reliability', 'portal_login',
+    ];
+    const csvRows = suppliers.map((s) => [
+      s.id, s.companyName, s.contactName || '', s.email || '', s.phone || '',
+      s.whatsapp || '', s.wechat || '', s.address || '', s.country, s.language,
+      s.website || '', s.alibabaLink || '', (s.categories || []).join(';'),
+      s.bankDetails || '', s.paymentConditions || '',
+      s.productionDelayDays, s.shippingDelayDays, s.minimumOrder || '',
+      s.notes || '', s.reliability, s.portalLogin || '',
+    ]);
+    const csv = [headers, ...csvRows]
+      .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `fournisseurs_export_${today}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <AppLayout>
       <div className="p-6 max-w-screen-xl mx-auto">
@@ -86,13 +114,24 @@ export default function SuppliersPage() {
             <h1 className="text-2xl font-700 text-foreground">Fournisseurs</h1>
             <p className="text-sm text-muted-foreground mt-0.5">{suppliers.length} fournisseur{suppliers.length !== 1 ? 's' : ''} actif{suppliers.length !== 1 ? 's' : ''}</p>
           </div>
-          <button
-            onClick={() => setShowForm(true)}
-            className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors"
-          >
-            <Icon name="PlusIcon" size={16} />
-            Nouveau fournisseur
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleExportSuppliers}
+              disabled={suppliers.length === 0}
+              className="flex items-center gap-2 border border-border bg-white px-4 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-40"
+              title="Exporter tous les fournisseurs en CSV (import SXM)"
+            >
+              <Icon name="ArrowDownTrayIcon" size={16} />
+              Exporter fournisseurs
+            </button>
+            <button
+              onClick={() => setShowForm(true)}
+              className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors"
+            >
+              <Icon name="PlusIcon" size={16} />
+              Nouveau fournisseur
+            </button>
+          </div>
         </div>
 
         {/* Stats row */}
