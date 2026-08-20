@@ -141,6 +141,17 @@ export default function BoxOnboardingPage() {
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // Redirect already-logged-in subscribers straight to their dashboard
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(SESSION_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed?.subscriptionId) router.replace('/client-portal/dashboard');
+      }
+    } catch {}
+  }, [router]);
+
   // Scroll to top on step change
   useEffect(() => { window.scrollTo({ top: 0, behavior: 'smooth' }); }, [step, questionIdx]);
 
