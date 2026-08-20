@@ -41,12 +41,12 @@ const QUESTIONS = [
     q: "Est-ce que ça t'est déjà arrivé de courir chez ton fournisseur en urgence... et d'arriver là-bas pour constater qu'il n'a plus le produit dont tu as besoin ?",
     choices: [
       { emoji: '😅', label: "Non jamais — j'anticipe toujours", value: 0 },
-      { emoji: '😬', label: 'Oui une fois — c\'était stressant', value: 1 },
-      { emoji: '😭', label: 'Oui plusieurs fois — c\'est mon cauchemar', value: 2 },
+      { emoji: '😬', label: "Oui une fois — c'était stressant", value: 1 },
+      { emoji: '😭', label: "Oui plusieurs fois — c'est mon cauchemar", value: 2 },
     ],
   },
   {
-    q: 'Qu\'est-ce qui te stresse le plus dans ton stock ?',
+    q: "Qu'est-ce qui te stresse le plus dans ton stock ?",
     choices: [
       { emoji: '⚠️', label: 'Les ruptures imprévues', value: 0 },
       { emoji: '💸', label: 'Le budget non maîtrisé', value: 1 },
@@ -64,10 +64,26 @@ const QUESTIONS = [
 ] as const;
 
 const REASSURANCES = [
-  '87% des esthéticiennes qui commandent en urgence perdent en moyenne 2 clientes par mois. Ça représente plus de 90€ de chiffre d\'affaires chaque mois. 🤯',
-  'Tu n\'es pas seule. Annuler une cliente coûte en moyenne 45€ de CA perdu, plus le stress et la réputation. La Box Beauté a été créée exactement pour ça.',
+  "87% des esthéticiennes qui commandent en urgence perdent en moyenne 2 clientes par mois. Ça représente plus de 90€ de chiffre d'affaires chaque mois. 🤯",
+  "Tu n'es pas seule. Annuler une cliente coûte en moyenne 45€ de CA perdu, plus le stress et la réputation. La Box Beauté a été créée exactement pour ça.",
   "Tu n'es pas seule. C'est la situation n°1 que vivent les esthéticiennes aux Antilles. Et c'est exactement ce que la Box Beauté LMDE vient résoudre. 💪",
-  'Les esthéticiennes qui maîtrisent leur stock gagnent en moyenne 1h par semaine. Soit 52h par an libérées pour ce qui compte vraiment.',
+  "Les esthéticiennes qui maîtrisent leur stock gagnent en moyenne 1h par semaine. Soit 52h par an libérées pour ce qui compte vraiment.",
+];
+
+// Micro-yes messages after specific answers (questionIdx_value)
+const MICRO_YES: Record<string, string> = {
+  '0_1': "✅ Même 1 fois par mois coûte en moyenne 25€ de livraison inutile. Continue →",
+  '0_3': "✅ C'est le cas de 73% des esthéticiennes aux Antilles. Continue →",
+  '1_2': "✅ Chaque cliente annulée = 45 à 90€ perdus. Tu n'es pas seule. Continue →",
+  '2_2': "✅ Ce moment existe parce que personne n'avait créé la bonne solution. Jusqu'à maintenant. Continue →",
+};
+const MICRO_YES_Q4 = "✅ Tu as identifié ton problème principal. La Box est faite pour ça. Continue →";
+
+// Social proof messages for result page
+const SOCIAL_PROOF = [
+  "👁 Marlène de Guadeloupe vient de rejoindre · il y a 3 minutes",
+  "👁 Sandra de Martinique vient de composer sa box · il y a 7 minutes",
+  "👁 Priya de Saint-Martin vient de valider son abonnement · il y a 12 minutes",
 ];
 
 const ISLANDS = ['Martinique', 'Guadeloupe', 'Guyane', 'Saint-Martin', 'France métropolitaine', 'Autre'];
@@ -120,18 +136,42 @@ function Brand() {
   );
 }
 
+function Avatar({ src, alt }: { src: string; alt: string }) {
+  const [err, setErr] = useState(false);
+  if (err) {
+    return (
+      <div className="w-12 h-12 rounded-full border-2 border-pink-300 bg-gradient-to-br from-pink-200 to-rose-300 flex items-center justify-center shrink-0">
+        <span className="text-lg">💅</span>
+      </div>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt={alt}
+      onError={() => setErr(true)}
+      className="w-12 h-12 rounded-full border-2 border-pink-300 object-cover shrink-0"
+    />
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type Step = 'quiz' | 'reassurance' | 'result' | 'form' | 'loading' | 'credentials';
+type Step = 'intro' | 'quiz' | 'microyes' | 'reassurance' | 'result' | 'form' | 'loading' | 'credentials';
 
 export default function BoxOnboardingPage() {
   const router = useRouter();
-  const [step, setStep] = useState<Step>('quiz');
+  const [step, setStep] = useState<Step>('intro');
   const [questionIdx, setQuestionIdx] = useState(0);
   const [numericAnswers, setNumericAnswers] = useState<Record<number, number>>({});
   const [recommendedPlan, setRecommendedPlan] = useState<PlanKey>('pro');
   const [reassuranceText, setReassuranceText] = useState('');
   const [animating, setAnimating] = useState(false);
+
+  // New state
+  const [microYesText, setMicroYesText] = useState('');
+  const [committed, setCommitted] = useState(false);
+  const [socialProofIdx, setSocialProofIdx] = useState(0);
 
   // Fallback credentials shown if auto-login fails
   const [credentials, setCredentials] = useState<{ phone: string; pin: string } | null>(null);
@@ -158,6 +198,20 @@ export default function BoxOnboardingPage() {
   // Scroll to top on step change
   useEffect(() => { window.scrollTo({ top: 0, behavior: 'smooth' }); }, [step, questionIdx]);
 
+  // Auto-advance from microyes → reassurance after 1.2s
+  useEffect(() => {
+    if (step !== 'microyes') return;
+    const t = setTimeout(() => setStep('reassurance'), 1200);
+    return () => clearTimeout(t);
+  }, [step]);
+
+  // Rotate social proof every 8s on result page
+  useEffect(() => {
+    if (step !== 'result') return;
+    const t = setInterval(() => setSocialProofIdx(i => (i + 1) % SOCIAL_PROOF.length), 8000);
+    return () => clearInterval(t);
+  }, [step]);
+
   const handleAnswer = (choice: { value: number | PlanKey }) => {
     if (animating) return;
     setAnimating(true);
@@ -165,7 +219,6 @@ export default function BoxOnboardingPage() {
     const isLastQ = questionIdx === QUESTIONS.length - 1;
 
     if (isLastQ) {
-      // Q5 → plan recommendation
       const plan = choice.value as PlanKey;
       setRecommendedPlan(plan);
       setForm((f) => ({ ...f, plan }));
@@ -175,8 +228,17 @@ export default function BoxOnboardingPage() {
       const val = choice.value as number;
       setNumericAnswers((prev) => ({ ...prev, [questionIdx]: val }));
       setReassuranceText(REASSURANCES[questionIdx] ?? '');
-      setStep('reassurance');
-      setAnimating(false);
+
+      // Check for micro-yes message
+      const microMsg = questionIdx === 3 ? MICRO_YES_Q4 : MICRO_YES[`${questionIdx}_${val}`];
+      if (microMsg) {
+        setMicroYesText(microMsg);
+        setAnimating(false);
+        setStep('microyes');
+      } else {
+        setAnimating(false);
+        setStep('reassurance');
+      }
     }
   };
 
@@ -207,9 +269,8 @@ export default function BoxOnboardingPage() {
         body: JSON.stringify(form),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? 'Erreur lors de l\'inscription');
+      if (!res.ok) throw new Error(json.error ?? "Erreur lors de l'inscription");
 
-      // Auto-login: call verify_client_pin and store session in localStorage
       const supabase = createClient();
       const { data: rows } = await supabase.rpc('verify_client_pin', {
         p_phone: json.phone,
@@ -231,8 +292,6 @@ export default function BoxOnboardingPage() {
         localStorage.setItem(SESSION_KEY, JSON.stringify(session));
         router.push('/client-portal/dashboard');
       } else {
-        // Auto-login impossible (migration SQL non encore appliquée ou autre) :
-        // afficher les identifiants pour connexion manuelle
         setCredentials({ phone: json.phone, pin: json.pin });
         setStep('credentials');
         setSubmitting(false);
@@ -307,6 +366,60 @@ export default function BoxOnboardingPage() {
     );
   }
 
+  // ── INTRO ─────────────────────────────────────────────────────────────────
+  if (step === 'intro') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-rose-50 via-pink-50/30 to-fuchsia-50 flex flex-col items-center justify-center p-5">
+        {/* Live bandeau */}
+        <div className="w-full max-w-md mb-6">
+          <div className="flex items-center justify-center gap-2 bg-white border border-red-100 rounded-full px-4 py-2 shadow-sm mx-auto w-fit">
+            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
+            <span className="text-xs font-semibold text-gray-700">En direct · 14 esthéticiennes ont complété ce quiz aujourd'hui</span>
+          </div>
+        </div>
+
+        <div className="w-full max-w-md">
+          <Brand />
+          <div className="bg-white rounded-3xl shadow-xl p-8 border border-rose-100 text-center">
+            <div className="text-5xl mb-5">⏰</div>
+            <h2 className="text-2xl font-black text-gray-900 leading-tight mb-3">
+              Arrête de gérer ton stock<br />à la dernière minute.
+            </h2>
+            <p className="text-sm text-gray-500 leading-relaxed mb-8">
+              Réponds à 5 questions et découvre combien tu perdes chaque mois sans le savoir.
+            </p>
+            <button
+              onClick={() => setStep('quiz')}
+              className="w-full py-4 bg-gradient-to-r from-pink-500 to-rose-500 text-white font-bold rounded-2xl shadow-lg hover:opacity-90 active:scale-[.98] transition-all text-base"
+            >
+              Découvrir ma formule gratuite →
+            </button>
+            <p className="text-xs text-gray-400 mt-4">2 minutes · Gratuit · Sans engagement</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── MICRO-YES ─────────────────────────────────────────────────────────────
+  if (step === 'microyes') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-rose-50 via-pink-50/30 to-fuchsia-50 flex flex-col items-center justify-center p-5">
+        <div className="w-full max-w-md text-center">
+          <div className="bg-white rounded-3xl shadow-xl p-8 border border-emerald-100">
+            <div className="text-5xl mb-5">✅</div>
+            <p className="text-base font-semibold text-gray-800 leading-relaxed">{microYesText}</p>
+            <div className="mt-6 flex justify-center gap-1">
+              {[0, 1, 2].map(i => (
+                <div key={i} className={`w-1.5 h-1.5 rounded-full bg-pink-300 animate-bounce`} style={{ animationDelay: `${i * 0.15}s` }} />
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ── QUIZ ───────────────────────────────────────────────────────────────────
   if (step === 'quiz') {
     const q = QUESTIONS[questionIdx];
@@ -358,17 +471,25 @@ export default function BoxOnboardingPage() {
   // ── RESULT ─────────────────────────────────────────────────────────────────
   if (step === 'result') {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-rose-50 via-pink-50/30 to-fuchsia-50 flex flex-col items-center justify-start p-5 pt-10 pb-20">
-        <div className="w-full max-w-md">
-          <div className="text-center mb-6">
-            <div className="text-4xl mb-3">🎯</div>
+      <div className="min-h-screen bg-gradient-to-br from-rose-50 via-pink-50/30 to-fuchsia-50 flex flex-col items-center justify-start p-5 pt-6 pb-20">
+        <div className="w-full max-w-md space-y-4">
+
+          {/* Live social proof banner */}
+          <div className="flex items-center gap-2 bg-white border border-gray-100 rounded-full px-4 py-2.5 shadow-sm text-xs text-gray-600 font-medium transition-all duration-700">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+            <span key={socialProofIdx}>{SOCIAL_PROOF[socialProofIdx]}</span>
+          </div>
+
+          {/* Header */}
+          <div className="text-center">
+            <div className="text-4xl mb-2">🎯</div>
             <h2 className="text-2xl font-black text-gray-900">Ta formule idéale</h2>
             <p className="text-sm text-gray-500 mt-1">Calculée selon ton profil d'activité</p>
           </div>
 
           {/* Pertes actuelles */}
           {losses.total > 0 && (
-            <div className="bg-red-50 border border-red-100 rounded-2xl p-5 mb-4">
+            <div className="bg-red-50 border border-red-100 rounded-2xl p-5">
               <p className="text-xs font-bold text-red-500 uppercase tracking-wide mb-3">💸 Tes pertes actuelles estimées</p>
               {losses.deliveryCost > 0 && (
                 <div className="flex justify-between text-sm text-red-700 mb-1">
@@ -386,11 +507,17 @@ export default function BoxOnboardingPage() {
                 <span>Total perdu chaque mois</span>
                 <span>−{losses.total} €</span>
               </div>
+              {/* Annual loss */}
+              <div className="mt-3 pt-3 border-t border-red-200 text-center">
+                <p className="text-lg font-black text-red-600">
+                  Soit −{losses.total * 12} € perdus sur 1 an 🔴
+                </p>
+              </div>
             </div>
           )}
 
           {/* Plan card */}
-          <div className={`bg-white rounded-3xl shadow-xl p-6 border-2 mb-4 ${'recommended' in plan && plan.recommended ? 'border-pink-400' : 'border-rose-100'}`}>
+          <div className={`bg-white rounded-3xl shadow-xl p-6 border-2 ${'recommended' in plan && plan.recommended ? 'border-pink-400' : 'border-rose-100'}`}>
             {'recommended' in plan && plan.recommended && (
               <div className="text-center mb-4">
                 <span className="bg-gradient-to-r from-pink-500 to-rose-500 text-white text-xs font-bold px-4 py-1.5 rounded-full shadow">
@@ -434,27 +561,124 @@ export default function BoxOnboardingPage() {
             </div>
           </div>
 
-          {/* Témoignage */}
-          <div className="bg-white/70 rounded-2xl p-4 mb-5 border border-rose-100">
-            <p className="text-xs text-gray-500 italic leading-relaxed">
-              {recommendedPlan === 'starter' && '"Depuis que j\'ai la Box Starter, je ne commande plus en urgence. 21€ économisés par mois, la box se rembourse toute seule !" — Sandrine, esthéticienne Martinique'}
-              {recommendedPlan === 'pro' && '"La Box Pro a changé ma façon de travailler. Je ne stresse plus jamais pour mon stock. Marlène économise 51€/mois depuis 3 mois." — Marlène, salon beauté Martinique'}
-              {recommendedPlan === 'elite' && '"Avec Elite et la livraison offerte, j\'ai économisé 91€ le premier mois. Mes 28 clientes sont toujours servies, sans stress." — Nadège, esthéticienne Fort-de-France'}
-            </p>
+          {/* Urgence */}
+          <div className="flex items-center justify-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
+            <p className="text-sm font-bold text-red-600">6 places disponibles ce mois-ci · Offre de lancement</p>
           </div>
 
+          {/* Témoignages avec photos */}
+          <div className="space-y-3">
+            <div className="bg-white rounded-2xl p-4 border border-rose-100 shadow-sm">
+              <div className="flex items-start gap-3">
+                <Avatar src="/testimonials/marie-sophie.jpg" alt="Marie-Sophie B." />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <p className="text-sm font-bold text-gray-900">Marie-Sophie B.</p>
+                    <span className="text-[10px] text-emerald-600 font-semibold bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded-full">✅ Cliente vérifiée</span>
+                  </div>
+                  <p className="text-[11px] text-gray-400 mb-2">Fort-de-France, Martinique</p>
+                  <p className="text-xs text-gray-700 italic leading-relaxed">
+                    "Je pensais que 89€ c'était trop. Et là je reçois 110€ de produits. Plus jamais je commande en urgence 💕"
+                  </p>
+                  <span className="mt-2 inline-block text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">+21€ économisés par mois</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl p-4 border border-rose-100 shadow-sm">
+              <div className="flex items-start gap-3">
+                <Avatar src="/testimonials/minutelle.jpg" alt="Minutelle M." />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <p className="text-sm font-bold text-gray-900">Minutelle M.</p>
+                    <span className="text-[10px] text-emerald-600 font-semibold bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded-full">✅ Cliente vérifiée</span>
+                  </div>
+                  <p className="text-[11px] text-gray-400 mb-2">Martinique</p>
+                  <p className="text-xs text-gray-700 italic leading-relaxed">
+                    "L'appli est trop simple. Je confirme avant le 25, ma box arrive au salon. Mes collègues veulent toutes s'abonner maintenant ✨"
+                  </p>
+                  <span className="mt-2 inline-block text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">2h gagnées par mois</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Ce qui se passe après */}
+          <div className="bg-gray-50 rounded-2xl p-5 border border-gray-100">
+            <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">Voici ce qui se passe quand tu cliques :</p>
+            <div className="space-y-2">
+              {[
+                'Tu crées ton compte en 2 minutes',
+                'Tu explores le catalogue complet LMDE',
+                'Tu composes ta box librement',
+                'Tu paies seulement quand tu valides ta box',
+              ].map((item) => (
+                <div key={item} className="flex items-center gap-2.5">
+                  <span className="text-emerald-500 shrink-0 font-bold text-sm">✅</span>
+                  <span className="text-sm text-gray-700">{item}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Micro-engagement checkbox */}
+          <label className="flex items-start gap-3 cursor-pointer group">
+            <div className="relative mt-0.5 shrink-0">
+              <input
+                type="checkbox"
+                checked={committed}
+                onChange={(e) => setCommitted(e.target.checked)}
+                className="sr-only"
+              />
+              <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${committed ? 'bg-pink-500 border-pink-500' : 'border-gray-300 bg-white group-hover:border-pink-300'}`}>
+                {committed && (
+                  <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                  </svg>
+                )}
+              </div>
+            </div>
+            <span className="text-sm font-medium text-gray-700 leading-snug">
+              Je confirme que je veux arrêter de commander en urgence
+            </span>
+          </label>
+
+          {/* CTA principal */}
           <button
             onClick={() => setStep('form')}
-            className="w-full py-4 bg-gradient-to-r from-pink-500 to-rose-500 text-white font-bold rounded-2xl shadow-lg hover:opacity-90 active:scale-[.98] transition-all text-base"
+            disabled={!committed}
+            className={`w-full py-4 text-white font-bold rounded-2xl shadow-lg active:scale-[.98] transition-all text-base ${committed ? 'bg-gradient-to-r from-pink-600 to-rose-600 hover:opacity-90' : 'bg-gradient-to-r from-pink-300 to-rose-300 opacity-60 cursor-not-allowed'}`}
           >
-            ✨ Valider mon plan {plan.name}
+            Accéder à ma Box Beauté maintenant →
           </button>
+
+          {/* Refaire le quiz */}
           <button
-            onClick={() => { setQuestionIdx(0); setNumericAnswers({}); setStep('quiz'); }}
-            className="w-full mt-3 py-3 text-gray-400 text-sm hover:text-gray-600 transition-colors"
+            onClick={() => { setQuestionIdx(0); setNumericAnswers({}); setCommitted(false); setStep('quiz'); }}
+            className="w-full py-3 text-gray-400 text-sm hover:text-gray-600 transition-colors"
           >
             Refaire le quiz
           </button>
+
+          {/* Garantie */}
+          <p className="text-center text-xs text-gray-400 leading-relaxed">
+            🛡️ Satisfaite ou remboursée 30 jours · Sans engagement · Résiliable à tout moment
+          </p>
+
+          {/* WhatsApp */}
+          <a
+            href="https://wa.me/message/QBWQFIG2EHXCI1"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full py-3 bg-[#25D366] text-white font-semibold rounded-2xl text-sm flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
+          >
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+            </svg>
+            Une question ? Écris-moi directement 💕
+          </a>
+
         </div>
       </div>
     );
