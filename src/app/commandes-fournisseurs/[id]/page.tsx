@@ -6,7 +6,7 @@ import Image from 'next/image';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
-import { supplierOrderService, FoOrder, FoOrderLine, FoOrderStatus, FoStatusHistory } from '@/lib/services/supplierOrderService';
+import { supplierOrderService, FoOrder, FoOrderLine, FoOrderStatus, FoStatusHistory, FoRestockSuggestion } from '@/lib/services/supplierOrderService';
 import { exportPurchaseOrderPDF } from '@/lib/utils/purchaseOrderPDF';
 import BarcodeLabelModal from '@/app/product-management/components/BarcodeLabelModal';
 import { type ProductRecord } from '@/app/product-management/components/mockProducts';
@@ -277,6 +277,31 @@ export default function OrderDetailPage() {
   const [addModalCurrency, setAddModalCurrency] = useState<'EUR' | 'USD'>('EUR');
   const [addModalUsdRate, setAddModalUsdRate] = useState<number | null>(null);
   const [addModalFetchingRate, setAddModalFetchingRate] = useState(false);
+
+  // Restock drawer
+  const [showRestockDrawer, setShowRestockDrawer] = useState(false);
+  const [restockItems, setRestockItems] = useState<FoRestockSuggestion[]>([]);
+  const [restockLoading, setRestockLoading] = useState(false);
+  const [restockQty, setRestockQty] = useState<Record<string, number>>({});
+
+  const loadRestockForSupplier = useCallback(async (supplierId: string) => {
+    setRestockLoading(true);
+    try {
+      const all = await supplierOrderService.getRestockSuggestions();
+      const filtered = all.filter(s => s.supplierId === supplierId && s.restockStatus !== 'suspended');
+      filtered.sort((a, b) => {
+        const ua = a.currentStock === 0 ? 0 : a.currentStock < a.minStock ? 1 : 2;
+        const ub = b.currentStock === 0 ? 0 : b.currentStock < b.minStock ? 1 : 2;
+        return ua !== ub ? ua - ub : b.recentSales - a.recentSales;
+      });
+      setRestockItems(filtered);
+      const q: Record<string, number> = {};
+      filtered.forEach(s => { q[s.id] = s.suggestedQty; });
+      setRestockQty(q);
+    } finally {
+      setRestockLoading(false);
+    }
+  }, []);
 
   // Load default structure % from localStorage (set in admin-config)
   useEffect(() => {
@@ -1375,6 +1400,16 @@ export default function OrderDetailPage() {
                   <span className="text-base leading-none">📲</span>
                 )}
                 Relance WA
+              </button>
+            )}
+            {order.supplierId && (
+              <button
+                onClick={() => { setShowRestockDrawer(true); loadRestockForSupplier(order.supplierId!); }}
+                className="flex items-center gap-2 px-3 py-2 border border-amber-300 bg-amber-50 text-amber-700 rounded-lg text-sm font-500 hover:bg-amber-100 transition-colors"
+                title="Voir les produits à réapprovisionner chez ce fournisseur"
+              >
+                <Icon name="ArrowPathIcon" size={15} />
+                Réassort conseillé
               </button>
             )}
             <button
@@ -3549,6 +3584,112 @@ export default function OrderDetailPage() {
             <div className="flex gap-3">
               <button onClick={() => setShowStatusModal(false)} className="flex-1 px-4 py-2 border border-border rounded-lg text-sm font-500 hover:bg-muted transition-colors">Annuler</button>
               <button onClick={handleStatusChange} disabled={!targetStatus} className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-500 hover:bg-primary/90 transition-colors disabled:opacity-50">Confirmer</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Restock drawer */}
+      {showRestockDrawer && (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div className="absolute inset-0 bg-black/30" onClick={() => setShowRestockDrawer(false)} />
+          <div className="relative w-full max-w-xl bg-white shadow-2xl flex flex-col h-full overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
+              <div>
+                <h2 className="font-700 text-foreground flex items-center gap-2">
+                  <Icon name="ArrowPathIcon" size={18} className="text-amber-600" />
+                  Réassort conseillé
+                </h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {order?.supplierName} — produits triés par urgence et ventes
+                </p>
+              </div>
+              <button onClick={() => setShowRestockDrawer(false)} className="p-2 rounded-lg hover:bg-muted transition-colors">
+                <Icon name="XMarkIcon" size={18} />
+              </button>
+            </div>
+
+            {/* KPIs */}
+            {!restockLoading && restockItems.length > 0 && (
+              <div className="grid grid-cols-3 gap-3 px-5 py-3 border-b border-border shrink-0 bg-muted/30">
+                {[
+                  { label: 'Rupture', value: restockItems.filter(s => s.currentStock === 0).length, color: 'text-red-600' },
+                  { label: 'Stock faible', value: restockItems.filter(s => s.currentStock > 0 && s.currentStock < s.minStock).length, color: 'text-amber-600' },
+                  { label: 'Best-sellers', value: restockItems.filter(s => s.recentSales >= 10).length, color: 'text-emerald-600' },
+                ].map(k => (
+                  <div key={k.label} className="text-center">
+                    <p className={`text-xl font-700 ${k.color}`}>{k.value}</p>
+                    <p className="text-[10px] text-muted-foreground">{k.label}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-5">
+              {restockLoading ? (
+                <div className="flex items-center justify-center py-20">
+                  <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : restockItems.length === 0 ? (
+                <div className="text-center py-16">
+                  <Icon name="CheckCircleIcon" size={40} className="text-emerald-500 mx-auto mb-3" />
+                  <p className="font-500 text-foreground">Aucun produit à réapprovisionner</p>
+                  <p className="text-sm text-muted-foreground mt-1">Tous les stocks de ce fournisseur sont à niveau.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {restockItems.map((s) => {
+                    const isOut = s.currentStock === 0;
+                    const isLow = s.currentStock > 0 && s.currentStock < s.minStock;
+                    return (
+                      <div key={s.id} className={`border rounded-xl p-4 ${isOut ? 'border-red-200 bg-red-50/40' : isLow ? 'border-amber-200 bg-amber-50/30' : 'border-border bg-white'}`}>
+                        <div className="flex items-start gap-3 mb-3">
+                          <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center shrink-0 overflow-hidden border border-border/50">
+                            {s.productImageUrl
+                              ? <img src={s.productImageUrl} alt={s.productName} className="w-full h-full object-cover" />
+                              : <Icon name="PhotoIcon" size={16} className="text-muted-foreground" />
+                            }
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-600 text-sm text-foreground leading-snug">{s.productName}</p>
+                            {s.productRef && <p className="text-[10px] text-muted-foreground font-mono mt-0.5">{s.productRef}</p>}
+                            <div className="flex flex-wrap gap-2 mt-1.5">
+                              {isOut && <span className="px-2 py-0.5 rounded-full text-[10px] font-600 bg-red-100 text-red-700">🔴 Rupture</span>}
+                              {isLow && <span className="px-2 py-0.5 rounded-full text-[10px] font-600 bg-amber-100 text-amber-700">🟡 Stock faible</span>}
+                              <span className="text-[10px] text-muted-foreground">Stock : <strong className={isOut ? 'text-red-600' : isLow ? 'text-amber-600' : 'text-foreground'}>{s.currentStock}</strong> / min {s.minStock}</span>
+                              <span className="text-[10px] text-muted-foreground">🔥 <strong className="text-emerald-600">{s.recentSales}</strong> vendus/30j</span>
+                              <span className="text-[10px] text-muted-foreground">Prix : <strong>{s.lastPurchasePrice.toFixed(2)} €</strong></span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <label className="text-[10px] text-muted-foreground shrink-0">Qté conseillée :</label>
+                          <input
+                            type="number" min="1"
+                            value={restockQty[s.id] ?? s.suggestedQty}
+                            onChange={(e) => setRestockQty(prev => ({ ...prev, [s.id]: parseInt(e.target.value) || 1 }))}
+                            className="w-16 px-2 py-1 border border-border rounded-lg text-xs text-center font-700 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                          />
+                          <button
+                            onClick={async () => { await supplierOrderService.updateRestockStatus(s.id, 'ordered'); loadRestockForSupplier(order!.supplierId!); }}
+                            className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-600 hover:bg-primary/90 transition-colors"
+                          >
+                            <Icon name="ShoppingCartIcon" size={12} />
+                            Marquer commandé
+                          </button>
+                          <button
+                            onClick={async () => { await supplierOrderService.updateRestockStatus(s.id, 'ignored'); loadRestockForSupplier(order!.supplierId!); }}
+                            className="px-3 py-1.5 border border-border rounded-lg text-xs text-muted-foreground hover:bg-muted transition-colors"
+                          >
+                            Ignorer
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>
