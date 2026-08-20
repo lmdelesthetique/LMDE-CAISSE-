@@ -40,11 +40,13 @@ const STATUS_CONFIG: Record<FoOrderStatus, { label: string; color: string; dot: 
 const TABS = [
   { id: 'all', label: 'Toutes' },
   { id: 'draft', label: 'Brouillons' },
+  { id: 'sent', label: 'Envoyées' },
   { id: 'active', label: 'En cours' },
   { id: 'shipped', label: 'Expédiées' },
   { id: 'received', label: 'Reçues' },
   { id: 'paid', label: 'Payé' },
   { id: 'suspended', label: 'Suspendues' },
+  { id: 'cancelled', label: 'Annulées' },
 ];
 
 function StatusBadge({ status }: { status: FoOrderStatus }) {
@@ -67,9 +69,13 @@ export default function CommandesFournisseursPage() {
   const [tab, setTab] = useState('all');
   const [search, setSearch] = useState('');
   const [groupFilter, setGroupFilter] = useState('');
+  const [supplierFilter, setSupplierFilter] = useState('');
   // Group management
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showGroupPanel, setShowGroupPanel] = useState(false);
+  // Delete mode
+  const [deleteMode, setDeleteMode] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [assigningGroup, setAssigningGroup] = useState(false);
   const [groupSuccess, setGroupSuccess] = useState<string | null>(null);
@@ -184,19 +190,23 @@ export default function CommandesFournisseursPage() {
   };
 
   const groups = [...new Set(orders.map((o) => o.orderGroup).filter(Boolean))] as string[];
+  const suppliers = [...new Set(orders.map((o) => o.supplierName).filter(Boolean))].sort() as string[];
 
   const filtered = orders.filter((o) => {
     const q = search.toLowerCase();
     const matchSearch = !q || o.orderNumber.toLowerCase().includes(q) || (o.supplierName || '').toLowerCase().includes(q) || (o.orderGroup || '').toLowerCase().includes(q);
     let matchTab = true;
     if (tab === 'draft') matchTab = o.orderStatus === 'draft';
+    else if (tab === 'sent') matchTab = o.orderStatus === 'sent';
     else if (tab === 'active') matchTab = ACTIVE_STATUSES.includes(o.orderStatus);
     else if (tab === 'shipped') matchTab = o.orderStatus === 'shipped';
     else if (tab === 'received') matchTab = RECEIVED_STATUSES.includes(o.orderStatus);
     else if (tab === 'paid') matchTab = o.paymentStatus === 'paid' || o.paymentStatus === 'received_by_supplier';
     else if (tab === 'suspended') matchTab = o.orderStatus === 'suspended';
+    else if (tab === 'cancelled') matchTab = o.orderStatus === 'cancelled';
     const matchGroup = !groupFilter || o.orderGroup === groupFilter;
-    return matchSearch && matchTab && matchGroup;
+    const matchSupplier = !supplierFilter || o.supplierName === supplierFilter;
+    return matchSearch && matchTab && matchGroup && matchSupplier;
   });
 
   const toggleSelect = (id: string) => {
@@ -229,6 +239,21 @@ export default function CommandesFournisseursPage() {
       load();
     } finally {
       setAssigningGroup(false);
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedIds.size === 0) return;
+    const count = selectedIds.size;
+    if (!confirm(`Supprimer définitivement ${count} commande${count > 1 ? 's' : ''} ? Cette action est irréversible.`)) return;
+    setDeleting(true);
+    try {
+      await Promise.all([...selectedIds].map(id => fetch(`/api/fo-orders/${id}`, { method: 'DELETE' })));
+      setSelectedIds(new Set());
+      setDeleteMode(false);
+      load();
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -344,9 +369,19 @@ export default function CommandesFournisseursPage() {
             />
           </div>
           <select
+            value={supplierFilter}
+            onChange={(e) => setSupplierFilter(e.target.value)}
+            className="px-3 py-2 border border-border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 min-w-[180px]"
+          >
+            <option value="">Tous les fournisseurs</option>
+            {suppliers.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+          <select
             value={groupFilter}
             onChange={(e) => setGroupFilter(e.target.value)}
-            className="px-3 py-2 border border-border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 min-w-[200px]"
+            className="px-3 py-2 border border-border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 min-w-[180px]"
           >
             <option value="">Tous les groupes</option>
             {groups.map((g) => (
@@ -354,16 +389,60 @@ export default function CommandesFournisseursPage() {
             ))}
           </select>
           <button
-            onClick={() => { setShowGroupPanel(p => !p); setGroupSuccess(null); }}
+            onClick={() => { setShowGroupPanel(p => !p); setGroupSuccess(null); if (deleteMode) setDeleteMode(false); }}
             className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-500 transition-colors ${showGroupPanel ? 'bg-violet-50 border-violet-300 text-violet-700' : 'border-border text-muted-foreground hover:bg-muted'}`}
           >
             <Icon name="FolderIcon" size={15} />
             Gérer les groupes
-            {selectedIds.size > 0 && (
+            {selectedIds.size > 0 && showGroupPanel && (
               <span className="bg-violet-600 text-white text-[11px] font-700 rounded-full px-1.5 py-0.5 leading-none">{selectedIds.size}</span>
             )}
           </button>
+          <button
+            onClick={() => { setDeleteMode(p => !p); setSelectedIds(new Set()); if (showGroupPanel) { setShowGroupPanel(false); } }}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-500 transition-colors ${deleteMode ? 'bg-red-50 border-red-300 text-red-700' : 'border-border text-muted-foreground hover:bg-muted'}`}
+          >
+            <Icon name="TrashIcon" size={15} />
+            Supprimer
+            {selectedIds.size > 0 && deleteMode && (
+              <span className="bg-red-600 text-white text-[11px] font-700 rounded-full px-1.5 py-0.5 leading-none">{selectedIds.size}</span>
+            )}
+          </button>
         </div>
+
+        {/* Delete mode panel */}
+        {deleteMode && (
+          <div className="mb-4 bg-red-50 border border-red-200 rounded-xl p-4">
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-2">
+                <Icon name="TrashIcon" size={16} className="text-red-600" />
+                <h3 className="font-600 text-sm text-red-800">Mode suppression</h3>
+                <span className="text-xs text-red-600">— Cochez les commandes à supprimer définitivement</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {selectedIds.size > 0 && (
+                  <button
+                    onClick={handleDeleteSelected}
+                    disabled={deleting}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-600 hover:bg-red-700 transition-colors disabled:opacity-50"
+                  >
+                    {deleting
+                      ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      : <Icon name="TrashIcon" size={14} />
+                    }
+                    Supprimer {selectedIds.size} commande{selectedIds.size > 1 ? 's' : ''}
+                  </button>
+                )}
+                <button
+                  onClick={() => { setDeleteMode(false); setSelectedIds(new Set()); }}
+                  className="px-3 py-2 border border-red-200 rounded-lg text-sm text-red-600 hover:bg-red-100 transition-colors"
+                >
+                  Annuler
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Group management panel */}
         {showGroupPanel && (
@@ -558,13 +637,13 @@ export default function CommandesFournisseursPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/30">
-                    {showGroupPanel && (
+                    {(showGroupPanel || deleteMode) && (
                       <th className="px-3 py-3 w-10">
                         <input
                           type="checkbox"
                           checked={filtered.length > 0 && selectedIds.size === filtered.length}
                           onChange={toggleSelectAll}
-                          className="w-4 h-4 rounded border-border text-violet-600 focus:ring-violet-400 cursor-pointer"
+                          className={`w-4 h-4 rounded border-border cursor-pointer ${deleteMode ? 'text-red-600 focus:ring-red-400' : 'text-violet-600 focus:ring-violet-400'}`}
                         />
                       </th>
                     )}
@@ -585,13 +664,13 @@ export default function CommandesFournisseursPage() {
                     const unreadCount = unreadPerOrder[order.id] ?? 0;
                     return (
                     <tr key={order.id} className={`hover:bg-muted/20 transition-colors ${selectedIds.has(order.id) ? 'bg-violet-50/50' : unreadCount > 0 ? 'bg-blue-50/40' : ''}`}>
-                      {showGroupPanel && (
+                      {(showGroupPanel || deleteMode) && (
                         <td className="px-3 py-3">
                           <input
                             type="checkbox"
                             checked={selectedIds.has(order.id)}
                             onChange={() => toggleSelect(order.id)}
-                            className="w-4 h-4 rounded border-border text-violet-600 focus:ring-violet-400 cursor-pointer"
+                            className={`w-4 h-4 rounded border-border cursor-pointer ${deleteMode ? 'text-red-600 focus:ring-red-400' : 'text-violet-600 focus:ring-violet-400'}`}
                           />
                         </td>
                       )}

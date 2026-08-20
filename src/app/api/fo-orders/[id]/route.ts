@@ -84,3 +84,16 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   return NextResponse.json(data);
 }
+
+export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+  const { id } = params;
+  if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
+  const supabase = makeAdminClient();
+  await supabase.from('fo_order_lines').delete().eq('order_id', id);
+  const { error } = await supabase.from('fo_orders').delete().eq('id', id);
+  if (error) {
+    console.error('[api/fo-orders DELETE]', error.message, { id });
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+  return NextResponse.json({ ok: true });
+}
