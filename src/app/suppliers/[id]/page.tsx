@@ -8,6 +8,7 @@ import {
   supplierService, Supplier, SupplierOrder, SupplierPayment, SupplierClaim, SupplierMessage,
   OrderStatus, PaymentStatus, ClaimStatus
 } from '@/lib/services/supplierService';
+import { supplierOrderService, FoRestockSuggestion } from '@/lib/services/supplierOrderService';
 import SupplierFormModal from '../components/SupplierFormModal';
 import OrderFormModal from '../components/OrderFormModal';
 import PaymentFormModal from '../components/PaymentFormModal';
@@ -18,7 +19,7 @@ import { fetchAll } from '@/lib/utils/fetchAll';
 
 const supabase = createClient();
 
-type Tab = 'overview' | 'orders' | 'payments' | 'claims' | 'messages' | 'products';
+type Tab = 'overview' | 'orders' | 'payments' | 'claims' | 'messages' | 'products' | 'restock';
 
 const ORDER_STATUS_CONFIG: Record<OrderStatus, { label: string; color: string }> = {
   draft:                         { label: 'Brouillon',              color: 'text-gray-600 bg-gray-100' },
@@ -88,6 +89,9 @@ export default function SupplierDetailPage() {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [linkedProducts, setLinkedProducts] = useState<any[]>([]);
   const [productsLoading, setProductsLoading] = useState(false);
+  const [restockItems, setRestockItems] = useState<FoRestockSuggestion[]>([]);
+  const [restockLoading, setRestockLoading] = useState(false);
+  const [restockQty, setRestockQty] = useState<Record<string, number>>({});
 
   const [showEditForm, setShowEditForm] = useState(false);
   const [showOrderForm, setShowOrderForm] = useState(false);
@@ -138,8 +142,30 @@ export default function SupplierDetailPage() {
     setProductsLoading(false);
   }, [supplierId]);
 
+  const loadRestock = useCallback(async () => {
+    if (!supplierId) return;
+    setRestockLoading(true);
+    try {
+      const all = await supplierOrderService.getRestockSuggestions();
+      const filtered = all.filter(s => s.supplierId === supplierId && s.restockStatus !== 'suspended');
+      filtered.sort((a, b) => {
+        const urgencyA = a.currentStock === 0 ? 0 : a.currentStock < a.minStock ? 1 : 2;
+        const urgencyB = b.currentStock === 0 ? 0 : b.currentStock < b.minStock ? 1 : 2;
+        if (urgencyA !== urgencyB) return urgencyA - urgencyB;
+        return b.recentSales - a.recentSales;
+      });
+      setRestockItems(filtered);
+      const q: Record<string, number> = {};
+      filtered.forEach(s => { q[s.id] = s.suggestedQty; });
+      setRestockQty(q);
+    } finally {
+      setRestockLoading(false);
+    }
+  }, [supplierId]);
+
   useEffect(() => { load(); }, [load]);
   useEffect(() => { if (activeTab === 'products') loadLinkedProducts(); }, [activeTab, loadLinkedProducts]);
+  useEffect(() => { if (activeTab === 'restock') loadRestock(); }, [activeTab, loadRestock]);
 
   const handleUpdateOrderStatus = async (orderId: string, status: OrderStatus) => {
     await supplierService.updateOrderStatus(orderId, status);
@@ -195,8 +221,11 @@ export default function SupplierDetailPage() {
     );
   }
 
-  const TABS: { id: Tab; label: string; icon: string; count?: number }[] = [
+  const restockUrgent = restockItems.filter(s => s.currentStock === 0 || s.currentStock < s.minStock);
+
+  const TABS: { id: Tab; label: string; icon: string; count?: number; urgent?: boolean }[] = [
     { id: 'overview',  label: 'Vue d\'ensemble', icon: 'HomeIcon' },
+    { id: 'restock',   label: 'Réassort',        icon: 'ArrowPathIcon', count: restockUrgent.length || undefined, urgent: restockUrgent.length > 0 },
     { id: 'products',  label: 'Produits rattachés', icon: 'TagIcon', count: linkedProducts.length || undefined },
     { id: 'orders',    label: 'Commandes',        icon: 'ClipboardDocumentListIcon', count: orders.length },
     { id: 'payments',  label: 'Paiements',        icon: 'BanknotesIcon',             count: payments.length },
@@ -297,7 +326,7 @@ export default function SupplierDetailPage() {
               <Icon name={tab.icon as any} size={15} />
               {tab.label}
               {tab.count !== undefined && tab.count > 0 && (
-                <span className={`text-[10px] font-600 rounded-full px-1.5 py-0.5 min-w-[18px] text-center ${activeTab === tab.id ? 'bg-primary text-primary-foreground' : 'bg-muted-foreground/20 text-muted-foreground'}`}>
+                <span className={`text-[10px] font-600 rounded-full px-1.5 py-0.5 min-w-[18px] text-center ${tab.urgent ? 'bg-red-500 text-white' : activeTab === tab.id ? 'bg-primary text-primary-foreground' : 'bg-muted-foreground/20 text-muted-foreground'}`}>
                   {tab.count}
                 </span>
               )}
@@ -660,6 +689,121 @@ export default function SupplierDetailPage() {
             orders={orders.map((o) => ({ id: o.id, order_number: o.orderNumber }))}
             onRefresh={load}
           />
+        )}
+
+        {activeTab === 'restock' && (
+          <div>
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h2 className="font-600 text-foreground">Réassort conseillé</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">Produits de ce fournisseur triés par urgence et volume de ventes</p>
+              </div>
+              <button
+                onClick={() => setShowOrderForm(true)}
+                className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-500 hover:bg-primary/90 transition-colors"
+              >
+                <Icon name="PlusIcon" size={15} />
+                Créer commande de réassort
+              </button>
+            </div>
+
+            {/* KPIs */}
+            {!restockLoading && restockItems.length > 0 && (
+              <div className="grid grid-cols-3 gap-3 mb-5">
+                {[
+                  { label: 'En rupture', value: restockItems.filter(s => s.currentStock === 0).length, color: 'text-red-600 bg-red-50', icon: 'ExclamationCircleIcon' },
+                  { label: 'Stock faible', value: restockItems.filter(s => s.currentStock > 0 && s.currentStock < s.minStock).length, color: 'text-amber-600 bg-amber-50', icon: 'ExclamationTriangleIcon' },
+                  { label: 'Très vendus (30j)', value: restockItems.filter(s => s.recentSales >= 10).length, color: 'text-emerald-600 bg-emerald-50', icon: 'FireIcon' },
+                ].map(k => (
+                  <div key={k.label} className="bg-white border border-border rounded-xl p-4 shadow-card flex items-center gap-3">
+                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${k.color}`}>
+                      <Icon name={k.icon as any} size={18} />
+                    </div>
+                    <div>
+                      <p className="text-xl font-700 text-foreground">{k.value}</p>
+                      <p className="text-xs text-muted-foreground">{k.label}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {restockLoading ? (
+              <div className="flex items-center justify-center py-20">
+                <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : restockItems.length === 0 ? (
+              <div className="bg-white border border-border rounded-xl p-12 text-center">
+                <Icon name="CheckCircleIcon" size={40} className="text-emerald-500 mx-auto mb-3" />
+                <p className="font-500 text-foreground">Aucun produit à réapprovisionner</p>
+                <p className="text-sm text-muted-foreground mt-1">Tous les stocks de ce fournisseur sont à niveau, ou aucun produit n'est encore référencé dans le réassort.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {restockItems.map((s) => {
+                  const isOut = s.currentStock === 0;
+                  const isLow = s.currentStock > 0 && s.currentStock < s.minStock;
+                  return (
+                    <div key={s.id} className={`bg-white border rounded-xl p-4 shadow-card ${isOut ? 'border-red-200 bg-red-50/30' : isLow ? 'border-amber-200 bg-amber-50/20' : 'border-border'}`}>
+                      <div className="flex items-center gap-4">
+                        {/* Image */}
+                        <div className="w-12 h-12 rounded-lg bg-muted flex items-center justify-center shrink-0 overflow-hidden border border-border/50">
+                          {s.productImageUrl ? (
+                            <img src={s.productImageUrl} alt={s.productName} className="w-full h-full object-cover" />
+                          ) : (
+                            <Icon name="PhotoIcon" size={18} className="text-muted-foreground" />
+                          )}
+                        </div>
+
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap mb-1">
+                            <p className="font-600 text-foreground truncate">{s.productName}</p>
+                            {s.productRef && <span className="text-[10px] text-muted-foreground font-mono bg-muted px-1.5 py-0.5 rounded">{s.productRef}</span>}
+                            {isOut && <span className="px-2 py-0.5 rounded-full text-xs font-600 bg-red-100 text-red-700">🔴 Rupture</span>}
+                            {isLow && <span className="px-2 py-0.5 rounded-full text-xs font-600 bg-amber-100 text-amber-700">🟡 Stock faible</span>}
+                          </div>
+                          <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+                            <span>Stock actuel : <strong className={`${isOut ? 'text-red-600' : isLow ? 'text-amber-600' : 'text-foreground'}`}>{s.currentStock}</strong></span>
+                            <span>Seuil min : <strong className="text-foreground">{s.minStock}</strong></span>
+                            <span>Ventes 30j : <strong className="text-emerald-600">{s.recentSales} vendus</strong></span>
+                            <span>Prix achat : <strong className="text-foreground">{s.lastPurchasePrice.toFixed(2)} €</strong></span>
+                            {s.lastRealCost > 0 && <span>Coût réel : <strong className="text-foreground">{s.lastRealCost.toFixed(2)} €</strong></span>}
+                          </div>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex items-center gap-2 shrink-0">
+                          <div className="flex flex-col items-end gap-1">
+                            <label className="text-[10px] text-muted-foreground">Qté à commander</label>
+                            <input
+                              type="number" min="1"
+                              value={restockQty[s.id] ?? s.suggestedQty}
+                              onChange={(e) => setRestockQty(prev => ({ ...prev, [s.id]: parseInt(e.target.value) || 1 }))}
+                              className="w-20 px-2 py-1.5 border border-border rounded-lg text-sm text-center font-600 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                            />
+                          </div>
+                          <button
+                            onClick={() => { supplierOrderService.updateRestockStatus(s.id, 'ordered'); loadRestock(); }}
+                            className="flex items-center gap-1.5 px-3 py-2 bg-primary text-primary-foreground rounded-lg text-xs font-600 hover:bg-primary/90 transition-colors"
+                          >
+                            <Icon name="ShoppingCartIcon" size={13} />
+                            Marquer commandé
+                          </button>
+                          <button
+                            onClick={() => { supplierOrderService.updateRestockStatus(s.id, 'ignored'); loadRestock(); }}
+                            className="px-3 py-2 border border-border rounded-lg text-xs font-500 hover:bg-muted transition-colors text-muted-foreground"
+                          >
+                            Ignorer
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         )}
 
         {activeTab === 'products' && (
