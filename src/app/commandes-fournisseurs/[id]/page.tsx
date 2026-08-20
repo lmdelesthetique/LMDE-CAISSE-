@@ -864,7 +864,7 @@ export default function OrderDetailPage() {
     const term = q.trim();
     const { data } = await supabase
       .from('products')
-      .select('id, name, ref, barcode, buy_price, purchase_price_supplier, sell_price_ttc, image_url')
+      .select('id, name, ref, barcode, buy_price, purchase_price_supplier, sell_price_ttc, image_url, stock, min_stock, status')
       .or(`name.ilike.%${term}%,ref.ilike.%${term}%,barcode.ilike.%${term}%`)
       .neq('is_suspended', true)
       .order('name')
@@ -2324,7 +2324,15 @@ export default function OrderDetailPage() {
                       </div>
                       {/* Info */}
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-600 text-foreground truncate">{p.name}</p>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <p className="text-sm font-600 text-foreground truncate flex-1">{p.name}</p>
+                          {(p.stock ?? 0) === 0
+                            ? <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-700 bg-red-100 text-red-700">Rupture</span>
+                            : (p.min_stock && p.stock < p.min_stock)
+                              ? <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-700 bg-amber-100 text-amber-700">Stock: {p.stock}</span>
+                              : <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-700 bg-emerald-100 text-emerald-700">Stock: {p.stock}</span>
+                          }
+                        </div>
                         <p className="text-xs text-muted-foreground font-mono">{p.ref ?? '—'}</p>
                         <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                           <span className="text-xs font-600 text-blue-700">
