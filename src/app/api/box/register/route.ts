@@ -98,6 +98,7 @@ export async function POST(req: NextRequest) {
         portal_phone: phone.trim(),
         pin_code: pin,
         payment_email: email.trim(),
+        start_date: new Date().toISOString().slice(0, 10),
       })
       .select('id')
       .single();
