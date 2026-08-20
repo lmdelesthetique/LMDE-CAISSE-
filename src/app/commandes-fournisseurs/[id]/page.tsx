@@ -278,6 +278,9 @@ export default function OrderDetailPage() {
   const [addModalUsdRate, setAddModalUsdRate] = useState<number | null>(null);
   const [addModalFetchingRate, setAddModalFetchingRate] = useState(false);
 
+  // Sales stats (7j/30j/90j) for products in this order — keyed by productId
+  const [productSales, setProductSales] = useState<Record<string, { s7: number; s30: number; s90: number }>>({});
+
   // Restock drawer
   const [showRestockDrawer, setShowRestockDrawer] = useState(false);
   const [restockLoading, setRestockLoading] = useState(false);
@@ -376,6 +379,17 @@ export default function OrderDetailPage() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Load 90d sales stats for products in this order after order loads
+  useEffect(() => {
+    if (!order?.lines?.length) return;
+    const ids = [...new Set(order.lines.map(l => l.productId).filter(Boolean))].join(',');
+    if (!ids) return;
+    fetch(`/api/products/sales-stats?ids=${ids}`)
+      .then(r => r.json())
+      .then(data => setProductSales(data))
+      .catch(() => {});
+  }, [order?.lines]);
 
   // Load unread supplier message count for badge on Messagerie tab
   useEffect(() => {
@@ -2142,6 +2156,13 @@ export default function OrderDetailPage() {
                           <td className="px-4 py-3">
                             <p className="font-500 text-foreground">{line.productName}</p>
                             <p className="text-xs text-muted-foreground">{line.productRef}{line.color ? ` · ${line.color}` : ''}{line.size ? ` · ${line.size}` : ''}</p>
+                            {line.productId && productSales[line.productId] && (
+                              <div className="flex gap-2 mt-1">
+                                <span className="text-[10px] text-muted-foreground">7j: <strong className="text-foreground">{productSales[line.productId].s7}</strong></span>
+                                <span className="text-[10px] text-muted-foreground">30j: <strong className="text-foreground">{productSales[line.productId].s30}</strong></span>
+                                <span className="text-[10px] text-amber-700">90j: <strong className={productSales[line.productId].s90 >= 10 ? 'text-emerald-600' : productSales[line.productId].s90 >= 3 ? 'text-amber-600' : 'text-foreground'}>{productSales[line.productId].s90}</strong> vendus</span>
+                              </div>
+                            )}
                           </td>
                           <td className="px-4 py-3 text-center">
                             {editMode ? (
@@ -2523,9 +2544,13 @@ export default function OrderDetailPage() {
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-500 text-foreground truncate">{line.productName}</p>
-                              <div className="flex items-center gap-1.5 mt-0.5">
+                              <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                                 {line.productRef && <span className="text-xs text-muted-foreground font-mono">{line.productRef}</span>}
                                 {line.productRef && <span className="text-xs text-muted-foreground">·</span>}
+                                {line.productId && productSales[line.productId] && (
+                                  <span className="text-[10px] text-amber-700 font-600">90j: <span className={productSales[line.productId].s90 >= 10 ? 'text-emerald-600' : productSales[line.productId].s90 >= 3 ? 'text-amber-600' : 'text-muted-foreground'}>{productSales[line.productId].s90} vendus</span></span>
+                                )}
+                                {line.productId && productSales[line.productId] && <span className="text-xs text-muted-foreground">·</span>}
                                 <span className="text-xs text-muted-foreground">Qté:</span>
                                 <div className="relative flex items-center">
                                   <input
@@ -3640,7 +3665,7 @@ export default function OrderDetailPage() {
                 {[
                   { label: 'Rupture', value: lowStockProducts.filter(p => p.currentStock === 0).length, color: 'text-red-600' },
                   { label: 'Stock faible', value: lowStockProducts.filter(p => p.currentStock > 0 && p.currentStock < p.minStock).length, color: 'text-amber-600' },
-                  { label: 'Best-sellers', value: lowStockProducts.filter(p => p.recentSales >= 10).length, color: 'text-emerald-600' },
+                  { label: 'Best-sellers', value: lowStockProducts.filter(p => (p.sales90d ?? 0) >= 10).length, color: 'text-emerald-600' },
                 ].map(k => (
                   <div key={k.label} className="text-center">
                     <p className={`text-xl font-700 ${k.color}`}>{k.value}</p>
@@ -3684,7 +3709,9 @@ export default function OrderDetailPage() {
                               {isOut && <span className="px-2 py-0.5 rounded-full text-[10px] font-600 bg-red-100 text-red-700">🔴 Rupture</span>}
                               {isLow && <span className="px-2 py-0.5 rounded-full text-[10px] font-600 bg-amber-100 text-amber-700">🟡 Stock faible</span>}
                               <span className="text-[10px] text-muted-foreground">Stock : <strong className={isOut ? 'text-red-600' : isLow ? 'text-amber-600' : 'text-foreground'}>{p.currentStock}</strong>{p.minStock > 0 ? ` / min ${p.minStock}` : ''}</span>
-                              <span className="text-[10px] text-muted-foreground">🔥 <strong className="text-emerald-600">{p.recentSales}</strong> vendus/30j</span>
+                              <span className="text-[10px] text-muted-foreground">7j: <strong>{p.sales7d ?? 0}</strong></span>
+                              <span className="text-[10px] text-muted-foreground">30j: <strong>{p.sales30d ?? 0}</strong></span>
+                              <span className="text-[10px] text-amber-700">90j: <strong className={(p.sales90d ?? 0) >= 10 ? 'text-emerald-600' : (p.sales90d ?? 0) >= 3 ? 'text-amber-600' : 'text-muted-foreground'}>{p.sales90d ?? 0}</strong> vendus</span>
                               {p.buyPrice > 0 && <span className="text-[10px] text-muted-foreground">Prix achat : <strong>{p.buyPrice.toFixed(2)} €</strong></span>}
                             </div>
                           </div>
