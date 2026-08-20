@@ -265,8 +265,8 @@ ${d.isDemo ? `<p class="tc">${SEP}</p>
 
 export function loadSettingsFromCache() {
   let companyName = "LE MONDE DE L'ESTHETIQUE";
-  let companyLine1 = 'Baie des Flamands Appt 306';
-  let companyLine2 = '9 avenue Loulou Boislaville';
+  let companyLine1 = '';
+  let companyLine2 = '';
   let companyCity = '97200 Fort-de-France';
   let companyPhone = '';
   let companySiret = '927 747 725';
@@ -288,7 +288,6 @@ export function loadSettingsFromCache() {
     if (cached) {
       const s = JSON.parse(cached);
       if (s.company_name) companyName = s.company_name;
-      if (s.address) companyLine2 = s.address;
       if (s.city || s.postal_code)
         companyCity = `${s.postal_code || '97200'} ${s.city || 'Fort-de-France'}`;
       if (s.phone) companyPhone = s.phone;
