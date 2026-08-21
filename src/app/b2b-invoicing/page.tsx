@@ -609,18 +609,11 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
 
           {/* Lines */}
           <div>
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center mb-3">
               <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
                 <Icon name="ListBulletIcon" size={15} className="text-primary" />
                 Lignes de facturation
               </h3>
-              <button
-                onClick={() => setLines((prev) => [...prev, newLine()])}
-                className="flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 px-3 py-1.5 rounded-lg border border-primary/30 hover:bg-primary/5 transition-colors"
-              >
-                <Icon name="PlusIcon" size={13} />
-                Ajouter une ligne
-              </button>
             </div>
             <div className="border border-border rounded-xl overflow-visible">
               <table className="w-full text-sm">
@@ -717,6 +710,15 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
                   })}
                 </tbody>
               </table>
+              <div className="border-t border-border">
+                <button
+                  onClick={() => setLines((prev) => [...prev, newLine()])}
+                  className="w-full flex items-center justify-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 py-2.5 hover:bg-primary/5 transition-colors rounded-b-xl"
+                >
+                  <Icon name="PlusIcon" size={13} />
+                  Ajouter une ligne
+                </button>
+              </div>
             </div>
           </div>
 
