@@ -536,6 +536,9 @@ export default function DepensesFournisseursPage() {
   const [importResult, setImportResult] = useState<string | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
+  const [propagating, setPropagating] = useState(false);
+  const [propagateResult, setPropagateResult] = useState<string | null>(null);
+
   // Supplier analysis state (existing)
   const [orders, setOrders] = useState<any[]>([]);
   const [suppliers, setSuppliers] = useState<any[]>([]);
@@ -694,6 +697,30 @@ export default function DepensesFournisseursPage() {
     }
   };
 
+  const handlePropagateRecurring = async () => {
+    setPropagating(true);
+    setPropagateResult(null);
+    try {
+      const res = await fetch('/api/expenses/propagate-recurring', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ months: ['2026-08', '2026-09'] }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? 'Erreur');
+      if (json.created === 0) {
+        setPropagateResult(`Déjà à jour — ${json.skipped} dépense(s) existaient déjà.`);
+      } else {
+        setPropagateResult(`✅ ${json.created} dépense(s) reportée(s) sur août/septembre 2026. (${json.skipped} déjà présente(s))`);
+        await loadExpenses();
+      }
+    } catch (err: any) {
+      setPropagateResult(`❌ Erreur : ${err.message}`);
+    } finally {
+      setPropagating(false);
+    }
+  };
+
   // Filter expenses
   const filteredExpenses = expenses.filter((e) => {
     if (filterCategory !== 'all' && e.category !== filterCategory) return false;
@@ -782,16 +809,41 @@ export default function DepensesFournisseursPage() {
               Exporter CSV
             </button>
             {activeTab === 'business' && (
-              <button
-                onClick={() => { setEditExpense(null); setShowForm(true); }}
-                className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors"
-              >
-                <Icon name="PlusIcon" size={16} />
-                Nouvelle dépense
-              </button>
+              <>
+                <button
+                  onClick={handlePropagateRecurring}
+                  disabled={propagating}
+                  className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors"
+                  title="Reporter les frais fixes récurrents sur août et septembre 2026"
+                >
+                  <Icon name="ArrowPathIcon" size={16} />
+                  {propagating ? 'Report...' : 'Reporter frais fixes'}
+                </button>
+                <button
+                  onClick={() => { setEditExpense(null); setShowForm(true); }}
+                  className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors"
+                >
+                  <Icon name="PlusIcon" size={16} />
+                  Nouvelle dépense
+                </button>
+              </>
             )}
           </div>
         </div>
+
+        {/* Propagate result banner */}
+        {propagateResult && (
+          <div className={`flex items-center justify-between gap-3 px-4 py-3 rounded-xl mb-4 text-sm ${
+            propagateResult.startsWith('✅') ? 'bg-emerald-50 border border-emerald-200 text-emerald-800' :
+            propagateResult.startsWith('❌') ? 'bg-red-50 border border-red-200 text-red-800' :
+            'bg-purple-50 border border-purple-200 text-purple-800'
+          }`}>
+            <span>{propagateResult}</span>
+            <button onClick={() => setPropagateResult(null)} className="shrink-0 opacity-60 hover:opacity-100">
+              <Icon name="XMarkIcon" size={15} />
+            </button>
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="flex gap-1 p-1 bg-muted rounded-xl mb-6 w-fit">
