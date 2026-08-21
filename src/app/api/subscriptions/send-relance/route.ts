@@ -87,6 +87,13 @@ export async function POST(req: NextRequest) {
     <p style="margin:0;font-size:13px;color:#4ade80;">Offre de lancement — places limitees.</p>
   </div>
 
+  <div style="text-align:center;margin-bottom:16px;">
+    <a href="https://lmdecaisse.com/box"
+      style="display:inline-block;background:#f5f3ff;color:#7c3aed;font-size:14px;font-weight:700;padding:12px 28px;border-radius:10px;text-decoration:none;border:2px solid #ddd6fe;">
+      🌐 Voir le détail de la box
+    </a>
+  </div>
+
   <div style="text-align:center;margin-bottom:32px;">
     <a href="${paymentLink}"
       style="display:inline-block;background:#ec4899;color:#fff;font-size:16px;font-weight:800;padding:18px 36px;border-radius:12px;text-decoration:none;letter-spacing:0.3px;">
