@@ -493,7 +493,13 @@ export default function OrderDetailPage() {
     const getEC = (key: string): number =>
       costModes[key] === 'pct' ? order.subtotal * (costPcts[key] || 0) / 100 : ((costs as any)[key] || 0) * costsRate;
 
-    const importCost = order.subtotal + getEC('transport') + getEC('customs') + getEC('vat') + getEC('freight') + getEC('bank') + getEC('exchange') + getEC('local') + getEC('other');
+    // Use confirmed (real invoice) prices when available, not the original estimated subtotal
+    const linesForCost = order.lines || [];
+    const confirmedSubForCost = linesForCost.reduce((s, l) =>
+      s + ((l.confirmedUnitPrice != null ? l.confirmedUnitPrice : l.unitPrice) * l.qtyOrdered), 0);
+    const productSubtotal = confirmedSubForCost > 0 ? confirmedSubForCost : order.subtotal;
+    const totalFeesForCost = getEC('transport') + getEC('customs') + getEC('vat') + getEC('freight') + getEC('bank') + getEC('exchange') + getEC('local') + getEC('other');
+    const importCost = productSubtotal + totalFeesForCost;
 
     // Record structure history if pct changed
     const prevPct = parseFloat(localStorage.getItem(`beautypos_structure_pct_${order.id}`) || '0');
@@ -851,7 +857,11 @@ export default function OrderDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ qtyOrdered: newQty }),
       });
-      await load();
+      // Update only the affected line locally — calling load() would reset all realPrices inputs
+      setOrder(prev => prev ? {
+        ...prev,
+        lines: (prev.lines || []).map(l => l.id === lineId ? { ...l, qtyOrdered: newQty } : l),
+      } : prev);
     } finally {
       setSavingQtyId(null);
     }
@@ -1278,9 +1288,11 @@ export default function OrderDetailPage() {
 
   // ─── CALCULATIONS ───────────────────────────────────────────────────────────
 
-  // Effective cost helper: if mode is '%', compute EUR from subtotal × pct
+  // Effective cost helper: convert USD→EUR when in USD mode (same formula as save handlers)
   const getEC = (key: string): number =>
-    costModes[key] === 'pct' ? order.subtotal * (costPcts[key] || 0) / 100 : (costs as any)[key] || 0;
+    costModes[key] === 'pct'
+      ? order.subtotal * (costPcts[key] || 0) / 100
+      : ((costs as any)[key] || 0) * (costsCurrency === 'USD' ? (costsEffectiveRate ?? 1) : 1);
 
   // Currency conversion: when order is in USD (or non-EUR), show EUR equivalents
   // exchangeRate = EUR per 1 unit of currency (e.g. 1 USD × 0.92 = 0.92 EUR)
@@ -3182,8 +3194,8 @@ export default function OrderDetailPage() {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
                 <div className="bg-blue-50 rounded-xl p-4">
                   <p className="text-xs text-blue-600 font-600 uppercase mb-2">Coût achat</p>
-                  <p className="text-xl font-700 text-blue-700">{order.subtotal.toFixed(2)} {order.currency}</p>
-                  <p className="text-xs text-blue-500 mt-1">Montant produits commandés</p>
+                  <p className="text-xl font-700 text-blue-700">{productsCost.toFixed(2)} {order.currency}</p>
+                  <p className="text-xs text-blue-500 mt-1">{confirmedSubtotal > 0 ? 'Prix réels facture' : 'Montant estimé'}</p>
                 </div>
                 <div className="bg-amber-50 rounded-xl p-4">
                   <p className="text-xs text-amber-600 font-600 uppercase mb-2">Coût import réel</p>
@@ -3219,6 +3231,54 @@ export default function OrderDetailPage() {
                 </div>
               )}
             </div>
+
+            {/* Real net profit on the whole invoice */}
+            {totalSalePrice > 0 && (() => {
+              const netProfit = totalSalePrice - importCost - structureAmount;
+              const netProfitPct = (netProfit / totalSalePrice) * 100;
+              const isPositive = netProfit > 0;
+              return (
+                <div className={`border-2 rounded-xl p-5 shadow-card ${isPositive ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
+                  <h3 className={`font-600 mb-4 flex items-center gap-2 ${isPositive ? 'text-emerald-800' : 'text-red-800'}`}>
+                    <Icon name="BanknotesIcon" size={15} />
+                    Bénéfice net réel — si toute la facture est vendue
+                  </h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-4">
+                    <div className="bg-white/70 rounded-lg p-3">
+                      <p className="text-xs text-muted-foreground mb-1">CA potentiel</p>
+                      <p className="font-700 text-foreground">{totalSalePrice.toFixed(2)} {order.currency}</p>
+                    </div>
+                    <div className="bg-white/70 rounded-lg p-3">
+                      <p className="text-xs text-muted-foreground mb-1">− Coût import</p>
+                      <p className="font-700 text-foreground">{importCost.toFixed(2)} {order.currency}</p>
+                    </div>
+                    {structurePct > 0 && (
+                      <div className="bg-white/70 rounded-lg p-3">
+                        <p className="text-xs text-muted-foreground mb-1">− Structure ({structurePct}%)</p>
+                        <p className="font-700 text-foreground">{structureAmount.toFixed(2)} {order.currency}</p>
+                      </div>
+                    )}
+                    <div className={`rounded-lg p-3 ${isPositive ? 'bg-emerald-100' : 'bg-red-100'}`}>
+                      <p className={`text-xs font-600 mb-1 ${isPositive ? 'text-emerald-700' : 'text-red-700'}`}>= Bénéfice net</p>
+                      <p className={`text-xl font-800 ${isPositive ? 'text-emerald-700' : 'text-red-700'}`}>{netProfit >= 0 ? '+' : ''}{netProfit.toFixed(2)} {order.currency}</p>
+                      <p className={`text-xs font-600 mt-0.5 ${isPositive ? 'text-emerald-600' : 'text-red-600'}`}>{netProfitPct.toFixed(1)}% du CA</p>
+                    </div>
+                  </div>
+                  {!isPositive && (
+                    <div className="flex items-start gap-2 px-3 py-2.5 bg-red-100 border border-red-200 rounded-lg text-xs text-red-700">
+                      <Icon name="ExclamationTriangleIcon" size={14} className="shrink-0 mt-0.5" />
+                      <span>Cette commande est <strong>déficitaire</strong> avec les prix de vente actuels. Augmenter les tarifs ou réduire les frais d'import est nécessaire pour être rentable.</span>
+                    </div>
+                  )}
+                  {isPositive && netProfitPct < 15 && (
+                    <div className="flex items-start gap-2 px-3 py-2.5 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
+                      <Icon name="ExclamationTriangleIcon" size={14} className="shrink-0 mt-0.5" />
+                      <span>Marge nette inférieure à 15% — envisagez d'augmenter certains prix de vente pour améliorer la rentabilité.</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Per-product analysis with margin alerts and quick price edit */}
             <div className="bg-white border border-border rounded-xl shadow-card overflow-hidden">
@@ -3323,6 +3383,76 @@ export default function OrderDetailPage() {
                 </div>
               )}
             </div>
+
+            {/* Margin advisor */}
+            {totalSalePrice > 0 && structurePct > 0 && (() => {
+              const TARGET = 25; // target net margin %
+              const adviceLines = lines
+                .map((line) => {
+                  if (!line.salePrice || line.salePrice <= 0) return null;
+                  const confirmedUnit = line.confirmedUnitPrice != null ? line.confirmedUnitPrice : line.unitPrice;
+                  const feesPerUnit = productsCost > 0 ? totalFees * (confirmedUnit || 0) / productsCost : (totalQty > 0 ? totalFees / totalQty : 0);
+                  const unitCost = (confirmedUnit || 0) + feesPerUnit;
+                  const unitCostWithStructure = unitCost * (1 + structurePct / 100);
+                  const currentNetMargin = ((line.salePrice - unitCostWithStructure) / line.salePrice) * 100;
+                  const suggestedPrice = Math.ceil(unitCostWithStructure / (1 - TARGET / 100) / 0.5) * 0.5; // round up to nearest 0.50
+                  return { line, unitCost, unitCostWithStructure, currentNetMargin, suggestedPrice };
+                })
+                .filter((x): x is NonNullable<typeof x> => x !== null && x.currentNetMargin < TARGET)
+                .sort((a, b) => a.currentNetMargin - b.currentNetMargin);
+
+              if (adviceLines.length === 0) return (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-5 py-4 flex items-center gap-3 text-sm text-emerald-700">
+                  <Icon name="CheckCircleIcon" size={16} className="shrink-0" />
+                  <span>Tous les produits atteignent l'objectif de <strong>{TARGET}% de marge nette</strong> (frais structure inclus). Bonne rentabilité !</span>
+                </div>
+              );
+
+              return (
+                <div className="bg-white border border-amber-200 rounded-xl shadow-card overflow-hidden">
+                  <div className="px-5 py-4 border-b border-amber-100 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Icon name="LightBulbIcon" size={15} className="text-amber-600" />
+                      <h3 className="font-600 text-foreground">Conseils de marge</h3>
+                      <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-600">{adviceLines.length} produit{adviceLines.length > 1 ? 's' : ''} sous {TARGET}% net</span>
+                    </div>
+                    <span className="text-xs text-muted-foreground">Objectif : {TARGET}% marge nette (structure {structurePct}% incluse)</span>
+                  </div>
+                  <div className="divide-y divide-border">
+                    {adviceLines.map(({ line, unitCostWithStructure, currentNetMargin, suggestedPrice }) => {
+                      const gap = suggestedPrice - line.salePrice;
+                      const isLoss = currentNetMargin < 0;
+                      return (
+                        <div key={line.id} className="px-5 py-3.5 flex items-center gap-4 flex-wrap">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-500 text-foreground truncate">{line.productName}</p>
+                            <p className="text-xs text-muted-foreground">{line.productRef} · Coût réel + structure : {unitCostWithStructure.toFixed(2)} {order.currency}</p>
+                          </div>
+                          <div className="flex items-center gap-4 shrink-0 text-sm">
+                            <div className="text-right">
+                              <p className="text-xs text-muted-foreground">Marge nette actuelle</p>
+                              <p className={`font-700 ${isLoss ? 'text-red-600' : 'text-amber-600'}`}>{currentNetMargin.toFixed(1)}%</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-xs text-muted-foreground">Prix actuel</p>
+                              <p className="font-600 text-foreground">{line.salePrice.toFixed(2)} {order.currency}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-xs text-muted-foreground">Prix conseillé ({TARGET}%)</p>
+                              <p className="font-700 text-emerald-700">{suggestedPrice.toFixed(2)} {order.currency}</p>
+                              <p className="text-[10px] text-emerald-600">+{gap.toFixed(2)} {order.currency}</p>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="px-5 py-3 bg-amber-50/50 border-t border-amber-100 text-xs text-amber-700">
+                    💡 Les prix conseillés couvrent le coût import + la quote-part des frais de structure ({structurePct}%) pour atteindre {TARGET}% de marge nette.
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
 

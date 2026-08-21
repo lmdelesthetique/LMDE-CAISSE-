@@ -180,11 +180,11 @@ export async function fetchStockLevels(locationId?: string): Promise<StockLevel[
     supplier?: string;
   }) => {
     const qty = Number(p.stock) || 0;
-    const minStock = Number(p.min_stock) || 5;
+    const minStock = Number(p.min_stock) || 0;
     let alertLevel: StockLevel['alertLevel'] = 'ok';
     if (qty === 0) alertLevel = 'out_of_stock';
-    else if (qty <= minStock * 0.5) alertLevel = 'critical';
-    else if (qty <= minStock) alertLevel = 'warning';
+    else if (minStock > 0 && qty <= minStock * 0.5) alertLevel = 'critical';
+    else if (minStock > 0 && qty <= minStock) alertLevel = 'warning';
     return {
       id: p.id,
       productId: p.id,
@@ -275,23 +275,17 @@ export async function fetchInventoryStats(locationId?: string): Promise<Inventor
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-  let movQuery = supabase
-    .from('inventory_movements')
-    .select('movement_type, quantity')
+  const { data: movData } = await supabase
+    .from('stock_movements_log')
+    .select('movement_type')
     .gte('created_at', startOfMonth);
-
-  if (locationId && locationId !== 'all') {
-    movQuery = movQuery.eq('location_id', locationId);
-  }
-
-  const { data: movData } = await movQuery;
 
   const totalValue = stockLevels.reduce((s, item) => s + item.quantity * item.unitCost, 0);
   const alertCount = stockLevels.filter((i) => i.alertLevel !== 'ok').length;
   const outOfStockCount = stockLevels.filter((i) => i.alertLevel === 'out_of_stock').length;
 
-  const entries = (movData || []).filter((m: { movement_type: string }) => m.movement_type === 'entry' || m.movement_type === 'return').length;
-  const exits = (movData || []).filter((m: { movement_type: string }) => m.movement_type === 'exit' || m.movement_type === 'transfer' || m.movement_type === 'adjustment').length;
+  const entries = (movData || []).filter((m: { movement_type: string }) => m.movement_type === 'entry').length;
+  const exits = (movData || []).filter((m: { movement_type: string }) => m.movement_type === 'sale' || m.movement_type === 'exit').length;
 
   const uniqueProducts = new Set(stockLevels.map((s) => s.productId)).size;
 
@@ -310,19 +304,19 @@ export async function fetchSupplierCosts(): Promise<SupplierCostData[]> {
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
   const { data, error } = await supabase
-    .from('inventory_movements')
-    .select('total_cost, supplier_id, suppliers(company_name)')
-    .eq('movement_type', 'entry')
+    .from('fo_orders')
+    .select('total_real_cost, subtotal, supplier_id, suppliers(company_name)')
+    .in('order_status', ['fully_received', 'costs_recorded', 'stock_integrated', 'closed', 'paid'])
     .gte('created_at', startOfMonth)
     .not('supplier_id', 'is', null);
 
   if (error) { console.error('fetchSupplierCosts', error); return []; }
 
   const map: Record<string, { name: string; cost: number; count: number }> = {};
-  ((data || []) as any[]).forEach((r: { total_cost?: number; supplier_id?: string; suppliers?: { company_name: string } | null }) => {
+  ((data || []) as any[]).forEach((r: { total_real_cost?: number; subtotal?: number; supplier_id?: string; suppliers?: { company_name: string } | null }) => {
     const name = r.suppliers?.company_name || 'Inconnu';
     if (!map[name]) map[name] = { name, cost: 0, count: 0 };
-    map[name].cost += r.total_cost || 0;
+    map[name].cost += Number(r.total_real_cost || r.subtotal || 0);
     map[name].count += 1;
   });
 

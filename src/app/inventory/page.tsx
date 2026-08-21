@@ -38,6 +38,14 @@ export default function InventoryPage() {
   const [locations, setLocations] = useState<Location[]>([]);
   const [locationsLoading, setLocationsLoading] = useState(true);
 
+  // Create location modal
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newLocName, setNewLocName] = useState('');
+  const [newLocAddress, setNewLocAddress] = useState('');
+  const [newLocIsMain, setNewLocIsMain] = useState(false);
+  const [creatingLoc, setCreatingLoc] = useState(false);
+  const [createError, setCreateError] = useState('');
+
   const [stats, setStats] = useState<InventoryStats>({
     totalProducts: 0, totalValue: 0, alertCount: 0,
     outOfStockCount: 0, entriesThisMonth: 0, exitsThisMonth: 0,
@@ -129,6 +137,44 @@ export default function InventoryPage() {
     })();
   }, [activeTab]);
 
+  const reloadLocations = useCallback(async () => {
+    setLocationsLoading(true);
+    const locs = await fetchLocations();
+    const locStats = await fetchLocationStats(locs);
+    setLocations(locStats);
+    setLocationsLoading(false);
+  }, []);
+
+  async function handleCreateLocation(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newLocName.trim()) return;
+    setCreatingLoc(true);
+    setCreateError('');
+    try {
+      const res = await fetch('/api/inventory/locations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newLocName.trim(), address: newLocAddress.trim() || undefined, isMain: newLocIsMain }),
+      });
+      if (!res.ok) {
+        const j = await res.json();
+        setCreateError(j.error || 'Erreur');
+        return;
+      }
+      const created = await res.json();
+      setShowCreateModal(false);
+      setNewLocName('');
+      setNewLocAddress('');
+      setNewLocIsMain(false);
+      await reloadLocations();
+      setSelectedLocationId(created.id);
+    } catch {
+      setCreateError('Erreur réseau');
+    } finally {
+      setCreatingLoc(false);
+    }
+  }
+
   const alertCount = stockItems.filter((i) => i.alertLevel !== 'ok').length;
 
   return (
@@ -158,6 +204,7 @@ export default function InventoryPage() {
             selectedId={selectedLocationId}
             onSelect={setSelectedLocationId}
             loading={locationsLoading}
+            onCreate={() => setShowCreateModal(true)}
           />
 
           {/* KPIs */}
@@ -312,6 +359,66 @@ export default function InventoryPage() {
           )}
         </div>
       </div>
+      {/* Create Location Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-base font-600 text-foreground">Nouvel emplacement</h2>
+              <button onClick={() => setShowCreateModal(false)} className="text-muted-foreground hover:text-foreground">
+                <Icon name="XMarkIcon" size={18} />
+              </button>
+            </div>
+            <form onSubmit={handleCreateLocation} className="space-y-4">
+              <div>
+                <label className="block text-xs font-500 text-muted-foreground mb-1">Nom *</label>
+                <input
+                  autoFocus
+                  value={newLocName}
+                  onChange={(e) => setNewLocName(e.target.value)}
+                  placeholder="Ex : Réserve principale, Vitrine..."
+                  className="w-full border border-border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-500 text-muted-foreground mb-1">Adresse (optionnel)</label>
+                <input
+                  value={newLocAddress}
+                  onChange={(e) => setNewLocAddress(e.target.value)}
+                  placeholder="Ex : 12 rue Victor Hugo, 97200"
+                  className="w-full border border-border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+                />
+              </div>
+              <label className="flex items-center gap-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={newLocIsMain}
+                  onChange={(e) => setNewLocIsMain(e.target.checked)}
+                  className="w-4 h-4 accent-primary"
+                />
+                <span className="text-sm text-foreground">Emplacement principal</span>
+              </label>
+              {createError && <p className="text-xs text-red-600">{createError}</p>}
+              <div className="flex gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateModal(false)}
+                  className="flex-1 px-4 py-2 rounded-lg border border-border text-sm font-500 text-muted-foreground hover:bg-muted/40 transition-colors"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={creatingLoc || !newLocName.trim()}
+                  className="flex-1 px-4 py-2 rounded-lg bg-primary text-white text-sm font-600 hover:bg-primary/90 transition-colors disabled:opacity-50"
+                >
+                  {creatingLoc ? 'Création...' : 'Créer'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </AppLayout>
   );
 }

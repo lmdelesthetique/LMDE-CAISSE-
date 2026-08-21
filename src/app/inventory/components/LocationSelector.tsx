@@ -17,9 +17,10 @@ interface LocationSelectorProps {
   selectedId: string;
   onSelect: (id: string) => void;
   loading: boolean;
+  onCreate?: () => void;
 }
 
-export default function LocationSelector({ locations, selectedId, onSelect, loading }: LocationSelectorProps) {
+export default function LocationSelector({ locations, selectedId, onSelect, loading, onCreate }: LocationSelectorProps) {
   if (loading) {
     return (
       <div className="flex gap-3 overflow-x-auto pb-1">
@@ -35,7 +36,9 @@ export default function LocationSelector({ locations, selectedId, onSelect, load
       <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-dashed border-border bg-white text-sm text-muted-foreground">
         <Icon name="ArchiveBoxIcon" size={16} className="shrink-0 opacity-40" />
         <span>Aucun emplacement —</span>
-        <a href="/settings" className="text-primary font-600 hover:underline">Créer un emplacement</a>
+        <button onClick={onCreate} className="text-primary font-600 hover:underline">
+          Créer un emplacement
+        </button>
       </div>
     );
   }
@@ -52,7 +55,7 @@ export default function LocationSelector({ locations, selectedId, onSelect, load
   const options = [allOption, ...locations];
 
   return (
-    <div className="flex gap-3 overflow-x-auto pb-1">
+    <div className="flex gap-3 overflow-x-auto pb-1 items-center">
       {options.map((loc) => {
         const isSelected = selectedId === loc.id;
         return (
@@ -94,6 +97,16 @@ export default function LocationSelector({ locations, selectedId, onSelect, load
           </button>
         );
       })}
+      {/* Always show + button to add new location */}
+      {onCreate && (
+        <button
+          onClick={onCreate}
+          className="shrink-0 flex items-center gap-2 px-4 py-3 rounded-xl border border-dashed border-border bg-white text-xs font-500 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors min-w-[140px]"
+        >
+          <Icon name="PlusCircleIcon" size={14} />
+          Nouvel emplacement
+        </button>
+      )}
     </div>
   );
 }
