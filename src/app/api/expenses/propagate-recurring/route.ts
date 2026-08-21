@@ -8,10 +8,20 @@ function makeAdminClient() {
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
+function defaultMonths(): string[] {
+  const now = new Date();
+  const months: string[] = [];
+  for (let i = 0; i <= 1; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  }
+  return months;
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
-  // Target months to propagate to — defaults to current + next month
-  const targetMonths: string[] = body.months ?? ['2026-08', '2026-09'];
+  // Target months to propagate to — defaults to current month + next month
+  const targetMonths: string[] = body.months ?? defaultMonths();
 
   const supabase = makeAdminClient();
 

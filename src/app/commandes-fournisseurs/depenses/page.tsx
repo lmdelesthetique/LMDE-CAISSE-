@@ -572,6 +572,16 @@ export default function DepensesFournisseursPage() {
     }
   }, []);
 
+  // Auto-propagate recurring fixed expenses for current + next month on page load
+  useEffect(() => {
+    fetch('/api/expenses/propagate-recurring', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}), // uses server-side default: current + next month
+    }).then(() => loadExpenses());
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     loadOrders();
     loadExpenses();
