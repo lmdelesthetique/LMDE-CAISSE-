@@ -71,16 +71,12 @@ export default function ClientLoginPage() {
     e.preventDefault();
     if (!resetPhone.trim()) return;
     setResetSubmitting(true);
-    try {
-      const supabase = createClient();
-      await supabase.from('pin_reset_requests').insert({ phone: resetPhone.trim() });
-      setResetSent(true);
-    } catch {
-      // show generic message regardless
-      setResetSent(true);
-    } finally {
-      setResetSubmitting(false);
-    }
+    // Open WhatsApp directly to contact the salon — no DB insert needed
+    const phone = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? '596696000000';
+    const msg = encodeURIComponent(`Bonjour, je souhaite réinitialiser mon code PIN. Mon numéro : ${resetPhone.trim()}`);
+    window.open(`https://wa.me/${phone}?text=${msg}`, '_blank');
+    setResetSent(true);
+    setResetSubmitting(false);
   };
 
   if (authLoading) return <FullscreenSpinner />;

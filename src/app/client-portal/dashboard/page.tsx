@@ -184,7 +184,7 @@ export default function ClientDashboardPage() {
   const showToast = useCallback((msg: string, type: 'success' | 'error' = 'success') => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast({ msg, type });
-    toastTimerRef.current = setTimeout(() => setToast(null), 2500);
+    toastTimerRef.current = setTimeout(() => setToast(null), 4000);
   }, []);
 
   // ─── Notifications ────────────────────────────────────────────────────────────
@@ -365,7 +365,9 @@ export default function ClientDashboardPage() {
       setOrderItems(items ?? []);
     }
     setLoadingOrder(false);
-  }, [clientUser, currentMonth, isPastDeadline, planData]);
+  // planData intentionally excluded from deps — it's used only for shippingCost and would cause a double-call on load
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientUser, currentMonth, isPastDeadline]);
 
   useEffect(() => {
     if (clientUser) loadCurrentOrder();
@@ -621,6 +623,7 @@ export default function ClientDashboardPage() {
       });
       if (res.ok) {
         setUnsubStep('done');
+        setSubscriptionStatus('cancelled');
       } else {
         const j = await res.json().catch(() => ({}));
         showToast(j.error ?? 'Erreur lors du désabonnement', 'error');
@@ -687,7 +690,6 @@ export default function ClientDashboardPage() {
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [selectedPickupSlot, setSelectedPickupSlot] = useState('');
   const [savingDelivery, setSavingDelivery] = useState(false);
-  const [deliverySaved, setDeliverySaved] = useState(false);
 
   const PICKUP_SLOTS: string[] = (() => {
     const slots: string[] = [];
@@ -706,11 +708,16 @@ export default function ClientDashboardPage() {
     if (!currentOrder) return;
     setSavingDelivery(true);
     try {
-      await fetch(`/api/subscriptions/orders/${currentOrder.id}`, {
+      const res = await fetch(`/api/subscriptions/orders/${currentOrder.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ delivery_destination: destination, delivery_address: address ?? null }),
       });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        showToast(j.error ?? 'Erreur enregistrement livraison', 'error');
+        return;
+      }
 
       // Auto-send Stripe delivery payment link if not free
       if (destination !== 'retrait' && !shippingFree && !launchOffer) {
@@ -722,7 +729,6 @@ export default function ClientDashboardPage() {
 
       setCurrentOrder((prev) => prev ? { ...prev, delivery_destination: destination, delivery_address: address ?? null } : prev);
       setDeliveryStep(null);
-      setDeliverySaved(true);
       showToast(destination === 'retrait' ? '🏪 Retrait enregistré !' : '📦 Adresse de livraison enregistrée !');
     } catch {
       showToast('Erreur lors de l\'enregistrement', 'error');
@@ -771,12 +777,14 @@ export default function ClientDashboardPage() {
       const { data: existing } = await supabase.from('subscription_order_items').select('product_id, quantity').eq('order_id', orderId);
       const existingMap = new Map((existing ?? []).map((i: any) => [i.product_id, i.quantity]));
 
-      // Build inserts — only products that fit in quota
+      // Build inserts — only products that fit in quota and are in stock
+      const stockMap = new Map(products.map((p) => [p.id, p.stock]));
       let remaining = quotaAmount - quotaUsed;
       const toInsert: any[] = [];
       for (const item of items) {
         if (!item.product_id) continue;
         if (existingMap.has(item.product_id)) continue; // skip already in box
+        if ((stockMap.get(item.product_id) ?? 0) <= 0) continue; // skip out-of-stock
         const price = item.unit_sell_price;
         const qty = Math.min(item.quantity, Math.floor(remaining / price));
         if (qty < 1) continue;
@@ -824,7 +832,7 @@ export default function ClientDashboardPage() {
     })).filter((g) => g.products.length > 0);
   }, [visibleCategories, products, searchQuery]);
 
-  const canEdit = subscriptionStatus !== 'pending' && (!currentOrder || currentOrder.status === 'open' || currentOrder.status === 'cancelled') && !isPastDeadline && currentOrder?.statut_livraison !== 'en_livraison';
+  const canEdit = (subscriptionStatus === 'active' || subscriptionStatus === 'suspended') && (!currentOrder || currentOrder.status === 'open' || currentOrder.status === 'cancelled') && !isPastDeadline && currentOrder?.statut_livraison !== 'en_livraison';
   const totalCartQty = orderItems.reduce((s, i) => s + i.quantity, 0);
 
   // ── Upgrade section ────────────────────────────────────────────────────────
@@ -866,7 +874,7 @@ export default function ClientDashboardPage() {
                 {hasSurpriseGift && <p>• Votre cadeau surprise mensuel 🎁</p>}
               </div>
               <a
-                href={`https://wa.me/596${process.env.NEXT_PUBLIC_WHATSAPP_PHONE ?? '0696000000'}?text=${encodeURIComponent('Bonjour, je souhaitais résilier mon abonnement mais je voudrais en parler avant 💅')}`}
+                href={`https://wa.me/596${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? '0696000000'}?text=${encodeURIComponent('Bonjour, je souhaitais résilier mon abonnement mais je voudrais en parler avant 💅')}`}
                 target="_blank" rel="noopener noreferrer"
                 className="flex items-center justify-center gap-2 w-full py-3 bg-[#25D366] text-white font-bold rounded-xl text-sm"
               >
@@ -1143,8 +1151,8 @@ export default function ClientDashboardPage() {
             <div
               className="h-full rounded-full transition-all duration-300"
               style={{
-                width: `${Math.min(100, (quotaUsed / quotaAmount) * 100)}%`,
-                background: quotaUsed / quotaAmount > 0.9 ? '#f43f5e' : 'linear-gradient(to right, #fb7185, #ec4899)',
+                width: `${quotaAmount > 0 ? Math.min(100, (quotaUsed / quotaAmount) * 100) : 0}%`,
+                background: quotaAmount > 0 && quotaUsed / quotaAmount > 0.9 ? '#f43f5e' : 'linear-gradient(to right, #fb7185, #ec4899)',
               }}
             />
           </div>
@@ -1296,6 +1304,7 @@ export default function ClientDashboardPage() {
                         <button
                           onClick={() => {
                             if (item.product) {
+                              const catalogProduct = products.find((p) => p.id === item.product!.id);
                               addProduct({
                                 id: item.product.id,
                                 name: item.product.name,
@@ -1303,9 +1312,9 @@ export default function ClientDashboardPage() {
                                 sell_price_ttc: item.unit_sell_price,
                                 buy_price: item.unit_buy_price,
                                 description: item.product.description,
-                                category: null,
-                                stock: 99,
-                                product_status: 'active',
+                                category: catalogProduct?.category ?? null,
+                                stock: catalogProduct?.stock ?? 0,
+                                product_status: catalogProduct?.product_status ?? 'active',
                               });
                             }
                           }}
@@ -1494,22 +1503,24 @@ export default function ClientDashboardPage() {
             {/* ── Delivery destination card (post-confirmation) ── */}
             {!loadingOrder && currentOrder && (currentOrder.status === 'confirmed' || currentOrder.status === 'preparing') && currentOrder.statut_livraison !== 'en_livraison' && (() => {
               const dest = currentOrder.delivery_destination;
+              // If shipping mode is pickup and no destination yet, treat as retrait directly
+              const effectiveDest = !dest && currentOrder.shipping_mode === 'pickup' ? 'retrait' : dest;
 
-              // Already saved — show summary + edit option
-              if (dest) {
+              // Already saved (or pickup mode → auto retrait) — show summary + edit option
+              if (effectiveDest) {
                 const DEST_LABELS: Record<string, string> = {
                   retrait: '🏪 Retrait en magasin', martinique: '📦 Expédition — Martinique', guadeloupe: '📦 Expédition — Guadeloupe', guyane: '📦 Expédition — Guyane', france: '📦 Expédition — France métropolitaine',
                 };
-                const isRetrait = dest === 'retrait';
+                const isRetrait = effectiveDest === 'retrait';
                 return (
                   <div className={`bg-white rounded-2xl p-4 shadow-sm border space-y-2 ${isRetrait ? 'border-emerald-200' : 'border-gray-100'}`}>
                     <div className="flex items-center justify-between">
                       <p className="text-xs font-bold text-gray-700 uppercase tracking-wide">Mode de réception</p>
                       {currentOrder.status === 'confirmed' && (
-                        <button onClick={() => { setDeliveryStep('choice'); setDeliveryDestination(dest); setDeliveryAddress(currentOrder.delivery_address ?? ''); }} className="text-xs text-rose-500 font-semibold hover:underline">Modifier</button>
+                        <button onClick={() => { setDeliveryStep('choice'); setDeliveryDestination(effectiveDest ?? ''); setDeliveryAddress(currentOrder.delivery_address ?? ''); }} className="text-xs text-rose-500 font-semibold hover:underline">Modifier</button>
                       )}
                     </div>
-                    <p className="text-sm font-semibold text-gray-800">{DEST_LABELS[dest] ?? dest}</p>
+                    <p className="text-sm font-semibold text-gray-800">{DEST_LABELS[effectiveDest] ?? effectiveDest}</p>
                     {isRetrait && currentOrder.delivery_address && (
                       <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-1.5">🕐 Créneau préféré : <strong>{currentOrder.delivery_address}</strong></p>
                     )}
@@ -1739,7 +1750,7 @@ export default function ClientDashboardPage() {
                         inCart={orderItems.find((i) => i.product_id === p.id)}
                         canAdd={canEdit && p.sell_price_ttc <= quotaRemaining && p.stock > 0}
                         canEdit={canEdit}
-                        onAdd={() => addProduct(p)}
+                        onAdd={() => handleAddProductClick(p)}
                         onRemove={(id) => removeProduct(id)}
                         onDetail={() => setDetailProduct(p)}
                       />
@@ -2032,7 +2043,7 @@ export default function ClientDashboardPage() {
                 <p className="text-sm font-bold text-gray-800">Abonnement annulé</p>
                 <p className="text-xs text-gray-500">Votre abonnement a bien été résilié. Vous pouvez nous recontacter à tout moment pour vous réabonner.</p>
                 <a
-                  href={`https://wa.me/596${process.env.NEXT_PUBLIC_WHATSAPP_PHONE ?? '0696000000'}?text=${encodeURIComponent('Bonjour, je souhaite me réabonner à la box beauté LMDE 💅')}`}
+                  href={`https://wa.me/596${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? '0696000000'}?text=${encodeURIComponent('Bonjour, je souhaite me réabonner à la box beauté LMDE 💅')}`}
                   className="inline-block mt-2 text-xs font-bold text-green-600 hover:text-green-700"
                   target="_blank" rel="noopener noreferrer"
                 >
@@ -2091,7 +2102,7 @@ export default function ClientDashboardPage() {
               },
               {
                 q: "Puis-je modifier ma sélection après l'avoir envoyée ?",
-                a: "Non. Une fois votre sélection envoyée, la commande est immédiatement prise en charge et mise en préparation. Aucune modification n'est possible en ligne. Si vous avez une urgence, contactez directement le service client LMDE par téléphone.",
+                a: "Oui, mais uniquement si la commande n'est pas encore en préparation. Depuis le portail, vous pouvez annuler votre sélection et la refaire tant que le statut est « Confirmée ». Une fois en préparation ou expédiée, aucune modification n'est possible. En cas d'urgence, contactez directement LMDE par WhatsApp.",
               },
               {
                 q: 'Puis-je dépasser mon quota dans l\'application ?',
