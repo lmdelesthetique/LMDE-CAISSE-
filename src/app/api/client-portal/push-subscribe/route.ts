@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { verifyClientSession } from '@/lib/api/verifyClientSession';
 
 export async function POST(req: NextRequest) {
-  const { endpoint, keys, clientId } = await req.json();
+  const { endpoint, keys, clientId, subscriptionId } = await req.json();
 
   if (!endpoint || !keys?.p256dh || !keys?.auth || !clientId) {
     return NextResponse.json({ error: 'Données invalides' }, { status: 400 });
   }
+
+  const authErr = await verifyClientSession(subscriptionId, req.headers.get('x-session-token'));
+  if (authErr) return authErr;
 
   const supabase = createAdminClient();
 

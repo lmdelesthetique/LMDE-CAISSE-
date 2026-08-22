@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { verifyClientSession } from '@/lib/api/verifyClientSession';
 
 // GET — fetch notifications for a client
 // ?countOnly=true → returns only unreadCount (no mark-as-read)
@@ -7,6 +8,12 @@ export async function GET(req: NextRequest) {
   const clientId = req.nextUrl.searchParams.get('clientId');
   const countOnly = req.nextUrl.searchParams.get('countOnly') === 'true';
   if (!clientId) return NextResponse.json({ error: 'clientId requis' }, { status: 400 });
+
+  const authErr = await verifyClientSession(
+    req.headers.get('x-subscription-id'),
+    req.headers.get('x-session-token')
+  );
+  if (authErr) return authErr;
 
   const supabase = createAdminClient();
 

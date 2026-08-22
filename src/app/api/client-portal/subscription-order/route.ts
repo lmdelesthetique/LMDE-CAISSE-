@@ -1,10 +1,11 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { verifyClientSession } from '@/lib/api/verifyClientSession';
 
 export const runtime = 'nodejs';
 
 // GET /api/client-portal/subscription-order?subscriptionId=…&month=2026-06
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const subscriptionId = searchParams.get('subscriptionId');
   const month = searchParams.get('month');
@@ -12,6 +13,9 @@ export async function GET(request: Request) {
   if (!subscriptionId || !month) {
     return NextResponse.json({ error: 'subscriptionId and month required' }, { status: 400 });
   }
+
+  const authErr = await verifyClientSession(subscriptionId, request.headers.get('x-session-token'));
+  if (authErr) return authErr;
 
   const supabase = createAdminClient();
   const { data, error } = await supabase
@@ -26,7 +30,7 @@ export async function GET(request: Request) {
 }
 
 // POST /api/client-portal/subscription-order  → get-or-create
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   let body: any;
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
 
@@ -34,6 +38,9 @@ export async function POST(request: Request) {
   if (!subscriptionId || !month) {
     return NextResponse.json({ error: 'subscriptionId and month required' }, { status: 400 });
   }
+
+  const authErr = await verifyClientSession(subscriptionId, request.headers.get('x-session-token'));
+  if (authErr) return authErr;
 
   const supabase = createAdminClient();
 

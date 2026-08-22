@@ -181,6 +181,13 @@ export default function ClientDashboardPage() {
   const [variantPickerVariants, setVariantPickerVariants] = useState<ColorVariant[]>([]);
   const [variantPickerLoading, setVariantPickerLoading] = useState(false);
 
+  // Session headers sent with every API call — verified server-side against stored session_token
+  const sessionHeaders = useCallback((): Record<string, string> => ({
+    'Content-Type': 'application/json',
+    'x-subscription-id': clientUser?.subscriptionId ?? '',
+    'x-session-token': clientUser?.sessionToken ?? '',
+  }), [clientUser?.subscriptionId, clientUser?.sessionToken]);
+
   const showToast = useCallback((msg: string, type: 'success' | 'error' = 'success') => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast({ msg, type });
@@ -193,7 +200,7 @@ export default function ClientDashboardPage() {
     if (!clientUser) return;
     setLoadingNotifs(true);
     try {
-      const res = await fetch(`/api/client-portal/notifications?clientId=${clientUser.clientId}${markRead ? '' : '&countOnly=true'}`);
+      const res = await fetch(`/api/client-portal/notifications?clientId=${clientUser.clientId}${markRead ? '' : '&countOnly=true'}`, { headers: sessionHeaders() });
       if (!res.ok) return;
       const json = await res.json();
       if (markRead) {
@@ -214,7 +221,7 @@ export default function ClientDashboardPage() {
   // ── Charger l'avis existant ────────────────────────────────────────────────
   useEffect(() => {
     if (!clientUser) return;
-    fetch(`/api/client-portal/review?subscriptionId=${encodeURIComponent(clientUser.subscriptionId)}`)
+    fetch(`/api/client-portal/review?subscriptionId=${encodeURIComponent(clientUser.subscriptionId)}`, { headers: sessionHeaders() })
       .then((r) => r.json())
       .then((j) => {
         if (j.review) {
@@ -245,8 +252,8 @@ export default function ClientDashboardPage() {
         if (sub) {
           await fetch('/api/client-portal/push-subscribe', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...sub.toJSON(), clientId: clientUser.clientId }),
+            headers: sessionHeaders(),
+            body: JSON.stringify({ ...sub.toJSON(), clientId: clientUser.clientId, subscriptionId: clientUser.subscriptionId }),
           });
         }
       } catch {}
@@ -266,8 +273,8 @@ export default function ClientDashboardPage() {
       });
       await fetch('/api/client-portal/push-subscribe', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...sub.toJSON(), clientId: clientUser.clientId }),
+        headers: sessionHeaders(),
+        body: JSON.stringify({ ...sub.toJSON(), clientId: clientUser.clientId, subscriptionId: clientUser.subscriptionId }),
       });
     } catch {}
   };
@@ -340,7 +347,7 @@ export default function ClientDashboardPage() {
       const planShippingCost = planData?.shipping_cost ?? clientUser.shippingCost ?? 0;
       const res = await fetch('/api/client-portal/subscription-order', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: sessionHeaders(),
         body: JSON.stringify({
           subscriptionId: clientUser.subscriptionId,
           month: currentMonth,
@@ -350,7 +357,7 @@ export default function ClientDashboardPage() {
       });
       if (res.ok) { const json = await res.json(); order = json.order ?? null; }
     } else {
-      const res = await fetch(`/api/client-portal/subscription-order?subscriptionId=${encodeURIComponent(clientUser.subscriptionId)}&month=${encodeURIComponent(currentMonth)}`);
+      const res = await fetch(`/api/client-portal/subscription-order?subscriptionId=${encodeURIComponent(clientUser.subscriptionId)}&month=${encodeURIComponent(currentMonth)}`, { headers: sessionHeaders() });
       if (res.ok) { const json = await res.json(); order = json.order ?? null; }
     }
 
@@ -487,14 +494,13 @@ export default function ClientDashboardPage() {
       return;
     }
 
-    const supabase = createClient();
     let orderId = currentOrder?.id;
 
     // Create order if not yet created this month
     if (!orderId) {
       const res = await fetch('/api/client-portal/subscription-order', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: sessionHeaders(),
         body: JSON.stringify({
           subscriptionId: clientUser.subscriptionId,
           month: currentMonth,
@@ -511,56 +517,56 @@ export default function ClientDashboardPage() {
       orderId = json.order.id;
     }
 
+    // Add or increment via API route (validated server-side)
     const existing = orderItems.find((i) => i.product_id === product.id && (i.color_variant ?? null) === (colorVariant ?? null));
+    const res = await fetch('/api/client-portal/items', {
+      method: 'POST',
+      headers: sessionHeaders(),
+      body: JSON.stringify({
+        orderId,
+        productId: product.id,
+        quantity: 1,
+        unitBuyPrice: product.buy_price ?? 0,
+        unitSellPrice: product.sell_price_ttc,
+        colorVariant: colorVariant ?? null,
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok || !json.item) {
+      showToast(`Erreur ajout: ${json.error ?? 'inconnue'}.`, 'error');
+      return;
+    }
     if (existing) {
-      const newQty = existing.quantity + 1;
-      const newTotal = product.sell_price_ttc * newQty;
-      const { error } = await supabase
-        .from('subscription_order_items')
-        .update({ quantity: newQty, total_sell_price: newTotal })
-        .eq('id', existing.id);
-      if (error) { showToast(`Erreur mise à jour: ${error.message}.`, 'error'); return; }
-      setOrderItems((prev) => prev.map((i) => i.id === existing.id ? { ...i, quantity: newQty, total_sell_price: newTotal } : i));
+      setOrderItems((prev) => prev.map((i) => i.id === existing.id ? json.item : i));
     } else {
-      const { data: newItem, error } = await supabase
-        .from('subscription_order_items')
-        .insert({
-          order_id: orderId,
-          product_id: product.id,
-          quantity: 1,
-          unit_buy_price: product.buy_price ?? 0,
-          unit_sell_price: product.sell_price_ttc,
-          total_sell_price: product.sell_price_ttc,
-          ...(colorVariant ? { color_variant: colorVariant } : {}),
-        })
-        .select('*, product:products(id, name, image_url, sell_price_ttc, description)')
-        .single();
-      if (error || !newItem) {
-        showToast(`Erreur ajout: ${error?.message ?? 'inconnue'}.`, 'error');
-        return;
-      }
-      setOrderItems((prev) => [...prev, newItem]);
+      setOrderItems((prev) => [...prev, json.item]);
     }
     showToast('✓ Produit ajouté');
-  }, [clientUser, currentOrder, orderItems, quotaRemaining, quotaAmount, isPastDeadline, currentMonth, shippingFree, shippingCost]);
+  }, [clientUser, currentOrder, orderItems, quotaRemaining, quotaAmount, isPastDeadline, currentMonth, shippingFree, shippingCost, sessionHeaders]);
 
   // ── Remove product ─────────────────────────────────────────────────────────
   const removeProduct = useCallback(async (itemId: string) => {
     const item = orderItems.find((i) => i.id === itemId);
     if (!item || !currentOrder) return;
-    const supabase = createClient();
     if (item.quantity > 1) {
       const newQty = item.quantity - 1;
       const newTotal = item.unit_sell_price * newQty;
-      const { error } = await supabase.from('subscription_order_items').update({ quantity: newQty, total_sell_price: newTotal }).eq('id', itemId);
-      if (error) { showToast(`Erreur suppression: ${error.message}`, 'error'); return; }
+      const res = await fetch('/api/client-portal/items', {
+        method: 'PATCH',
+        headers: sessionHeaders(),
+        body: JSON.stringify({ itemId, quantity: newQty, unitSellPrice: item.unit_sell_price }),
+      });
+      if (!res.ok) { const j = await res.json().catch(() => ({})); showToast(j.error ?? 'Erreur suppression', 'error'); return; }
       setOrderItems((prev) => prev.map((i) => i.id === itemId ? { ...i, quantity: newQty, total_sell_price: newTotal } : i));
     } else {
-      const { error } = await supabase.from('subscription_order_items').delete().eq('id', itemId);
-      if (error) { showToast(`Erreur suppression: ${error.message}`, 'error'); return; }
+      const res = await fetch(`/api/client-portal/items?itemId=${itemId}`, {
+        method: 'DELETE',
+        headers: sessionHeaders(),
+      });
+      if (!res.ok) { const j = await res.json().catch(() => ({})); showToast(j.error ?? 'Erreur suppression', 'error'); return; }
       setOrderItems((prev) => prev.filter((i) => i.id !== itemId));
     }
-  }, [orderItems, currentOrder, showToast]);
+  }, [orderItems, currentOrder, showToast, sessionHeaders]);
 
   // ── Confirm order ──────────────────────────────────────────────────────────
   const confirmOrder = async () => {
@@ -619,7 +625,7 @@ export default function ClientDashboardPage() {
     try {
       const res = await fetch(`/api/subscriptions/${clientUser.subscriptionId}/cancel`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: sessionHeaders(),
         body: JSON.stringify({ reason: finalReason, cancelledBy: 'client' }),
       });
       if (res.ok) {
@@ -711,7 +717,7 @@ export default function ClientDashboardPage() {
     try {
       const res = await fetch(`/api/subscriptions/orders/${currentOrder.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: sessionHeaders(),
         body: JSON.stringify({ delivery_destination: destination, delivery_address: address ?? null }),
       });
       if (!res.ok) {
@@ -724,7 +730,7 @@ export default function ClientDashboardPage() {
       if (destination !== 'retrait' && !shippingFree && !launchOffer) {
         await fetch(`/api/subscriptions/orders/${currentOrder.id}/send-delivery-payment`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: sessionHeaders(),
         }).catch(() => {});
       }
 
@@ -765,7 +771,7 @@ export default function ClientDashboardPage() {
       if (!orderId) {
         const res = await fetch('/api/client-portal/subscription-order', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: sessionHeaders(),
           body: JSON.stringify({ subscriptionId: clientUser.subscriptionId, month: currentMonth, shippingCost: shippingCost, deadlineDate: deadlineDate.toISOString().slice(0, 10) }),
         });
         if (!res.ok) { showToast('Erreur création commande.', 'error'); return; }

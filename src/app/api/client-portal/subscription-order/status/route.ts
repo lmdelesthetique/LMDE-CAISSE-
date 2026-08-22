@@ -1,16 +1,20 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { verifyClientSession } from '@/lib/api/verifyClientSession';
 
 export const runtime = 'nodejs';
 
 // PATCH /api/client-portal/subscription-order/status
 // Body: { orderId: string, subscriptionId: string, status?: 'cancelled' | 'open' | 'confirmed', shipping_mode?: 'delivery' | 'pickup' }
-export async function PATCH(request: Request) {
+export async function PATCH(request: NextRequest) {
   let body: any;
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
 
   const { orderId, subscriptionId, status, shipping_mode, total_products_cost, total_sell_price, benefit_amount, shipping_cost } = body;
   if (!orderId) return NextResponse.json({ error: 'orderId required' }, { status: 400 });
+
+  const authErr = await verifyClientSession(subscriptionId, request.headers.get('x-session-token'));
+  if (authErr) return authErr;
 
   const supabase = createAdminClient();
 
