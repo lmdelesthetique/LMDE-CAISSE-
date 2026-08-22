@@ -573,6 +573,7 @@ export default function ClientDashboardPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         orderId: currentOrder.id,
+        subscriptionId: clientUser?.subscriptionId,
         status: 'confirmed',
         total_products_cost: totalBuy,
         total_sell_price: quotaUsed,
@@ -659,7 +660,7 @@ export default function ClientDashboardPage() {
     const res = await fetch('/api/client-portal/subscription-order/status', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ orderId: currentOrder.id, status: 'cancelled' }),
+      body: JSON.stringify({ orderId: currentOrder.id, subscriptionId: clientUser?.subscriptionId, status: 'cancelled' }),
     });
     if (!res.ok) { const j = await res.json().catch(() => ({})); showToast(`Erreur: ${j.error ?? 'inconnue'}`, 'error'); setCancelling(false); return; }
     setCurrentOrder((prev) => prev ? { ...prev, status: 'cancelled', total_products_cost: null, total_sell_price: null, benefit_amount: null } : prev);
@@ -673,7 +674,7 @@ export default function ClientDashboardPage() {
     const res = await fetch('/api/client-portal/subscription-order/status', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ orderId: currentOrder.id, status: 'open' }),
+      body: JSON.stringify({ orderId: currentOrder.id, subscriptionId: clientUser?.subscriptionId, status: 'open' }),
     });
     if (!res.ok) { const j = await res.json().catch(() => ({})); showToast(`Erreur: ${j.error ?? 'inconnue'}`, 'error'); setRestarting(false); return; }
     setCurrentOrder((prev) => prev ? { ...prev, status: 'open' } : prev);
@@ -743,7 +744,7 @@ export default function ClientDashboardPage() {
     const res = await fetch('/api/client-portal/subscription-order/status', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ orderId: currentOrder.id, shipping_mode: mode }),
+      body: JSON.stringify({ orderId: currentOrder.id, subscriptionId: clientUser?.subscriptionId, shipping_mode: mode }),
     });
     if (!res.ok) { showToast('Erreur mise à jour livraison', 'error'); setUpdatingShipping(false); return; }
     setCurrentOrder((prev) => prev ? { ...prev, shipping_mode: mode } : prev);
@@ -1750,7 +1751,7 @@ export default function ClientDashboardPage() {
                         inCart={orderItems.find((i) => i.product_id === p.id)}
                         canAdd={canEdit && p.sell_price_ttc <= quotaRemaining && p.stock > 0}
                         canEdit={canEdit}
-                        onAdd={() => handleAddProductClick(p)}
+                        onAdd={() => p.has_color_variants ? handleAddProductClick(p) : addProduct(p)}
                         onRemove={(id) => removeProduct(id)}
                         onDetail={() => setDetailProduct(p)}
                       />
@@ -2186,7 +2187,7 @@ export default function ClientDashboardPage() {
             {[
               {
                 q: 'Comment installer l\'application sur mon téléphone ?',
-                a: "• iPhone → Ouvrez Safari, allez sur lmdecaisse.com/abonnement, appuyez sur le bouton Partager ↑ puis \"Sur l'écran d'accueil\"\n• Android → Ouvrez Chrome, allez sur lmdecaisse.com/abonnement, appuyez sur le menu ⋮ puis \"Installer l'application\"",
+                a: "• iPhone → Ouvrez Safari, allez sur lmdecaisse.com/client-portal/login, appuyez sur le bouton Partager ↑ puis \"Sur l'écran d'accueil\"\n• Android → Ouvrez Chrome, allez sur lmdecaisse.com/client-portal/login, appuyez sur le menu ⋮ puis \"Installer l'application\"",
               },
               {
                 q: 'Comment voir mes notifications ?',

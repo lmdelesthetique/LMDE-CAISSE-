@@ -4,15 +4,33 @@ import { createAdminClient } from '@/lib/supabase/admin';
 export const runtime = 'nodejs';
 
 // PATCH /api/client-portal/subscription-order/status
-// Body: { orderId: string, status: 'cancelled' | 'open' }
+// Body: { orderId: string, subscriptionId: string, status?: 'cancelled' | 'open' | 'confirmed', shipping_mode?: 'delivery' | 'pickup' }
 export async function PATCH(request: Request) {
   let body: any;
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
 
-  const { orderId, status, shipping_mode, total_products_cost, total_sell_price, benefit_amount, shipping_cost } = body;
+  const { orderId, subscriptionId, status, shipping_mode, total_products_cost, total_sell_price, benefit_amount, shipping_cost } = body;
   if (!orderId) return NextResponse.json({ error: 'orderId required' }, { status: 400 });
 
   const supabase = createAdminClient();
+
+  // Verify order exists and belongs to the claimed subscription (ownership check)
+  if (subscriptionId) {
+    const { data: orderRow } = await supabase
+      .from('subscription_orders')
+      .select('id, subscription_id, status')
+      .eq('id', orderId)
+      .maybeSingle();
+
+    if (!orderRow) return NextResponse.json({ error: 'Commande introuvable' }, { status: 404 });
+    if (orderRow.subscription_id !== subscriptionId) return NextResponse.json({ error: 'Non autorisé' }, { status: 403 });
+
+    // Guard status transitions: can't cancel/reopen orders already in preparation or shipped
+    if (status && ['preparing', 'shipped', 'en_livraison'].includes(orderRow.status)) {
+      return NextResponse.json({ error: 'Impossible de modifier une commande en cours de préparation ou expédiée.' }, { status: 409 });
+    }
+  }
+
   const updates: Record<string, any> = {};
 
   // shipping_mode-only update (no status change required)

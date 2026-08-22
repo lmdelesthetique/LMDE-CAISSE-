@@ -47,6 +47,16 @@ export async function POST(request: Request) {
 
   if (existing) return NextResponse.json({ order: existing });
 
+  // Server-side deadline check: don't create new orders after the 28th of the month
+  const now = new Date();
+  const [yearStr, monthStr] = month.split('-');
+  const orderYear = parseInt(yearStr, 10);
+  const orderMonth = parseInt(monthStr, 10) - 1; // 0-based
+  const isCurrentMonth = now.getFullYear() === orderYear && now.getMonth() === orderMonth;
+  if (isCurrentMonth && now.getDate() > 28) {
+    return NextResponse.json({ order: null, pastDeadline: true });
+  }
+
   // Create new order
   const { data: newOrder, error } = await supabase
     .from('subscription_orders')
