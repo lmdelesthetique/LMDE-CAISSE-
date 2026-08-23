@@ -43,10 +43,15 @@ export function ClientAuthProvider({ children }: { children: React.ReactNode }) 
       const stored = localStorage.getItem(SESSION_KEY);
       if (stored) {
         const parsed = JSON.parse(stored) as ClientPortalUser;
-        setClientUser(parsed);
+        // Sessions without a token predate the security upgrade — force re-login
+        if (!parsed.sessionToken) {
+          localStorage.removeItem(SESSION_KEY);
+        } else {
+          setClientUser(parsed);
+        }
       }
     } catch {
-      // ignore malformed storage
+      localStorage.removeItem(SESSION_KEY);
     }
     setLoading(false);
   }, []);
