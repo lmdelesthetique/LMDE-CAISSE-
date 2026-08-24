@@ -1303,7 +1303,7 @@ export default function POSTerminal() {
     if (client && loyaltyTiers.length > 0 && !isDemoCart) {
       loyaltyPointsEarned = Math.floor(total);
       const previousPoints = client.points;
-      const newPoints = previousPoints + loyaltyPointsEarned;
+      let newPoints = previousPoints + loyaltyPointsEarned;
 
       // Persist points to DB
       const { ok: ptsOk, error: ptsErr } = await clientService.adjustLoyaltyPoints(
@@ -1313,7 +1313,7 @@ export default function POSTerminal() {
       );
       if (!ptsOk) console.error('[handleCompleteSale] adjustLoyaltyPoints failed:', ptsErr);
 
-      // If a reward was applied, mark it as used
+      // If a reward was applied, mark it as used and deduct its point cost
       if (appliedReward) {
         loyaltyRewardUsed = appliedReward.rewardDescription;
         await loyaltyService.useReward({
@@ -1322,6 +1322,23 @@ export default function POSTerminal() {
           cashierName: employee?.fullName,
           notes: `Utilisé en caisse — ${total.toFixed(2)} € via ${method}`,
         });
+
+        // Deduct the tier's point cost from the client's balance
+        const tierForReward = loyaltyTiers.find(t => t.id === appliedReward.tierId);
+        const pointsToDeduct = tierForReward?.pointsRequired ?? 0;
+        if (pointsToDeduct > 0) {
+          const deductRes = await clientService.adjustLoyaltyPoints(
+            client.id,
+            -pointsToDeduct,
+            `Récompense utilisée — ${appliedReward.rewardDescription}`
+          );
+          if (deductRes.ok) {
+            newPoints = Math.max(0, newPoints - pointsToDeduct);
+          } else {
+            console.error('[handleCompleteSale] Points deduction failed:', deductRes.error);
+          }
+        }
+
         await loyaltyService.createRedemption({
           clientId: client.id,
           rewardType: appliedReward.rewardType,

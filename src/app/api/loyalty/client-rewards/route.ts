@@ -45,10 +45,14 @@ export async function GET(req: NextRequest) {
       if (seeded && seeded.length > 0) tiers = seeded;
     }
 
-    // Determine which tiers the client has earned but have no record yet
-    const existingTierIds = new Set(existing.map((r: any) => r.tier_id).filter(Boolean));
+    // Determine which tiers the client qualifies for but has no AVAILABLE reward yet.
+    // We allow re-unlocking a tier if the previous reward was used (points were spent
+    // and re-accumulated above the threshold).
+    const existingAvailableTierIds = new Set(
+      existing.filter((r: any) => r.status === 'available').map((r: any) => r.tier_id).filter(Boolean)
+    );
     const tiersToUnlock = tiers.filter(
-      (t: any) => points >= t.points_required && !existingTierIds.has(t.id)
+      (t: any) => points >= t.points_required && !existingAvailableTierIds.has(t.id)
     );
 
     // Insert missing reward rows
