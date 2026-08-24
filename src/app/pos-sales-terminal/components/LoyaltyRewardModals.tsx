@@ -340,15 +340,27 @@ export function RewardAppliedBanner({ reward, discountAmount, onRemove }: Reward
 
 interface GiftCategoryPickerModalProps {
   reward: ClientLoyaltyReward;
+  categoryConstraint?: string | null;
   onProductChosen: (product: LoyaltyRewardProduct) => void;
   onClose: () => void;
 }
 
-export function GiftCategoryPickerModal({ reward, onProductChosen, onClose }: GiftCategoryPickerModalProps) {
-  const [step, setStep] = useState<'category' | 'products'>('category');
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+export function GiftCategoryPickerModal({ reward, categoryConstraint, onProductChosen, onClose }: GiftCategoryPickerModalProps) {
+  const [step, setStep] = useState<'category' | 'products'>(categoryConstraint ? 'products' : 'category');
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(categoryConstraint ?? null);
   const [products, setProducts] = useState<LoyaltyRewardProduct[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // If a constraint is imposed, load products immediately
+  React.useEffect(() => {
+    if (categoryConstraint) {
+      setLoading(true);
+      loyaltyService.getRewardProductsByCategory(categoryConstraint).then((prods) => {
+        setProducts(prods);
+        setLoading(false);
+      });
+    }
+  }, [categoryConstraint]);
 
   const handleCategorySelect = async (categoryId: string) => {
     setSelectedCategory(categoryId);
@@ -358,6 +370,10 @@ export function GiftCategoryPickerModal({ reward, onProductChosen, onClose }: Gi
     setProducts(prods);
     setLoading(false);
   };
+
+  const visibleCategories = categoryConstraint
+    ? GIFT_CATEGORIES.filter(c => c.id === categoryConstraint)
+    : GIFT_CATEGORIES;
 
   const selectedCat = GIFT_CATEGORIES.find(c => c.id === selectedCategory);
 
@@ -381,7 +397,7 @@ export function GiftCategoryPickerModal({ reward, onProductChosen, onClose }: Gi
             <>
               <p className="text-sm font-600 text-foreground mb-4 text-center">Choisir la catégorie du cadeau</p>
               <div className="grid grid-cols-3 gap-3">
-                {GIFT_CATEGORIES.map(cat => (
+                {visibleCategories.map(cat => (
                   <button
                     key={cat.id}
                     onClick={() => handleCategorySelect(cat.id)}

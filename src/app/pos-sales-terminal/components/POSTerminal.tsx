@@ -2422,6 +2422,7 @@ export default function POSTerminal() {
       {showGiftCategoryPicker && giftPickerReward && (
         <GiftCategoryPickerModal
           reward={giftPickerReward}
+          categoryConstraint={loyaltyTiers.find(t => t.id === giftPickerReward.tierId)?.categoryConstraint ?? null}
           onProductChosen={handleGiftCategoryProductChosen}
           onClose={() => { setShowGiftCategoryPicker(false); setGiftPickerReward(null); }}
         />

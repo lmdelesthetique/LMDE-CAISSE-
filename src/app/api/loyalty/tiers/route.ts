@@ -19,6 +19,7 @@ export async function GET() {
         rewardDescription: t.reward_description,
         rewardValue: parseFloat(t.reward_value ?? 0),
         rewardProductId: t.reward_product_id ?? null,
+        categoryConstraint: t.category_constraint ?? null,
         isActive: t.is_active,
         sortOrder: t.sort_order ?? 0,
         createdAt: t.created_at,

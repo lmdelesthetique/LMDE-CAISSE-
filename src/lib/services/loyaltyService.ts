@@ -18,6 +18,7 @@ export interface LoyaltyTier {
   rewardDescription: string;
   rewardValue: number;
   rewardProductId: string | null;
+  categoryConstraint: string | null;
   isActive: boolean;
   sortOrder: number;
   createdAt: string;
@@ -94,6 +95,7 @@ export interface CreateTierInput {
   rewardDescription: string;
   rewardValue?: number;
   rewardProductId?: string | null;
+  categoryConstraint?: string | null;
   isActive?: boolean;
   sortOrder?: number;
 }
@@ -148,6 +150,7 @@ function mapTier(row: any): LoyaltyTier {
     rewardDescription: row.reward_description,
     rewardValue: parseFloat(row.reward_value ?? 0),
     rewardProductId: row.reward_product_id ?? null,
+    categoryConstraint: row.category_constraint ?? null,
     isActive: row.is_active,
     sortOrder: row.sort_order ?? 0,
     createdAt: row.created_at,
@@ -307,6 +310,7 @@ export const loyaltyService = {
           reward_description: input.rewardDescription,
           reward_value: input.rewardValue ?? 0,
           reward_product_id: input.rewardProductId ?? null,
+          category_constraint: input.categoryConstraint ?? null,
           is_active: input.isActive ?? true,
           sort_order: input.sortOrder ?? 0,
         })
@@ -327,6 +331,7 @@ export const loyaltyService = {
       if (input.rewardDescription !== undefined) updateData.reward_description = input.rewardDescription;
       if (input.rewardValue !== undefined) updateData.reward_value = input.rewardValue;
       if (input.rewardProductId !== undefined) updateData.reward_product_id = input.rewardProductId;
+      if (input.categoryConstraint !== undefined) updateData.category_constraint = input.categoryConstraint;
       if (input.isActive !== undefined) updateData.is_active = input.isActive;
       if (input.sortOrder !== undefined) updateData.sort_order = input.sortOrder;
 

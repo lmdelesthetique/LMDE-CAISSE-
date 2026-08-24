@@ -23,6 +23,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (body.rewardDescription !== undefined) updateData.reward_description = body.rewardDescription;
   if (body.rewardValue !== undefined) updateData.reward_value = body.rewardValue;
   if (body.rewardProductId !== undefined) updateData.reward_product_id = body.rewardProductId;
+  if (body.categoryConstraint !== undefined) updateData.category_constraint = body.categoryConstraint;
   if (body.isActive !== undefined) updateData.is_active = body.isActive;
   if (body.sortOrder !== undefined) updateData.sort_order = body.sortOrder;
   updateData.updated_at = new Date().toISOString();
@@ -48,6 +49,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     rewardDescription: data.reward_description,
     rewardValue: parseFloat(data.reward_value ?? 0),
     rewardProductId: data.reward_product_id ?? null,
+    categoryConstraint: data.category_constraint ?? null,
     isActive: data.is_active,
     sortOrder: data.sort_order ?? 0,
     createdAt: data.created_at,
