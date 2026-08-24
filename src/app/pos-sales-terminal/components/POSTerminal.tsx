@@ -1373,8 +1373,11 @@ export default function POSTerminal() {
         }
       }
 
-      // Detect newly unlocked tiers
-      const unlocked = detectUnlockedTiers(loyaltyTiers, previousPoints, newPoints);
+      // Detect newly unlocked tiers — exclude the tier that was just used in this
+      // transaction so it isn't immediately re-created in the same payment flow.
+      const justUsedTierId = appliedReward?.tierId ?? null;
+      const unlocked = detectUnlockedTiers(loyaltyTiers, previousPoints, newPoints)
+        .filter(t => t.id !== justUsedTierId);
       const next = getNextTier(loyaltyTiers, newPoints);
       const ptsToNext = pointsToNextTier(loyaltyTiers, newPoints);
 
