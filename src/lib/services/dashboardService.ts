@@ -261,27 +261,27 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
     supabase.from('reservations').select('deposit_paid')
       .gte('deposit_accounting_date', start.split('T')[0])
       .lte('deposit_accounting_date', end.split('T')[0])
-      .neq('reservation_status', 'cancelled'),
+      .gt('deposit_paid', 0),
     supabase.from('reservations').select('balance_paid')
       .gte('balance_accounting_date', start.split('T')[0])
       .lte('balance_accounting_date', end.split('T')[0])
-      .neq('reservation_status', 'cancelled'),
+      .gt('balance_paid', 0),
     supabase.from('reservations').select('deposit_paid')
       .gte('deposit_accounting_date', curMonthRange.start.split('T')[0])
       .lte('deposit_accounting_date', curMonthRange.end.split('T')[0])
-      .neq('reservation_status', 'cancelled'),
+      .gt('deposit_paid', 0),
     supabase.from('reservations').select('balance_paid')
       .gte('balance_accounting_date', curMonthRange.start.split('T')[0])
       .lte('balance_accounting_date', curMonthRange.end.split('T')[0])
-      .neq('reservation_status', 'cancelled'),
+      .gt('balance_paid', 0),
     supabase.from('reservations').select('deposit_paid')
       .gte('deposit_accounting_date', prevMonthRange.start.split('T')[0])
       .lte('deposit_accounting_date', prevMonthRange.end.split('T')[0])
-      .neq('reservation_status', 'cancelled'),
+      .gt('deposit_paid', 0),
     supabase.from('reservations').select('balance_paid')
       .gte('balance_accounting_date', prevMonthRange.start.split('T')[0])
       .lte('balance_accounting_date', prevMonthRange.end.split('T')[0])
-      .neq('reservation_status', 'cancelled'),
+      .gt('balance_paid', 0),
   ]);
 
   const stockAlertCount = (stockAlertResult.data ?? []).filter((p: any) =>

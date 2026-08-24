@@ -93,7 +93,8 @@ export default function PaymentModal({ mode, totalTTC, client, cartItems, onClos
   const handleConfirmFinal = async (finalMethod: string) => {
     setLoading(true);
 
-    // Compute Alma final total (with fees) to pass to the receipt
+    // Alma: the 6.2% surcharge is collected from the client and included in CA.
+    // (Alma takes 5.2% as their fee, the remaining 1% is margin.)
     const isAlma = mode === 'installment' || method === 'Alma (3x/4x)';
     const almaFinalTotal = isAlma
       ? (mode === 'installment' ? almaTotalInstallment : almaTotalImmediate)
