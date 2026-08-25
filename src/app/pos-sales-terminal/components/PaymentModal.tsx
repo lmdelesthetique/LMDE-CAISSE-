@@ -52,12 +52,15 @@ export default function PaymentModal({ mode, totalTTC, client, cartItems, onClos
   // SumUp confirmation step — cashier must confirm terminal accepted payment
   const [sumupStep, setSumupStep] = useState<'form' | 'awaiting'>('form');
 
+  // Round to 2 decimal places to avoid floating-point errors from discount calculations
+  const totalDue = Math.round(totalTTC * 100) / 100;
   const cashGivenNum = parseFloat(cashGiven) || 0;
-  const changeAmount = Math.max(0, cashGivenNum - totalTTC);
+  const cashGivenRounded = Math.round(cashGivenNum * 100) / 100;
+  const changeAmount = Math.max(0, cashGivenRounded - totalDue);
   const cbAmountNum = parseFloat(cbAmount) || 0;
-  const cashRemainder = totalTTC - cbAmountNum;
+  const cashRemainder = Math.round((totalDue - cbAmountNum) * 100) / 100;
   const cashMixGivenNum = parseFloat(cashMixGiven) || 0;
-  const mixChange = cashMixGivenNum - Math.max(0, cashRemainder);
+  const mixChange = Math.round((cashMixGivenNum - Math.max(0, cashRemainder)) * 100) / 100;
 
   // Deposit calculation
   const depositNum = depositPercent !== null
@@ -182,7 +185,7 @@ export default function PaymentModal({ mode, totalTTC, client, cartItems, onClos
           {/* Total */}
           <div className="bg-muted/40 rounded-xl px-4 py-3 flex items-center justify-between">
             <span className="text-sm font-500 text-muted-foreground">Total TTC</span>
-            <span className="text-2xl font-700 tabular-nums text-foreground">{totalTTC.toFixed(2)} €</span>
+            <span className="text-2xl font-700 tabular-nums text-foreground">{totalDue.toFixed(2)} €</span>
           </div>
 
           {/* Immediate payment */}
@@ -262,19 +265,19 @@ export default function PaymentModal({ mode, totalTTC, client, cartItems, onClos
                   <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1.5">Montant remis</label>
                   <input
                     type="number" value={cashGiven} onChange={(e) => setCashGiven(e.target.value)}
-                    placeholder={`Minimum ${totalTTC.toFixed(2)} €`}
+                    placeholder={`Minimum ${totalDue.toFixed(2)} €`}
                     className="w-full px-3 py-2.5 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
                   />
-                  {cashGivenNum >= totalTTC && (
+                  {cashGivenRounded >= totalDue && (
                     <div className="mt-2 flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
                       <span className="text-sm text-emerald-700 font-500">Monnaie à rendre</span>
                       <span className="text-lg font-700 tabular-nums text-emerald-700">{changeAmount.toFixed(2)} €</span>
                     </div>
                   )}
-                  {cashGivenNum > 0 && cashGivenNum < totalTTC && (
+                  {cashGivenRounded > 0 && cashGivenRounded < totalDue && (
                     <div className="mt-2 flex items-center justify-between bg-red-50 border border-red-200 rounded-lg px-3 py-2">
                       <span className="text-sm text-red-700 font-500">Montant insuffisant</span>
-                      <span className="text-base font-700 tabular-nums text-red-700">−{(totalTTC - cashGivenNum).toFixed(2)} €</span>
+                      <span className="text-base font-700 tabular-nums text-red-700">−{(totalDue - cashGivenRounded).toFixed(2)} €</span>
                     </div>
                   )}
                 </div>
@@ -543,7 +546,7 @@ export default function PaymentModal({ mode, totalTTC, client, cartItems, onClos
               <p className="text-2xl">💳</p>
               <p className="text-sm font-700 text-blue-800">Présentez le terminal SumUp au client</p>
               <p className="text-xs text-blue-600">Attendez la confirmation du terminal avant de valider</p>
-              <p className="text-xl font-700 tabular-nums text-blue-900 mt-1">{totalTTC.toFixed(2)} €</p>
+              <p className="text-xl font-700 tabular-nums text-blue-900 mt-1">{totalDue.toFixed(2)} €</p>
             </div>
             <p className="text-xs text-center font-600 text-muted-foreground">Le terminal SumUp a-t-il accepté le paiement ?</p>
             <div className="flex gap-3">
@@ -575,7 +578,7 @@ export default function PaymentModal({ mode, totalTTC, client, cartItems, onClos
               disabled={
                 loading ||
                 (mode === 'acompte' && depositNum <= 0) ||
-                (mode === 'immediate' && method === 'Espèces' && cashGivenNum < totalTTC)
+                (mode === 'immediate' && method === 'Espèces' && cashGivenRounded < totalDue)
               }
               className={`flex-1 py-3 rounded-xl text-sm font-700 hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 flex items-center justify-center gap-2 ${
                 mode === 'installment' || method === 'Alma (3x/4x)'
