@@ -41,6 +41,33 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Commande déjà confirmée' }, { status: 409 });
   }
 
+  // Server-side quota enforcement
+  const [subRes, itemsRes] = await Promise.all([
+    supabase
+      .from('client_subscriptions')
+      .select('subscription_plans!inner(quota_amount)')
+      .eq('id', subscriptionId)
+      .maybeSingle(),
+    supabase
+      .from('subscription_order_items')
+      .select('quantity, unit_sell_price')
+      .eq('order_id', orderId),
+  ]);
+  const quotaAmount: number = (subRes.data as any)?.subscription_plans?.quota_amount ?? 0;
+  if (quotaAmount > 0) {
+    const currentTotal = (itemsRes.data ?? []).reduce(
+      (s: number, i: any) => s + i.unit_sell_price * i.quantity, 0
+    );
+    const addedCost = (unitSellPrice ?? 0) * quantity;
+    if (currentTotal + addedCost > quotaAmount + 0.01) {
+      const remaining = Math.max(0, quotaAmount - currentTotal);
+      return NextResponse.json(
+        { error: `Quota insuffisant. Reste ${remaining.toFixed(2)} €, produit ${addedCost.toFixed(2)} €.` },
+        { status: 422 }
+      );
+    }
+  }
+
   // Check if item already exists (increment qty) or insert new
   const { data: existing } = await supabase
     .from('subscription_order_items')

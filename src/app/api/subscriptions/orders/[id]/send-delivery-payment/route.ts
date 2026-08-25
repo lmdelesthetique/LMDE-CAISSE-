@@ -11,14 +11,15 @@ const DEST_LABEL: Record<string, string> = {
   france: 'France métropolitaine',
 };
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const supabase = createAdminClient();
 
     const { data: order } = await supabase
       .from('subscription_orders')
       .select('id, subscription_id, delivery_destination, delivery_address, delivery_payment_sent')
-      .eq('id', params.id)
+      .eq('id', id)
       .maybeSingle();
 
     if (!order) return NextResponse.json({ error: 'Commande introuvable' }, { status: 404 });
@@ -97,7 +98,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       }
     }
 
-    await supabase.from('subscription_orders').update({ delivery_payment_sent: true }).eq('id', params.id);
+    await supabase.from('subscription_orders').update({ delivery_payment_sent: true }).eq('id', id);
 
     return NextResponse.json({ ok: true, sent: true });
   } catch (e: any) {

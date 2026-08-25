@@ -4,9 +4,9 @@ import { createAdminClient } from '@/lib/supabase/admin';
 // POST — cancel a client subscription (admin or client-initiated)
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id } = params;
+  const { id } = await params;
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
   let body: any = {};
