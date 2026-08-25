@@ -299,58 +299,35 @@ export const loyaltyService = {
   },
 
   async createTier(input: CreateTierInput): Promise<LoyaltyTier | null> {
-    const supabase = createClient();
     try {
-      const { data, error } = await supabase
-        .from('loyalty_tiers')
-        .insert({
-          name: input.name,
-          points_required: input.pointsRequired,
-          reward_type: input.rewardType,
-          reward_description: input.rewardDescription,
-          reward_value: input.rewardValue ?? 0,
-          reward_product_id: input.rewardProductId ?? null,
-          category_constraint: input.categoryConstraint ?? null,
-          is_active: input.isActive ?? true,
-          sort_order: input.sortOrder ?? 0,
-        })
-        .select()
-        .single();
-      if (error) { console.log('loyaltyService.createTier error:', error.message); return null; }
-      return data ? mapTier(data) : null;
+      const res = await fetch('/api/loyalty/tiers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) { console.log('loyaltyService.createTier error:', json.error); return null; }
+      return json as LoyaltyTier;
     } catch (e: any) { console.log('loyaltyService.createTier exception:', e.message); return null; }
   },
 
   async updateTier(id: string, input: Partial<CreateTierInput>): Promise<LoyaltyTier | null> {
-    const supabase = createClient();
     try {
-      const updateData: any = {};
-      if (input.name !== undefined) updateData.name = input.name;
-      if (input.pointsRequired !== undefined) updateData.points_required = input.pointsRequired;
-      if (input.rewardType !== undefined) updateData.reward_type = input.rewardType;
-      if (input.rewardDescription !== undefined) updateData.reward_description = input.rewardDescription;
-      if (input.rewardValue !== undefined) updateData.reward_value = input.rewardValue;
-      if (input.rewardProductId !== undefined) updateData.reward_product_id = input.rewardProductId;
-      if (input.categoryConstraint !== undefined) updateData.category_constraint = input.categoryConstraint;
-      if (input.isActive !== undefined) updateData.is_active = input.isActive;
-      if (input.sortOrder !== undefined) updateData.sort_order = input.sortOrder;
-
-      const { data, error } = await supabase
-        .from('loyalty_tiers')
-        .update(updateData)
-        .eq('id', id)
-        .select()
-        .single();
-      if (error) { console.log('loyaltyService.updateTier error:', error.message); return null; }
-      return data ? mapTier(data) : null;
+      const res = await fetch(`/api/loyalty/tiers/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) { console.log('loyaltyService.updateTier error:', json.error); return null; }
+      return json as LoyaltyTier;
     } catch (e: any) { console.log('loyaltyService.updateTier exception:', e.message); return null; }
   },
 
   async deleteTier(id: string): Promise<boolean> {
-    const supabase = createClient();
     try {
-      const { error } = await supabase.from('loyalty_tiers').delete().eq('id', id);
-      if (error) { console.log('loyaltyService.deleteTier error:', error.message); return false; }
+      const res = await fetch(`/api/loyalty/tiers/${id}`, { method: 'DELETE' });
+      if (!res.ok) { const j = await res.json().catch(() => ({})); console.log('loyaltyService.deleteTier error:', j.error); return false; }
       return true;
     } catch (e: any) { console.log('loyaltyService.deleteTier exception:', e.message); return false; }
   },

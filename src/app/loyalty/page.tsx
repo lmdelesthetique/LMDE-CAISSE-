@@ -191,7 +191,7 @@ function TierFormModal({
           )}
           {form.rewardType === 'gift_category_pick' && (
             <div>
-              <label className="text-xs font-600 text-muted-foreground block mb-1">Catégorie autorisée</label>
+              <label className="text-xs font-600 text-muted-foreground block mb-1">Catégorie du cadeau</label>
               <select value={form.categoryConstraint ?? ''}
                 onChange={(e) => setForm((f) => ({ ...f, categoryConstraint: e.target.value || null }))}
                 className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white">
@@ -199,8 +199,12 @@ function TierFormModal({
                 <option value="extensions_cils">✨ Extensions Cils</option>
                 <option value="manucure">💅 Manucure</option>
                 <option value="pedicure">🦶 Pédicure</option>
+                <option value="gift">🎁 Cadeau</option>
+                <option value="surprise">🎊 Cadeau surprise</option>
+                <option value="vip">💎 Récompense VIP</option>
+                <option value="old_stock">📦 Ancien stock</option>
               </select>
-              <p className="text-[11px] text-muted-foreground mt-1">Si une catégorie est choisie, la cliente n&apos;aura le choix que dans cette catégorie en caisse.</p>
+              <p className="text-[11px] text-muted-foreground mt-1">La cliente choisira un produit dans cette catégorie lors de l&apos;encaissement.</p>
             </div>
           )}
           {(form.rewardType === 'free_product' || form.rewardType === 'surprise_gift') && rewardProducts.length > 0 && (
@@ -994,7 +998,7 @@ export default function LoyaltyPage() {
                               )}
                               {tier.rewardType === 'gift_category_pick' && tier.categoryConstraint && (
                                 <span className="text-xs bg-violet-100 text-violet-700 font-600 px-1.5 py-0.5 rounded-full">
-                                  {tier.categoryConstraint === 'extensions_cils' ? '✨ Extensions Cils' : tier.categoryConstraint === 'manucure' ? '💅 Manucure' : '🦶 Pédicure'}
+                                  {CATEGORY_LABELS[tier.categoryConstraint] ?? tier.categoryConstraint}
                                 </span>
                               )}
                               {tier.rewardType === 'gift_category_pick' && !tier.categoryConstraint && (

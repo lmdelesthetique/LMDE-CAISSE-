@@ -1,11 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-function makeClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
-}
+import { createAdminClient } from '@/lib/supabase/admin';
 
 // ─── PATCH /api/loyalty/tiers/[id] — update tier ─────────────────────────────
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -15,7 +9,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const supabase = makeClient();
+  const supabase = createAdminClient();
   const updateData: Record<string, unknown> = {};
   if (body.name !== undefined) updateData.name = body.name;
   if (body.pointsRequired !== undefined) updateData.points_required = body.pointsRequired;
@@ -40,7 +34,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Map DB row → LoyaltyTier
   const tier = {
     id: data.id,
     name: data.name,
@@ -56,7 +49,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     updatedAt: data.updated_at,
   };
 
-  // Recalculate clients' tiers in background (non-blocking)
   supabase.rpc('recalculate_client_tiers').then(({ error: rpcErr }) => {
     if (rpcErr) console.log('[loyalty/tiers PATCH] recalculate_client_tiers:', rpcErr.message);
   });
@@ -67,7 +59,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 // ─── DELETE /api/loyalty/tiers/[id] ──────────────────────────────────────────
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const supabase = makeClient();
+  const supabase = createAdminClient();
   const { error } = await supabase.from('loyalty_tiers').delete().eq('id', id);
   if (error) {
     console.error('[api/loyalty/tiers DELETE]', error);
