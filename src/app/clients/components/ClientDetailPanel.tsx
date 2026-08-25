@@ -106,7 +106,41 @@ const DISCOUNT_OPTIONS = [
   { value: 'custom', label: 'Remise personnalisée', percent: 0 },
 ];
 
-type Tab = 'overview' | 'purchases' | 'loyalty' | 'subscription' | 'notes';
+type Tab = 'overview' | 'purchases' | 'loyalty' | 'subscription' | 'notes' | 'pro';
+
+const STATUT_COMMERCIAL_CONFIG: Record<string, { label: string; color: string }> = {
+  prospect:        { label: 'Prospect',       color: 'text-blue-700 bg-blue-50 border-blue-200' },
+  devis_envoye:    { label: 'Devis envoyé',   color: 'text-amber-700 bg-amber-50 border-amber-200' },
+  contrat_signe:   { label: 'Contrat signé',  color: 'text-violet-700 bg-violet-50 border-violet-200' },
+  actif:           { label: 'Actif',          color: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
+};
+
+interface ProProfile {
+  salon_name: string;
+  prestation_types: string[];
+  nb_cabines: string;
+  nb_clientes_semaine: string;
+  nb_employes: string;
+  budget_mensuel: string;
+  fournisseur_principal: string;
+  frequence_commande: string;
+  mode_commande: string;
+  marques_utilisees: string;
+  produits_consommables: string;
+  produits_recherches: string;
+  problemes_fournisseurs: string;
+  formule_box_proposee: string;
+  date_premier_contact: string;
+  statut_commercial: string;
+  prochain_suivi: string;
+}
+
+const EMPTY_PRO: ProProfile = {
+  salon_name: '', prestation_types: [], nb_cabines: '', nb_clientes_semaine: '', nb_employes: '',
+  budget_mensuel: '', fournisseur_principal: '', frequence_commande: '', mode_commande: '',
+  marques_utilisees: '', produits_consommables: '', produits_recherches: '', problemes_fournisseurs: '',
+  formule_box_proposee: '', date_premier_contact: '', statut_commercial: 'prospect', prochain_suivi: '',
+};
 
 export default function ClientDetailPanel({
   client,
@@ -158,6 +192,43 @@ export default function ClientDetailPanel({
   const [clientRedemptions, setClientRedemptions] = useState<LoyaltyRedemption[]>([]);
   const [clientRewards, setClientRewards] = useState<ClientLoyaltyReward[]>([]);
   const [loadingLoyalty, setLoadingLoyalty] = useState(false);
+
+  // Fiche Pro
+  const [proProfile, setProProfile] = useState<ProProfile>(EMPTY_PRO);
+  const [loadingPro, setLoadingPro] = useState(false);
+  const [savingPro, setSavingPro] = useState(false);
+  const [proSaved, setProSaved] = useState(false);
+
+  useEffect(() => {
+    if (tab !== 'pro') return;
+    setLoadingPro(true);
+    fetch(`/api/clients/${client.id}/pro-profile`)
+      .then((r) => r.json())
+      .then(({ profile }) => {
+        if (profile) {
+          setProProfile({
+            salon_name: profile.salon_name ?? '',
+            prestation_types: profile.prestation_types ?? [],
+            nb_cabines: profile.nb_cabines?.toString() ?? '',
+            nb_clientes_semaine: profile.nb_clientes_semaine?.toString() ?? '',
+            nb_employes: profile.nb_employes?.toString() ?? '',
+            budget_mensuel: profile.budget_mensuel?.toString() ?? '',
+            fournisseur_principal: profile.fournisseur_principal ?? '',
+            frequence_commande: profile.frequence_commande ?? '',
+            mode_commande: profile.mode_commande ?? '',
+            marques_utilisees: profile.marques_utilisees ?? '',
+            produits_consommables: profile.produits_consommables ?? '',
+            produits_recherches: profile.produits_recherches ?? '',
+            problemes_fournisseurs: profile.problemes_fournisseurs ?? '',
+            formule_box_proposee: profile.formule_box_proposee ?? '',
+            date_premier_contact: profile.date_premier_contact ?? '',
+            statut_commercial: profile.statut_commercial ?? 'prospect',
+            prochain_suivi: profile.prochain_suivi ?? '',
+          });
+        }
+      })
+      .finally(() => setLoadingPro(false));
+  }, [tab, client.id]);
 
   useEffect(() => {
     if (tab === 'loyalty') {
@@ -212,12 +283,43 @@ export default function ClientDetailPanel({
   const typeCfg = CLIENT_TYPE_CONFIG[client.clientType] ?? CLIENT_TYPE_CONFIG.particulier;
   const effectiveDiscount = getClientDiscount(client, subscription);
 
+  const handleSavePro = async () => {
+    setSavingPro(true);
+    try {
+      await fetch(`/api/clients/${client.id}/pro-profile`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...proProfile,
+          nb_cabines: proProfile.nb_cabines ? parseInt(proProfile.nb_cabines) : null,
+          nb_clientes_semaine: proProfile.nb_clientes_semaine ? parseInt(proProfile.nb_clientes_semaine) : null,
+          nb_employes: proProfile.nb_employes ? parseInt(proProfile.nb_employes) : null,
+          budget_mensuel: proProfile.budget_mensuel ? parseFloat(proProfile.budget_mensuel) : null,
+        }),
+      });
+      setProSaved(true);
+      setTimeout(() => setProSaved(false), 3000);
+    } finally {
+      setSavingPro(false);
+    }
+  };
+
+  const togglePrestation = (val: string) => {
+    setProProfile((p) => ({
+      ...p,
+      prestation_types: p.prestation_types.includes(val)
+        ? p.prestation_types.filter((x) => x !== val)
+        : [...p.prestation_types, val],
+    }));
+  };
+
   const tabs: { id: Tab; label: string; icon: string }[] = [
     { id: 'overview', label: 'Profil', icon: 'UserIcon' },
     { id: 'purchases', label: `Achats (${purchases.length})`, icon: 'ShoppingBagIcon' },
     { id: 'loyalty', label: 'Fidélité', icon: 'StarIcon' },
     { id: 'subscription', label: 'Abonnement', icon: 'CheckBadgeIcon' },
     { id: 'notes', label: `Notes (${notes.length})`, icon: 'ChatBubbleLeftEllipsisIcon' },
+    ...(client.clientType === 'professionnel' ? [{ id: 'pro' as Tab, label: 'Fiche Pro', icon: 'BriefcaseIcon' }] : []),
   ];
 
   const handleAddNote = async () => {
@@ -399,6 +501,10 @@ export default function ClientDetailPanel({
               <h2 className="text-[17px] font-700 text-foreground">{client.fullName}</h2>
               <span className={`text-[11px] font-600 px-2 py-0.5 rounded-full border ${tier.color}`}>{tier.label}</span>
               <span className={`text-[11px] font-600 px-2 py-0.5 rounded-full border ${typeCfg.color}`}>{typeCfg.label}</span>
+              {client.clientType === 'professionnel' && proProfile.statut_commercial && (() => {
+                const sc = STATUT_COMMERCIAL_CONFIG[proProfile.statut_commercial] ?? STATUT_COMMERCIAL_CONFIG.prospect;
+                return <span className={`text-[11px] font-600 px-2 py-0.5 rounded-full border ${sc.color}`}>{sc.label}</span>;
+              })()}
               {effectiveDiscount > 0 && (
                 <span className="text-[11px] font-600 px-2 py-0.5 rounded-full border text-rose-700 bg-rose-50 border-rose-200">
                   -{effectiveDiscount}% remise
@@ -1317,6 +1423,186 @@ export default function ClientDetailPanel({
                     Posté le {new Date(clientReview.updated_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
                   </p>
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* ── FICHE PRO ── */}
+          {tab === 'pro' && (
+            <div className="p-6 space-y-6">
+              {loadingPro ? (
+                <div className="flex items-center justify-center py-16">
+                  <Icon name="ArrowPathIcon" size={22} className="animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <>
+                  {/* Section 1 — Profil salon */}
+                  <div className="border border-indigo-100 rounded-xl p-4 bg-indigo-50/30 space-y-4">
+                    <h3 className="text-xs font-700 uppercase tracking-wide text-indigo-600 flex items-center gap-1.5">
+                      <Icon name="BuildingStorefrontIcon" size={13} />
+                      Profil du salon
+                    </h3>
+                    <div>
+                      <label className="text-xs font-600 text-muted-foreground block mb-1">Nom du salon</label>
+                      <input type="text" value={proProfile.salon_name}
+                        onChange={(e) => setProProfile((p) => ({ ...p, salon_name: e.target.value }))}
+                        placeholder="Ex: Chez Marie Beauty"
+                        className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-600 text-muted-foreground block mb-2">Type de prestations</label>
+                      <div className="flex flex-wrap gap-2">
+                        {['onglerie', 'extension_cils', 'pedicure', 'esthetique', 'autre'].map((p) => (
+                          <button key={p} type="button" onClick={() => togglePrestation(p)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-600 border transition-colors ${proProfile.prestation_types.includes(p) ? 'bg-indigo-600 text-white border-indigo-600' : 'border-border text-muted-foreground hover:border-indigo-300'}`}>
+                            {{ onglerie: 'Onglerie', extension_cils: 'Extension cils', pedicure: 'Pédicure', esthetique: 'Esthétique', autre: 'Autre' }[p]}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      {[
+                        { key: 'nb_cabines', label: 'Cabines / postes', placeholder: '3' },
+                        { key: 'nb_clientes_semaine', label: 'Clientes/semaine', placeholder: '25' },
+                        { key: 'nb_employes', label: 'Employées', placeholder: '2' },
+                      ].map(({ key, label, placeholder }) => (
+                        <div key={key}>
+                          <label className="text-xs font-600 text-muted-foreground block mb-1">{label}</label>
+                          <input type="number" min="0" value={(proProfile as any)[key]}
+                            onChange={(e) => setProProfile((p) => ({ ...p, [key]: e.target.value }))}
+                            placeholder={placeholder}
+                            className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Section 2 — Budget & habitudes */}
+                  <div className="border border-emerald-100 rounded-xl p-4 bg-emerald-50/30 space-y-4">
+                    <h3 className="text-xs font-700 uppercase tracking-wide text-emerald-600 flex items-center gap-1.5">
+                      <Icon name="BanknotesIcon" size={13} />
+                      Budget & habitudes d&apos;achat
+                    </h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs font-600 text-muted-foreground block mb-1">Budget mensuel estimé (€)</label>
+                        <input type="number" min="0" value={proProfile.budget_mensuel}
+                          onChange={(e) => setProProfile((p) => ({ ...p, budget_mensuel: e.target.value }))}
+                          placeholder="500"
+                          className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                      </div>
+                      <div>
+                        <label className="text-xs font-600 text-muted-foreground block mb-1">Fournisseur principal actuel</label>
+                        <input type="text" value={proProfile.fournisseur_principal}
+                          onChange={(e) => setProProfile((p) => ({ ...p, fournisseur_principal: e.target.value }))}
+                          placeholder="Ex: OPI, Manucurist…"
+                          className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs font-600 text-muted-foreground block mb-1">Fréquence de commande</label>
+                        <select value={proProfile.frequence_commande}
+                          onChange={(e) => setProProfile((p) => ({ ...p, frequence_commande: e.target.value }))}
+                          className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white">
+                          <option value="">Sélectionner…</option>
+                          <option value="hebdo">Hebdomadaire</option>
+                          <option value="bi_mensuel">Bi-mensuel</option>
+                          <option value="mensuel">Mensuel</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs font-600 text-muted-foreground block mb-1">Mode de commande préféré</label>
+                        <select value={proProfile.mode_commande}
+                          onChange={(e) => setProProfile((p) => ({ ...p, mode_commande: e.target.value }))}
+                          className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white">
+                          <option value="">Sélectionner…</option>
+                          <option value="boutique">En boutique</option>
+                          <option value="whatsapp">WhatsApp</option>
+                          <option value="en_ligne">En ligne</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Section 3 — Produits */}
+                  <div className="border border-rose-100 rounded-xl p-4 bg-rose-50/30 space-y-4">
+                    <h3 className="text-xs font-700 uppercase tracking-wide text-rose-600 flex items-center gap-1.5">
+                      <Icon name="SparklesIcon" size={13} />
+                      Produits utilisés
+                    </h3>
+                    {[
+                      { key: 'marques_utilisees', label: 'Marques utilisées actuellement', placeholder: 'Ex: OPI, CND, Manucurist, Orly…' },
+                      { key: 'produits_consommables', label: 'Produits consommables récurrents', placeholder: 'Ex: gels couleur x10/mois, top coat x5/mois…' },
+                      { key: 'produits_recherches', label: 'Produits recherchés mais introuvables localement', placeholder: 'Ex: durcisseur UV professionnel, limes 100/180…' },
+                      { key: 'problemes_fournisseurs', label: 'Problèmes rencontrés avec les fournisseurs actuels', placeholder: 'Ex: délais trop longs, prix élevés, ruptures de stock…' },
+                    ].map(({ key, label, placeholder }) => (
+                      <div key={key}>
+                        <label className="text-xs font-600 text-muted-foreground block mb-1">{label}</label>
+                        <textarea rows={2} value={(proProfile as any)[key]}
+                          onChange={(e) => setProProfile((p) => ({ ...p, [key]: e.target.value }))}
+                          placeholder={placeholder}
+                          className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none" />
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Section 4 — Proposition MDLE */}
+                  <div className="border border-violet-100 rounded-xl p-4 bg-violet-50/30 space-y-4">
+                    <h3 className="text-xs font-700 uppercase tracking-wide text-violet-600 flex items-center gap-1.5">
+                      <Icon name="DocumentTextIcon" size={13} />
+                      Proposition MDLE
+                    </h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs font-600 text-muted-foreground block mb-1">Formule Box Salon Pro proposée</label>
+                        <select value={proProfile.formule_box_proposee}
+                          onChange={(e) => setProProfile((p) => ({ ...p, formule_box_proposee: e.target.value }))}
+                          className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white">
+                          <option value="">Non proposée</option>
+                          <option value="200">200 €</option>
+                          <option value="400">400 €</option>
+                          <option value="700">700 €</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs font-600 text-muted-foreground block mb-1">Statut commercial</label>
+                        <select value={proProfile.statut_commercial}
+                          onChange={(e) => setProProfile((p) => ({ ...p, statut_commercial: e.target.value }))}
+                          className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white">
+                          <option value="prospect">Prospect</option>
+                          <option value="devis_envoye">Devis envoyé</option>
+                          <option value="contrat_signe">Contrat signé</option>
+                          <option value="actif">Actif</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs font-600 text-muted-foreground block mb-1">Date du premier contact</label>
+                        <input type="date" value={proProfile.date_premier_contact}
+                          onChange={(e) => setProProfile((p) => ({ ...p, date_premier_contact: e.target.value }))}
+                          className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                      </div>
+                      <div>
+                        <label className="text-xs font-600 text-muted-foreground block mb-1">Prochain suivi prévu</label>
+                        <input type="date" value={proProfile.prochain_suivi}
+                          onChange={(e) => setProProfile((p) => ({ ...p, prochain_suivi: e.target.value }))}
+                          className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Save */}
+                  <button onClick={handleSavePro} disabled={savingPro}
+                    className="w-full py-3 bg-primary text-primary-foreground rounded-xl text-sm font-700 hover:opacity-90 transition-opacity disabled:opacity-40 flex items-center justify-center gap-2">
+                    {savingPro ? (
+                      <><Icon name="ArrowPathIcon" size={14} className="animate-spin" />Enregistrement…</>
+                    ) : proSaved ? (
+                      <><Icon name="CheckIcon" size={14} />Fiche Pro enregistrée !</>
+                    ) : (
+                      <><Icon name="CheckIcon" size={14} />Enregistrer la Fiche Pro</>
+                    )}
+                  </button>
+                </>
               )}
             </div>
           )}

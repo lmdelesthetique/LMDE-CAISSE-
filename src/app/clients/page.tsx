@@ -77,19 +77,19 @@ export default function ClientsPage() {
   } | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [activeSubClientIds, setActiveSubClientIds] = useState<Set<string>>(new Set());
+  const [proStatuts, setProStatuts] = useState<Map<string, string>>(new Map());
 
   const loadClients = useCallback(async () => {
     setLoading(true);
     const supabase = createClient();
-    const [data, { data: activeSubs }] = await Promise.all([
+    const [data, { data: activeSubs }, { data: proProfiles }] = await Promise.all([
       clientService.getAll(),
-      supabase
-        .from('client_subscriptions')
-        .select('client_id')
-        .eq('status', 'active'),
+      supabase.from('client_subscriptions').select('client_id').eq('status', 'active'),
+      supabase.from('client_pro_profiles').select('client_id, statut_commercial'),
     ]);
     setClients(data);
     setActiveSubClientIds(new Set((activeSubs ?? []).map((s: any) => s.client_id)));
+    setProStatuts(new Map((proProfiles ?? []).map((p: any) => [p.client_id, p.statut_commercial])));
     setLoading(false);
   }, []);
 
@@ -255,7 +255,7 @@ export default function ClientsPage() {
             </div>
           ) : viewMode === 'grid' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {filtered.map((client) => <ClientCard key={client.id} client={client} hasActiveSub={activeSubClientIds.has(client.id)} onClick={() => openDetail(client)} />)}
+              {filtered.map((client) => <ClientCard key={client.id} client={client} hasActiveSub={activeSubClientIds.has(client.id)} statutCommercial={proStatuts.get(client.id)} onClick={() => openDetail(client)} />)}
             </div>
           ) : (
             <div className="bg-white border border-border rounded-xl overflow-hidden">
@@ -360,7 +360,14 @@ export default function ClientsPage() {
 
 // ── Client Card Component ──────────────────────────────────────────────────────
 
-function ClientCard({ client, hasActiveSub, onClick }: { client: Client; hasActiveSub: boolean; onClick: () => void }) {
+const STATUT_COMMERCIAL_CONFIG: Record<string, { label: string; color: string }> = {
+  prospect:      { label: 'Prospect',      color: 'text-blue-700 bg-blue-50 border-blue-200' },
+  devis_envoye:  { label: 'Devis envoyé',  color: 'text-amber-700 bg-amber-50 border-amber-200' },
+  contrat_signe: { label: 'Contrat signé', color: 'text-violet-700 bg-violet-50 border-violet-200' },
+  actif:         { label: 'Actif',         color: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
+};
+
+function ClientCard({ client, hasActiveSub, statutCommercial, onClick }: { client: Client; hasActiveSub: boolean; statutCommercial?: string; onClick: () => void }) {
   const tier = TIER_CONFIG[client.loyaltyTier as keyof typeof TIER_CONFIG] ?? TIER_CONFIG.bronze;
   const typeCfg = CLIENT_TYPE_CONFIG[client.clientType] ?? CLIENT_TYPE_CONFIG.particulier;
   const hasDiscount = client.loyaltyDiscountType !== null;
@@ -382,6 +389,10 @@ function ClientCard({ client, hasActiveSub, onClick }: { client: Client; hasActi
           </div>
           <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
             <span className={`text-[10px] font-600 px-1.5 py-0.5 rounded-full border ${typeCfg.color}`}>{typeCfg.label}</span>
+            {client.clientType === 'professionnel' && statutCommercial && (() => {
+              const sc = STATUT_COMMERCIAL_CONFIG[statutCommercial];
+              return sc ? <span className={`text-[10px] font-600 px-1.5 py-0.5 rounded-full border ${sc.color}`}>{sc.label}</span> : null;
+            })()}
             {hasDiscount && (
               <span className="text-[10px] font-600 px-1.5 py-0.5 rounded-full border text-rose-700 bg-rose-50 border-rose-200">
                 {DISCOUNT_LABELS[client.loyaltyDiscountType!] ?? `${client.loyaltyDiscountValue}%`}
