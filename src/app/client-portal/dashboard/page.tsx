@@ -576,7 +576,7 @@ export default function ClientDashboardPage() {
     const benefit = Math.max(0, (clientUser?.planPrice ?? 0) - totalBuy - effectiveShippingCost);
     const res = await fetch('/api/client-portal/subscription-order/status', {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({
         orderId: currentOrder.id,
         subscriptionId: clientUser?.subscriptionId,
@@ -589,7 +589,7 @@ export default function ClientDashboardPage() {
     });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
-      showToast(`Erreur confirmation: ${j.error ?? 'inconnue'}`, 'error');
+      showToast(j.error ?? 'Erreur lors de la confirmation', 'error');
       setConfirming(false);
       return;
     }

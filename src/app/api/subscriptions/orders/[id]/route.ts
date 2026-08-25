@@ -21,6 +21,34 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       return NextResponse.json({ error: 'Aucun champ à mettre à jour' }, { status: 400 });
     }
 
+    // If admin cancels an order that was confirmed, restore stock
+    if (body.status === 'cancelled') {
+      const { data: currentOrder } = await supabase
+        .from('subscription_orders')
+        .select('status')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (currentOrder?.status === 'confirmed') {
+        const { data: items } = await supabase
+          .from('subscription_order_items')
+          .select('product_id, quantity, product:products(stock)')
+          .eq('order_id', id);
+
+        if (items && items.length > 0) {
+          await Promise.all(
+            items.map(async (item: any) => {
+              const currentStock = item.product?.stock ?? 0;
+              return supabase
+                .from('products')
+                .update({ stock: currentStock + item.quantity })
+                .eq('id', item.product_id);
+            })
+          );
+        }
+      }
+    }
+
     const { error } = await supabase
       .from('subscription_orders')
       .update(updateData)
