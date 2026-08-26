@@ -5,9 +5,9 @@ import { sendNotifFournisseurLienFacture, getWhatsAppLink } from '@/lib/whatsapp
 
 export async function POST(
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id } = params;
+  const { id } = await params;
   const supabase = createAdminClient();
 
   const { data: order } = await supabase

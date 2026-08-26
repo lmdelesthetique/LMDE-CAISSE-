@@ -5,9 +5,9 @@ import { createAdminClient } from '@/lib/supabase/admin';
 // Updates confirmed_unit_price per line WITHOUT changing order status
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id } = params;
+  const { id } = await params;
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
   let body: any;

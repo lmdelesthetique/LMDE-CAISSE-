@@ -1,22 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-function makeAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error('Supabase env vars not configured');
-  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
-}
+import { createAdminClient } from '@/lib/supabase/admin';
 
 // GET — return confirmed prices map { lineId: confirmedPrice } for an order
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
-  const { id } = params;
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const supplierId = req.nextUrl.searchParams.get('supplierId');
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
-  const supabase = makeAdminClient();
+  const supabase = createAdminClient();
 
-  // Verify supplier owns this order if supplierId provided
   if (supplierId) {
     const { data: order } = await supabase
       .from('fo_orders').select('supplier_id').eq('id', id).single();
@@ -41,8 +33,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 }
 
 // POST — supplier submits price confirmations
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const { id } = params;
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
   let body: any;
@@ -55,9 +47,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'lineConfirmations must be an array' }, { status: 400 });
   }
 
-  const supabase = makeAdminClient();
+  const supabase = createAdminClient();
 
-  // Verify supplier owns this order
   const { data: order } = await supabase
     .from('fo_orders').select('supplier_id, order_status').eq('id', id).single();
   if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
@@ -65,7 +56,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
   }
 
-  // Update confirmed_unit_price per line
   for (const { lineId, confirmedPrice } of lineConfirmations) {
     if (!lineId || confirmedPrice == null || isNaN(Number(confirmedPrice))) continue;
     const { error } = await supabase
@@ -76,7 +66,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (error) console.error('[confirm-prices LINE]', lineId, error.message);
   }
 
-  // Move order to awaiting_validation
   const { error: orderErr } = await supabase
     .from('fo_orders')
     .update({ order_status: 'awaiting_validation', updated_at: new Date().toISOString() })
@@ -85,7 +74,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: orderErr.message }, { status: 500 });
   }
 
-  // Insert status history entry (non-blocking)
   try {
     await supabase.from('fo_status_history').insert({
       order_id: id,

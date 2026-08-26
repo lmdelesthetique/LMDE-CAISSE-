@@ -1,21 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-function makeAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error('Supabase env vars not configured');
-  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
-}
+import { createAdminClient } from '@/lib/supabase/admin';
 
 // POST — mark product inactive (hidden from caisse/search, excluded from stock alerts)
 // PATCH with { inactive: false } to reactivate
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const { id } = params;
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const body = await req.json().catch(() => ({}));
   const reactivate = body.reactivate === true;
 
-  const supabase = makeAdminClient();
+  const supabase = createAdminClient();
 
   if (reactivate) {
     const { error } = await supabase

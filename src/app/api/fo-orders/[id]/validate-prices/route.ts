@@ -1,21 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-function makeAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error('Supabase env vars not configured');
-  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
-}
+import { createAdminClient } from '@/lib/supabase/admin';
 
 // POST — admin validates confirmed prices → updates products.buy_price + order status
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const { id } = params;
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
-  const supabase = makeAdminClient();
+  const supabase = createAdminClient();
 
-  // Fetch order + lines with confirmed prices
   const { data: order } = await supabase
     .from('fo_orders').select('order_status, order_number').eq('id', id).single();
   if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
@@ -44,7 +36,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
   }
 
-  // Update order status to validated
   const { error: orderErr } = await supabase
     .from('fo_orders')
     .update({ order_status: 'validated', updated_at: new Date().toISOString() })
@@ -53,7 +44,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: orderErr.message }, { status: 500 });
   }
 
-  // Insert status history (non-blocking)
   try {
     await supabase.from('fo_status_history').insert({
       order_id: id,

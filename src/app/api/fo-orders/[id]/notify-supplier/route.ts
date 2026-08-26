@@ -11,8 +11,8 @@ function cleanPhone(raw: string): string {
   return p;
 }
 
-export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
-  const { id } = params;
+export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const supabase = createAdminClient();
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://lmdecaisse.com';
 

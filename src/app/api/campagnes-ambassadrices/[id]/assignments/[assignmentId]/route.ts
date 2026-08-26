@@ -1,20 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createAdminClient } from '@/lib/supabase/admin';
 
-function makeClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  if (!url || !key) throw new Error('Supabase env vars not configured');
-  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
-}
-
-async function restoreStock(supabase: ReturnType<typeof makeClient>, productId: string, qty: number, reason: string) {
+async function restoreStock(supabase: ReturnType<typeof createAdminClient>, productId: string, qty: number, reason: string) {
   const { data: prod } = await supabase.from('products').select('id, name, stock').eq('id', productId).maybeSingle();
   if (!prod) return;
   const stockBefore = Number(prod.stock ?? 0);
   const stockAfter = stockBefore + qty;
   await supabase.from('products').update({ stock: stockAfter, updated_at: new Date().toISOString() }).eq('id', productId);
-  supabase.from('stock_movements_log').insert({
+  await supabase.from('stock_movements_log').insert({
     product_id: productId,
     product_name: prod.name,
     movement_type: 'entry',
@@ -23,16 +16,16 @@ async function restoreStock(supabase: ReturnType<typeof makeClient>, productId: 
     quantity_change: qty,
     reason,
     performed_by: 'Admin',
-  });
+  }).then(({ error }) => { if (error) console.error('[restoreStock log]', error.message); });
 }
 
-async function deductStock(supabase: ReturnType<typeof makeClient>, productId: string, qty: number, reason: string) {
+async function deductStock(supabase: ReturnType<typeof createAdminClient>, productId: string, qty: number, reason: string) {
   const { data: prod } = await supabase.from('products').select('id, name, stock').eq('id', productId).maybeSingle();
   if (!prod) return;
   const stockBefore = Number(prod.stock ?? 0);
   const stockAfter = Math.max(0, stockBefore - qty);
   await supabase.from('products').update({ stock: stockAfter, updated_at: new Date().toISOString() }).eq('id', productId);
-  supabase.from('stock_movements_log').insert({
+  await supabase.from('stock_movements_log').insert({
     product_id: productId,
     product_name: prod.name,
     movement_type: 'exit',
@@ -42,7 +35,7 @@ async function deductStock(supabase: ReturnType<typeof makeClient>, productId: s
     reason,
     source: 'ambassadrice',
     performed_by: 'Admin',
-  });
+  }).then(({ error }) => { if (error) console.error('[deductStock log]', error.message); });
 }
 
 // DELETE — remove ambassadrice from campaign, restore all product stock
@@ -52,7 +45,7 @@ export async function DELETE(
 ) {
   const { id: campagneId, assignmentId } = await params;
   try {
-    const supabase = makeClient();
+    const supabase = createAdminClient();
 
     const { data: assignment } = await supabase
       .from('campagne_assignments')
@@ -70,7 +63,6 @@ export async function DELETE(
       }
     }
 
-    // Delete contenus first (FK constraint)
     await supabase.from('campagne_contenus').delete().eq('assignment_id', assignmentId);
     await supabase.from('campagne_assignments').delete().eq('id', assignmentId);
 
@@ -91,7 +83,7 @@ export async function PATCH(
 
   const { action } = body;
   try {
-    const supabase = makeClient();
+    const supabase = createAdminClient();
 
     const { data: assignment } = await supabase
       .from('campagne_assignments')
@@ -109,10 +101,8 @@ export async function PATCH(
       const target = currentProducts.find((p) => p.id === productId);
       if (!target) return NextResponse.json({ error: 'Product not in assignment' }, { status: 400 });
 
-      // Restore stock
       await restoreStock(supabase, productId, target.quantity ?? 1, `Retrait produit campagne — ${campagneId}`);
 
-      // Remove from array
       const newProducts = currentProducts.filter((p) => p.id !== productId);
       const newCoutTotal = newProducts.reduce((s: number, p: any) => s + (p.cout_achat ?? 0) * (p.quantity ?? 1), 0);
 
@@ -120,7 +110,6 @@ export async function PATCH(
         .update({ products: newProducts, cout_total: newCoutTotal, updated_at: new Date().toISOString() })
         .eq('id', assignmentId);
 
-      // Delete matching contenus for this product
       await supabase.from('campagne_contenus').delete().eq('assignment_id', assignmentId).eq('product_id', productId);
 
       return NextResponse.json({ ok: true, products: newProducts });
@@ -135,13 +124,9 @@ export async function PATCH(
       const oldProduct = currentProducts.find((p) => p.id === oldProductId);
       if (!oldProduct) return NextResponse.json({ error: 'Old product not in assignment' }, { status: 400 });
 
-      // Restore stock for old product
       await restoreStock(supabase, oldProductId, oldProduct.quantity ?? 1, `Remplacement produit campagne — ${campagneId}`);
-
-      // Deduct stock for new product
       await deductStock(supabase, newProduct.id, newProduct.quantity ?? 1, `Campagne ambassadrice (remplacement) — ${campagneId}`);
 
-      // Swap in products array
       const newProducts = currentProducts.map((p) =>
         p.id === oldProductId ? { ...newProduct } : p
       );
@@ -151,7 +136,6 @@ export async function PATCH(
         .update({ products: newProducts, cout_total: newCoutTotal, updated_at: new Date().toISOString() })
         .eq('id', assignmentId);
 
-      // Update contenus product reference
       await supabase.from('campagne_contenus')
         .update({ product_id: newProduct.id, product_name: newProduct.name })
         .eq('assignment_id', assignmentId)

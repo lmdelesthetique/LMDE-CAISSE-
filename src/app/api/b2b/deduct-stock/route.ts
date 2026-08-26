@@ -1,20 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-function makeClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
-}
-
-interface LineItem {
-  productId?: string;
-  description: string;
-  quantity: number;
-}
+import { createAdminClient } from '@/lib/supabase/admin';
 
 export async function POST(req: NextRequest) {
-  let body: { factureId: string; lines: LineItem[]; clientName?: string; numero?: string };
+  let body: { factureId: string; lines: Array<{ productId?: string; description: string; quantity: number }>; clientName?: string; numero?: string };
   try {
     body = await req.json();
   } catch {
@@ -26,7 +14,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'factureId and lines required' }, { status: 400 });
   }
 
-  const supabase = makeClient();
+  const supabase = createAdminClient();
   const errors: string[] = [];
   const reference = numero ?? factureId;
   const reason = `Facture B2B payée — ${clientName ?? 'Client'}`;
@@ -48,13 +36,16 @@ export async function POST(req: NextRequest) {
     const currentStock = Number(product.stock) || 0;
     const newStock = Math.max(0, currentStock - line.quantity);
 
-    const { error: updateErr } = await supabase
+    // Atomic conditional update — only succeeds if stock hasn't changed since we read it
+    const { error: updateErr, count } = await supabase
       .from('products')
       .update({ stock: newStock, updated_at: new Date().toISOString() })
-      .eq('id', line.productId);
+      .eq('id', line.productId)
+      .eq('stock', currentStock)
+      .select('id', { count: 'exact', head: true });
 
-    if (updateErr) {
-      errors.push(`Erreur décompte stock: ${product.name}`);
+    if (updateErr || count === 0) {
+      errors.push(`Stock modifié concurrent: ${product.name} — réessayez`);
       continue;
     }
 
@@ -69,7 +60,7 @@ export async function POST(req: NextRequest) {
       reference,
       performed_by: clientName ?? 'B2B',
       source: 'b2b_sale',
-    });
+    }).then(({ error }) => { if (error) console.error('[b2b deduct-stock log]', error.message); });
   }
 
   return NextResponse.json({ success: true, errors });

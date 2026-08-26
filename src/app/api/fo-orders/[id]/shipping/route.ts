@@ -1,24 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createAdminClient } from '@/lib/supabase/admin';
 
-function makeAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error('Supabase env vars not configured');
-  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
-}
-
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const orderId = params.id;
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id: orderId } = await params;
   try {
     const { supplierId, shippingCarrier, shippingCost } = await req.json();
     if (!supplierId || shippingCost === undefined) {
       return NextResponse.json({ error: 'supplierId et shippingCost requis' }, { status: 400 });
     }
 
-    const supabase = makeAdminClient();
+    const supabase = createAdminClient();
 
-    // Verify order belongs to this supplier
     const { data: order, error: orderError } = await supabase
       .from('fo_orders')
       .select('id, order_status, supplier_id')

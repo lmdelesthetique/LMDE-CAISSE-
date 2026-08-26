@@ -5,9 +5,9 @@ import { createAdminClient } from '@/lib/supabase/admin';
 // Body: { amount: number, method: string, cashierName?: string }
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id } = params;
+  const { id } = await params;
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
   let body: any;

@@ -1,25 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-function makeAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error('Supabase env vars not configured');
-  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
-}
+import { createAdminClient } from '@/lib/supabase/admin';
 
 // POST — insert a single new line (safe: no deletion, just INSERT + subtotal update)
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const { id } = params;
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
   const body = await req.json().catch(() => ({}));
   const { line } = body;
   if (!line) return NextResponse.json({ error: 'line required' }, { status: 400 });
 
-  const supabase = makeAdminClient();
+  const supabase = createAdminClient();
 
-  // Fetch image from catalog if not provided
   let imageUrl = line.productImageUrl || null;
   if (!imageUrl && (line.productId || line.productRef)) {
     const q = line.productId
@@ -51,7 +43,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Recalculate order subtotal
   const { data: allLines } = await supabase.from('fo_order_lines').select('line_total').eq('order_id', id);
   const subtotal = (allLines ?? []).reduce((s: number, l: any) => s + Number(l.line_total || 0), 0);
   await supabase.from('fo_orders').update({ subtotal, updated_at: new Date().toISOString() }).eq('id', id);
@@ -60,8 +51,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 }
 
 // PATCH — update a single line field (?lineId=...) and recalculate order subtotal
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  const { id } = params;
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const lineId = req.nextUrl.searchParams.get('lineId');
   if (!id || !lineId) return NextResponse.json({ error: 'Missing id or lineId' }, { status: 400 });
 
@@ -71,7 +62,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ error: 'qtyOrdered or salePrice required' }, { status: 400 });
   }
 
-  const supabase = makeAdminClient();
+  const supabase = createAdminClient();
 
   const { data: line } = await supabase.from('fo_order_lines').select('unit_price, qty_ordered').eq('id', lineId).eq('order_id', id).maybeSingle();
   if (!line) return NextResponse.json({ error: 'Line not found' }, { status: 404 });
@@ -90,7 +81,6 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   await supabase.from('fo_order_lines').update(update).eq('id', lineId);
 
-  // Recalculate order subtotal when qty changed
   if (qtyOrdered !== undefined) {
     const { data: allLines } = await supabase.from('fo_order_lines').select('line_total').eq('order_id', id);
     const subtotal = (allLines ?? []).reduce((s: number, l: any) => s + Number(l.line_total || 0), 0);
@@ -101,16 +91,15 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 }
 
 // DELETE — remove a single line by ?lineId=...
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
-  const { id } = params;
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const lineId = req.nextUrl.searchParams.get('lineId');
   if (!id || !lineId) return NextResponse.json({ error: 'Missing id or lineId' }, { status: 400 });
 
-  const supabase = makeAdminClient();
+  const supabase = createAdminClient();
   const { error } = await supabase.from('fo_order_lines').delete().eq('id', lineId).eq('order_id', id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Recalculate order subtotal from remaining lines
   const { data: remaining } = await supabase
     .from('fo_order_lines')
     .select('line_total')
@@ -122,8 +111,8 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
 }
 
 // PUT — full line sync: delete removed, update existing, insert new, then update order totals
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
-  const { id } = params;
+export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
   let body: any;
@@ -134,7 +123,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const { lines, originalLineIds, subtotal, totalRealCost, notes, transportCost, customsCost } = body;
   if (!Array.isArray(lines)) return NextResponse.json({ error: 'lines must be an array' }, { status: 400 });
 
-  const supabase = makeAdminClient();
+  const supabase = createAdminClient();
 
   // 1. Delete removed lines
   if (Array.isArray(originalLineIds) && originalLineIds.length > 0) {
@@ -158,7 +147,6 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
   // 3. Insert new lines
   for (const line of lines.filter((l: any) => String(l.id).startsWith('new-'))) {
-    // Fetch image_url from products table if not provided
     let imageUrl = line.productImageUrl || null;
     if (!imageUrl && (line.productId || line.productRef)) {
       const q = line.productId
@@ -179,13 +167,11 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       unit_price: line.unitPrice,
       line_total: line.qtyOrdered * line.unitPrice,
       sale_price: line.salePrice || 0,
-      weight_kg: 0,
-      volume_m3: 0,
+      weight_kg: 0, volume_m3: 0,
       unit_transport: 0, unit_customs: 0, unit_vat_import: 0,
       unit_freight: 0, unit_other: 0,
       unit_real_cost: 0, gross_margin: 0, margin_rate: 0,
-      previous_cost: 0, qty_missing: 0, qty_damaged: 0,
-      custom_cost_share: 0,
+      previous_cost: 0, qty_missing: 0, qty_damaged: 0, custom_cost_share: 0,
     });
     if (error) console.error('[fo-lines INSERT]', error.message);
   }

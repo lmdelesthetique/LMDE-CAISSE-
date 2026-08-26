@@ -1,21 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-function makeAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error('Supabase env vars not configured');
-  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
-}
+import { createAdminClient } from '@/lib/supabase/admin';
 
 // POST — reverses one duplicate stock sync application.
 // Subtracts qty_ordered from each product's stock (undoes a second accidental force-sync).
-// Logs each reversal in stock_movements_log for audit trail.
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const { id } = params;
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
-  const supabase = makeAdminClient();
+  const supabase = createAdminClient();
 
   const { data: order } = await supabase
     .from('fo_orders')
@@ -55,11 +47,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     if (!productId) continue;
 
-    // Subtract qty once (undo the duplicate), floor at 0
     const newStock = Math.max(0, currentStock - qtyToRemove);
     await supabase.from('products').update({ stock: newStock, updated_at: now }).eq('id', productId);
 
-    // Restore rupture status if stock hits 0
     if (newStock <= 0) {
       await supabase.from('products')
         .update({ status: 'rupture', product_status: 'rupture' })
@@ -67,7 +57,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         .neq('product_status', 'inactive');
     }
 
-    // Undo color variant stock if applicable
     if (line.color) {
       const { data: varRow } = await supabase
         .from('product_color_stock').select('id, quantity')
@@ -78,8 +67,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       }
     }
 
-    // Audit log
-    supabase.from('stock_movements_log').insert({
+    // Audit log (best-effort)
+    await supabase.from('stock_movements_log').insert({
       product_id: productId,
       product_name: productName,
       movement_type: 'correction',
@@ -88,7 +77,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       quantity_change: -qtyToRemove,
       reason: `Correction doublon sync — commande ${order.order_number || id}`,
       performed_by: 'Admin',
-    });
+    }).then(({ error }) => { if (error) console.error('[undo-duplicate-stock log]', error.message); });
 
     log.push({ name: productName, removed: qtyToRemove, before: currentStock, after: newStock });
     fixed++;

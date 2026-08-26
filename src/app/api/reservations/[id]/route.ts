@@ -1,24 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createAdminClient } from '@/lib/supabase/admin';
 
-function makeAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error('Supabase env vars not configured');
-  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
-}
-
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
-  const { id } = params;
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
-  const supabase = makeAdminClient();
+  const supabase = createAdminClient();
   const { data, error } = await supabase.from('reservations').select('*').eq('id', id).maybeSingle();
   if (error || !data) return NextResponse.json({ error: 'Réservation introuvable' }, { status: 404 });
   return NextResponse.json(data);
 }
 
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  const { id } = params;
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
   let body: Record<string, unknown>;
@@ -28,9 +21,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const supabase = makeAdminClient();
+  const supabase = createAdminClient();
 
-  const allowed = ['pos_sale_id', 'recovery_mode', 'reservation_status', 'delivery_address', 'delivery_phone', 'delivery_notes'];
   const payload: Record<string, unknown> = {};
 
   if (body.pos_sale_id !== undefined) payload.pos_sale_id = body.pos_sale_id;
