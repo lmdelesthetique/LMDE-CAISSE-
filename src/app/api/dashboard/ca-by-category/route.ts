@@ -109,6 +109,57 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // If a specific category is requested, return product breakdown for that category
+  const filterCategory = searchParams.get('category');
+  if (filterCategory) {
+    const productDetails: Record<string, { revenue: number; qty: number }> = {};
+    const catTotal = categoryMap[filterCategory]?.revenue ?? 0;
+
+    for (const receipt of receipts) {
+      if (receipt.is_demo === true) continue;
+      const cn = (receipt.client_name ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
+      if (cn === 'CHRISTY LHOMME') continue;
+
+      const items = Array.isArray(receipt.items) ? receipt.items : [];
+      const rawItemTotal = items.reduce((s: number, i: any) => {
+        const qty = Number(i?.qty ?? i?.quantity ?? 1);
+        return s + (Number(i?.total ?? 0) || (Number(i?.price ?? 0) * qty));
+      }, 0);
+      const receiptTotal = parseFloat(String(receipt.total_amount ?? 0));
+      const scaleFactor = rawItemTotal > 0 ? receiptTotal / rawItemTotal : 1;
+
+      for (const item of items) {
+        const pid = item?.product_id ?? item?.id;
+        let cat: string = item?.category ?? '';
+        if (!cat && pid) cat = productMap.get(String(pid)) ?? '';
+        if (!cat && item?.name) cat = productNameMap.get(item.name.trim().toLowerCase()) ?? '';
+        if (!cat) cat = 'Non catégorisé';
+
+        if (cat !== filterCategory) continue;
+
+        const qty = Number(item?.qty ?? item?.quantity ?? 1);
+        const rawLine = Number(item?.total ?? 0) || (Number(item?.price ?? 0) * qty);
+        const lineTotal = rawLine * scaleFactor;
+        const name = item?.name || 'Produit inconnu';
+
+        if (!productDetails[name]) productDetails[name] = { revenue: 0, qty: 0 };
+        productDetails[name].revenue += lineTotal;
+        productDetails[name].qty += qty;
+      }
+    }
+
+    const productsList = Object.entries(productDetails)
+      .map(([name, { revenue, qty }]) => ({
+        name,
+        revenue: Math.round(revenue * 100) / 100,
+        qty,
+        pct: catTotal > 0 ? Math.round((revenue / catTotal) * 1000) / 10 : 0,
+      }))
+      .sort((a, b) => b.revenue - a.revenue);
+
+    return NextResponse.json({ products: productsList, total: Math.round(catTotal * 100) / 100, category: filterCategory });
+  }
+
   const categories = Object.entries(categoryMap)
     .map(([name, { revenue, qty }]) => ({
       name,

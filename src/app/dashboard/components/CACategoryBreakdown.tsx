@@ -10,24 +10,21 @@ interface CategoryRow {
   pct: number;
 }
 
+interface ProductRow {
+  name: string;
+  revenue: number;
+  qty: number;
+  pct: number;
+}
+
 const PALETTE = [
-  '#ec4899', // pink
-  '#8b5cf6', // violet
-  '#3b82f6', // blue
-  '#06b6d4', // cyan
-  '#10b981', // emerald
-  '#f59e0b', // amber
-  '#f97316', // orange
-  '#ef4444', // red
-  '#84cc16', // lime
-  '#6366f1', // indigo
-  '#14b8a6', // teal
-  '#a855f7', // purple
-  '#64748b', // slate
+  '#ec4899', '#8b5cf6', '#3b82f6', '#06b6d4', '#10b981',
+  '#f59e0b', '#f97316', '#ef4444', '#84cc16', '#6366f1',
+  '#14b8a6', '#a855f7', '#64748b',
 ];
 
 function fmt(v: number) {
-  return v.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+  return v.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
 }
 
 export default function CACategoryBreakdown() {
@@ -35,6 +32,10 @@ export default function CACategoryBreakdown() {
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState('month');
   const [expanded, setExpanded] = useState(false);
+
+  const [selectedCategory, setSelectedCategory] = useState<{ name: string; color: string } | null>(null);
+  const [drillData, setDrillData] = useState<{ products: ProductRow[]; total: number } | null>(null);
+  const [drillLoading, setDrillLoading] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -50,7 +51,27 @@ export default function CACategoryBreakdown() {
       }
     };
     load();
+    // Reset drill-down when period changes
+    setSelectedCategory(null);
+    setDrillData(null);
   }, [period]);
+
+  const handleCategoryClick = async (row: CategoryRow, color: string) => {
+    setSelectedCategory({ name: row.name, color });
+    setDrillData(null);
+    setDrillLoading(true);
+    try {
+      const res = await fetch(
+        `/api/dashboard/ca-by-category?period=${period}&category=${encodeURIComponent(row.name)}`
+      );
+      if (!res.ok) throw new Error('fetch failed');
+      setDrillData(await res.json());
+    } catch {
+      setDrillData(null);
+    } finally {
+      setDrillLoading(false);
+    }
+  };
 
   const rows = data?.categories ?? [];
   const visible = expanded ? rows : rows.slice(0, 8);
@@ -60,12 +81,25 @@ export default function CACategoryBreakdown() {
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-pink-100 flex items-center justify-center">
-            <Icon name="ChartPieIcon" size={17} className="text-pink-600" />
-          </div>
+          {selectedCategory ? (
+            <button
+              onClick={() => { setSelectedCategory(null); setDrillData(null); }}
+              className="w-9 h-9 rounded-xl bg-muted flex items-center justify-center hover:bg-muted/80 transition-colors"
+            >
+              <Icon name="ArrowLeftIcon" size={17} className="text-foreground" />
+            </button>
+          ) : (
+            <div className="w-9 h-9 rounded-xl bg-pink-100 flex items-center justify-center">
+              <Icon name="ChartPieIcon" size={17} className="text-pink-600" />
+            </div>
+          )}
           <div>
-            <h3 className="font-600 text-foreground">CA par catégorie</h3>
-            <p className="text-xs text-muted-foreground">Répartition du chiffre d'affaires</p>
+            <h3 className="font-600 text-foreground">
+              {selectedCategory ? selectedCategory.name : 'CA par catégorie'}
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              {selectedCategory ? 'Produits vendus dans cette catégorie' : 'Répartition du chiffre d\'affaires'}
+            </p>
           </div>
         </div>
         <div className="flex gap-1 p-1 bg-muted rounded-lg">
@@ -83,7 +117,63 @@ export default function CACategoryBreakdown() {
         </div>
       </div>
 
-      {loading ? (
+      {/* Drill-down view */}
+      {selectedCategory ? (
+        drillLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="w-7 h-7 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : !drillData || drillData.products.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-10 text-muted-foreground gap-2">
+            <Icon name="ShoppingBagIcon" size={32} className="opacity-30" />
+            <p className="text-sm">Aucun produit détaillé disponible</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <span className="text-sm text-muted-foreground font-medium">Total catégorie</span>
+              <span className="text-lg font-700 text-foreground">{fmt(drillData.total)}</span>
+            </div>
+
+            <div className="space-y-2 pt-1 max-h-[420px] overflow-y-auto pr-1">
+              {drillData.products.map((product, i) => (
+                <div key={product.name}>
+                  <div className="flex items-center justify-between mb-0.5">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        className="w-2.5 h-2.5 rounded-full shrink-0"
+                        style={{ backgroundColor: selectedCategory.color + (Math.floor(255 * (1 - i * 0.06)).toString(16).padStart(2, '0')) }}
+                      />
+                      <span className="text-sm text-foreground font-medium truncate">{product.name}</span>
+                      <span className="text-xs text-muted-foreground shrink-0 font-600">
+                        ×{product.qty}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0 ml-2">
+                      <span className="text-sm font-600 text-foreground">{fmt(product.revenue)}</span>
+                      <span
+                        className="text-xs font-700 px-1.5 py-0.5 rounded-md min-w-[42px] text-center"
+                        style={{
+                          backgroundColor: selectedCategory.color + '20',
+                          color: selectedCategory.color,
+                        }}
+                      >
+                        {product.pct.toFixed(1)}%
+                      </span>
+                    </div>
+                  </div>
+                  <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{ width: `${product.pct}%`, backgroundColor: selectedCategory.color }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      ) : loading ? (
         <div className="flex items-center justify-center py-12">
           <div className="w-7 h-7 border-2 border-primary border-t-transparent rounded-full animate-spin" />
         </div>
@@ -100,7 +190,7 @@ export default function CACategoryBreakdown() {
             <span className="text-lg font-700 text-foreground">{fmt(data.total)}</span>
           </div>
 
-          {/* Mini donut visual — stacked bar */}
+          {/* Stacked bar */}
           <div className="flex h-3 rounded-full overflow-hidden gap-px">
             {rows.slice(0, 10).map((row, i) => (
               <div
@@ -111,43 +201,49 @@ export default function CACategoryBreakdown() {
             ))}
           </div>
 
-          {/* Category rows */}
+          {/* Category rows — clickable */}
           <div className="space-y-2 pt-1">
-            {visible.map((row, i) => (
-              <div key={row.name} className="group">
-                <div className="flex items-center justify-between mb-0.5">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span
-                      className="w-2.5 h-2.5 rounded-full shrink-0"
-                      style={{ backgroundColor: PALETTE[i % PALETTE.length] }}
+            {visible.map((row, i) => {
+              const color = PALETTE[i % PALETTE.length];
+              return (
+                <div
+                  key={row.name}
+                  className="group cursor-pointer rounded-lg px-2 py-1 -mx-2 hover:bg-muted/50 transition-colors"
+                  onClick={() => handleCategoryClick(row, color)}
+                  title="Cliquer pour voir les produits"
+                >
+                  <div className="flex items-center justify-between mb-0.5">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        className="w-2.5 h-2.5 rounded-full shrink-0"
+                        style={{ backgroundColor: color }}
+                      />
+                      <span className="text-sm text-foreground font-medium truncate">{row.name}</span>
+                      <span className="text-xs text-muted-foreground shrink-0">{row.qty} unité{row.qty > 1 ? 's' : ''}</span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0 ml-2">
+                      <span className="text-sm font-600 text-foreground">{fmt(row.revenue)}</span>
+                      <span
+                        className="text-xs font-700 px-1.5 py-0.5 rounded-md min-w-[42px] text-center"
+                        style={{
+                          backgroundColor: color + '20',
+                          color,
+                        }}
+                      >
+                        {row.pct.toFixed(1)}%
+                      </span>
+                      <Icon name="ChevronRightIcon" size={13} className="text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
+                  </div>
+                  <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{ width: `${row.pct}%`, backgroundColor: color }}
                     />
-                    <span className="text-sm text-foreground font-medium truncate">{row.name}</span>
-                    <span className="text-xs text-muted-foreground shrink-0">{row.qty} unité{row.qty > 1 ? 's' : ''}</span>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0 ml-2">
-                    <span className="text-sm font-600 text-foreground">{fmt(row.revenue)}</span>
-                    <span
-                      className="text-xs font-700 px-1.5 py-0.5 rounded-md min-w-[42px] text-center"
-                      style={{
-                        backgroundColor: PALETTE[i % PALETTE.length] + '20',
-                        color: PALETTE[i % PALETTE.length],
-                      }}
-                    >
-                      {row.pct.toFixed(1)}%
-                    </span>
                   </div>
                 </div>
-                <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all duration-500"
-                    style={{
-                      width: `${row.pct}%`,
-                      backgroundColor: PALETTE[i % PALETTE.length],
-                    }}
-                  />
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Show more / less */}
