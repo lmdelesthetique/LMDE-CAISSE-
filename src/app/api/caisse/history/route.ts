@@ -1,11 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-function makeClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
-}
+import { createAdminClient } from '@/lib/supabase/admin';
 
 // Martinique = UTC-4, pas d'heure d'été
 const MTQ_OFFSET = '-04:00';
@@ -16,7 +10,7 @@ const dayEnd   = (d: string) => `${d}T23:59:59${MTQ_OFFSET}`;
 // Returns last N sessions with CA + ticket count from real (non-demo) receipts
 export async function GET(req: NextRequest) {
   const limit = Math.min(parseInt(new URL(req.url).searchParams.get('limit') ?? '30'), 60);
-  const supabase = makeClient();
+  const supabase = createAdminClient();
 
   const { data: sessions, error } = await supabase
     .from('caisse_sessions')

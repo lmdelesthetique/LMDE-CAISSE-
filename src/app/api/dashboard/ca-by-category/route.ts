@@ -1,11 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-function makeClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
-}
+import { createAdminClient } from '@/lib/supabase/admin';
 
 async function fetchAll<T>(
   queryFn: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: any }>
@@ -41,7 +35,7 @@ export async function GET(req: NextRequest) {
     startDate = `${yr}-01-01T00:00:00${MTQ}`;
   }
 
-  const supabase = makeClient();
+  const supabase = createAdminClient();
 
   const [receipts, products] = await Promise.all([
     fetchAll<any>((from, to) =>

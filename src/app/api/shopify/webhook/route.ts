@@ -1,14 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { createClient as createSupabase } from '@supabase/supabase-js';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { updateLastSyncAt } from '@/lib/services/shopifyService';
 
 const CLIENT_SECRET = process.env.SHOPIFY_CLIENT_SECRET!;
 
-function getSupabase() {
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  return createSupabase(process.env.NEXT_PUBLIC_SUPABASE_URL!, key);
-}
 
 interface ShopifyAddress {
   name?: string;
@@ -103,7 +99,7 @@ export async function POST(req: NextRequest) {
   const lineItems = order.line_items ?? [];
   if (!lineItems.length) return NextResponse.json({ ok: true });
 
-  const supabase = getSupabase();
+  const supabase = createAdminClient();
   const shopifyOrderId = String(order.id);
   const orderRef = String(order.order_number);
 

@@ -1,16 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-function makeClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  if (!url || !key) throw new Error('Supabase env vars not configured');
-  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
-}
+import { createAdminClient } from '@/lib/supabase/admin';
 
 export async function GET() {
   try {
-    const supabase = makeClient();
+    const supabase = createAdminClient();
     const { data: campagnes, error } = await supabase
       .from('campagnes_ambassadrices')
       .select('*')
@@ -51,7 +44,7 @@ export async function POST(req: NextRequest) {
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
 
   try {
-    const supabase = makeClient();
+    const supabase = createAdminClient();
     const { data, error } = await supabase
       .from('campagnes_ambassadrices')
       .insert({

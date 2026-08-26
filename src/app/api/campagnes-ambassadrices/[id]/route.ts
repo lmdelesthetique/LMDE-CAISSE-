@@ -1,12 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-function makeClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  if (!url || !key) throw new Error('Supabase env vars not configured');
-  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
-}
+import { createAdminClient } from '@/lib/supabase/admin';
 
 export async function GET(
   _req: NextRequest,
@@ -14,7 +7,7 @@ export async function GET(
 ) {
   const { id } = await params;
   try {
-    const supabase = makeClient();
+    const supabase = createAdminClient();
 
     const { data: campagne, error } = await supabase
       .from('campagnes_ambassadrices')
@@ -63,7 +56,7 @@ export async function PATCH(
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
 
   try {
-    const supabase = makeClient();
+    const supabase = createAdminClient();
 
     // If patching assignment fields (reception status, colis date)
     if (body.assignment_id) {

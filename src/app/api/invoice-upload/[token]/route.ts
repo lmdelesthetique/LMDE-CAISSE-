@@ -9,9 +9,9 @@ function admin() {
 // GET — return order info for the public deposit page
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { token: string } }
+  { params }: { params: Promise<{ token: string }> }
 ) {
-  const { token } = params;
+  const { token } = await params;
   const supabase = admin();
 
   // 1. Try deterministic token (no migration needed)
@@ -62,9 +62,9 @@ export async function GET(
 // POST — receive PDF, upload to storage, update order
 export async function POST(
   req: NextRequest,
-  { params }: { params: { token: string } }
+  { params }: { params: Promise<{ token: string }> }
 ) {
-  const { token } = params;
+  const { token } = await params;
   const supabase = admin();
 
   // Resolve order ID from token (deterministic or stored)

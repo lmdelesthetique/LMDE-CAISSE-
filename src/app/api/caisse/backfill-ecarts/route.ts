@@ -1,11 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-function makeClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
-}
+import { createAdminClient } from '@/lib/supabase/admin';
 
 const MTQ_OFFSET = '-04:00';
 const dayStart = (d: string) => `${d}T00:00:00${MTQ_OFFSET}`;
@@ -25,7 +19,7 @@ function cashPortionOfReceipt(paymentMethod: string, totalAmount: number): numbe
 // POST /api/caisse/backfill-ecarts
 // Recomputes fond_theorique and ecart for all closed sessions that have fond_compte set.
 export async function POST() {
-  const supabase = makeClient();
+  const supabase = createAdminClient();
 
   // Fetch all closed sessions that have a physical count (fond_compte)
   const { data: sessions, error: sessErr } = await supabase

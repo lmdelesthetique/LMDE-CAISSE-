@@ -1,16 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createAdminClient } from '@/lib/supabase/admin';
 
 const CONFIG_KEY = 'shopify_treated_orders';
 
-function makeClient() {
+function createAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
 async function getTreated(): Promise<string[]> {
-  const { data } = await makeClient()
+  const { data } = await createAdminClient()
     .from('app_config')
     .select('value')
     .eq('key', CONFIG_KEY)
@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
     // Keep only the 200 most recent to avoid unbounded growth
     const trimmed = current.slice(-200);
 
-    await makeClient()
+    await createAdminClient()
       .from('app_config')
       .upsert({ key: CONFIG_KEY, value: JSON.stringify(trimmed), updated_at: new Date().toISOString() });
 

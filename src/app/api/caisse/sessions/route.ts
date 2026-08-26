@@ -1,11 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-function makeClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
-}
+import { createAdminClient } from '@/lib/supabase/admin';
 
 // Martinique = UTC-4, pas d'heure d'été (DST)
 const MTQ_OFFSET = '-04:00';
@@ -44,7 +38,7 @@ function cashPortionOfReceipt(paymentMethod: string, totalAmount: number): numbe
 // Returns the open session for the date, with correct cash_in_today
 export async function GET(req: NextRequest) {
   const date = new URL(req.url).searchParams.get('date') ?? todayDate();
-  const supabase = makeClient();
+  const supabase = createAdminClient();
 
   const { data, error } = await supabase
     .from('caisse_sessions')
@@ -101,7 +95,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const supabase = makeClient();
+  const supabase = createAdminClient();
   const date = todayDate();
 
   const { data: existing } = await supabase
@@ -146,7 +140,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const supabase = makeClient();
+  const supabase = createAdminClient();
   const date = body.date ?? todayDate();
 
   // Retrieve session to get fond_ouverture

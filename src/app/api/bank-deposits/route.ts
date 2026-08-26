@@ -1,16 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-function makeClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
-}
+import { createAdminClient } from '@/lib/supabase/admin';
 
 // GET /api/bank-deposits?limit=20
 export async function GET(req: NextRequest) {
   const limit = Math.min(parseInt(new URL(req.url).searchParams.get('limit') ?? '20'), 100);
-  const supabase = makeClient();
+  const supabase = createAdminClient();
 
   const [{ data: deposits, error }, { data: monthData }] = await Promise.all([
     supabase
@@ -59,7 +53,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Montant invalide' }, { status: 400 });
   }
 
-  const supabase = makeClient();
+  const supabase = createAdminClient();
 
   console.log('=== SAVING BANK DEPOSIT ===', JSON.stringify(body));
 

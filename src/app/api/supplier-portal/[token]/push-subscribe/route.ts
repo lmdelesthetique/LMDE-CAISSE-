@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 
-export async function POST(req: NextRequest, { params }: { params: { token: string } }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ token: string }> }) {
   const supabase = createAdminClient();
 
   const { data: supplier } = await supabase
     .from('suppliers')
     .select('id')
-    .eq('portal_login', params.token)
+    .eq('portal_login', (await params).token)
     .maybeSingle();
 
   if (!supplier) return NextResponse.json({ error: 'Token invalide' }, { status: 404 });

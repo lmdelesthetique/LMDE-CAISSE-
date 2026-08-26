@@ -1,16 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-function makeClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  if (!url) throw new Error('NEXT_PUBLIC_SUPABASE_URL not set');
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!key) throw new Error('No Supabase key configured');
-  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    console.warn('[api/ticket-settings] SUPABASE_SERVICE_ROLE_KEY missing — using anon key');
-  }
-  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
-}
+import { createAdminClient } from '@/lib/supabase/admin';
 
 const DEFAULTS = {
   header_text:
@@ -29,7 +18,7 @@ const DEFAULTS = {
 // ─── GET /api/ticket-settings ─────────────────────────────────────────────────
 export async function GET() {
   let supabase;
-  try { supabase = makeClient(); } catch {
+  try { supabase = createAdminClient(); } catch {
     return NextResponse.json(DEFAULTS);
   }
   try {
@@ -56,7 +45,7 @@ export async function POST(req: NextRequest) {
 
   let supabase;
   try {
-    supabase = makeClient();
+    supabase = createAdminClient();
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error('[api/ticket-settings POST] client init:', msg);

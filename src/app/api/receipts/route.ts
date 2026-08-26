@@ -1,24 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-function makeClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  if (!url) throw new Error('NEXT_PUBLIC_SUPABASE_URL not set');
-
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  const key = serviceKey || anonKey;
-  if (!key) throw new Error('No Supabase key configured');
-
-  if (!serviceKey) {
-    console.warn('[api/receipts] SUPABASE_SERVICE_ROLE_KEY missing — falling back to anon key');
-  }
-
-  return createClient(url, key, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
-}
+import { createAdminClient } from '@/lib/supabase/admin';
 
 // ─── GET /api/receipts — list with filters ────────────────────────────────────
 export async function GET(req: NextRequest) {
@@ -26,7 +7,7 @@ export async function GET(req: NextRequest) {
 
   let supabase;
   try {
-    supabase = makeClient();
+    supabase = createAdminClient();
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error('[api/receipts GET] client creation failed:', msg);
@@ -102,7 +83,7 @@ export async function POST(req: NextRequest) {
 
   let supabase;
   try {
-    supabase = makeClient();
+    supabase = createAdminClient();
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ error: msg, code: 'CLIENT_INIT_FAILED' }, { status: 500 });

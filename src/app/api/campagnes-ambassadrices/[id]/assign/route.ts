@@ -1,12 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-function makeClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  if (!url || !key) throw new Error('Supabase env vars not configured');
-  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
-}
+import { createAdminClient } from '@/lib/supabase/admin';
 
 interface ProductInput {
   id: string;
@@ -36,7 +29,7 @@ export async function POST(
   }
 
   try {
-    const supabase = makeClient();
+    const supabase = createAdminClient();
 
     // Calculate total cost based on buy price × quantity
     const coutTotal = products.reduce((sum, p) => sum + (p.cout_achat ?? 0) * (p.quantity ?? 1), 0);
