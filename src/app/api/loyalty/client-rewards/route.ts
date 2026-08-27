@@ -88,3 +88,99 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
+
+// POST /api/loyalty/client-rewards — unlock a reward for a client
+export async function POST(req: NextRequest) {
+  let body: any;
+  try { body = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
+
+  const { clientId, tierId, rewardType, rewardDescription, rewardValue, rewardProductId, pointsAtUnlock, expiryDays } = body ?? {};
+  if (!clientId || !rewardType) return NextResponse.json({ error: 'clientId and rewardType required' }, { status: 400 });
+
+  try {
+    const supabase = createAdminClient();
+    const expiryDate = expiryDays
+      ? new Date(Date.now() + Number(expiryDays) * 24 * 60 * 60 * 1000).toISOString()
+      : null;
+
+    const { data, error } = await supabase
+      .from('client_loyalty_rewards')
+      .insert({
+        client_id: clientId,
+        tier_id: tierId ?? null,
+        reward_type: rewardType,
+        reward_description: rewardDescription,
+        reward_value: rewardValue ?? 0,
+        reward_product_id: rewardProductId ?? null,
+        status: 'available',
+        points_at_unlock: pointsAtUnlock ?? 0,
+        unlocked_at: new Date().toISOString(),
+        expiry_date: expiryDate,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[api/loyalty/client-rewards POST]', error.message);
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    return NextResponse.json(data, { status: 201 });
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
+  }
+}
+
+// PATCH /api/loyalty/client-rewards — use or cancel a reward
+export async function PATCH(req: NextRequest) {
+  let body: any;
+  try { body = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
+
+  const { rewardId, action, ticketRef, cashierName, notes } = body ?? {};
+  if (!rewardId || !action) return NextResponse.json({ error: 'rewardId and action required' }, { status: 400 });
+
+  try {
+    const supabase = createAdminClient();
+
+    if (action === 'use') {
+      const { data, error } = await supabase
+        .from('client_loyalty_rewards')
+        .update({
+          status: 'used',
+          used_at: new Date().toISOString(),
+          ticket_ref: ticketRef ?? null,
+          cashier_name: cashierName ?? null,
+          notes: notes ?? null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', rewardId)
+        .eq('status', 'available')
+        .select()
+        .single();
+
+      if (error) {
+        console.error('[api/loyalty/client-rewards PATCH use]', error.message);
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+      return NextResponse.json(data);
+    }
+
+    if (action === 'cancel') {
+      const { data, error } = await supabase
+        .from('client_loyalty_rewards')
+        .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+        .eq('id', rewardId)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('[api/loyalty/client-rewards PATCH cancel]', error.message);
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+      return NextResponse.json(data);
+    }
+
+    return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
+  }
+}
