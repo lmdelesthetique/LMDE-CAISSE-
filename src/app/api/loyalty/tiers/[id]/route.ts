@@ -49,9 +49,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     updatedAt: data.updated_at,
   };
 
-  supabase.rpc('recalculate_client_tiers').then(({ error: rpcErr }) => {
-    if (rpcErr) console.log('[loyalty/tiers PATCH] recalculate_client_tiers:', rpcErr.message);
-  });
+  // Sync existing client_loyalty_rewards for this tier to use the new values (fire-and-forget)
+  supabase
+    .from('client_loyalty_rewards')
+    .update({
+      reward_type: data.reward_type,
+      reward_description: data.reward_description,
+      reward_value: parseFloat(data.reward_value ?? 0),
+      reward_product_id: data.reward_product_id ?? null,
+    })
+    .eq('tier_id', id)
+    .then(({ error: syncErr }) => {
+      if (syncErr) console.warn('[loyalty/tiers PATCH] sync rewards:', syncErr.message);
+    });
 
   return NextResponse.json(tier);
 }

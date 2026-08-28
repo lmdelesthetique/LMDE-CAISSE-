@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({
+  const tier = {
     id: data.id,
     name: data.name,
     pointsRequired: data.points_required,
@@ -73,5 +73,42 @@ export async function POST(req: NextRequest) {
     sortOrder: data.sort_order ?? 0,
     createdAt: data.created_at,
     updatedAt: data.updated_at,
-  }, { status: 201 });
+  };
+
+  // Auto-unlock this tier for clients who already qualify (fire-and-forget)
+  void (async () => {
+    try {
+      const { data: eligible } = await supabase
+        .from('clients')
+        .select('id, loyalty_points')
+        .gte('loyalty_points', data.points_required)
+        .neq('is_active', false);
+      if (!eligible || eligible.length === 0) return;
+      const { data: existing } = await supabase
+        .from('client_loyalty_rewards')
+        .select('client_id')
+        .eq('tier_id', data.id);
+      const existingIds = new Set((existing ?? []).map((r: any) => r.client_id));
+      const now = new Date().toISOString();
+      const inserts = eligible
+        .filter((c: any) => !existingIds.has(c.id))
+        .map((c: any) => ({
+          client_id: c.id,
+          tier_id: data.id,
+          reward_type: data.reward_type,
+          reward_description: data.reward_description,
+          reward_value: data.reward_value ?? 0,
+          reward_product_id: data.reward_product_id ?? null,
+          status: 'available',
+          points_at_unlock: c.loyalty_points,
+          unlocked_at: now,
+        }));
+      if (inserts.length > 0) {
+        const { error: ie } = await supabase.from('client_loyalty_rewards').insert(inserts);
+        if (ie) console.warn('[loyalty/tiers POST] auto-unlock error:', ie.message);
+      }
+    } catch (e: any) { console.warn('[loyalty/tiers POST] auto-unlock catch:', e.message); }
+  })();
+
+  return NextResponse.json(tier, { status: 201 });
 }

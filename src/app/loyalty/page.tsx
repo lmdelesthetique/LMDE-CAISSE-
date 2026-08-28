@@ -610,7 +610,28 @@ export default function LoyaltyPage() {
   const [suggestionTarget, setSuggestionTarget] = useState<SlowMoverProduct | null>(null);
   const [recalculating, setRecalculating] = useState(false);
   const [recalcPoints, setRecalcPoints] = useState(false);
+  const [syncingAll, setSyncingAll] = useState(false);
   const [productCategoryFilter, setProductCategoryFilter] = useState<ProductCategoryFilter>('all');
+
+  const handleSyncAll = async () => {
+    setSyncingAll(true);
+    try {
+      const res = await fetch('/api/admin/sync-loyalty-full', { method: 'POST' });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+      const { points, rewards } = json;
+      const msgs: string[] = [];
+      if (points.clientsRestored > 0) msgs.push(`${points.clientsRestored} client(s) avec points restaurés`);
+      if (rewards.updated > 0) msgs.push(`${rewards.updated} récompense(s) mises à jour`);
+      if (rewards.inserted > 0) msgs.push(`${rewards.inserted} nouveau(x) palier(s) débloqué(s)`);
+      toast.success(`✓ Synchronisation complète — ${msgs.length > 0 ? msgs.join(', ') : 'tout est déjà à jour'}`, { duration: 5000 });
+      await loadData();
+    } catch (e: any) {
+      toast.error(`Erreur sync : ${e?.message ?? 'Impossible'}`);
+    } finally {
+      setSyncingAll(false);
+    }
+  };
 
   const handleRecalculatePoints = async () => {
     setRecalcPoints(true);
@@ -699,6 +720,20 @@ export default function LoyaltyPage() {
     });
     setShowTierForm(false);
     setEditingTier(null);
+    // Auto-sync after saving a tier so all client rewards reflect the new values
+    setSyncingAll(true);
+    fetch('/api/admin/sync-loyalty-full', { method: 'POST' })
+      .then(r => r.json())
+      .then(json => {
+        if (json.rewards?.updated > 0 || json.rewards?.inserted > 0) {
+          toast.success(`Palier enregistré — ${json.rewards.updated} récompense(s) synchronisée(s)`, { duration: 3000 });
+        } else {
+          toast.success('Palier enregistré et synchronisé', { duration: 2000 });
+        }
+        loadData();
+      })
+      .catch(() => toast.success('Palier enregistré', { duration: 2000 }))
+      .finally(() => setSyncingAll(false));
   };
 
   const handleDeleteTier = async (id: string) => {
@@ -747,28 +782,44 @@ export default function LoyaltyPage() {
           <div className="flex items-center gap-2">
             {tab === 'dashboard' && (
               <>
-                <button onClick={handleRecalculatePoints} disabled={recalcPoints}
+                <button onClick={handleSyncAll} disabled={syncingAll}
+                  className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-600 hover:opacity-90 transition-opacity disabled:opacity-40">
+                  {syncingAll
+                    ? <><Icon name="ArrowPathIcon" size={15} className="animate-spin" />Synchronisation…</>
+                    : <><Icon name="ArrowPathIcon" size={15} />Synchroniser tout</>
+                  }
+                </button>
+                <button onClick={handleRecalculatePoints} disabled={recalcPoints || syncingAll}
                   className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg text-sm font-600 hover:opacity-90 transition-opacity disabled:opacity-40">
                   {recalcPoints
                     ? <><Icon name="ArrowPathIcon" size={15} className="animate-spin" />Calcul…</>
                     : <><Icon name="CalculatorIcon" size={15} />Recalc. points (tickets)</>
                   }
                 </button>
-                <button onClick={handleRecalculatePaliers} disabled={recalculating}
+                <button onClick={handleRecalculatePaliers} disabled={recalculating || syncingAll}
                   className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-lg text-sm font-600 hover:opacity-90 transition-opacity disabled:opacity-40">
                   {recalculating
                     ? <><Icon name="ArrowPathIcon" size={15} className="animate-spin" />Calcul…</>
-                    : <><Icon name="SparklesIcon" size={15} />Recalculer tous les paliers</>
+                    : <><Icon name="SparklesIcon" size={15} />Recalculer paliers</>
                   }
                 </button>
               </>
             )}
             {tab === 'tiers' && (
-              <button onClick={() => { setEditingTier(null); setShowTierForm(true); }}
-                className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-600 hover:opacity-90 transition-opacity">
-                <Icon name="PlusIcon" size={15} />
-                Nouveau palier
-              </button>
+              <>
+                <button onClick={handleSyncAll} disabled={syncingAll}
+                  className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-600 hover:opacity-90 transition-opacity disabled:opacity-40">
+                  {syncingAll
+                    ? <><Icon name="ArrowPathIcon" size={15} className="animate-spin" />Sync…</>
+                    : <><Icon name="ArrowPathIcon" size={15} />Synchroniser clients</>
+                  }
+                </button>
+                <button onClick={() => { setEditingTier(null); setShowTierForm(true); }}
+                  className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-600 hover:opacity-90 transition-opacity">
+                  <Icon name="PlusIcon" size={15} />
+                  Nouveau palier
+                </button>
+              </>
             )}
             {tab === 'products' && (
               <button onClick={() => { setEditingProduct(null); setShowProductForm(true); }}
