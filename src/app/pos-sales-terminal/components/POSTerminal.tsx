@@ -959,7 +959,7 @@ export default function POSTerminal() {
       const res = await fetch(`/api/returns/lookup?numero=${encodeURIComponent(num)}`);
       const data = await res.json();
       if (!res.ok) { setAvoirLookupError(data.error ?? 'Avoir introuvable'); return; }
-      setGlobalDiscount({ type: 'amount', value: data.amount, isAvoir: true, avoirRecordId: data.id });
+      setGlobalDiscount({ type: 'amount', value: data.amount, isAvoir: true, avoirRecordId: data.id, avoirNumber: data.avoirNumber });
       setShowAvoirInput(false);
       setAvoirInputValue('');
       setAvoirLookupError(null);
@@ -1483,6 +1483,11 @@ export default function POSTerminal() {
         // Always show doc choice modal after payment
         setLastSaleTotal(total);
         setLastSaleGlobalDiscount(globalDiscountAmount);
+        setLastSaleAvoirInfo(globalDiscount?.isAvoir ? {
+          used: globalDiscountAmount,
+          remaining: Math.max(0, (globalDiscount.value ?? globalDiscountAmount) - globalDiscountAmount),
+          avoirNumber: globalDiscount.avoirNumber ?? undefined,
+        } : null);
         setLastSaleClient(client);
         setLastSaleItems([...cart]);
         setLastSaleMethod(method);
@@ -1606,6 +1611,11 @@ export default function POSTerminal() {
       setLastSaleTotal(total);
       setLastSaleRewardDiscount(rewardDiscountAmount);
       setLastSaleGlobalDiscount(globalDiscountAmount);
+      setLastSaleAvoirInfo(globalDiscount?.isAvoir ? {
+        used: globalDiscountAmount,
+        remaining: Math.max(0, (globalDiscount.value ?? globalDiscountAmount) - globalDiscountAmount),
+        avoirNumber: (globalDiscount as any).avoirNumber ?? undefined,
+      } : null);
       setLastSaleClient(client);
       setLastSaleItems([...cart]);
       setLastSaleMethod(method);
@@ -1648,6 +1658,7 @@ export default function POSTerminal() {
   const [lastSaleLoyalty, setLastSaleLoyalty] = useState<{ pointsEarned: number; totalPoints: number; nextTier: LoyaltyTier | null; pointsToNext: number; currentTierName: string | null } | null>(null);
   const [lastSaleRewardDiscount, setLastSaleRewardDiscount] = useState(0);
   const [lastSaleGlobalDiscount, setLastSaleGlobalDiscount] = useState(0);
+  const [lastSaleAvoirInfo, setLastSaleAvoirInfo] = useState<{ used: number; remaining: number; avoirNumber?: string } | null>(null);
   // Acquisition source questionnaire
   const [showAcquisition, setShowAcquisition] = useState(false);
   const [lastReceiptId, setLastReceiptId] = useState<string | null>(null);
@@ -2479,6 +2490,7 @@ export default function POSTerminal() {
           loyaltyInfo={lastSaleLoyalty}
           rewardDiscountAmount={lastSaleRewardDiscount}
           globalDiscountAmount={lastSaleGlobalDiscount}
+          avoirInfo={lastSaleAvoirInfo}
           referralCode={clientReferralCode}
           onClose={handleDocChoiceClose}
         />
@@ -2525,6 +2537,7 @@ interface PostPaymentDocModalProps {
   loyaltyInfo?: { pointsEarned: number; totalPoints: number; nextTier: LoyaltyTier | null; pointsToNext: number; currentTierName?: string | null } | null;
   rewardDiscountAmount?: number;
   globalDiscountAmount?: number;
+  avoirInfo?: { used: number; remaining: number; avoirNumber?: string } | null;
   referralCode?: string;
   onClose: () => void;
 }
@@ -2591,7 +2604,7 @@ function ActionRow({ checked, onToggle, emoji, label, desc, status, errorMsg, ch
   );
 }
 
-function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, loyaltyInfo, rewardDiscountAmount = 0, globalDiscountAmount = 0, referralCode, onClose }: PostPaymentDocModalProps) {
+function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, loyaltyInfo, rewardDiscountAmount = 0, globalDiscountAmount = 0, avoirInfo, referralCode, onClose }: PostPaymentDocModalProps) {
   const clientEmail = client?.email ?? '';
   const hasClientEmail = clientEmail.includes('@');
 
@@ -2655,6 +2668,9 @@ function PostPaymentDocModal({ total, client, items, paymentMethod, ticketRef, l
           loyalty: loyaltyBlock,
           isDemo: isDemoMode,
           globalDiscount: globalDiscountAmount > 0 ? globalDiscountAmount : undefined,
+          isAvoir: !!avoirInfo,
+          avoirNumber: avoirInfo?.avoirNumber,
+          avoirRemaining: avoirInfo?.remaining,
           rewardDiscountAmount: rewardDiscountAmount > 0 ? rewardDiscountAmount : undefined,
           referralCode: referralCode,
         }));

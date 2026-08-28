@@ -36,6 +36,9 @@ export interface TicketPrintData {
   isDuplicate?: boolean;
   isDemo?: boolean;
   globalDiscount?: number;
+  isAvoir?: boolean;
+  avoirNumber?: string;
+  avoirRemaining?: number;
   rewardDiscountAmount?: number;
   rewardDescription?: string;
   referralCode?: string;
@@ -218,13 +221,16 @@ ${itemsHTML}
 ${showTVA ? `${line('Sous-total HT :', `${d.subtotalHT.toFixed(2)}€`)}
 ${line(`TVA ${d.tvaRate}% :`, `${d.totalTVA.toFixed(2)}€`)}
 <p>${SEP}</p>` : ''}
-${(d.globalDiscount ?? 0) > 0 ? `${line('Remise :', `-${d.globalDiscount!.toFixed(2)}€`)}` : ''}
+${(d.globalDiscount ?? 0) > 0 ? `${d.isAvoir ? line('Avoir utilisé :', `-${d.globalDiscount!.toFixed(2)}€`) : line('Remise :', `-${d.globalDiscount!.toFixed(2)}€`)}` : ''}
 ${(d.rewardDiscountAmount ?? 0) > 0 ? `${line('🎁 Récompense :', `-${d.rewardDiscountAmount!.toFixed(2)}€`)}` : ''}
 <p class="ttc">TOTAL TTC : ${d.totalTTC.toFixed(2)}€</p>
 <p>${SEP}</p>
 
 ${line('Paiement :', d.paymentMethod)}
 ${line('Montant réglé :', `${d.totalTTC.toFixed(2)}€`)}
+${d.isAvoir && d.avoirNumber ? `${line('N° avoir :', d.avoirNumber)}` : ''}
+${d.isAvoir && (d.avoirRemaining ?? 0) > 0 ? `<p class="tc" style="font-weight:bold;color:#059669">✅ Solde avoir restant : ${d.avoirRemaining!.toFixed(2)} €</p>` : ''}
+${d.isAvoir && (d.avoirRemaining ?? 0) === 0 ? `${line('Avoir :', 'Entièrement utilisé')}` : ''}
 <p>${SEP}</p>
 
 ${retHTML}
