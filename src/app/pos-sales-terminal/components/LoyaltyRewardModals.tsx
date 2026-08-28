@@ -346,36 +346,36 @@ interface GiftCategoryPickerModalProps {
 }
 
 export function GiftCategoryPickerModal({ reward, categoryConstraint, onProductChosen, onClose }: GiftCategoryPickerModalProps) {
-  const [step, setStep] = useState<'category' | 'products'>(categoryConstraint ? 'products' : 'category');
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(categoryConstraint ?? null);
+  // Always start at category step — the caissière picks the service type per client
+  const [step, setStep] = useState<'category' | 'products'>('category');
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [products, setProducts] = useState<LoyaltyRewardProduct[]>([]);
+  const [allProducts, setAllProducts] = useState<LoyaltyRewardProduct[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // If a constraint is imposed, load products immediately
+  // Pre-load all reward products once so fallback is instant
   React.useEffect(() => {
-    if (categoryConstraint) {
-      setLoading(true);
-      loyaltyService.getRewardProductsByCategory(categoryConstraint).then((prods) => {
-        setProducts(prods);
-        setLoading(false);
-      });
-    }
-  }, [categoryConstraint]);
+    loyaltyService.getRewardProducts().then(setAllProducts);
+  }, []);
+
+  // If a category constraint is defined on the tier, pre-highlight it
+  // but still let the caissière choose (in case the client is there for a different service)
+  const defaultCategory = categoryConstraint ?? null;
 
   const handleCategorySelect = async (categoryId: string) => {
     setSelectedCategory(categoryId);
     setStep('products');
     setLoading(true);
-    const prods = await loyaltyService.getRewardProductsByCategory(categoryId);
-    setProducts(prods);
+    const filtered = await loyaltyService.getRewardProductsByCategory(categoryId);
+    // Fallback to all products if none are in this specific category
+    setProducts(filtered.length > 0 ? filtered : allProducts);
     setLoading(false);
   };
 
-  const visibleCategories = categoryConstraint
-    ? GIFT_CATEGORIES.filter(c => c.id === categoryConstraint)
-    : GIFT_CATEGORIES;
-
   const selectedCat = GIFT_CATEGORIES.find(c => c.id === selectedCategory);
+  const isFiltered = products.length > 0 && selectedCategory
+    ? allProducts.some(p => p.rewardCategory === selectedCategory)
+    : false;
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center">
@@ -395,15 +395,24 @@ export function GiftCategoryPickerModal({ reward, categoryConstraint, onProductC
         <div className="p-5 min-h-[200px]">
           {step === 'category' && (
             <>
-              <p className="text-sm font-600 text-foreground mb-4 text-center">Choisir la catégorie du cadeau</p>
-              <div className="grid grid-cols-3 gap-3">
-                {visibleCategories.map(cat => (
+              <p className="text-sm font-600 text-foreground mb-1 text-center">Quel service pour cette cliente ?</p>
+              {defaultCategory && (
+                <p className="text-xs text-violet-600 font-500 text-center mb-3">
+                  Palier configuré sur : {GIFT_CATEGORIES.find(c => c.id === defaultCategory)?.label ?? defaultCategory}
+                </p>
+              )}
+              <div className="grid grid-cols-3 gap-3 mt-3">
+                {GIFT_CATEGORIES.map(cat => (
                   <button
                     key={cat.id}
                     onClick={() => handleCategorySelect(cat.id)}
-                    className="flex flex-col items-center gap-2 p-5 rounded-2xl border-2 border-violet-200 hover:border-violet-500 hover:bg-violet-50 transition-all active:scale-95"
+                    className={`flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all active:scale-95 ${
+                      cat.id === defaultCategory
+                        ? 'border-violet-500 bg-violet-50'
+                        : 'border-violet-200 hover:border-violet-500 hover:bg-violet-50'
+                    }`}
                   >
-                    <span className="text-4xl">{cat.icon}</span>
+                    <span className="text-3xl">{cat.icon}</span>
                     <span className="text-xs font-700 text-foreground text-center leading-tight">{cat.label}</span>
                   </button>
                 ))}
@@ -415,14 +424,17 @@ export function GiftCategoryPickerModal({ reward, categoryConstraint, onProductC
             <>
               <div className="flex items-center gap-2 mb-4">
                 <button
-                  onClick={() => setStep('category')}
+                  onClick={() => { setStep('category'); setSelectedCategory(null); setProducts([]); }}
                   className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground transition-colors"
                 >
                   <Icon name="ChevronLeftIcon" size={16} />
                 </button>
-                <p className="text-sm font-600 text-foreground">
+                <p className="text-sm font-600 text-foreground flex-1">
                   {selectedCat?.icon} {selectedCat?.label} — Choisir un produit
                 </p>
+                {!isFiltered && products.length > 0 && (
+                  <span className="text-xs text-amber-600 font-500">Tous les produits</span>
+                )}
               </div>
               {loading ? (
                 <div className="flex items-center justify-center py-10">
@@ -430,7 +442,7 @@ export function GiftCategoryPickerModal({ reward, categoryConstraint, onProductC
                 </div>
               ) : products.length === 0 ? (
                 <div className="text-center py-10 text-sm text-muted-foreground">
-                  <p className="font-600 mb-1">Aucun produit dans cette catégorie</p>
+                  <p className="font-600 mb-1">Aucun produit récompense configuré</p>
                   <p className="text-xs">Ajoutez des produits dans Fidélité → Produits récompenses</p>
                 </div>
               ) : (
