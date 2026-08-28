@@ -21,7 +21,8 @@ export async function POST(req: NextRequest) {
       supabase.from('clients').select('id, loyalty_points').neq('is_active', false),
       supabase.from('receipts').select('client_id, loyalty_points_earned, total_amount').not('client_id', 'is', null).neq('status', 'cancelled'),
       supabase.from('loyalty_transactions').select('client_id, points_change, balance_after, created_at').order('created_at', { ascending: true }),
-      supabase.from('client_loyalty_rewards').select('id, client_id, tier_id, status'),
+      // Fetch all rewards including points_at_unlock — this is the most reliable proof of past points
+      supabase.from('client_loyalty_rewards').select('id, client_id, tier_id, status, points_at_unlock'),
     ]);
 
     if (tiersRes.error) return NextResponse.json({ error: `tiers: ${tiersRes.error.message}` }, { status: 500 });
@@ -33,19 +34,18 @@ export async function POST(req: NextRequest) {
     const txRows = txRes.data ?? [];
     const existingRewards = rewardsRes.data ?? [];
 
-    // ── 2. Compute points per client from 3 sources ──────────────────────────
+    // ── 2. Compute points per client from 4 sources ──────────────────────────
 
-    // Source A: receipts
+    // Source A: receipts — sum of loyalty_points_earned
     const receiptMap = new Map<string, number>();
     for (const r of receipts) {
       if (!r.client_id) continue;
       receiptMap.set(r.client_id, (receiptMap.get(r.client_id) ?? 0) + Number(r.loyalty_points_earned ?? 0));
     }
 
-    // Source B: loyalty_transactions — sum of points_change (excludes balance resets from recalculate)
-    // We ignore transactions with points_change = 0 (those are just balance snapshots)
+    // Source B: loyalty_transactions — sum of non-zero points_change
     const txSumMap = new Map<string, number>();
-    // Also track the max balance_after ever seen per client (safest restore point)
+    // Also track the max balance_after ever seen per client
     const txMaxBalMap = new Map<string, number>();
     for (const tx of txRows) {
       if (!tx.client_id) continue;
@@ -59,7 +59,17 @@ export async function POST(req: NextRequest) {
     // Source C: current DB value
     const currentMap = new Map(allClients.map((c) => [c.id, c.loyalty_points ?? 0]));
 
-    // ── 3. For each client, take the highest value from all sources ──────────
+    // Source D: points_at_unlock from client_loyalty_rewards
+    // This is proof that at some moment the client had AT LEAST that many points.
+    // It is the most reliable source when loyalty_transactions were not recorded.
+    const rewardUnlockMap = new Map<string, number>();
+    for (const r of existingRewards) {
+      if (!r.client_id) continue;
+      const pts = Number(r.points_at_unlock ?? 0);
+      rewardUnlockMap.set(r.client_id, Math.max(rewardUnlockMap.get(r.client_id) ?? 0, pts));
+    }
+
+    // ── 3. For each client, take the highest value from all 4 sources ────────
     const pointsUpdates: Array<{ id: string; loyalty_points: number }> = [];
     const report: Array<{ id: string; old: number; new: number; source: string }> = [];
 
@@ -68,15 +78,17 @@ export async function POST(req: NextRequest) {
       const fromReceipts = receiptMap.get(client.id) ?? 0;
       const fromTxSum = txSumMap.get(client.id) ?? 0;
       const fromTxMax = txMaxBalMap.get(client.id) ?? 0;
+      const fromRewardUnlock = rewardUnlockMap.get(client.id) ?? 0;
 
-      // Take the MAX of all sources to never reduce legitimate points
-      const best = Math.max(current, fromReceipts, fromTxSum, fromTxMax);
+      // Take the MAX of all sources — never reduce legitimate points
+      const best = Math.max(current, fromReceipts, fromTxSum, fromTxMax, fromRewardUnlock);
       const restored = Math.max(0, best);
 
       if (restored !== current) {
         let source = 'recalcul';
-        if (fromTxMax > current && fromTxMax >= fromReceipts && fromTxMax >= fromTxSum) source = 'transactions (max solde)';
-        else if (fromTxSum > current && fromTxSum >= fromReceipts) source = 'transactions (cumul)';
+        if (fromRewardUnlock >= restored && fromRewardUnlock > current) source = 'palier débloqué (points_at_unlock)';
+        else if (fromTxMax >= restored && fromTxMax > current) source = 'transactions (max solde)';
+        else if (fromTxSum >= restored && fromTxSum > current) source = 'transactions (cumul)';
         else if (fromReceipts > current) source = 'tickets caisse';
         report.push({ id: client.id, old: current, new: restored, source });
         pointsUpdates.push({ id: client.id, loyalty_points: restored });
