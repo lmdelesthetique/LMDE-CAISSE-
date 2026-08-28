@@ -177,6 +177,7 @@ function NewReturnModal({ onClose, onCreated }: NewReturnModalProps) {
   const [refundType, setRefundType] = useState<ReturnRefundType>('refund_cash');
   const [isInternalLoss, setIsInternalLoss] = useState(false);
   const [originalReceipt, setOriginalReceipt] = useState('');
+  const [freeClientName, setFreeClientName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -238,6 +239,7 @@ function NewReturnModal({ onClose, onCreated }: NewReturnModalProps) {
 
     const input: CreateReturnInput = {
       clientId: selectedClient?.id,
+      clientName: freeClientName.trim() || selectedClient?.fullName || undefined,
       productId: selectedProduct.id,
       productName: selectedProduct.name,
       productRef: selectedProduct.ref,
@@ -370,7 +372,7 @@ function NewReturnModal({ onClose, onCreated }: NewReturnModalProps) {
                       <p className="text-sm font-600 text-foreground">{selectedClient.fullName}</p>
                       <p className="text-xs text-muted-foreground">{selectedClient.phone || selectedClient.email || ''}</p>
                     </div>
-                    <button onClick={() => setSelectedClient(null)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
+                    <button onClick={() => { setSelectedClient(null); setFreeClientName(''); }} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
                       <Icon name="XMarkIcon" size={14} />
                     </button>
                   </div>
@@ -383,7 +385,7 @@ function NewReturnModal({ onClose, onCreated }: NewReturnModalProps) {
                       <div className="absolute top-full left-0 right-0 z-10 bg-white border border-border rounded-xl shadow-lg mt-1 max-h-40 overflow-y-auto">
                         {filteredClients.length === 0 ? <p className="px-4 py-3 text-sm text-muted-foreground">Aucun client trouvé</p>
                           : filteredClients.slice(0, 6).map(c => (
-                            <button key={c.id} onClick={() => { setSelectedClient(c); setClientSearch(''); }}
+                            <button key={c.id} onClick={() => { setSelectedClient(c); setFreeClientName(c.fullName); setClientSearch(''); }}
                               className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-muted text-left">
                               <p className="text-sm font-500 text-foreground">{c.fullName}</p>
                               <p className="text-xs text-muted-foreground ml-auto">{c.phone || ''}</p>
@@ -393,6 +395,18 @@ function NewReturnModal({ onClose, onCreated }: NewReturnModalProps) {
                     )}
                   </div>
                 )}
+              </div>
+
+              {/* Free-text client name — persists even without a DB link */}
+              <div>
+                <label className="block text-sm font-500 text-foreground mb-1.5">Nom du client (libre)</label>
+                <input
+                  type="text"
+                  placeholder="Nom du client (si non trouvé dans la liste)"
+                  value={freeClientName}
+                  onChange={e => setFreeClientName(e.target.value)}
+                  className="w-full px-3 py-2.5 text-sm border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30"
+                />
               </div>
 
               <div>

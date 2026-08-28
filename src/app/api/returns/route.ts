@@ -45,6 +45,7 @@ export async function POST(req: NextRequest) {
       .insert({
         avoir_number: avoirNumber,
         client_id: body.clientId || null,
+        client_name: body.clientName || null,
         product_id: body.productId || null,
         product_name: body.productName,
         product_ref: body.productRef || null,

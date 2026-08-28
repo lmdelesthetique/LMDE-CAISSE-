@@ -44,6 +44,7 @@ export interface ReturnRecord {
 
 export interface CreateReturnInput {
   clientId?: string;
+  clientName?: string;
   productId?: string;
   productName: string;
   productRef?: string;
@@ -104,7 +105,7 @@ function mapReturn(row: any): ReturnRecord {
     id: row.id,
     avoirNumber: row.avoir_number,
     clientId: row.client_id,
-    clientName: row.clients ? `${row.clients.first_name} ${row.clients.last_name}` : undefined,
+    clientName: row.client_name || (row.clients ? `${row.clients.first_name} ${row.clients.last_name}` : undefined),
     productId: row.product_id,
     productName: row.product_name,
     productRef: row.product_ref,
