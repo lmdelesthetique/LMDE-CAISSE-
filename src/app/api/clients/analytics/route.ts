@@ -21,7 +21,7 @@ export async function GET() {
     const clients = await fetchAll<any>((from, to) =>
       supabase
         .from('clients')
-        .select('id, first_name, last_name, email, phone, whatsapp, city, country, client_type, loyalty_points, loyalty_tier, total_spent, total_visits, last_purchase_at, balance_due, created_at, is_active, is_demo')
+        .select('id, first_name, last_name, email, phone, whatsapp, city, country, client_type, loyalty_points, loyalty_tier, total_spent, total_visits, last_purchase_at, balance_due, created_at, is_active')
         .neq('is_active', false)
         .range(from, to)
     );
@@ -76,7 +76,7 @@ export async function GET() {
     const now = Date.now();
 
     const processed = clients
-      .filter((c: any) => !c.is_demo && c.first_name)
+      .filter((c: any) => c.first_name && !(c.first_name === 'CHRISTY' && c.last_name === 'LHOMME'))
       .map((c: any) => {
         const lastTs = c.last_purchase_at ? new Date(c.last_purchase_at).getTime() : 0;
         const daysSince = lastTs ? Math.floor((now - lastTs) / DAY_MS) : 999;

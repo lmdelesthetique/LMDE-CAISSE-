@@ -52,9 +52,80 @@ const ACTIVITE_OPTIONS = [
   { value: 'pedicure', label: 'Pédicure' },
   { value: 'coiffure', label: 'Coiffure' },
   { value: 'esthetique', label: 'Esthétique' },
-  { value: 'strass_dentaires', label: 'Strass dentaires' },
-  { value: 'multi_services', label: 'Multi-services' },
+  { value: 'autre', label: 'Autre' },
 ];
+
+const PRODUITS_OPTIONS = [
+  { value: 'gel_x', label: 'Gel X' },
+  { value: 'gel', label: 'Gel' },
+  { value: 'acrylique', label: 'Acrylique' },
+  { value: 'vernis', label: 'Vernis' },
+  { value: 'cils', label: 'Cils' },
+  { value: 'pedicure', label: 'Pédicure' },
+  { value: 'strass', label: 'Strass' },
+  { value: 'uv', label: 'UV / Lampe' },
+  { value: 'other', label: 'Autre' },
+];
+
+const FOURNISSEUR_OPTIONS = [
+  { value: 'local', label: 'Local' },
+  { value: 'france', label: 'France' },
+  { value: 'usa', label: 'USA' },
+  { value: 'internet', label: 'Internet' },
+  { value: 'plusieurs', label: 'Plusieurs' },
+];
+
+const BUDGET_OPTIONS = [
+  { value: '<100', label: '< 100 €' },
+  { value: '100-200', label: '100 – 200 €' },
+  { value: '200-300', label: '200 – 300 €' },
+  { value: '300-500', label: '300 – 500 €' },
+  { value: '+500', label: '+ 500 €' },
+];
+
+const FREQUENCE_OPTIONS = [
+  { value: 'hebdo', label: 'Hebdomadaire' },
+  { value: '2x_mois', label: '2× / mois' },
+  { value: 'mensuel', label: 'Mensuel' },
+  { value: 'occasionnel', label: 'Occasionnel' },
+];
+
+const BESOIN_OPTIONS = [
+  { value: 'prix', label: 'Prix' },
+  { value: 'disponibilite', label: 'Disponibilité' },
+  { value: 'livraison', label: 'Livraison rapide' },
+  { value: 'qualite', label: 'Qualité' },
+  { value: 'choix', label: 'Choix' },
+  { value: 'conseil', label: 'Conseil' },
+];
+
+function MultiChip({ options, selected, onChange }: {
+  options: { value: string; label: string }[];
+  selected: string[];
+  onChange: (vals: string[]) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {options.map((o) => {
+        const active = selected.includes(o.value);
+        return (
+          <button
+            key={o.value}
+            type="button"
+            onClick={() => onChange(active ? selected.filter((v) => v !== o.value) : [...selected, o.value])}
+            className={`px-2.5 py-1 rounded-full text-xs font-600 transition-colors ${
+              active
+                ? 'bg-violet-600 text-white'
+                : 'bg-white border border-violet-200 text-violet-700 hover:border-violet-400'
+            }`}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 const TRAVAILLE_A_OPTIONS = [
   { value: 'domicile', label: 'Domicile' },
@@ -77,6 +148,11 @@ interface ProForm {
   mainActivity: string;
   workLocation: string;
   activityLevel: string;
+  produitsUtilises: string[];
+  fournisseurActuel: string;
+  budgetTranche: string;
+  frequenceAchat: string;
+  besoinPrincipal: string[];
 }
 
 export default function ClientFormModal({ client, onClose, onSaved }: ClientFormModalProps) {
@@ -106,6 +182,11 @@ export default function ClientFormModal({ client, onClose, onSaved }: ClientForm
     mainActivity: '',
     workLocation: '',
     activityLevel: '',
+    produitsUtilises: [],
+    fournisseurActuel: '',
+    budgetTranche: '',
+    frequenceAchat: '',
+    besoinPrincipal: [],
   });
 
   const isPro = form.clientType === 'professionnel';
@@ -124,6 +205,11 @@ export default function ClientFormModal({ client, onClose, onSaved }: ClientForm
             mainActivity: p.main_activity ?? '',
             workLocation: p.work_location ?? '',
             activityLevel: p.activity_level ?? '',
+            produitsUtilises: p.produits_utilises ?? [],
+            fournisseurActuel: p.fournisseur_actuel ?? '',
+            budgetTranche: p.budget_tranche ?? '',
+            frequenceAchat: p.frequence_achat ?? '',
+            besoinPrincipal: p.besoin_principal ?? [],
           });
         }
       })
@@ -131,7 +217,7 @@ export default function ClientFormModal({ client, onClose, onSaved }: ClientForm
   }, [isEdit, client?.id]);
 
   const set = (field: string, value: any) => setForm((p) => ({ ...p, [field]: value }));
-  const setPro = (field: keyof ProForm, value: string) => setProForm((p) => ({ ...p, [field]: value }));
+  const setPro = (field: keyof ProForm, value: any) => setProForm((p) => ({ ...p, [field]: value }));
 
   const showDiscountValue = form.loyaltyDiscountType === 'custom' || form.loyaltyDiscountType === 'vip' || form.loyaltyDiscountType === 'classic';
 
@@ -145,6 +231,11 @@ export default function ClientFormModal({ client, onClose, onSaved }: ClientForm
         main_activity: proForm.mainActivity || null,
         work_location: proForm.workLocation || null,
         activity_level: proForm.activityLevel || null,
+        produits_utilises: proForm.produitsUtilises,
+        fournisseur_actuel: proForm.fournisseurActuel || null,
+        budget_tranche: proForm.budgetTranche || null,
+        frequence_achat: proForm.frequenceAchat || null,
+        besoin_principal: proForm.besoinPrincipal,
       }),
     });
   };
@@ -249,6 +340,7 @@ export default function ClientFormModal({ client, onClose, onSaved }: ClientForm
               </div>
 
               <div className="grid grid-cols-2 gap-3">
+                {/* Statut + Nom commercial */}
                 <div className="col-span-2">
                   <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1">Statut professionnel</label>
                   <select value={proForm.statutCommercial} onChange={(e) => setPro('statutCommercial', e.target.value)}
@@ -267,8 +359,9 @@ export default function ClientFormModal({ client, onClose, onSaved }: ClientForm
                   />
                 </div>
 
+                {/* Activité + Lieu */}
                 <div>
-                  <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1">Activité principale</label>
+                  <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1">Activité pro</label>
                   <select value={proForm.mainActivity} onChange={(e) => setPro('mainActivity', e.target.value)}
                     className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white">
                     <option value="">— Choisir —</option>
@@ -285,6 +378,7 @@ export default function ClientFormModal({ client, onClose, onSaved }: ClientForm
                   </select>
                 </div>
 
+                {/* Niveau */}
                 <div className="col-span-2">
                   <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1">Niveau d'activité</label>
                   <select value={proForm.activityLevel} onChange={(e) => setPro('activityLevel', e.target.value)}
@@ -292,6 +386,59 @@ export default function ClientFormModal({ client, onClose, onSaved }: ClientForm
                     <option value="">— Choisir —</option>
                     {NIVEAU_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
+                </div>
+
+                {/* Produits utilisés — MULTI */}
+                <div className="col-span-2">
+                  <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1.5">
+                    Produits utilisés <span className="text-violet-400 normal-case font-400">(plusieurs possibles)</span>
+                  </label>
+                  <MultiChip
+                    options={PRODUITS_OPTIONS}
+                    selected={proForm.produitsUtilises}
+                    onChange={(v) => setPro('produitsUtilises', v)}
+                  />
+                </div>
+
+                {/* Fournisseur + Budget */}
+                <div>
+                  <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1">Fournisseur actuel</label>
+                  <select value={proForm.fournisseurActuel} onChange={(e) => setPro('fournisseurActuel', e.target.value)}
+                    className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white">
+                    <option value="">— Choisir —</option>
+                    {FOURNISSEUR_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1">Budget / mois</label>
+                  <select value={proForm.budgetTranche} onChange={(e) => setPro('budgetTranche', e.target.value)}
+                    className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white">
+                    <option value="">— Choisir —</option>
+                    {BUDGET_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+
+                {/* Fréquence */}
+                <div className="col-span-2">
+                  <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1">Fréquence d'achat</label>
+                  <select value={proForm.frequenceAchat} onChange={(e) => setPro('frequenceAchat', e.target.value)}
+                    className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white">
+                    <option value="">— Choisir —</option>
+                    {FREQUENCE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+
+                {/* Besoin principal — MULTI */}
+                <div className="col-span-2">
+                  <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1.5">
+                    Besoin principal <span className="text-violet-400 normal-case font-400">(plusieurs possibles)</span>
+                  </label>
+                  <MultiChip
+                    options={BESOIN_OPTIONS}
+                    selected={proForm.besoinPrincipal}
+                    onChange={(v) => setPro('besoinPrincipal', v)}
+                  />
                 </div>
               </div>
             </div>
