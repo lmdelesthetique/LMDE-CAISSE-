@@ -21,14 +21,34 @@ export async function GET() {
     const clients = await fetchAll<any>((from, to) =>
       supabase
         .from('clients')
-        .select('id, first_name, last_name, email, phone, whatsapp, city, country, client_type, loyalty_points, loyalty_tier, total_spent, total_visits, last_purchase_at, balance_due, created_at, is_active')
+        .select('id, first_name, last_name, email, phone, whatsapp, city, country, client_type, loyalty_points, loyalty_tier, balance_due, created_at, is_active')
         .neq('is_active', false)
         .range(from, to)
     );
 
-    // ── 2. Receipts last 12 months → category preference per client ───────────
+    // ── 2. ALL-TIME receipts → compute real spent/visits/last_purchase per client
+    const allReceipts = await fetchAll<any>((from, to) =>
+      supabase
+        .from('receipts')
+        .select('client_id, total_amount, created_at')
+        .not('client_id', 'is', null)
+        .eq('status', 'completed')
+        .range(from, to)
+    );
+
+    const statsMap = new Map<string, { spent: number; visits: number; lastAt: string }>();
+    for (const r of allReceipts) {
+      if (!r.client_id) continue;
+      const s = statsMap.get(r.client_id) ?? { spent: 0, visits: 0, lastAt: '' };
+      s.spent += parseFloat(r.total_amount ?? 0);
+      s.visits += 1;
+      if (!s.lastAt || r.created_at > s.lastAt) s.lastAt = r.created_at;
+      statsMap.set(r.client_id, s);
+    }
+
+    // ── 3. Last 12 months receipts → category preference per client ───────────
     const since = new Date(Date.now() - 365 * DAY_MS).toISOString();
-    const receipts = await fetchAll<any>((from, to) =>
+    const recentReceipts = await fetchAll<any>((from, to) =>
       supabase
         .from('receipts')
         .select('client_id, items, total_amount, created_at')
@@ -38,13 +58,10 @@ export async function GET() {
         .range(from, to)
     );
 
-    // Build per-client category revenue map
     const catByClient = new Map<string, Record<string, number>>();
-    const monthlyByClient = new Map<string, Record<string, number>>(); // YYYY-MM → revenue
-    for (const r of receipts) {
+    for (const r of recentReceipts) {
       if (!r.client_id) continue;
       const items = Array.isArray(r.items) ? r.items : [];
-      // category map
       if (!catByClient.has(r.client_id)) catByClient.set(r.client_id, {});
       const cm = catByClient.get(r.client_id)!;
 
@@ -64,24 +81,21 @@ export async function GET() {
       if (items.length === 0 && receiptTotal > 0) {
         cm['Non ventilé'] = (cm['Non ventilé'] ?? 0) + receiptTotal;
       }
-
-      // monthly trend
-      if (!monthlyByClient.has(r.client_id)) monthlyByClient.set(r.client_id, {});
-      const mm = monthlyByClient.get(r.client_id)!;
-      const month = r.created_at?.slice(0, 7) ?? '';
-      if (month) mm[month] = (mm[month] ?? 0) + receiptTotal;
     }
 
-    // ── 3. Process each client ───────────────────────────────────────────────
+    // ── 4. Process each client ────────────────────────────────────────────────
     const now = Date.now();
 
     const processed = clients
       .filter((c: any) => c.first_name && !(c.first_name === 'CHRISTY' && c.last_name === 'LHOMME'))
       .map((c: any) => {
-        const lastTs = c.last_purchase_at ? new Date(c.last_purchase_at).getTime() : 0;
+        const st = statsMap.get(c.id);
+        const spent = st?.spent ?? 0;
+        const visits = st?.visits ?? 0;
+        const lastPurchaseAt = st?.lastAt ?? null;
+        const lastTs = lastPurchaseAt ? new Date(lastPurchaseAt).getTime() : 0;
         const daysSince = lastTs ? Math.floor((now - lastTs) / DAY_MS) : 999;
-        const spent = parseFloat(c.total_spent ?? 0);
-        const visits = c.total_visits ?? 0;
+
         const cats = catByClient.get(c.id) ?? {};
         const topCat = Object.entries(cats).sort(([, a], [, b]) => (b as number) - (a as number))[0]?.[0] ?? null;
         const segment = rfmSegment(daysSince, visits, spent);
@@ -101,7 +115,7 @@ export async function GET() {
           totalSpent: Math.round(spent * 100) / 100,
           totalVisits: visits,
           avgBasket: visits > 0 ? Math.round((spent / visits) * 100) / 100 : 0,
-          lastPurchaseAt: c.last_purchase_at ?? null,
+          lastPurchaseAt,
           daysSincePurchase: daysSince,
           balanceDue: parseFloat(c.balance_due ?? 0),
           createdAt: c.created_at,
@@ -111,7 +125,7 @@ export async function GET() {
         };
       });
 
-    // ── 4. Aggregations ──────────────────────────────────────────────────────
+    // ── 5. Aggregations ───────────────────────────────────────────────────────
     const segCounts: Record<string, number> = {};
     const typeCounts: Record<string, number> = {};
     const cityRev: Record<string, number> = {};
