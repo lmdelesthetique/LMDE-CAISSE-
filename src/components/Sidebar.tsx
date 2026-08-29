@@ -34,7 +34,17 @@ const navItems: NavItem[] = [
       { id: 'nav-products-import', label: 'Importer CSV', href: '/product-management/import', icon: 'ArrowUpTrayIcon' },
     ],
   },
-  { id: 'nav-clients', label: 'Clients', icon: 'UsersIcon', href: '/clients', group: 'catalogue' },
+  {
+    id: 'nav-clients',
+    label: 'Clients',
+    icon: 'UsersIcon',
+    href: '/clients',
+    group: 'catalogue',
+    children: [
+      { id: 'nav-clients-list', label: 'Base clients', href: '/clients', icon: 'UsersIcon' },
+      { id: 'nav-clients-analytics', label: 'Segmentation', href: '/clients/analytics', icon: 'ChartBarIcon' },
+    ],
+  },
   { id: 'nav-categories', label: 'Catégories', icon: 'RectangleGroupIcon', href: '/categories', group: 'catalogue' },
   { id: 'nav-promotions', label: 'Promotions', icon: 'TagIcon', href: '/promotions', group: 'catalogue' },
   { id: 'nav-stock', label: 'Stock', icon: 'ArchiveBoxIcon', href: '/stock', group: 'catalogue' },
