@@ -64,6 +64,7 @@ const PRODUITS_OPTIONS = [
   { value: 'pedicure', label: 'Pédicure' },
   { value: 'strass', label: 'Strass' },
   { value: 'uv', label: 'UV / Lampe' },
+  { value: 'consommable', label: 'Consommable' },
   { value: 'other', label: 'Autre' },
 ];
 
