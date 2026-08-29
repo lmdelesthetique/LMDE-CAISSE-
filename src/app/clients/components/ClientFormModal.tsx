@@ -36,6 +36,49 @@ const DISCOUNT_TYPE_OPTIONS = [
   { value: 'custom', label: 'Remise personnalisée' },
 ];
 
+const PRO_STATUT_OPTIONS = [
+  { value: 'prospect', label: 'Prospect' },
+  { value: 'a_relancer', label: 'À relancer' },
+  { value: 'cliente_test', label: 'Cliente test' },
+  { value: 'cliente_active', label: 'Cliente active' },
+  { value: 'cliente_recurrente', label: 'Cliente récurrente' },
+  { value: 'cliente_vip', label: 'Cliente VIP' },
+  { value: 'inactive', label: 'Inactive' },
+];
+
+const ACTIVITE_OPTIONS = [
+  { value: 'onglerie', label: 'Onglerie' },
+  { value: 'cils', label: 'Cils' },
+  { value: 'pedicure', label: 'Pédicure' },
+  { value: 'coiffure', label: 'Coiffure' },
+  { value: 'esthetique', label: 'Esthétique' },
+  { value: 'strass_dentaires', label: 'Strass dentaires' },
+  { value: 'multi_services', label: 'Multi-services' },
+];
+
+const TRAVAILLE_A_OPTIONS = [
+  { value: 'domicile', label: 'Domicile' },
+  { value: 'salon', label: 'Salon' },
+  { value: 'institut', label: 'Institut' },
+  { value: 'mobile', label: 'Mobile' },
+  { value: 'location_cabine', label: 'Location cabine' },
+];
+
+const NIVEAU_OPTIONS = [
+  { value: 'debutante', label: 'Débutante' },
+  { value: 'en_developpement', label: 'En développement' },
+  { value: 'etablie', label: 'Établie' },
+  { value: 'gros_volume', label: 'Gros volume' },
+];
+
+interface ProForm {
+  statutCommercial: string;
+  nomCommercial: string;
+  mainActivity: string;
+  workLocation: string;
+  activityLevel: string;
+}
+
 export default function ClientFormModal({ client, onClose, onSaved }: ClientFormModalProps) {
   const isEdit = !!client;
   const [loading, setLoading] = useState(false);
@@ -57,9 +100,54 @@ export default function ClientFormModal({ client, onClose, onSaved }: ClientForm
     loyaltyDiscountValue: client?.loyaltyDiscountValue ?? 0,
   });
 
+  const [proForm, setProForm] = useState<ProForm>({
+    statutCommercial: 'prospect',
+    nomCommercial: '',
+    mainActivity: '',
+    workLocation: '',
+    activityLevel: '',
+  });
+
+  const isPro = form.clientType === 'professionnel';
+
+  // Load existing pro profile when editing
+  useEffect(() => {
+    if (!isEdit || !client?.id) return;
+    fetch(`/api/clients/${client.id}/pro-profile`)
+      .then((r) => r.json())
+      .then((json) => {
+        const p = json.profile;
+        if (p) {
+          setProForm({
+            statutCommercial: p.statut_commercial ?? 'prospect',
+            nomCommercial: p.salon_name ?? '',
+            mainActivity: p.main_activity ?? '',
+            workLocation: p.work_location ?? '',
+            activityLevel: p.activity_level ?? '',
+          });
+        }
+      })
+      .catch(() => {});
+  }, [isEdit, client?.id]);
+
   const set = (field: string, value: any) => setForm((p) => ({ ...p, [field]: value }));
+  const setPro = (field: keyof ProForm, value: string) => setProForm((p) => ({ ...p, [field]: value }));
 
   const showDiscountValue = form.loyaltyDiscountType === 'custom' || form.loyaltyDiscountType === 'vip' || form.loyaltyDiscountType === 'classic';
+
+  const saveProProfile = async (clientId: string) => {
+    await fetch(`/api/clients/${clientId}/pro-profile`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        statut_commercial: proForm.statutCommercial || 'prospect',
+        salon_name: proForm.nomCommercial || null,
+        main_activity: proForm.mainActivity || null,
+        work_location: proForm.workLocation || null,
+        activity_level: proForm.activityLevel || null,
+      }),
+    });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -86,10 +174,12 @@ export default function ClientFormModal({ client, onClose, onSaved }: ClientForm
       };
       if (isEdit && client) {
         saved = await clientService.update(client.id, payload);
+        if (saved && isPro) await saveProProfile(saved.id);
       } else {
         const result = await clientService.create(payload);
         if (result.error) throw new Error(result.error);
         saved = result.client;
+        if (saved && isPro) await saveProProfile(saved.id);
       }
       if (saved) {
         toast.success(isEdit ? 'Client enregistré' : 'Client créé');
@@ -147,6 +237,65 @@ export default function ClientFormModal({ client, onClose, onSaved }: ClientForm
               </select>
             </div>
           </div>
+
+          {/* ── Section Profil Professionnel ─────────────────────────────────── */}
+          {isPro && (
+            <div className="border border-violet-200 rounded-xl p-4 space-y-3 bg-violet-50/40">
+              <div className="flex items-center gap-2 mb-1">
+                <div className="w-6 h-6 rounded-md bg-violet-100 flex items-center justify-center">
+                  <Icon name="BriefcaseIcon" size={13} className="text-violet-600" />
+                </div>
+                <p className="text-xs font-700 text-violet-700 uppercase tracking-wide">Profil professionnel</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2">
+                  <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1">Statut professionnel</label>
+                  <select value={proForm.statutCommercial} onChange={(e) => setPro('statutCommercial', e.target.value)}
+                    className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white">
+                    {PRO_STATUT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+
+                <div className="col-span-2">
+                  <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1">Nom commercial</label>
+                  <input
+                    value={proForm.nomCommercial}
+                    onChange={(e) => setPro('nomCommercial', e.target.value)}
+                    placeholder="Nom du salon / institut / activité"
+                    className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-300 focus:border-violet-400"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1">Activité principale</label>
+                  <select value={proForm.mainActivity} onChange={(e) => setPro('mainActivity', e.target.value)}
+                    className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white">
+                    <option value="">— Choisir —</option>
+                    {ACTIVITE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1">Travaille à</label>
+                  <select value={proForm.workLocation} onChange={(e) => setPro('workLocation', e.target.value)}
+                    className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white">
+                    <option value="">— Choisir —</option>
+                    {TRAVAILLE_A_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+
+                <div className="col-span-2">
+                  <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1">Niveau d'activité</label>
+                  <select value={proForm.activityLevel} onChange={(e) => setPro('activityLevel', e.target.value)}
+                    className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white">
+                    <option value="">— Choisir —</option>
+                    {NIVEAU_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div>

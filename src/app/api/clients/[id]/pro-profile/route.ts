@@ -39,6 +39,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     date_premier_contact: body.date_premier_contact ?? null,
     statut_commercial: body.statut_commercial ?? 'prospect',
     prochain_suivi: body.prochain_suivi ?? null,
+    main_activity: body.main_activity ?? null,
+    work_location: body.work_location ?? null,
+    activity_level: body.activity_level ?? null,
     updated_at: new Date().toISOString(),
   };
 
