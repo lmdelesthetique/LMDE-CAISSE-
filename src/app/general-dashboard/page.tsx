@@ -166,14 +166,14 @@ export default function GeneralDashboardPage() {
       setEmployees((emps ?? []).map(e => ({ id: e.id, name: `${e.first_name} ${e.last_name}`.trim() })));
       setCategories((cats ?? []).map(c => ({ id: c.id, name: c.name })));
 
-      // Load receipts
-      let receiptsQuery = supabase
+      // Load receipts — order + high limit to bypass Supabase's default 1000-row cap
+      const { data: receipts } = await supabase
         .from('receipts')
         .select('id, total_amount, payment_method, status, created_at, discount_amount, cashier_name, items_count, is_demo, client_name')
         .gte('created_at', from)
-        .lte('created_at', to);
-
-      const { data: receipts } = await receiptsQuery;
+        .lte('created_at', to)
+        .order('created_at', { ascending: true })
+        .limit(10000);
       const isReal = (r: any) => {
         if (r.is_demo === true) return false;
         const cn = (r.client_name ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
@@ -223,7 +223,8 @@ export default function GeneralDashboardPage() {
         .sort((a, b) => b.value - a.value);
 
       // Revenue chart — group by day/week depending on period
-      const chartMap: Record<string, { revenue: number; tickets: number }> = {};
+      // Track sortKey (ISO) so we can order chronologically regardless of insertion order
+      const chartMap: Record<string, { revenue: number; tickets: number; sortKey: string }> = {};
       for (const r of validReceipts) {
         const d = new Date(r.created_at);
         let key: string;
@@ -234,11 +235,13 @@ export default function GeneralDashboardPage() {
         } else {
           key = d.toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' });
         }
-        if (!chartMap[key]) chartMap[key] = { revenue: 0, tickets: 0 };
+        if (!chartMap[key]) chartMap[key] = { revenue: 0, tickets: 0, sortKey: r.created_at };
         chartMap[key].revenue += r.total_amount ?? 0;
         chartMap[key].tickets += 1;
       }
-      const chartData = Object.entries(chartMap).map(([label, v]) => ({ label, ...v }));
+      const chartData = Object.entries(chartMap)
+        .sort(([, a], [, b]) => a.sortKey.localeCompare(b.sortKey))
+        .map(([label, { revenue, tickets }]) => ({ label, revenue, tickets }));
 
       // Reservation KPIs — use accounting dates (not created_at) to match when cash was actually collected
       const [{ data: resDeposits }, { data: resBalances }] = await Promise.all([
@@ -264,7 +267,8 @@ export default function GeneralDashboardPage() {
         .from('receipts')
         .select('cashier_name, employee_id, total_amount, status')
         .gte('created_at', from)
-        .lte('created_at', to);
+        .lte('created_at', to)
+        .limit(10000);
 
       const { data: empDetails } = await supabase
         .from('employees')

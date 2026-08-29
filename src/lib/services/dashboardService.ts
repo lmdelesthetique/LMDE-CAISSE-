@@ -194,9 +194,10 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
   const prevDayRange = getDateRange('prevDay');
 
   // Build receipt queries with optional employee filter (demo tickets excluded)
+  // limit(10000) bypasses Supabase's default 1000-row cap for year-long queries
   const buildReceiptsQuery = (s: string, e: string) => {
     let q = supabase.from('receipts').select('total_amount, items_count, is_demo, client_name').eq('status', 'completed')
-      .gte('created_at', s).lte('created_at', e);
+      .gte('created_at', s).lte('created_at', e).limit(10000);
     if (filters?.employeeId) q = q.eq('employee_id', filters.employeeId);
     return q;
   };
@@ -366,7 +367,8 @@ export async function fetchRevenueChart(filters?: DashboardFiltersState): Promis
     .eq('status', 'completed')
     .gte('created_at', rangeStart)
     .lte('created_at', rangeEnd)
-    .order('created_at', { ascending: true });
+    .order('created_at', { ascending: true })
+    .limit(10000);
 
   if (filters?.employeeId) query = query.eq('employee_id', filters.employeeId);
 
@@ -402,7 +404,8 @@ export async function fetchPaymentMethods(filters?: DashboardFiltersState): Prom
     .select('payment_method, total_amount, is_demo, client_name')
     .eq('status', 'completed')
     .gte('created_at', start)
-    .lte('created_at', end);
+    .lte('created_at', end)
+    .limit(10000);
 
   if (filters?.employeeId) query = query.eq('employee_id', filters.employeeId);
 
