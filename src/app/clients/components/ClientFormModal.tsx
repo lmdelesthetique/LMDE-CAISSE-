@@ -145,11 +145,11 @@ const NIVEAU_OPTIONS = [
 interface ProForm {
   statutCommercial: string;
   nomCommercial: string;
-  mainActivity: string;
-  workLocation: string;
+  mainActivity: string[];
+  workLocation: string[];
   activityLevel: string;
   produitsUtilises: string[];
-  fournisseurActuel: string;
+  fournisseurActuel: string[];
   budgetTranche: string;
   frequenceAchat: string;
   besoinPrincipal: string[];
@@ -179,11 +179,11 @@ export default function ClientFormModal({ client, onClose, onSaved }: ClientForm
   const [proForm, setProForm] = useState<ProForm>({
     statutCommercial: 'prospect',
     nomCommercial: '',
-    mainActivity: '',
-    workLocation: '',
+    mainActivity: [],
+    workLocation: [],
     activityLevel: '',
     produitsUtilises: [],
-    fournisseurActuel: '',
+    fournisseurActuel: [],
     budgetTranche: '',
     frequenceAchat: '',
     besoinPrincipal: [],
@@ -199,17 +199,18 @@ export default function ClientFormModal({ client, onClose, onSaved }: ClientForm
       .then((json) => {
         const p = json.profile;
         if (p) {
+          const toArr = (v: any) => Array.isArray(v) ? v : (v ? [v] : []);
           setProForm({
             statutCommercial: p.statut_commercial ?? 'prospect',
             nomCommercial: p.salon_name ?? '',
-            mainActivity: p.main_activity ?? '',
-            workLocation: p.work_location ?? '',
+            mainActivity: toArr(p.main_activity),
+            workLocation: toArr(p.work_location),
             activityLevel: p.activity_level ?? '',
-            produitsUtilises: p.produits_utilises ?? [],
-            fournisseurActuel: p.fournisseur_actuel ?? '',
+            produitsUtilises: toArr(p.produits_utilises),
+            fournisseurActuel: toArr(p.fournisseur_actuel),
             budgetTranche: p.budget_tranche ?? '',
             frequenceAchat: p.frequence_achat ?? '',
-            besoinPrincipal: p.besoin_principal ?? [],
+            besoinPrincipal: toArr(p.besoin_principal),
           });
         }
       })
@@ -228,11 +229,11 @@ export default function ClientFormModal({ client, onClose, onSaved }: ClientForm
       body: JSON.stringify({
         statut_commercial: proForm.statutCommercial || 'prospect',
         salon_name: proForm.nomCommercial || null,
-        main_activity: proForm.mainActivity || null,
-        work_location: proForm.workLocation || null,
+        main_activity: proForm.mainActivity,
+        work_location: proForm.workLocation,
         activity_level: proForm.activityLevel || null,
         produits_utilises: proForm.produitsUtilises,
-        fournisseur_actuel: proForm.fournisseurActuel || null,
+        fournisseur_actuel: proForm.fournisseurActuel,
         budget_tranche: proForm.budgetTranche || null,
         frequence_achat: proForm.frequenceAchat || null,
         besoin_principal: proForm.besoinPrincipal,
@@ -359,23 +360,27 @@ export default function ClientFormModal({ client, onClose, onSaved }: ClientForm
                   />
                 </div>
 
-                {/* Activité + Lieu */}
-                <div>
-                  <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1">Activité pro</label>
-                  <select value={proForm.mainActivity} onChange={(e) => setPro('mainActivity', e.target.value)}
-                    className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white">
-                    <option value="">— Choisir —</option>
-                    {ACTIVITE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                  </select>
+                {/* Activité + Lieu — MULTI */}
+                <div className="col-span-2">
+                  <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1.5">
+                    Activité pro <span className="text-violet-400 normal-case font-400">(plusieurs possibles)</span>
+                  </label>
+                  <MultiChip
+                    options={ACTIVITE_OPTIONS}
+                    selected={proForm.mainActivity}
+                    onChange={(v) => setPro('mainActivity', v)}
+                  />
                 </div>
 
-                <div>
-                  <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1">Travaille à</label>
-                  <select value={proForm.workLocation} onChange={(e) => setPro('workLocation', e.target.value)}
-                    className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white">
-                    <option value="">— Choisir —</option>
-                    {TRAVAILLE_A_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                  </select>
+                <div className="col-span-2">
+                  <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1.5">
+                    Travaille à <span className="text-violet-400 normal-case font-400">(plusieurs possibles)</span>
+                  </label>
+                  <MultiChip
+                    options={TRAVAILLE_A_OPTIONS}
+                    selected={proForm.workLocation}
+                    onChange={(v) => setPro('workLocation', v)}
+                  />
                 </div>
 
                 {/* Niveau */}
@@ -400,17 +405,20 @@ export default function ClientFormModal({ client, onClose, onSaved }: ClientForm
                   />
                 </div>
 
-                {/* Fournisseur + Budget */}
-                <div>
-                  <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1">Fournisseur actuel</label>
-                  <select value={proForm.fournisseurActuel} onChange={(e) => setPro('fournisseurActuel', e.target.value)}
-                    className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white">
-                    <option value="">— Choisir —</option>
-                    {FOURNISSEUR_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                  </select>
+                {/* Fournisseur — MULTI */}
+                <div className="col-span-2">
+                  <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1.5">
+                    Fournisseur actuel <span className="text-violet-400 normal-case font-400">(plusieurs possibles)</span>
+                  </label>
+                  <MultiChip
+                    options={FOURNISSEUR_OPTIONS}
+                    selected={proForm.fournisseurActuel}
+                    onChange={(v) => setPro('fournisseurActuel', v)}
+                  />
                 </div>
 
-                <div>
+                {/* Budget */}
+                <div className="col-span-2">
                   <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1">Budget / mois</label>
                   <select value={proForm.budgetTranche} onChange={(e) => setPro('budgetTranche', e.target.value)}
                     className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white">
