@@ -1728,7 +1728,10 @@ export default function B2BInvoicingPage() {
                             const phone = normalizePhoneWA(doc.clientPhone);
                             const typeLabel = DOC_TYPE_CONFIG[doc.type]?.label ?? doc.type;
                             const dateStr = doc.issueDate ? new Date(doc.issueDate).toLocaleDateString('fr-FR') : '';
-                            const msg = `Bonjour ${doc.clientName} 🌸\n\nVoici votre *${typeLabel}* n° *${doc.number}* de Le Monde de l'Esthétique.\n\n💶 Montant TTC : *${doc.totalTtc.toFixed(2)} €*\n📅 Date d'émission : ${dateStr}\n📋 ${doc.paymentTerms}\n\nMerci de votre confiance ! 💕\n— Le Monde de l'Esthétique`;
+                            const isSaved = doc.id && !doc.id.startsWith('doc-');
+                            const siteUrl = typeof window !== 'undefined' ? window.location.origin : process.env.NEXT_PUBLIC_SITE_URL || 'https://lmdecaisse.com';
+                            const docLink = isSaved ? `${siteUrl}/facture/${doc.id}` : '';
+                            const msg = `Bonjour ${doc.clientName} 🌸\n\nVoici votre *${typeLabel}* n° *${doc.number}* de Le Monde de l'Esthétique.\n\n💶 Montant TTC : *${doc.totalTtc.toFixed(2)} €*\n📅 Date d'émission : ${dateStr}${doc.paymentTerms ? '\n📋 ' + doc.paymentTerms : ''}${docLink ? '\n\n🔗 Consulter en ligne : ' + docLink : ''}\n\nMerci de votre confiance ! 💕\n— Le Monde de l'Esthétique`;
                             return (
                               <a
                                 href={`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`}
