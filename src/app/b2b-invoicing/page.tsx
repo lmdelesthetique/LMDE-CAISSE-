@@ -1214,42 +1214,49 @@ function DocPreviewModal({ doc, clients, onClose, onSendEmail }: { doc: B2BDocum
           </div>
 
           {/* Lines */}
-          <table className="w-full text-xs border-collapse">
-            <thead>
-              <tr className="border-b-2 border-foreground">
-                <th className="text-left py-2 font-semibold">Description</th>
-                <th className="text-center py-2 font-semibold w-12">Qté</th>
-                <th className="text-right py-2 font-semibold w-20">P.U. HT</th>
-                <th className="text-center py-2 font-semibold w-14">TVA</th>
-                <th className="text-center py-2 font-semibold w-14">Remise</th>
-                <th className="text-right py-2 font-semibold w-20">Total HT</th>
-                <th className="text-right py-2 font-semibold w-20">Total TTC</th>
-              </tr>
-            </thead>
-            <tbody>
-              {doc.lines.map((line, i) => {
-                const { ht, ttc } = calcLine(line);
-                return (
-                  <tr key={line.id} className={`border-b border-border ${i % 2 === 0 ? '' : 'bg-muted/20'}`}>
-                    <td className="py-2">
-                      <div className="flex items-center gap-2">
-                        {line.imageUrl && (
-                          <img src={line.imageUrl} alt="" className="w-8 h-8 rounded object-cover shrink-0 border border-border" />
-                        )}
-                        <span>{line.description}</span>
-                      </div>
-                    </td>
-                    <td className="py-2 text-center">{line.quantity}</td>
-                    <td className="py-2 text-right">{formatCurrency(line.unitPrice)}</td>
-                    <td className="py-2 text-center">{line.tvaRate}%</td>
-                    <td className="py-2 text-center">{line.discount > 0 ? `${line.discount}%` : '—'}</td>
-                    <td className="py-2 text-right">{formatCurrency(ht)}</td>
-                    <td className="py-2 text-right font-medium">{formatCurrency(ttc)}</td>
+          {(() => {
+            const hasImgs = doc.lines.some((l) => l.imageUrl);
+            return (
+              <table className="w-full text-xs border-collapse">
+                <thead>
+                  <tr className="border-b-2 border-foreground">
+                    {hasImgs && <th className="py-2 w-14"></th>}
+                    <th className="text-left py-2 font-semibold">Description</th>
+                    <th className="text-center py-2 font-semibold w-12">Qté</th>
+                    <th className="text-right py-2 font-semibold w-20">P.U. HT</th>
+                    <th className="text-center py-2 font-semibold w-14">TVA</th>
+                    <th className="text-center py-2 font-semibold w-14">Remise</th>
+                    <th className="text-right py-2 font-semibold w-20">Total HT</th>
+                    <th className="text-right py-2 font-semibold w-20">Total TTC</th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                </thead>
+                <tbody>
+                  {doc.lines.map((line, i) => {
+                    const { ht, ttc } = calcLine(line);
+                    return (
+                      <tr key={line.id} className={`border-b border-border ${i % 2 === 0 ? '' : 'bg-muted/20'}`}>
+                        {hasImgs && (
+                          <td className="py-1.5 pl-1 pr-2">
+                            {line.imageUrl
+                              ? <img src={line.imageUrl} alt="" className="w-11 h-11 rounded-lg object-cover border border-border" />
+                              : <div className="w-11 h-11 rounded-lg bg-muted/40 border border-border" />
+                            }
+                          </td>
+                        )}
+                        <td className="py-2">{line.description}</td>
+                        <td className="py-2 text-center">{line.quantity}</td>
+                        <td className="py-2 text-right">{formatCurrency(line.unitPrice)}</td>
+                        <td className="py-2 text-center">{line.tvaRate}%</td>
+                        <td className="py-2 text-center">{line.discount > 0 ? `${line.discount}%` : '—'}</td>
+                        <td className="py-2 text-right">{formatCurrency(ht)}</td>
+                        <td className="py-2 text-right font-medium">{formatCurrency(ttc)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            );
+          })()}
 
           {/* Totals */}
           <div className="flex justify-end">

@@ -50,6 +50,7 @@ export default async function FacturePublicPage({ params }: { params: Promise<{ 
   const items = (data.items as Record<string, unknown>) || {};
   const isB2B = Boolean(items._b2b);
   const lines: Array<Record<string, unknown>> = Array.isArray(items.lines) ? items.lines as Array<Record<string, unknown>> : [];
+  const hasImages = lines.some((l) => l.imageUrl);
 
   const doc = {
     id: data.id as string,
@@ -106,8 +107,10 @@ export default async function FacturePublicPage({ params }: { params: Promise<{ 
     table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
     thead { background: ${ROSE}; color: #fff; }
     th { padding: 8px 10px; font-size: 10px; text-align: left; font-weight: 700; }
-    td { padding: 8px 10px; font-size: 12px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
+    td { padding: 8px 10px; font-size: 12px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
     tr:nth-child(even) td { background: ${ROSE_PALE}; }
+    .prod-img { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; border: 1px solid #eee; display: block; }
+    .prod-img-placeholder { width: 44px; height: 44px; border-radius: 6px; background: ${ROSE_LIGHT}; display: block; }
     .totals { display: flex; justify-content: flex-end; margin-bottom: 20px; }
     .totals-table { width: 280px; }
     .totals-table td { border-bottom: none; font-size: 12px; padding: 4px 8px; }
@@ -150,12 +153,13 @@ export default async function FacturePublicPage({ params }: { params: Promise<{ 
     <table>
       <thead>
         <tr>
-          <th style="width:40%">Description</th>
-          <th style="width:10%;text-align:center">Qté</th>
-          <th style="width:15%;text-align:right">P.U. HT</th>
-          <th style="width:10%;text-align:center">TVA</th>
-          <th style="width:10%;text-align:center">Remise</th>
-          <th style="width:15%;text-align:right">Total TTC</th>
+          ${hasImages ? '<th style="width:52px"></th>' : ''}
+          <th style="width:38%">Description</th>
+          <th style="width:9%;text-align:center">Qté</th>
+          <th style="width:14%;text-align:right">P.U. HT</th>
+          <th style="width:9%;text-align:center">TVA</th>
+          <th style="width:9%;text-align:center">Remise</th>
+          <th style="width:14%;text-align:right">Total TTC</th>
         </tr>
       </thead>
       <tbody>
@@ -166,7 +170,12 @@ export default async function FacturePublicPage({ params }: { params: Promise<{ 
           const disc = Number(l.discount) || 0;
           const lineHt = qty * pu * (1 - disc / 100);
           const lineTtc = lineHt * (1 + tva / 100);
-          return `<tr><td>${esc(l.description as string || '')}</td><td style="text-align:center">${qty}</td><td style="text-align:right">${pu.toFixed(2)} €</td><td style="text-align:center">${tva}%</td><td style="text-align:center">${disc > 0 ? disc + '%' : '—'}</td><td style="text-align:right;font-weight:600">${lineTtc.toFixed(2)} €</td></tr>`;
+          const imgCell = hasImages
+            ? (l.imageUrl
+                ? `<td style="padding:4px 6px;text-align:center"><img src="${esc(l.imageUrl as string)}" class="prod-img" onerror="this.style.display='none'" /></td>`
+                : `<td style="padding:4px 6px;text-align:center"><div class="prod-img-placeholder"></div></td>`)
+            : '';
+          return `<tr>${imgCell}<td>${esc(l.description as string || '')}</td><td style="text-align:center">${qty}</td><td style="text-align:right">${pu.toFixed(2)} €</td><td style="text-align:center">${tva}%</td><td style="text-align:center">${disc > 0 ? disc + '%' : '—'}</td><td style="text-align:right;font-weight:600">${lineTtc.toFixed(2)} €</td></tr>`;
         }).join('')}
       </tbody>
     </table>
