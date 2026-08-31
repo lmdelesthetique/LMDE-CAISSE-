@@ -58,6 +58,7 @@ interface B2BDocument {
   lines: LineItem[];
   notes: string;
   paymentTerms: string;
+  paymentMethod?: string;
   totalHt: number;
   totalTva: number;
   totalTtc: number;
@@ -269,6 +270,7 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
   const [lines, setLines] = useState<LineItem[]>(doc?.lines?.length ? doc.lines : [newLine()]);
   const [notes, setNotes] = useState(doc?.notes ?? '');
   const [paymentTerms, setPaymentTerms] = useState(doc?.paymentTerms ?? 'Paiement à 30 jours');
+  const [paymentMethod, setPaymentMethod] = useState(doc?.paymentMethod ?? 'virement');
   const [clientSearch, setClientSearch] = useState('');
   const [showClientDropdown, setShowClientDropdown] = useState(false);
   // Product search per line
@@ -435,6 +437,7 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
       lines,
       notes,
       paymentTerms,
+      paymentMethod: status === 'paid' ? paymentMethod : undefined,
       totalHt,
       totalTva,
       totalTtc,
@@ -500,6 +503,28 @@ function DocFormModal({ doc, allDocs, clients, onClose, onSave }: DocFormModalPr
               </select>
             </div>
           </div>
+
+          {/* Mode de paiement — visible uniquement si payé */}
+          {status === 'paid' && (
+            <div className="border border-emerald-200 rounded-xl p-3 bg-emerald-50/50">
+              <label className="block text-xs font-semibold text-emerald-700 uppercase tracking-wide mb-2">
+                💳 Mode d'encaissement
+              </label>
+              <select
+                value={paymentMethod}
+                onChange={(e) => setPaymentMethod(e.target.value)}
+                className="w-full border border-emerald-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-300"
+              >
+                <option value="virement">Virement bancaire</option>
+                <option value="cheque">Chèque</option>
+                <option value="card">Carte bancaire</option>
+                <option value="cash">Espèces</option>
+                <option value="paypal">PayPal / En ligne</option>
+                <option value="autre">Autre</option>
+              </select>
+              <p className="text-xs text-emerald-600 mt-1.5">Ce montant sera comptabilisé dans le CA et le stock sera déduit.</p>
+            </div>
+          )}
 
           {/* Seller info */}
           <div className="border border-border rounded-xl p-4 space-y-3">
@@ -1457,7 +1482,7 @@ export default function B2BInvoicingPage() {
   async function handleSave(doc: B2BDocument) {
     const isNew = !doc.id || doc.id.startsWith('doc-');
     const prevStatus = docs.find((d) => d.id === doc.id)?.status;
-    const becomingPaid = doc.type === 'invoice' && doc.status === 'paid' && prevStatus !== 'paid';
+    const becomingPaid = doc.type === 'invoice' && doc.status === 'paid' && (isNew || prevStatus !== 'paid');
 
     const payload = {
       doc_type: doc.type,
@@ -1467,7 +1492,7 @@ export default function B2BInvoicingPage() {
       total_tva: doc.totalTva,
       total_ttc: doc.totalTtc,
       status: doc.status,
-      is_counted_in_ca: doc.type === 'invoice',
+      is_counted_in_ca: doc.type === 'invoice' && doc.status === 'paid',
       items: {
         _b2b: true,
         lines: doc.lines,
@@ -1484,10 +1509,14 @@ export default function B2BInvoicingPage() {
         dueDate: doc.dueDate,
         notes: doc.notes,
         paymentTerms: doc.paymentTerms,
+        paymentMethod: doc.paymentMethod,
       },
     };
 
     try {
+      let savedId = doc.id;
+      let savedNumber = doc.number;
+
       if (isNew) {
         const res = await fetch('/api/factures', {
           method: 'POST',
@@ -1499,6 +1528,8 @@ export default function B2BInvoicingPage() {
           throw new Error(err.error || 'Erreur de sauvegarde');
         }
         const { id, numero } = await res.json();
+        savedId = id;
+        savedNumber = numero;
         const saved: B2BDocument = { ...doc, id, number: numero };
         setDocs((prev) => [saved, ...prev]);
       } else {
@@ -1512,14 +1543,46 @@ export default function B2BInvoicingPage() {
           throw new Error(err.error || 'Erreur de mise à jour');
         }
         setDocs((prev) => prev.map((d) => d.id === doc.id ? doc : d));
-        if (becomingPaid) {
-          fetch('/api/b2b/deduct-stock', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ factureId: doc.id, lines: doc.lines, clientName: doc.clientName, numero: doc.number }),
-          }).catch(() => {});
-        }
       }
+
+      if (becomingPaid) {
+        // Déduire le stock
+        fetch('/api/b2b/deduct-stock', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ factureId: savedId, lines: doc.lines, clientName: doc.clientName, numero: savedNumber }),
+        }).catch(() => {});
+
+        // Créer un receipt pour comptabiliser dans le CA
+        const receiptItems = doc.lines.map((l) => {
+          const unitTtc = l.unitPrice * (1 + l.tvaRate / 100) * (1 - (l.discount || 0) / 100);
+          return {
+            name: l.description,
+            qty: l.quantity,
+            price: parseFloat(unitTtc.toFixed(4)),
+            total: parseFloat((unitTtc * l.quantity).toFixed(2)),
+            category: 'B2B',
+            product_id: l.productId || null,
+          };
+        });
+        fetch('/api/receipts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            total_amount: doc.totalTtc,
+            status: 'completed',
+            payment_method: doc.paymentMethod || 'virement',
+            client_name: doc.clientName,
+            client_id: doc.clientId || null,
+            cashier_name: 'Facture B2B',
+            items_count: doc.lines.length,
+            items: receiptItems,
+            ticket_number: savedNumber,
+            is_demo: false,
+          }),
+        }).catch(() => {});
+      }
+
       setShowForm(false);
       setEditingDoc(null);
     } catch (e: any) {
