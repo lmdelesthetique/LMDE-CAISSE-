@@ -306,7 +306,7 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
         productId: product.id,
         imageUrl: product.imageUrl ?? undefined,
         isKit: product.isKit,
-        kitComponents: product.isKit ? null : undefined,  // null = en cours de chargement
+        kitComponents: null,  // null = en cours de chargement, toujours tenté
         stockStatus: product.stockStatus,
         availableStock: product.stock,
       };
@@ -314,11 +314,20 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
     });
   };
 
+  // Toujours tenter de charger les composants — si product_kits retourne [], kitComponents sera []
+  // Le kit section n'est affiché que si des composants sont trouvés (> 0)
   const loadKitComponents = useCallback(async (productId: string, idx: number) => {
     const components = await reservationService.fetchKitComponents(productId);
     setItems((prev) => {
       const next = [...prev];
-      if (next[idx]) next[idx] = { ...next[idx], kitComponents: components };
+      if (next[idx]) {
+        next[idx] = {
+          ...next[idx],
+          kitComponents: components,
+          // Si des composants trouvés, forcer isKit=true même si le flag DB est false
+          isKit: components.length > 0 ? true : next[idx].isKit,
+        };
+      }
       return next;
     });
   }, []);
@@ -333,19 +342,19 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
     }
     if (product.stockStatus === 'low_stock') {
       applyProductToItem(product, idx);
-      if (product.isKit) loadKitComponents(product.id, idx);
+      loadKitComponents(product.id, idx);
       setError(`⚠️ Stock faible pour "${product.name}" : seulement ${product.stock} unité(s) disponible(s).`);
       return;
     }
     applyProductToItem(product, idx);
-    if (product.isKit) loadKitComponents(product.id, idx);
+    loadKitComponents(product.id, idx);
   };
 
   const handleOutOfStockConfirm = (preorder: boolean) => {
     if (!pendingProductSelect) return;
     if (preorder) {
       applyProductToItem(pendingProductSelect.product, pendingProductSelect.idx);
-      if (pendingProductSelect.product.isKit) loadKitComponents(pendingProductSelect.product.id, pendingProductSelect.idx);
+      loadKitComponents(pendingProductSelect.product.id, pendingProductSelect.idx);
     }
     setOutOfStockWarning(null);
     setPendingProductSelect(null);
@@ -712,41 +721,35 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
                       )}
                     </button>
 
-                    {/* Kit contents */}
-                    {item.isKit && (() => {
-                      const comps = item.kitComponents;
-                      return (
+                    {/* Kit contents — shown only when components loaded and non-empty */}
+                    {item.kitComponents === null && item.productId && (
+                      <p className="mt-1 text-[10px] text-muted-foreground italic animate-pulse">Chargement du contenu du kit...</p>
+                    )}
+                    {item.kitComponents && item.kitComponents.length > 0 && (
                       <div className="mt-2 border border-violet-200 rounded-lg bg-violet-50/60 p-3">
                         <p className="text-[10px] font-700 text-violet-700 uppercase tracking-wide mb-2">📦 Contenu du kit</p>
-                        {comps === null || comps === undefined ? (
-                          <p className="text-xs text-muted-foreground italic animate-pulse">Chargement des composants...</p>
-                        ) : comps.length === 0 ? (
-                          <p className="text-xs text-muted-foreground italic">Aucun composant configuré</p>
-                        ) : (
-                          <div className="space-y-2">
-                            {comps.map((comp, ci) => (
-                              <div key={ci} className="flex items-center gap-2">
-                                <div className="w-9 h-9 rounded-lg overflow-hidden bg-white border border-violet-200 shrink-0">
-                                  {comp.imageUrl ? (
-                                    <Image src={comp.imageUrl} alt={comp.name} width={36} height={36} className="w-full h-full object-cover" />
-                                  ) : (
-                                    <div className="w-full h-full flex items-center justify-center bg-violet-100">
-                                      <Icon name="CubeIcon" size={14} className="text-violet-400" />
-                                    </div>
-                                  )}
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-xs font-600 text-foreground truncate">{comp.name}</p>
-                                  {comp.ref && <p className="text-[10px] text-muted-foreground">{comp.ref}</p>}
-                                </div>
-                                <span className="text-xs font-700 text-violet-700 shrink-0 bg-violet-100 px-1.5 py-0.5 rounded">×{comp.quantity * Number(item.qty)}</span>
+                        <div className="space-y-2">
+                          {item.kitComponents.map((comp, ci) => (
+                            <div key={ci} className="flex items-center gap-2">
+                              <div className="w-9 h-9 rounded-lg overflow-hidden bg-white border border-violet-200 shrink-0">
+                                {comp.imageUrl ? (
+                                  <Image src={comp.imageUrl} alt={comp.name} width={36} height={36} className="w-full h-full object-cover" />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center bg-violet-100">
+                                    <Icon name="CubeIcon" size={14} className="text-violet-400" />
+                                  </div>
+                                )}
                               </div>
-                            ))}
-                          </div>
-                        )}
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-600 text-foreground truncate">{comp.name}</p>
+                                {comp.ref && <p className="text-[10px] text-muted-foreground">{comp.ref}</p>}
+                              </div>
+                              <span className="text-xs font-700 text-violet-700 shrink-0 bg-violet-100 px-1.5 py-0.5 rounded">×{comp.quantity * Number(item.qty)}</span>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                      );
-                    })()}
+                    )}
 
                     {/* Variant fields */}
                     {expandedVariantIdx === idx && (

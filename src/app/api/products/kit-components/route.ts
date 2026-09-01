@@ -8,20 +8,37 @@ export async function GET(req: NextRequest) {
 
   try {
     const supabase = createAdminClient();
-    const { data, error } = await supabase
+
+    // Step 1: fetch kit rows
+    const { data: kitRows, error: kitError } = await supabase
       .from('product_kits')
-      .select('component_id, quantity, products!product_kits_component_id_fkey(id, name, ref, image_url)')
+      .select('component_id, quantity')
       .eq('product_id', productId);
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (kitError) return NextResponse.json({ error: kitError.message }, { status: 500 });
+    if (!kitRows || kitRows.length === 0) return NextResponse.json({ components: [] });
 
-    const components = (data ?? []).map((row: any) => ({
-      componentId: row.component_id,
-      quantity: row.quantity,
-      name: (row.products as any)?.name ?? '',
-      ref: (row.products as any)?.ref ?? '',
-      imageUrl: (row.products as any)?.image_url ?? null,
-    }));
+    // Step 2: fetch product details for each component
+    const componentIds = kitRows.map((r: any) => r.component_id);
+    const { data: products, error: prodError } = await supabase
+      .from('products')
+      .select('id, name, ref, image_url')
+      .in('id', componentIds);
+
+    if (prodError) return NextResponse.json({ error: prodError.message }, { status: 500 });
+
+    const productMap = new Map((products ?? []).map((p: any) => [p.id, p]));
+
+    const components = kitRows.map((row: any) => {
+      const prod = productMap.get(row.component_id) as any;
+      return {
+        componentId: row.component_id,
+        quantity: row.quantity,
+        name: prod?.name ?? '',
+        ref: prod?.ref ?? '',
+        imageUrl: prod?.image_url ?? null,
+      };
+    });
 
     return NextResponse.json({ components });
   } catch (e: any) {
