@@ -949,6 +949,10 @@ export default function ReservationsPage() {
         const relayPhone = "0590259970";
         const msgShipped = `Bonjour ${firstName},\n\nVotre colis est bien parti et sera disponible en ${country} à l'adresse suivante :\n${relayAddress}.\n\nPour récupérer votre colis, appelez le : ${relayPhone}\n\nMerci pour votre confiance ! 🌸\n— Le Monde de l'Esthétique`;
         const msgAvailable = `Bonjour ${firstName},\n\nVotre colis est arrivé et disponible en ${country} à l'adresse suivante :\n${relayAddress}.\n\nPour récupérer votre colis, appelez le : ${relayPhone}\n\nMerci pour votre confiance ! 🌸\n— Le Monde de l'Esthétique`;
+        const siteUrl = typeof window !== 'undefined' ? window.location.origin : process.env.NEXT_PUBLIC_SITE_URL || 'https://lmdecaisse.com';
+        const ticketLink = `${siteUrl}/reservation/${res.id}`;
+        const itemsList = res.items.map((it) => `• ${it.name} ×${it.qty}`).join('\n');
+        const msgTicket = `Bonjour ${firstName} 🌸\n\nVoici votre ticket de réservation n° *${res.reservationNumber}* :\n\n${itemsList}\n\n💰 Total : *${res.totalAmount.toFixed(2)} €*\n✅ Acompte versé : ${res.depositPaid.toFixed(2)} €\n💳 Solde à régler : *${res.balanceDue.toFixed(2)} €*\n\n📸 Voir votre ticket avec les photos :\n${ticketLink}\n\nMerci de votre confiance ! 💕\n— Le Monde de l'Esthétique`;
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
@@ -969,6 +973,18 @@ export default function ReservationsPage() {
 
               <p className="text-xs font-600 text-muted-foreground uppercase tracking-wider mb-3">Choisir le message :</p>
               <div className="space-y-3">
+                <a
+                  href={`https://wa.me/${phone}?text=${encodeURIComponent(msgTicket)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-start gap-3 w-full p-4 bg-pink-50 border-2 border-pink-300 rounded-xl hover:bg-pink-100 transition-colors text-left"
+                >
+                  <span className="text-2xl shrink-0">🎟️</span>
+                  <div>
+                    <p className="text-sm font-700 text-pink-800 mb-1">Envoyer le ticket de réservation</p>
+                    <p className="text-xs text-pink-700 leading-relaxed">Avec lien vers le ticket en ligne avec les photos des articles</p>
+                  </div>
+                </a>
                 <a
                   href={`https://wa.me/${phone}?text=${encodeURIComponent(msgShipped)}`}
                   target="_blank"

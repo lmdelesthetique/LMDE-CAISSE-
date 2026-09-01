@@ -7,6 +7,7 @@ import {
   reservationService,
   type CreateReservationInput,
   type ReservationItem,
+  type KitComponentInfo,
   type ProductSearchResult,
   type Reservation,
   type ReservationType,
@@ -25,6 +26,8 @@ interface ReservationFormModalProps {
 interface ExtendedItem extends ReservationItem {
   productId?: string;
   imageUrl?: string;
+  isKit?: boolean;
+  kitComponents?: KitComponentInfo[];
   stockStatus?: 'in_stock' | 'low_stock' | 'out_of_stock';
   availableStock?: number;
   variant?: string;
@@ -159,27 +162,38 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
   const [pendingProductSelect, setPendingProductSelect] = useState<{ product: ProductSearchResult; idx: number } | null>(null);
   const [expandedVariantIdx, setExpandedVariantIdx] = useState<number | null>(null);
 
-  // Client search
-  const [clientSearch, setClientSearch] = useState('');
+  // Client search (integrated into name field)
   const [clientResults, setClientResults] = useState<Awaited<ReturnType<typeof clientService.search>>>([]);
   const [clientSearchOpen, setClientSearchOpen] = useState(false);
+  const [selectedClientId, setSelectedClientId] = useState<string | undefined>(reservation?.clientId ?? undefined);
   const clientSearchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const handleClientSearch = useCallback((val: string) => {
-    setClientSearch(val);
-    if (clientSearchRef.current) clearTimeout(clientSearchRef.current);
-    if (val.length < 2) { setClientResults([]); setClientSearchOpen(false); return; }
-    setClientSearchOpen(true);
-    clientSearchRef.current = setTimeout(async () => {
-      const results = await clientService.search(val);
-      setClientResults(results);
-    }, 250);
-  }, []);
+  const clientNameRef = useRef<HTMLDivElement>(null);
 
   // Client info
   const [clientName, setClientName] = useState(reservation?.clientName ?? '');
   const [clientPhone, setClientPhone] = useState(reservation?.clientPhone ?? '');
   const [clientEmail, setClientEmail] = useState(reservation?.clientEmail ?? '');
+
+  const handleClientNameChange = useCallback((val: string) => {
+    setClientName(val);
+    setSelectedClientId(undefined); // reset link when user types manually
+    if (clientSearchRef.current) clearTimeout(clientSearchRef.current);
+    if (val.trim().length < 2) { setClientResults([]); setClientSearchOpen(false); return; }
+    setClientSearchOpen(true);
+    clientSearchRef.current = setTimeout(async () => {
+      const results = await clientService.search(val.trim());
+      setClientResults(results);
+    }, 200);
+  }, []);
+
+  const selectClient = useCallback((c: Awaited<ReturnType<typeof clientService.search>>[number]) => {
+    setClientName(c.fullName);
+    setClientPhone(c.phone ?? '');
+    setClientEmail((c as any).email ?? '');
+    setSelectedClientId(c.id);
+    setClientResults([]);
+    setClientSearchOpen(false);
+  }, []);
 
   // Reservation type & recovery
   const [reservationType, setReservationType] = useState<ReservationType | null>(reservation?.reservationType ?? null);
@@ -289,6 +303,8 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
         sku: product.ref,
         productId: product.id,
         imageUrl: product.imageUrl ?? undefined,
+        isKit: product.isKit,
+        kitComponents: product.isKit ? [] : undefined,
         stockStatus: product.stockStatus,
         availableStock: product.stock,
       };
@@ -296,7 +312,16 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
     });
   };
 
-  const handleProductSelect = (product: ProductSearchResult, idx: number) => {
+  const loadKitComponents = useCallback(async (productId: string, idx: number) => {
+    const components = await reservationService.fetchKitComponents(productId);
+    setItems((prev) => {
+      const next = [...prev];
+      if (next[idx]) next[idx] = { ...next[idx], kitComponents: components };
+      return next;
+    });
+  }, []);
+
+  const handleProductSelect = async (product: ProductSearchResult, idx: number) => {
     setShowProductSearch(false);
     setActiveItemIdx(null);
     if (product.stockStatus === 'out_of_stock') {
@@ -306,15 +331,20 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
     }
     if (product.stockStatus === 'low_stock') {
       applyProductToItem(product, idx);
+      if (product.isKit) loadKitComponents(product.id, idx);
       setError(`⚠️ Stock faible pour "${product.name}" : seulement ${product.stock} unité(s) disponible(s).`);
       return;
     }
     applyProductToItem(product, idx);
+    if (product.isKit) loadKitComponents(product.id, idx);
   };
 
   const handleOutOfStockConfirm = (preorder: boolean) => {
     if (!pendingProductSelect) return;
-    if (preorder) applyProductToItem(pendingProductSelect.product, pendingProductSelect.idx);
+    if (preorder) {
+      applyProductToItem(pendingProductSelect.product, pendingProductSelect.idx);
+      if (pendingProductSelect.product.isKit) loadKitComponents(pendingProductSelect.product.id, pendingProductSelect.idx);
+    }
     setOutOfStockWarning(null);
     setPendingProductSelect(null);
   };
@@ -328,9 +358,9 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
     setError(null);
     setClientSyncMsg(null);
 
-    // Resolve client_id via phone lookup / creation
-    let resolvedClientId: string | undefined = undefined;
-    if (clientPhone.trim()) {
+    // Resolve client_id — use pre-selected ID if available, otherwise upsert by phone
+    let resolvedClientId: string | undefined = selectedClientId;
+    if (!resolvedClientId && clientPhone.trim()) {
       const sync = await reservationService.upsertClientByPhone(
         clientPhone.trim(),
         clientName.trim(),
@@ -338,9 +368,12 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
       );
       if (sync) {
         resolvedClientId = sync.id;
-        if (sync.created) setClientSyncMsg('✅ Client ajouté à votre base');
+        if (sync.created) setClientSyncMsg('✅ Nouvelle cliente ajoutée à votre base');
         else if (sync.emailUpdated) setClientSyncMsg('✅ Email mis à jour dans votre base');
+        else setClientSyncMsg('✅ Fiche cliente liée à la réservation');
       }
+    } else if (resolvedClientId) {
+      setClientSyncMsg('✅ Fiche cliente liée à la réservation');
     }
 
     const itemsPayload: ReservationItem[] = items.map((it) => ({
@@ -350,6 +383,8 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
       sku: it.sku || undefined,
       productId: it.productId || undefined,
       imageUrl: it.imageUrl || undefined,
+      isKit: it.isKit || undefined,
+      kitComponents: it.kitComponents && it.kitComponents.length > 0 ? it.kitComponents : undefined,
       variant: it.variant || undefined,
       color: it.color || undefined,
       size: it.size || undefined,
@@ -425,66 +460,74 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
             <section>
               <p className="text-xs font-600 uppercase tracking-widest text-muted-foreground mb-3">Informations client</p>
 
-              {/* Client search bar */}
-              <div className="relative mb-3">
-                <div className="flex items-center gap-2 px-3 py-2 border border-border rounded-lg bg-white focus-within:ring-2 focus-within:ring-primary/30">
-                  <Icon name="MagnifyingGlassIcon" size={14} className="text-muted-foreground shrink-0" />
-                  <input
-                    type="text"
-                    value={clientSearch}
-                    onChange={(e) => handleClientSearch(e.target.value)}
-                    placeholder="Rechercher un client existant (nom, téléphone…)"
-                    className="flex-1 text-sm bg-transparent focus:outline-none"
-                  />
-                  {clientSearch && (
-                    <button type="button" onClick={() => { setClientSearch(''); setClientResults([]); setClientSearchOpen(false); }}
-                      className="text-muted-foreground hover:text-foreground">
-                      <Icon name="XMarkIcon" size={13} />
-                    </button>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Nom complet — avec recherche intégrée */}
+                <div className="relative" ref={clientNameRef}>
+                  <label className="block text-xs font-500 text-foreground mb-1">
+                    Nom complet <span className="text-destructive">*</span>
+                    {selectedClientId && (
+                      <span className="ml-2 inline-flex items-center gap-1 text-emerald-600 font-500">
+                        <Icon name="CheckCircleIcon" size={11} />Fiche liée
+                      </span>
+                    )}
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={clientName}
+                      onChange={(e) => handleClientNameChange(e.target.value)}
+                      onFocus={() => { if (clientName.trim().length >= 2) setClientSearchOpen(true); }}
+                      placeholder="Tapez un prénom ou nom..."
+                      autoComplete="off"
+                      className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 pr-8 ${
+                        selectedClientId ? 'border-emerald-400 bg-emerald-50/30' : 'border-border'
+                      }`}
+                    />
+                    {clientName && (
+                      <button
+                        type="button"
+                        onClick={() => { setClientName(''); setClientPhone(''); setClientEmail(''); setSelectedClientId(undefined); setClientResults([]); setClientSearchOpen(false); }}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      >
+                        <Icon name="XMarkIcon" size={13} />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Dropdown résultats */}
+                  {clientSearchOpen && clientResults.length > 0 && (
+                    <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-white border border-border rounded-xl shadow-xl overflow-hidden max-h-60 overflow-y-auto">
+                      {clientResults.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => selectClient(c)}
+                          className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-primary/5 text-left transition-colors border-b border-border/50 last:border-0"
+                        >
+                          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                            <span className="text-xs font-700 text-primary">{c.fullName.charAt(0).toUpperCase()}</span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-600 text-foreground">{c.fullName}</p>
+                            <p className="text-xs text-muted-foreground truncate">
+                              {c.phone ?? ''}
+                              {(c as any).email ? ` · ${(c as any).email}` : ''}
+                              {(c as any).city ? ` · ${(c as any).city}` : ''}
+                            </p>
+                          </div>
+                          <span className="text-xs text-primary shrink-0 font-500">Sélectionner</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {clientSearchOpen && clientName.trim().length >= 2 && clientResults.length === 0 && (
+                    <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-white border border-border rounded-xl shadow-xl px-4 py-3 text-xs text-muted-foreground">
+                      Aucune cliente trouvée — la fiche sera créée à l'enregistrement
+                    </div>
                   )}
                 </div>
 
-                {clientSearchOpen && clientResults.length > 0 && (
-                  <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-white border border-border rounded-xl shadow-xl overflow-hidden max-h-52 overflow-y-auto">
-                    {clientResults.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => {
-                          setClientName(c.fullName);
-                          setClientPhone(c.phone ?? '');
-                          setClientEmail((c as any).email ?? '');
-                          setClientSearch('');
-                          setClientResults([]);
-                          setClientSearchOpen(false);
-                        }}
-                        className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-muted/50 text-left transition-colors border-b border-border last:border-0"
-                      >
-                        <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                          <span className="text-xs font-700 text-primary">{c.fullName.charAt(0).toUpperCase()}</span>
-                        </div>
-                        <div>
-                          <p className="text-sm font-600 text-foreground">{c.fullName}</p>
-                          <p className="text-xs text-muted-foreground">{c.phone ?? ''}{(c as any).email ? ` · ${(c as any).email}` : ''}</p>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {clientSearchOpen && clientSearch.length >= 2 && clientResults.length === 0 && (
-                  <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-white border border-border rounded-xl shadow-xl px-4 py-3 text-sm text-muted-foreground">
-                    Aucun client trouvé — remplissez manuellement
-                  </div>
-                )}
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-500 text-foreground mb-1">Nom complet <span className="text-destructive">*</span></label>
-                  <input type="text" value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="Ex: Amina Benali"
-                    className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
-                </div>
                 <div>
                   <label className="block text-xs font-500 text-foreground mb-1">Téléphone</label>
                   <input type="tel" value={clientPhone} onChange={(e) => setClientPhone(e.target.value)} placeholder="06 XX XX XX XX"
@@ -666,6 +709,37 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
                         <span className="ml-1 px-1.5 py-0.5 bg-primary/10 text-primary rounded text-[10px] font-600">Renseigné</span>
                       )}
                     </button>
+
+                    {/* Kit contents */}
+                    {item.isKit && (
+                      <div className="mt-2 border border-violet-200 rounded-lg bg-violet-50/60 p-3">
+                        <p className="text-[10px] font-700 text-violet-700 uppercase tracking-wide mb-2">📦 Contenu du kit</p>
+                        {!item.kitComponents || item.kitComponents.length === 0 ? (
+                          <p className="text-xs text-muted-foreground italic">Chargement des composants...</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {item.kitComponents.map((comp, ci) => (
+                              <div key={ci} className="flex items-center gap-2">
+                                <div className="w-9 h-9 rounded-lg overflow-hidden bg-white border border-violet-200 shrink-0">
+                                  {comp.imageUrl ? (
+                                    <Image src={comp.imageUrl} alt={comp.name} width={36} height={36} className="w-full h-full object-cover" />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center bg-violet-100">
+                                      <Icon name="CubeIcon" size={14} className="text-violet-400" />
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-xs font-600 text-foreground truncate">{comp.name}</p>
+                                  {comp.ref && <p className="text-[10px] text-muted-foreground">{comp.ref}</p>}
+                                </div>
+                                <span className="text-xs font-700 text-violet-700 shrink-0 bg-violet-100 px-1.5 py-0.5 rounded">×{comp.quantity * Number(item.qty)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Variant fields */}
                     {expandedVariantIdx === idx && (

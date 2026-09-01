@@ -48,19 +48,49 @@ export default async function ReservationPublicPage({ params }: { params: Promis
   const COMPANY_CITY = 'Fort-de-France 97200';
   const COMPANY_SIRET = '927 747 725';
 
+  const hasImages = items.some((item) => item.imageUrl);
+
   const itemsHTML = items.map(item => {
     const name = (item.name as string) || '';
     const qty = Number(item.qty) || 1;
     const price = Number(item.price) || 0;
     const lineTotal = qty * price;
     const sku = (item.sku as string) || '';
+    const imageUrl = (item.imageUrl as string) || null;
+    const isKit = Boolean(item.isKit);
+    const kitComps = Array.isArray(item.kitComponents) ? item.kitComponents as Array<Record<string, unknown>> : [];
     const variant = [item.color, item.size, item.model, item.power, item.format, item.variant]
       .filter(Boolean).join(' · ');
+
+    const kitBlock = isKit && kitComps.length > 0 ? `
+      <div style="margin-top:8px;padding:8px 10px;background:#fdf4ff;border:1px solid #e9d5ff;border-radius:8px">
+        <div style="font-size:9px;font-weight:700;color:#7c3aed;text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px">📦 Contenu du kit</div>
+        ${kitComps.map(comp => `
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">
+            ${comp.imageUrl ? `<img src="${comp.imageUrl as string}" style="width:30px;height:30px;border-radius:5px;object-fit:cover;border:1px solid #e9d5ff;flex-shrink:0" onerror="this.style.display='none'" />` : '<div style="width:30px;height:30px;border-radius:5px;background:#f3e8ff;border:1px solid #e9d5ff;flex-shrink:0"></div>'}
+            <div style="flex:1;min-width:0">
+              <div style="font-size:11px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${comp.name as string || ''}</div>
+              ${comp.ref ? `<div style="font-size:9px;color:#888">${comp.ref as string}</div>` : ''}
+            </div>
+            <span style="font-size:10px;font-weight:700;color:#7c3aed;flex-shrink:0">×${Number(comp.quantity) * qty}</span>
+          </div>
+        `).join('')}
+      </div>
+    ` : '';
+
+    const imgCell = hasImages
+      ? (imageUrl
+          ? `<td style="padding:10px 6px;border-bottom:1px dashed #ddd;vertical-align:middle;text-align:center"><img src="${imageUrl}" style="width:48px;height:48px;border-radius:8px;object-fit:cover;border:1px solid #eee;display:block" onerror="this.style.display='none'" /></td>`
+          : `<td style="padding:10px 6px;border-bottom:1px dashed #ddd;text-align:center"><div style="width:48px;height:48px;border-radius:8px;background:#fce4ec;border:1px solid #eee;display:inline-block"></div></td>`)
+      : '';
+
     return `<tr>
+      ${imgCell}
       <td style="padding:10px 8px;border-bottom:1px dashed #ddd;vertical-align:middle">
-        <div style="font-weight:700;font-size:13px">${name}</div>
+        <div style="font-weight:700;font-size:13px">${name}${isKit ? ' <span style="font-size:9px;background:#ede9fe;color:#7c3aed;padding:1px 5px;border-radius:4px;font-weight:700">KIT</span>' : ''}</div>
         ${sku ? `<div style="font-size:10px;color:#555">Réf: ${sku}</div>` : ''}
         ${variant ? `<div style="font-size:10px;color:${ROSE}">${variant}</div>` : ''}
+        ${kitBlock}
       </td>
       <td style="padding:10px 8px;border-bottom:1px dashed #ddd;text-align:center;font-weight:700">×${qty}</td>
       <td style="padding:10px 8px;border-bottom:1px dashed #ddd;text-align:right;font-weight:700">${lineTotal.toFixed(2)} €</td>
@@ -128,7 +158,7 @@ export default async function ReservationPublicPage({ params }: { params: Promis
     <div class="section">
       <div class="section-title">Articles réservés</div>
       <table>
-        <thead><tr><th>Article</th><th>Qté</th><th>Total</th></tr></thead>
+        <thead><tr>${hasImages ? '<th style="width:60px"></th>' : ''}<th>Article</th><th>Qté</th><th>Total</th></tr></thead>
         <tbody>${itemsHTML}</tbody>
       </table>
     </div>

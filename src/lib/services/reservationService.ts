@@ -31,6 +31,14 @@ export const RECOVERY_MODE_CONFIG: Record<RecoveryMode, { label: string; color: 
   recupere:          { label: 'Récupéré',              color: 'text-slate-600 bg-slate-50 border-slate-200',       icon: 'CheckCircleIcon' },
 };
 
+export interface KitComponentInfo {
+  componentId: string;
+  name: string;
+  ref: string;
+  imageUrl: string | null;
+  quantity: number;
+}
+
 export interface ReservationItem {
   name: string;
   qty: number;
@@ -38,6 +46,8 @@ export interface ReservationItem {
   sku?: string;
   productId?: string;
   imageUrl?: string;
+  isKit?: boolean;
+  kitComponents?: KitComponentInfo[];
   // Variant fields
   variant?: string;
   color?: string;
@@ -175,6 +185,7 @@ export interface ProductSearchResult {
   category: string | null;
   status: string | null;
   stockStatus: StockStatus;
+  isKit?: boolean;
 }
 
 export interface ReservationStats {
@@ -321,7 +332,7 @@ export const reservationService = {
       if (!q) return [];
       const { data, error } = await supabase
         .from('products')
-        .select('id, name, ref, barcode, image_url, stock, min_stock, sell_price_ttc, category, status')
+        .select('id, name, ref, barcode, image_url, stock, min_stock, sell_price_ttc, category, status, is_kit')
         .or(`name.ilike.%${q}%,ref.ilike.%${q}%,barcode.ilike.%${q}%,category.ilike.%${q}%`)
         .order('name')
         .limit(15);
@@ -338,8 +349,27 @@ export const reservationService = {
         category: row.category,
         status: row.status,
         stockStatus: getStockStatus(row.stock ?? 0, row.min_stock ?? 5),
+        isKit: Boolean(row.is_kit),
       }));
     } catch (e: any) { console.log('reservationService.searchProducts exception:', e.message); return []; }
+  },
+
+  async fetchKitComponents(productId: string): Promise<KitComponentInfo[]> {
+    const supabase = createClient();
+    try {
+      const { data, error } = await supabase
+        .from('product_kits')
+        .select('component_id, quantity, products!product_kits_component_id_fkey(id, name, ref, image_url)')
+        .eq('product_id', productId);
+      if (error) { console.log('fetchKitComponents error:', error.message); return []; }
+      return (data ?? []).map((row: any): KitComponentInfo => ({
+        componentId: row.component_id,
+        quantity: row.quantity,
+        name: (row.products as any)?.name ?? '',
+        ref: (row.products as any)?.ref ?? '',
+        imageUrl: (row.products as any)?.image_url ?? null,
+      }));
+    } catch (e: any) { console.log('fetchKitComponents exception:', e.message); return []; }
   },
 
   async upsertClientByPhone(phone: string, name: string, email?: string): Promise<{ id: string; created: boolean; emailUpdated: boolean } | null> {
