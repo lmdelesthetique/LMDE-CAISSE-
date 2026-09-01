@@ -47,7 +47,7 @@ export interface ReservationItem {
   productId?: string;
   imageUrl?: string;
   isKit?: boolean;
-  kitComponents?: KitComponentInfo[];
+  kitComponents?: KitComponentInfo[] | null;
   // Variant fields
   variant?: string;
   color?: string;
@@ -355,20 +355,11 @@ export const reservationService = {
   },
 
   async fetchKitComponents(productId: string): Promise<KitComponentInfo[]> {
-    const supabase = createClient();
     try {
-      const { data, error } = await supabase
-        .from('product_kits')
-        .select('component_id, quantity, products!product_kits_component_id_fkey(id, name, ref, image_url)')
-        .eq('product_id', productId);
-      if (error) { console.log('fetchKitComponents error:', error.message); return []; }
-      return (data ?? []).map((row: any): KitComponentInfo => ({
-        componentId: row.component_id,
-        quantity: row.quantity,
-        name: (row.products as any)?.name ?? '',
-        ref: (row.products as any)?.ref ?? '',
-        imageUrl: (row.products as any)?.image_url ?? null,
-      }));
+      const res = await fetch(`/api/products/kit-components?productId=${encodeURIComponent(productId)}`);
+      if (!res.ok) { console.log('fetchKitComponents HTTP error:', res.status); return []; }
+      const json = await res.json();
+      return json.components ?? [];
     } catch (e: any) { console.log('fetchKitComponents exception:', e.message); return []; }
   },
 

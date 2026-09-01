@@ -27,7 +27,7 @@ interface ExtendedItem extends ReservationItem {
   productId?: string;
   imageUrl?: string;
   isKit?: boolean;
-  kitComponents?: KitComponentInfo[];
+  kitComponents?: KitComponentInfo[] | null;
   stockStatus?: 'in_stock' | 'low_stock' | 'out_of_stock';
   availableStock?: number;
   variant?: string;
@@ -244,6 +244,8 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
         sku: it.sku ?? '',
         productId: it.productId,
         imageUrl: it.imageUrl,
+        isKit: it.isKit,
+        kitComponents: it.kitComponents ?? undefined,
         variant: it.variant,
         color: it.color,
         size: it.size,
@@ -304,7 +306,7 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
         productId: product.id,
         imageUrl: product.imageUrl ?? undefined,
         isKit: product.isKit,
-        kitComponents: product.isKit ? [] : undefined,
+        kitComponents: product.isKit ? null : undefined,  // null = en cours de chargement
         stockStatus: product.stockStatus,
         availableStock: product.stock,
       };
@@ -711,14 +713,18 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
                     </button>
 
                     {/* Kit contents */}
-                    {item.isKit && (
+                    {item.isKit && (() => {
+                      const comps = item.kitComponents;
+                      return (
                       <div className="mt-2 border border-violet-200 rounded-lg bg-violet-50/60 p-3">
                         <p className="text-[10px] font-700 text-violet-700 uppercase tracking-wide mb-2">📦 Contenu du kit</p>
-                        {!item.kitComponents || item.kitComponents.length === 0 ? (
-                          <p className="text-xs text-muted-foreground italic">Chargement des composants...</p>
+                        {comps === null || comps === undefined ? (
+                          <p className="text-xs text-muted-foreground italic animate-pulse">Chargement des composants...</p>
+                        ) : comps.length === 0 ? (
+                          <p className="text-xs text-muted-foreground italic">Aucun composant configuré</p>
                         ) : (
                           <div className="space-y-2">
-                            {item.kitComponents.map((comp, ci) => (
+                            {comps.map((comp, ci) => (
                               <div key={ci} className="flex items-center gap-2">
                                 <div className="w-9 h-9 rounded-lg overflow-hidden bg-white border border-violet-200 shrink-0">
                                   {comp.imageUrl ? (
@@ -739,7 +745,8 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
                           </div>
                         )}
                       </div>
-                    )}
+                      );
+                    })()}
 
                     {/* Variant fields */}
                     {expandedVariantIdx === idx && (
