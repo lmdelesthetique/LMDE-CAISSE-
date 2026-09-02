@@ -7,6 +7,7 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import { type ProductRecord, type ColorVariant } from './mockProducts';
 import ProductFormModal from './ProductFormModal';
 import BarcodeLabelModal from './BarcodeLabelModal';
+import ShelfLabelModal from './ShelfLabelModal';
 import KitFormModal from './KitFormModal';
 import BulkEditModal from './BulkEditModal';
 import { createClient } from '@/lib/supabase/client';
@@ -93,6 +94,7 @@ export default function ProductManagementContent() {
   const [showColumnMenu, setShowColumnMenu] = useState(false);
   const [showBarcodeModal, setShowBarcodeModal] = useState(false);
   const [barcodePrintProducts, setBarcodePrintProducts] = useState<ProductRecord[]>([]);
+  const [shelfLabelProduct, setShelfLabelProduct] = useState<ProductRecord | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
   const [visibleCols, setVisibleCols] = useState({
     ref: true, barcode: true, category: true, supplier: true,
@@ -773,8 +775,11 @@ EXECUTE FUNCTION sync_product_status();`;
                           >
                             <Icon name="StarIcon" size={14} />
                           </button>
-                          <button title="Imprimer étiquette" onClick={() => openBarcodeForProduct(product)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
+                          <button title="Imprimer étiquette codes-barres" onClick={() => openBarcodeForProduct(product)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
                             <Icon name="PrinterIcon" size={14} />
+                          </button>
+                          <button title="Étiquette rayon (prix + promo + BEST SELLER)" onClick={() => setShelfLabelProduct(product)} className="p-1.5 rounded-lg hover:bg-rose-50 text-muted-foreground hover:text-rose-600 transition-colors">
+                            <span className="text-sm leading-none">🏷️</span>
                           </button>
                           {product.isKit ? (
                             <button onClick={() => { setEditKitId(product.id); setShowKitModal(true); }} title="Modifier le kit" className="p-1.5 rounded-lg hover:bg-violet-50 text-muted-foreground hover:text-violet-600 transition-colors">
@@ -821,6 +826,14 @@ EXECUTE FUNCTION sync_product_status();`;
         <BarcodeLabelModal
           products={barcodePrintProducts}
           onClose={() => setShowBarcodeModal(false)}
+        />
+      )}
+
+      {/* Shelf Label Modal */}
+      {shelfLabelProduct && (
+        <ShelfLabelModal
+          product={shelfLabelProduct}
+          onClose={() => setShelfLabelProduct(null)}
         />
       )}
 
