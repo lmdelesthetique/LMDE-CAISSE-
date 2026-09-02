@@ -26,6 +26,7 @@ import {
 import { supplierService, Supplier } from '@/lib/services/supplierService';
 import { supplierOrderService } from '@/lib/services/supplierOrderService';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
+import SmartReorderModal from './SmartReorderModal';
 
 type TabId = 'dashboard' | 'liste' | 'historique';
 
@@ -535,6 +536,7 @@ export default function StockPage() {
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [bulkLoading, setBulkLoading] = useState(false);
   const [recalcLoading, setRecalcLoading] = useState(false);
+  const [showReorder, setShowReorder] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -755,6 +757,13 @@ export default function StockPage() {
               >
                 <Icon name="ArrowPathIcon" size={15} className="text-muted-foreground" />
                 <span className="hidden sm:inline">Actualiser</span>
+              </button>
+              <button
+                onClick={() => setShowReorder(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-600 text-white text-sm font-600 hover:bg-rose-700 transition-colors"
+              >
+                <span>🔄</span>
+                <span className="hidden sm:inline">Réassort du mois</span>
               </button>
             </div>
           </div>
@@ -1724,6 +1733,11 @@ export default function StockPage() {
           onClose={() => setOrderProduct(null)}
           onSuccess={loadData}
         />
+      )}
+
+      {/* Smart Reorder Modal */}
+      {showReorder && (
+        <SmartReorderModal onClose={() => setShowReorder(false)} />
       )}
     </AppLayout>
   );
