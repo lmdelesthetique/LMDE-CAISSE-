@@ -203,6 +203,8 @@ export default function OrderDetailPage() {
 
   // Stock update on reception
   const [receivedQtys, setReceivedQtys] = useState<Record<string, number>>({});
+  const [missingQtys, setMissingQtys] = useState<Record<string, number>>({});
+  const [damagedQtys, setDamagedQtys] = useState<Record<string, number>>({});
   const [stockUpdateBanner, setStockUpdateBanner] = useState<string | null>(null);
   const [updatingStock, setUpdatingStock] = useState(false);
 
@@ -361,14 +363,20 @@ export default function OrderDetailPage() {
         // Init received quantities, real prices, and reception qtys per line
         if (o.lines) {
           const rq: Record<string, number> = {};
+          const mq: Record<string, number> = {};
+          const dq: Record<string, number> = {};
           const rp: Record<string, string> = {};
           const rqty: Record<string, string> = {};
           o.lines.forEach(l => {
             rq[l.id] = l.qtyReceived || 0;
+            mq[l.id] = l.qtyMissing || 0;
+            dq[l.id] = l.qtyDamaged || 0;
             rp[l.id] = l.confirmedUnitPrice != null ? String(l.confirmedUnitPrice) : String(l.unitPrice || '');
             rqty[l.id] = String(l.qtyOrdered || 1);
           });
           setReceivedQtys(rq);
+          setMissingQtys(mq);
+          setDamagedQtys(dq);
           setRealPrices(rp);
           setReceptionQtys(rqty);
         }
@@ -425,22 +433,23 @@ export default function OrderDetailPage() {
       .catch(() => {});
   }, [backfilledImages, id, loading, load]);
 
-  const updateStockForReception = useCallback(async (qtysToAdd: Record<string, number>, force = false) => {
+  const updateStockForReception = useCallback(async (qtysToAdd: Record<string, number>, force = false, isPartial = false) => {
     if (!order) return;
     setUpdatingStock(true);
     try {
       const res = await fetch(`/api/fo-orders/${order.id}/receive-stock`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ qtysToAdd, force }),
+        body: JSON.stringify({ qtysToAdd, qtysMissing: missingQtys, qtysDamaged: damagedQtys, force, isPartial }),
       });
       const json = await res.json();
       if (json.alreadyDone) {
-        setStockUpdateBanner('⚠️ Stock déjà mis à jour pour cette commande');
+        setStockUpdateBanner('⚠️ Stock déjà mis à jour pour cette commande (cliquer "Forcer re-sync" si besoin)');
       } else if (json.ok) {
         const notMatched = json.notMatched ?? 0;
-        const warning = notMatched > 0 ? ` (⚠️ ${notMatched} ligne${notMatched > 1 ? 's' : ''} non trouvée${notMatched > 1 ? 's' : ''} — vérifier les refs produits)` : '';
-        setStockUpdateBanner(`✅ Stock + prix coût mis à jour — ${json.updated} produit${json.updated !== 1 ? 's' : ''} réapprovisionnés${warning}`);
+        const warning = notMatched > 0 ? ` · ⚠️ ${notMatched} produit${notMatched > 1 ? 's' : ''} non trouvé${notMatched > 1 ? 's' : ''} (vérifier les refs)` : '';
+        const partial = isPartial && !json.fullyReceived ? ' · Réception partielle — vous pouvez continuer à réceptionner' : '';
+        setStockUpdateBanner(`✅ ${json.updated} produit${json.updated !== 1 ? 's' : ''} intégré${json.updated !== 1 ? 's' : ''} au stock${warning}${partial}`);
         load();
         // Non-blocking Shopify sync
         fetch('/api/shopify/sync-stock', {
@@ -457,7 +466,7 @@ export default function OrderDetailPage() {
       setUpdatingStock(false);
       setTimeout(() => setStockUpdateBanner(null), 8000);
     }
-  }, [order, load]);
+  }, [order, load, missingQtys, damagedQtys]);
 
   const handleForceRestock = async () => {
     if (!order) return;
@@ -1164,17 +1173,28 @@ export default function OrderDetailPage() {
   const handleFullReception = async () => {
     if (!order) return;
     await supplierOrderService.changeStatus(order.id, 'fully_received', 'Caisse', 'Réception totale');
+    // Delta: only add what hasn't been received yet to avoid double-counting
     const qtys: Record<string, number> = {};
-    (order.lines || []).forEach(l => { qtys[l.id] = l.qtyOrdered; });
-    await updateStockForReception(qtys);
+    (order.lines || []).forEach(l => {
+      const remaining = Math.max(0, l.qtyOrdered - (l.qtyReceived ?? 0));
+      if (remaining > 0) qtys[l.id] = remaining;
+    });
+    await updateStockForReception(qtys, false, false);
     load();
   };
 
   const handlePartialReception = async () => {
     if (!order) return;
     await supplierOrderService.changeStatus(order.id, 'partially_received', 'Caisse', 'Réception partielle');
-    const qtys = { ...receivedQtys };
-    await updateStockForReception(qtys);
+    // Delta: qty to add = what user entered - what was already received (prevents double-counting)
+    const qtys: Record<string, number> = {};
+    (order.lines || []).forEach(l => {
+      const entered = receivedQtys[l.id] ?? l.qtyReceived ?? 0;
+      const alreadyReceived = l.qtyReceived ?? 0;
+      const delta = Math.max(0, entered - alreadyReceived);
+      if (delta > 0) qtys[l.id] = delta;
+    });
+    await updateStockForReception(qtys, false, true);
     load();
   };
 
@@ -2689,7 +2709,7 @@ export default function OrderDetailPage() {
                       </div>
                       <div className="grid grid-cols-3 gap-3">
                         <div>
-                          <label className="block text-xs text-muted-foreground mb-1">Qté reçue</label>
+                          <label className="block text-xs text-muted-foreground mb-1">Qté reçue <span className="text-primary font-600">(total cumulé)</span></label>
                           <input
                             type="number" min="0" max={line.qtyOrdered}
                             value={receivedQtys[line.id] ?? line.qtyReceived ?? 0}
@@ -2698,13 +2718,19 @@ export default function OrderDetailPage() {
                         </div>
                         <div>
                           <label className="block text-xs text-muted-foreground mb-1">Manquants</label>
-                          <input type="number" min="0" defaultValue={line.qtyMissing}
-                            className="w-full px-2.5 py-1.5 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                          <input
+                            type="number" min="0"
+                            value={missingQtys[line.id] ?? line.qtyMissing ?? 0}
+                            onChange={(e) => setMissingQtys(prev => ({ ...prev, [line.id]: parseInt(e.target.value) || 0 }))}
+                            className="w-full px-2.5 py-1.5 border border-amber-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-200 bg-amber-50" />
                         </div>
                         <div>
                           <label className="block text-xs text-muted-foreground mb-1">Abîmés</label>
-                          <input type="number" min="0" defaultValue={line.qtyDamaged}
-                            className="w-full px-2.5 py-1.5 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                          <input
+                            type="number" min="0"
+                            value={damagedQtys[line.id] ?? line.qtyDamaged ?? 0}
+                            onChange={(e) => setDamagedQtys(prev => ({ ...prev, [line.id]: parseInt(e.target.value) || 0 }))}
+                            className="w-full px-2.5 py-1.5 border border-red-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-200 bg-red-50" />
                         </div>
                       </div>
                     </div>
