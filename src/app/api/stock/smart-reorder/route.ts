@@ -60,13 +60,24 @@ export async function GET() {
     if (qtyMap.size === 0) return NextResponse.json({ groups: [] });
 
     // 3. Fetch all products with supplier info
-    const productIds = Array.from(qtyMap.keys());
-    const { data: products, error: prodErr } = await supabase
-      .from('products')
-      .select('id, name, ref, image_url, stock, min_stock, supplier, supplier_id, buy_price, sell_price_ttc, is_active, product_status')
-      .in('id', productIds);
+    // Filter to valid UUIDs only — some receipt items may have non-UUID IDs (Shopify, legacy)
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const productIds = Array.from(qtyMap.keys()).filter(id => UUID_RE.test(id));
 
-    if (prodErr) return NextResponse.json({ error: prodErr.message }, { status: 500 });
+    if (productIds.length === 0) return NextResponse.json({ groups: [] });
+
+    // Batch query by 100 to stay within URL length limits
+    const BATCH = 100;
+    const allProducts: any[] = [];
+    for (let i = 0; i < productIds.length; i += BATCH) {
+      const { data: batch, error: batchErr } = await supabase
+        .from('products')
+        .select('id, name, ref, image_url, stock, min_stock, supplier, supplier_id, buy_price, sell_price_ttc, product_status')
+        .in('id', productIds.slice(i, i + BATCH));
+      if (batchErr) return NextResponse.json({ error: batchErr.message, step: 'products' }, { status: 500 });
+      if (batch) allProducts.push(...batch);
+    }
+    const products = allProducts;
 
     // 4. Fetch supplier names for those with supplier_id
     const supplierIds = [...new Set((products ?? []).map((p: any) => p.supplier_id).filter(Boolean))];
