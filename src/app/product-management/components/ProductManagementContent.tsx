@@ -95,6 +95,7 @@ export default function ProductManagementContent() {
   const [showBarcodeModal, setShowBarcodeModal] = useState(false);
   const [barcodePrintProducts, setBarcodePrintProducts] = useState<ProductRecord[]>([]);
   const [shelfLabelProduct, setShelfLabelProduct] = useState<ProductRecord | null>(null);
+  const [showShelfLabelModal, setShowShelfLabelModal] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
   const [visibleCols, setVisibleCols] = useState({
     ref: true, barcode: true, category: true, supplier: true,
@@ -509,7 +510,13 @@ EXECUTE FUNCTION sync_product_status();`;
               className="flex items-center gap-1.5 px-3 py-2 border border-border rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
             >
               <Icon name="PrinterIcon" size={15} />
-              Étiquettes
+              Codes-barres
+            </button>
+            <button
+              onClick={() => { setShelfLabelProduct(null); setShowShelfLabelModal(true); }}
+              className="flex items-center gap-1.5 px-3 py-2 border border-rose-200 bg-rose-50 rounded-lg text-sm font-medium text-rose-700 hover:bg-rose-100 transition-colors"
+            >
+              🏷️ Étiquettes rayon
             </button>
             <button
               onClick={() => { setEditKitId(null); setShowKitModal(true); }}
@@ -778,7 +785,7 @@ EXECUTE FUNCTION sync_product_status();`;
                           <button title="Imprimer étiquette codes-barres" onClick={() => openBarcodeForProduct(product)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
                             <Icon name="PrinterIcon" size={14} />
                           </button>
-                          <button title="Étiquette rayon (prix + promo + BEST SELLER)" onClick={() => setShelfLabelProduct(product)} className="p-1.5 rounded-lg hover:bg-rose-50 text-muted-foreground hover:text-rose-600 transition-colors">
+                          <button title="Étiquette rayon (prix + promo + BEST SELLER)" onClick={() => { setShelfLabelProduct(product); setShowShelfLabelModal(true); }} className="p-1.5 rounded-lg hover:bg-rose-50 text-muted-foreground hover:text-rose-600 transition-colors">
                             <span className="text-sm leading-none">🏷️</span>
                           </button>
                           {product.isKit ? (
@@ -830,10 +837,11 @@ EXECUTE FUNCTION sync_product_status();`;
       )}
 
       {/* Shelf Label Modal */}
-      {shelfLabelProduct && (
+      {showShelfLabelModal && (
         <ShelfLabelModal
-          product={shelfLabelProduct}
-          onClose={() => setShelfLabelProduct(null)}
+          products={products}
+          initialProduct={shelfLabelProduct ?? undefined}
+          onClose={() => { setShowShelfLabelModal(false); setShelfLabelProduct(null); }}
         />
       )}
 
