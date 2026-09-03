@@ -40,6 +40,7 @@ import { deliveryService, type CreateDeliveryInput } from '@/lib/services/delive
 import { useRouter } from 'next/navigation';
 import { ShopifyOrderAlert, type ShopifyNewOrder } from '@/components/ShopifyOrderAlert';
 import POSMarketingPanel from './POSMarketingPanel';
+import NewReturnModal, { type NewReturnModalHandle } from '@/components/NewReturnModal';
 
 export interface CartItem {
   id: string;
@@ -634,8 +635,10 @@ export default function POSTerminal() {
   const [showHeld, setShowHeld] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
   const [showFreePrice, setShowFreePrice] = useState(false);
+  const [showReturnModal, setShowReturnModal] = useState(false);
   const [paymentMode, setPaymentMode] = useState<'immediate' | 'acompte' | 'installment'>('immediate');
   const cartPanelRef = useRef<CartPanelHandle>(null);
+  const returnModalRef = useRef<NewReturnModalHandle>(null);
 
   const openPayment = useCallback((mode: 'immediate' | 'acompte' | 'installment') => {
     cartPanelRef.current?.applyPendingDiscount();
@@ -779,6 +782,11 @@ export default function POSTerminal() {
 
   // ── Barcode scanner handler ───────────────────────────────────────────────
   const handleBarcodeScan = useCallback(async (barcode: string) => {
+    // Route scan to return modal when it's open
+    if (showReturnModal && returnModalRef.current) {
+      await returnModalRef.current.addProductByBarcode(barcode);
+      return;
+    }
     setBarcodeStatus('scanning');
     const product = await fetchProductByBarcode(barcode);
     if (product) {
@@ -804,7 +812,7 @@ export default function POSTerminal() {
       );
     }
     setTimeout(() => setBarcodeStatus('idle'), 1500);
-  }, [addToCart]);
+  }, [addToCart, showReturnModal]);
 
   useBarcodeScanner({ onScan: handleBarcodeScan, enabled: !isLocked && !showCameraScanner });
 
@@ -1820,6 +1828,13 @@ export default function POSTerminal() {
             <span>+ Prix libre</span>
           </button>
           <button
+            onClick={() => setShowReturnModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 border border-amber-200 bg-amber-50 rounded-lg text-sm font-500 text-amber-700 hover:bg-amber-100 transition-colors"
+          >
+            <Icon name="ArrowUturnLeftIcon" size={14} />
+            <span>Retour / Avoir</span>
+          </button>
+          <button
             onClick={() => setShowHeld(true)}
             className="relative flex items-center gap-1.5 px-3 py-1.5 border border-border rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
           >
@@ -2391,6 +2406,24 @@ export default function POSTerminal() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Return / Avoir Modal */}
+      {showReturnModal && (
+        <NewReturnModal
+          ref={returnModalRef}
+          initialClient={client ? {
+            id: client.id,
+            firstName: client.name.split(' ')[0] || '',
+            lastName: client.name.split(' ').slice(1).join(' ') || '',
+            fullName: client.name || '',
+            email: client.email || undefined,
+            phone: client.phone || undefined,
+            balance: client.balance ?? 0,
+          } as any : null}
+          onClose={() => setShowReturnModal(false)}
+          onCreated={() => { /* return recorded — modal shows success screen */ }}
+        />
       )}
 
       {/* Free Price Modal */}
