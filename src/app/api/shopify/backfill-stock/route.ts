@@ -100,14 +100,23 @@ async function runBackfill(req: NextRequest, dryRun: boolean) {
     return NextResponse.json({ error: `Shopify fetch error: ${e.message}` }, { status: 500 });
   }
 
-  // 2. Get all already-processed order refs from stock_movements_log
+  // 2. Get all already-processed (order_ref, product_id) pairs from stock_movements_log.
+  // Use per-product idempotency so that an order with SOME products missing can be re-run
+  // without re-deducting the products that were already processed.
   const { data: processedRows } = await supabase
     .from('stock_movements_log')
-    .select('reference')
+    .select('reference, product_id')
     .eq('source', 'shopify_sale')
     .gte('created_at', since);
 
-  const processedRefs = new Set((processedRows ?? []).map((r: any) => String(r.reference)));
+  // "orderRef:productId" — skip this specific combination only, not the whole order
+  const processedKeys = new Set(
+    (processedRows ?? [])
+      .filter((r: any) => r.product_id)
+      .map((r: any) => `${r.reference}:${r.product_id}`)
+  );
+  // Order refs that have at least one processed product (for reporting only)
+  const processedOrderRefs = new Set((processedRows ?? []).map((r: any) => String(r.reference)));
 
   // 3. Load all products with their shopify_variant_id and ref for matching
   const { data: allProducts } = await supabase
@@ -132,27 +141,18 @@ async function runBackfill(req: NextRequest, dryRun: boolean) {
   const results: OrderResult[] = [];
   let totalDeducted = 0;
   let totalSkipped = 0;
-  let totalAlreadyDone = 0;
 
   for (const order of allOrders) {
     const orderRef = String(order.order_number);
-    const alreadyProcessed = processedRefs.has(orderRef);
-
     const orderResult: OrderResult = {
       order_number: orderRef,
       order_name: order.name,
       created_at: order.created_at,
-      already_processed: alreadyProcessed,
+      already_processed: false, // determined after scanning all lines
       lines: [],
       deducted_count: 0,
       skipped_count: 0,
     };
-
-    if (alreadyProcessed) {
-      totalAlreadyDone++;
-      results.push(orderResult);
-      continue;
-    }
 
     for (const item of order.line_items) {
       if (!item.quantity) continue;
@@ -200,6 +200,15 @@ async function runBackfill(req: NextRequest, dryRun: boolean) {
       lineResult.product_name = product.name;
       lineResult.stock_before = Number(product.stock) || 0;
       lineResult.stock_after = Math.max(0, lineResult.stock_before - item.quantity);
+
+      // Per-product idempotency: skip if this exact product was already deducted for this order
+      const productKey = `${orderRef}:${product.id}`;
+      if (processedKeys.has(productKey)) {
+        lineResult.deducted = false;
+        lineResult.reason = 'Déjà traité';
+        orderResult.lines.push(lineResult);
+        continue;
+      }
 
       if (!dryRun) {
         // Fetch fresh stock before deducting (avoid stale cache)
@@ -284,9 +293,12 @@ async function runBackfill(req: NextRequest, dryRun: boolean) {
     }
   }
 
-  const unprocessedOrders = results.filter((r) => !r.already_processed);
-  const ordersWithDeduction = unprocessedOrders.filter((r) => r.deducted_count > 0);
-  const ordersFullyUnmatched = unprocessedOrders.filter((r) => r.deducted_count === 0 && r.skipped_count > 0);
+  const ordersWithNewDeductions = results.filter((r) => r.deducted_count > 0);
+  const ordersFullyAlreadyDone = results.filter((r) =>
+    r.lines.length > 0 && r.lines.every((l) => l.reason === 'Déjà traité')
+  );
+  const ordersWithIntrouvable = results.filter((r) => r.skipped_count > 0);
+  const ordersNeedingAttention = results.filter((r) => r.deducted_count > 0 || r.skipped_count > 0);
 
   return NextResponse.json({
     dry_run: dryRun,
@@ -294,13 +306,13 @@ async function runBackfill(req: NextRequest, dryRun: boolean) {
     since,
     summary: {
       total_shopify_orders: allOrders.length,
-      already_processed: totalAlreadyDone,
-      orders_needing_backfill: unprocessedOrders.length,
-      orders_with_deduction: ordersWithDeduction.length,
-      orders_unmatched: ordersFullyUnmatched.length,
+      already_processed: ordersFullyAlreadyDone.length,
+      orders_needing_backfill: ordersWithNewDeductions.length,
+      orders_with_deduction: ordersWithNewDeductions.length,
+      orders_unmatched: ordersWithIntrouvable.length,
       total_lines_deducted: totalDeducted,
       total_lines_skipped: totalSkipped,
     },
-    orders_needing_backfill: unprocessedOrders,
+    orders_needing_backfill: ordersNeedingAttention,
   });
 }
