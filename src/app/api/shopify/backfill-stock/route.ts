@@ -12,6 +12,7 @@ function parseNextUrl(linkHeader: string | null): string | null {
 }
 
 interface ShopifyLineItem {
+  product_id?: number | null;
   variant_id: number | null;
   quantity: number;
   title?: string;
@@ -111,14 +112,18 @@ async function runBackfill(req: NextRequest, dryRun: boolean) {
   // 3. Load all products with their shopify_variant_id and ref for matching
   const { data: allProducts } = await supabase
     .from('products')
-    .select('id, name, stock, shopify_variant_id, ref, barcode')
+    .select('id, name, stock, shopify_variant_id, shopify_product_id, ref, barcode')
     .not('product_status', 'eq', 'inactive');
 
   const byVariantId = new Map<string, { id: string; name: string; stock: number }>();
   const bySku = new Map<string, { id: string; name: string; stock: number }>();
+  // Fallback: match by Shopify product_id — catches orders where the variant sold
+  // differs from the stored shopify_variant_id (e.g. multi-variant products)
+  const byProductId = new Map<string, { id: string; name: string; stock: number }>();
 
   for (const p of (allProducts ?? []) as any[]) {
     if (p.shopify_variant_id) byVariantId.set(String(p.shopify_variant_id), p);
+    if (p.shopify_product_id) byProductId.set(String(p.shopify_product_id), p);
     if (p.ref) bySku.set(p.ref.toLowerCase().trim(), p);
     if (p.barcode) bySku.set(p.barcode.toLowerCase().trim(), p);
   }
@@ -166,7 +171,7 @@ async function runBackfill(req: NextRequest, dryRun: boolean) {
         reason: '',
       };
 
-      // Match product
+      // Match product — 3 levels of fallback
       let product: { id: string; name: string; stock: number } | null = null;
       if (item.variant_id) {
         const found = byVariantId.get(String(item.variant_id));
@@ -176,9 +181,15 @@ async function runBackfill(req: NextRequest, dryRun: boolean) {
         const found = bySku.get(item.sku.toLowerCase().trim());
         if (found) { product = found; lineResult.matched_by = 'sku'; }
       }
+      // Fallback: match by Shopify product_id — handles multi-variant products where
+      // the sold variant_id differs from the one stored in the POS link
+      if (!product && item.product_id) {
+        const found = byProductId.get(String(item.product_id));
+        if (found) { product = found; lineResult.matched_by = 'variant_id'; }
+      }
 
       if (!product) {
-        lineResult.reason = `Produit introuvable (variant_id=${item.variant_id ?? '—'}, sku=${item.sku ?? '—'})`;
+        lineResult.reason = `Produit introuvable (variant_id=${item.variant_id ?? '—'}, sku=${item.sku ?? '—'}) — lier ce produit dans Sync Shopify`;
         orderResult.lines.push(lineResult);
         orderResult.skipped_count++;
         totalSkipped++;

@@ -17,6 +17,7 @@ interface ShopifyAddress {
 }
 
 interface ShopifyLineItem {
+  product_id?: number | null;
   variant_id: number;
   quantity: number;
   title?: string;
@@ -125,6 +126,17 @@ export async function POST(req: NextRequest) {
         .from('products')
         .select('id, name, stock')
         .eq('ref', item.sku)
+        .maybeSingle();
+      product = data;
+    }
+
+    // Fallback: match by Shopify product_id — handles multi-variant products where
+    // the sold variant_id differs from the one stored in the POS link
+    if (!product && item.product_id) {
+      const { data } = await supabase
+        .from('products')
+        .select('id, name, stock')
+        .eq('shopify_product_id', String(item.product_id))
         .maybeSingle();
       product = data;
     }
