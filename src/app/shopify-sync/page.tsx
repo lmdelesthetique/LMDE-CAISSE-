@@ -31,6 +31,7 @@ interface POSProduct {
   ref: string;
   barcode: string | null;
   stock: number;
+  image_url: string | null;
   shopify: boolean;
   shopify_product_id: string | null;
   shopify_variant_id: string | null;
@@ -225,13 +226,26 @@ function MatchCard({
     onLink(match.pos.id, p, v);
   };
 
+  const posImg = match.pos.image_url;
+  const shopifyImg = match.shopifyProduct?.image?.src ?? null;
+
   return (
     <div className={`bg-white rounded-xl border p-4 transition-colors ${
       match.linked ? 'border-emerald-200' :
       match.ignored ? 'border-slate-200 opacity-70' :
       'border-border'
     }`}>
-      <div className="flex items-start gap-4">
+      <div className="flex items-start gap-3">
+        {/* POS thumbnail */}
+        <div className="flex-shrink-0 w-14 h-14 rounded-lg bg-slate-100 overflow-hidden border border-border">
+          {posImg ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={posImg} alt={match.pos.name} className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-slate-300 text-2xl select-none">📦</div>
+          )}
+        </div>
+
         {/* POS product */}
         <div className="flex-1 min-w-0">
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">POS</p>
@@ -246,7 +260,7 @@ function MatchCard({
         </div>
 
         {/* Centre: confidence + reason */}
-        <div className="flex flex-col items-center gap-1 w-36 flex-shrink-0 pt-4">
+        <div className="flex flex-col items-center gap-1 w-28 flex-shrink-0 pt-3">
           {match.linked ? (
             <span className="text-xs text-emerald-600 font-semibold">✅ Lié</span>
           ) : match.ignored ? (
@@ -271,6 +285,16 @@ function MatchCard({
             </>
           ) : (
             <p className="text-sm text-muted-foreground italic">Non trouvé</p>
+          )}
+        </div>
+
+        {/* Shopify thumbnail */}
+        <div className="flex-shrink-0 w-14 h-14 rounded-lg bg-slate-100 overflow-hidden border border-border">
+          {shopifyImg ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={shopifyImg} alt={match.shopifyProduct?.title} className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-slate-300 text-2xl select-none">🛍️</div>
           )}
         </div>
 
@@ -406,7 +430,7 @@ export default function ShopifySyncPage() {
       const posRaw = await fetchAll<Record<string, unknown>>((from, to) =>
         supabase
           .from('products')
-          .select('id, name, ref, barcode, stock, shopify, shopify_product_id, shopify_variant_id, shopify_inventory_item_id')
+          .select('id, name, ref, barcode, stock, image_url, shopify, shopify_product_id, shopify_variant_id, shopify_inventory_item_id')
           .eq('product_status', 'active')
           .order('name')
           .range(from, to)
@@ -417,6 +441,7 @@ export default function ShopifySyncPage() {
         ref: (r.ref as string) || '',
         barcode: (r.barcode as string) || null,
         stock: Number(r.stock) || 0,
+        image_url: (r.image_url as string) || null,
         shopify: Boolean(r.shopify),
         shopify_product_id: (r.shopify_product_id as string) || null,
         shopify_variant_id: (r.shopify_variant_id as string) || null,
@@ -778,6 +803,11 @@ export default function ShopifySyncPage() {
                             {backfillResult.summary.orders_unmatched}
                           </p>
                           <p className="text-[11px] text-muted-foreground">Produit introuvable</p>
+                          {backfillResult.summary.orders_unmatched > 0 && (
+                            <p className="text-[10px] text-amber-600 mt-1 leading-tight max-w-[120px] mx-auto">
+                              Vendu sur Shopify mais pas lié dans le POS → va dans l&apos;onglet <strong>Non liés</strong> pour associer
+                            </p>
+                          )}
                         </div>
                       </div>
                       {backfillResult.summary.orders_needing_backfill === 0 && (
@@ -808,13 +838,16 @@ export default function ShopifySyncPage() {
                             <div className="space-y-1">
                               {order.lines.map((line: any, i: number) => (
                                 <div key={i} className={`text-xs flex items-center justify-between py-1 px-2 rounded-lg ${line.deducted ? 'bg-emerald-50' : 'bg-amber-50'}`}>
-                                  <span className={`${line.deducted ? 'text-emerald-800' : 'text-amber-800'}`}>
+                                  <span className={`${line.deducted ? 'text-emerald-800' : 'text-amber-800'} flex-1 min-w-0 truncate`}>
                                     {line.deducted ? '✅' : '⚠️'} {line.title} {line.sku ? `(SKU: ${line.sku})` : ''} × {line.qty}
+                                    {!line.deducted && !line.sku && line.variant_id && (
+                                      <span className="text-[10px] text-amber-500 ml-1">— non lié au POS, lie-le dans l&apos;onglet Non liés</span>
+                                    )}
                                   </span>
                                   {line.deducted ? (
-                                    <span className="text-emerald-700 font-500">{line.stock_before} → {line.stock_after}</span>
+                                    <span className="text-emerald-700 font-500 flex-shrink-0 ml-2">{line.stock_before} → {line.stock_after}</span>
                                   ) : (
-                                    <span className="text-amber-700">{line.reason}</span>
+                                    <span className="text-amber-700 flex-shrink-0 ml-2 text-right">{line.reason}</span>
                                   )}
                                 </div>
                               ))}
