@@ -414,6 +414,10 @@ export default function ShopifySyncPage() {
   const [backfillResult, setBackfillResult] = useState<any | null>(null);
   const [showBackfill, setShowBackfill] = useState(false);
 
+  // ── Repair product IDs state ────────────────────────────────────────────────
+  const [repairingIds, setRepairingIds] = useState(false);
+  const [repairResult, setRepairResult] = useState<{ repaired: number; failed: number; total: number } | null>(null);
+
   // ── Load ignored from localStorage on mount ────────────────────────────────
   useEffect(() => {
     setIgnoredIds(loadIgnoredIds());
@@ -652,6 +656,24 @@ export default function ShopifySyncPage() {
     }
   }, [backfillDays]);
 
+  // ── Repair missing shopify_product_id for existing links ───────────────────
+  const handleRepairProductIds = useCallback(async () => {
+    if (!confirm('Réparer les liens Shopify manquants ? L\'opération lit chaque variant depuis Shopify pour récupérer le product_id. Cela peut prendre quelques secondes.')) return;
+    setRepairingIds(true);
+    setRepairResult(null);
+    try {
+      const res = await fetch('/api/shopify/repair-product-ids', { method: 'POST' });
+      const data = await res.json();
+      setRepairResult(data);
+      // Reload to reflect updated links
+      if ((data.repaired ?? 0) > 0) setTimeout(() => load(), 1500);
+    } catch (e: any) {
+      alert(`Erreur : ${e.message}`);
+    } finally {
+      setRepairingIds(false);
+    }
+  }, [load]);
+
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <AppLayout>
@@ -674,6 +696,25 @@ export default function ShopifySyncPage() {
                 >
                   ↻ Actualiser
                 </button>
+                <button
+                  onClick={handleRepairProductIds}
+                  disabled={repairingIds || loading}
+                  title="Répare les liens Shopify dont shopify_product_id est manquant — nécessaire pour que le backfill retrouve les produits liés avec plusieurs variantes"
+                  className="text-xs border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 rounded-lg px-3 py-1.5 transition-colors disabled:opacity-40 flex items-center gap-1.5"
+                >
+                  {repairingIds ? (
+                    <><span className="animate-spin inline-block">⟳</span> Réparation…</>
+                  ) : (
+                    <>🔧 Réparer les liens manquants</>
+                  )}
+                </button>
+                {repairResult && (
+                  <span className={`text-xs font-medium px-2.5 py-1 rounded-lg ${repairResult.repaired > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-600'}`}>
+                    {repairResult.repaired > 0
+                      ? `✅ ${repairResult.repaired} lien(s) réparé(s) sur ${repairResult.total}`
+                      : `✅ Tous les liens sont à jour`}
+                  </span>
+                )}
                 {tabCounts.ready > 0 && (
                   <button
                     onClick={handleAutoLink}
@@ -804,8 +845,9 @@ export default function ShopifySyncPage() {
                           </p>
                           <p className="text-[11px] text-muted-foreground">Produit introuvable</p>
                           {backfillResult.summary.orders_unmatched > 0 && (
-                            <p className="text-[10px] text-amber-600 mt-1 leading-tight max-w-[120px] mx-auto">
-                              Vendu sur Shopify mais pas lié dans le POS → va dans l&apos;onglet <strong>Non liés</strong> pour associer
+                            <p className="text-[10px] text-amber-600 mt-1 leading-tight max-w-[140px] mx-auto">
+                              Vendu sur Shopify mais POS ne trouve pas le lien →{' '}
+                              <strong>cliquez 🔧 Réparer</strong> en haut, puis ré-analysez
                             </p>
                           )}
                         </div>
@@ -840,8 +882,13 @@ export default function ShopifySyncPage() {
                                 <div key={i} className={`text-xs flex items-center justify-between py-1 px-2 rounded-lg ${line.deducted ? 'bg-emerald-50' : 'bg-amber-50'}`}>
                                   <span className={`${line.deducted ? 'text-emerald-800' : 'text-amber-800'} flex-1 min-w-0 truncate`}>
                                     {line.deducted ? '✅' : '⚠️'} {line.title} {line.sku ? `(SKU: ${line.sku})` : ''} × {line.qty}
-                                    {!line.deducted && !line.sku && line.variant_id && (
-                                      <span className="text-[10px] text-amber-500 ml-1">— non lié au POS, lie-le dans l&apos;onglet Non liés</span>
+                                    {!line.deducted && (
+                                      <span className="text-[10px] text-amber-500 ml-1">
+                                        — non lié au POS,{' '}
+                                        {line.sku
+                                          ? `cherche "${line.sku}" dans l'onglet Non liés`
+                                          : 'clique 🔧 Réparer les liens en haut puis ré-analyse'}
+                                      </span>
                                     )}
                                   </span>
                                   {line.deducted ? (
