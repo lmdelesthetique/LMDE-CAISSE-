@@ -347,22 +347,42 @@ const CartPanel = forwardRef<CartPanelHandle, CartPanelProps>(function CartPanel
           )}
 
           {!showGDForm && globalDiscount && (
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <Icon name={globalDiscount.isAvoir ? 'GiftIcon' : 'TagIcon'} size={12} className="text-rose-500" />
-                <span className="text-sm text-rose-600 font-600">
-                  {globalDiscount.isAvoir
-                    ? 'Avoir client'
-                    : `Remise globale${globalDiscount.type === 'percent' ? ` (${globalDiscount.value}%)` : ''}`}
-                </span>
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <Icon name={globalDiscount.isAvoir ? 'GiftIcon' : 'TagIcon'} size={12} className="text-rose-500" />
+                  <span className="text-sm text-rose-600 font-600">
+                    {globalDiscount.isAvoir
+                      ? `Avoir ${globalDiscount.avoirNumber ? `(${globalDiscount.avoirNumber})` : 'client'}`
+                      : `Remise globale${globalDiscount.type === 'percent' ? ` (${globalDiscount.value}%)` : ''}`}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-700 tabular-nums text-rose-600">-{globalDiscountAmount.toFixed(2)} €</span>
+                  {!globalDiscount.isAvoir && (
+                    <button onClick={openForm} className="text-[10px] text-muted-foreground hover:text-primary">✏️</button>
+                  )}
+                  <button onClick={removeGD} className="text-[10px] text-muted-foreground hover:text-red-500">✕</button>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-700 tabular-nums text-rose-600">-{globalDiscountAmount.toFixed(2)} €</span>
-                {!globalDiscount.isAvoir && (
-                  <button onClick={openForm} className="text-[10px] text-muted-foreground hover:text-primary">✏️</button>
-                )}
-                <button onClick={removeGD} className="text-[10px] text-muted-foreground hover:text-red-500">✕</button>
-              </div>
+              {globalDiscount.isAvoir && (
+                <div className={`flex items-center justify-between rounded-lg px-2.5 py-1.5 text-xs font-600 ${
+                  globalDiscount.value - globalDiscountAmount > 0.005
+                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                    : 'bg-muted text-muted-foreground'
+                }`}>
+                  <span>
+                    {globalDiscount.value - globalDiscountAmount > 0.005
+                      ? '💳 Reste sur avoir'
+                      : '✅ Avoir utilisé en totalité'}
+                  </span>
+                  {globalDiscount.value - globalDiscountAmount > 0.005 && (
+                    <span className="tabular-nums font-700">
+                      {(globalDiscount.value - globalDiscountAmount).toFixed(2)} €
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

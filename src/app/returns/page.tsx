@@ -29,6 +29,23 @@ function formatDate(iso: string): string {
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
 }
 
+function parseReturnNotes(reasonNotes: string | null): {
+  lineItems?: Array<{productName: string; productRef?: string; qty: number; unitPrice: number; discountPct: number; lineTotal: number}>;
+  paymentMethod?: string;
+  userNotes?: string;
+} | null {
+  if (!reasonNotes || !reasonNotes.startsWith('{')) return null;
+  try {
+    const parsed = JSON.parse(reasonNotes);
+    if (parsed.__v !== 1) return null;
+    return {
+      lineItems: parsed.line_items,
+      paymentMethod: parsed.payment_method,
+      userNotes: parsed.user_notes,
+    };
+  } catch { return null; }
+}
+
 function printAvoirTicket(r: ReturnRecord): void {
   const s = loadSettingsFromCache();
   const now = new Date(r.createdAt);
@@ -38,12 +55,37 @@ function printAvoirTicket(r: ReturnRecord): void {
   const conditionLabel: Record<string, string> = { good: 'Bon état', damaged: 'Abîmé', unknown: 'Inconnu' };
   const refundLabel: Record<string, string> = {
     refund_cash: 'Remboursement espèces',
-    refund_card: 'Remboursement carte',
+    refund_card: 'Remboursement CB',
     store_credit: 'Avoir client',
     exchange: 'Échange produit',
   };
 
+  const parsed = parseReturnNotes(r.reasonNotes);
+  const lineItems = parsed?.lineItems;
+  const paymentMethodLabel: Record<string, string> = { cash: 'Espèces', card: 'CB', transfer: 'Virement' };
+  const pmLabel = parsed?.paymentMethod ? paymentMethodLabel[parsed.paymentMethod] ?? parsed.paymentMethod : null;
+  const userNotes = parsed?.userNotes || (!parsed ? r.reasonNotes : null);
+
   const w = s.paperWidth ?? '80mm';
+
+  const itemsHtml = lineItems && lineItems.length > 0
+    ? lineItems.map(li => `
+      <div style="margin:2px 0 2px 4px;">
+        <div class="bold">${li.productName}</div>
+        ${li.productRef ? `<div style="font-size:10px;">Réf: ${li.productRef}</div>` : ''}
+        <div class="row">
+          <span>Qté: ${li.qty}</span>
+          <span>${li.discountPct > 0 ? `Prix remisé -${li.discountPct}%` : `${li.unitPrice.toFixed(2)} €/u`}</span>
+          <span class="bold">${li.lineTotal.toFixed(2)} €</span>
+        </div>
+      </div>`).join('<div style="border-top:1px dotted #ccc;margin:3px 0;"></div>')
+    : `<div style="margin:3px 0 3px 4px;">
+        <div>${r.productName}</div>
+        ${r.productRef ? `<div style="font-size:10px;">Réf: ${r.productRef}</div>` : ''}
+        <div class="row"><span>Quantité :</span><span>${r.quantity}</span></div>
+        <div class="row"><span>État :</span><span>${conditionLabel[r.productCondition] ?? r.productCondition}</span></div>
+      </div>`;
+
   const html = `<!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -82,19 +124,14 @@ function printAvoirTicket(r: ReturnRecord): void {
   ${r.clientName ? `<div class="row"><span>Client :</span><span class="bold">${r.clientName}</span></div>` : ''}
 
   <div class="line"></div>
-  <div class="bold">Produit retourné :</div>
-  <div style="margin:3px 0 3px 4px;">
-    <div>${r.productName}</div>
-    ${r.productRef ? `<div style="font-size:10px;">Réf: ${r.productRef}</div>` : ''}
-    <div class="row"><span>Quantité :</span><span>${r.quantity}</span></div>
-    <div class="row"><span>État :</span><span>${conditionLabel[r.productCondition] ?? r.productCondition}</span></div>
-  </div>
+  <div class="bold">Produit(s) retourné(s) :</div>
+  ${itemsHtml}
 
   <div class="line"></div>
-  <div class="row"><span>Type de retour :</span><span class="bold">${refundLabel[r.refundType] ?? r.refundType}</span></div>
-  ${r.decision ? `<div class="row"><span>Décision :</span><span>${r.decision}</span></div>` : ''}
+  <div class="row"><span>Décision :</span><span class="bold">${r.decision ?? refundLabel[r.refundType] ?? r.refundType}</span></div>
+  ${pmLabel ? `<div class="row"><span>Mode de paiement :</span><span class="bold">${pmLabel}</span></div>` : ''}
   ${r.exchangeProductName ? `<div class="row"><span>Échange avec :</span><span>${r.exchangeProductName}</span></div>` : ''}
-  ${r.reasonNotes ? `<div style="margin-top:3px;font-size:10px;">Note : ${r.reasonNotes}</div>` : ''}
+  ${userNotes ? `<div style="margin-top:3px;font-size:10px;">Note : ${userNotes}</div>` : ''}
 
   <div class="line"></div>
   <div class="amount">Montant : ${formatCurrency(r.totalAmount)}</div>
@@ -141,18 +178,28 @@ const REFUND_ICONS: Record<string, string> = {
   exchange: 'ArrowPathIcon',
 };
 
-// ─── Return Case Selector ────────────────────────────────────────────────────
-
-type ReturnCase = 'good_condition' | 'exchange' | 'store_credit' | 'damaged';
-
-const RETURN_CASES: { id: ReturnCase; label: string; icon: string; desc: string; color: string }[] = [
-  { id: 'good_condition', label: 'Bon état', icon: 'CheckCircleIcon', desc: 'Produit retourne en stock. Remboursement ou avoir.', color: 'border-emerald-300 bg-emerald-50 text-emerald-800' },
-  { id: 'exchange', label: 'Échange', icon: 'ArrowPathIcon', desc: 'Le client échange contre un autre produit.', color: 'border-blue-300 bg-blue-50 text-blue-800' },
-  { id: 'store_credit', label: 'Avoir client', icon: 'GiftIcon', desc: 'Crédit enregistré sur la fiche client.', color: 'border-purple-300 bg-purple-50 text-purple-800' },
-  { id: 'damaged', label: 'Abîmé / Perte', icon: 'ExclamationTriangleIcon', desc: 'Ne retourne pas en stock. Perte interne enregistrée.', color: 'border-red-300 bg-red-50 text-red-800' },
-];
-
 // ─── New Return Modal ────────────────────────────────────────────────────────
+
+interface LineItem {
+  id: string;
+  product: StockProduct;
+  quantity: number;
+  unitPrice: number;
+  discountPct: number;
+}
+
+function lineTotal(li: LineItem): number {
+  return Math.max(0, li.quantity * li.unitPrice * (1 - li.discountPct / 100));
+}
+
+type ReturnType = 'remboursement' | 'avoir' | 'exchange';
+type PaymentMethod = 'cash' | 'card' | 'transfer';
+
+const PAYMENT_METHODS: { id: PaymentMethod; label: string; icon: string }[] = [
+  { id: 'cash', label: 'Espèces', icon: 'BanknotesIcon' },
+  { id: 'card', label: 'Carte (CB)', icon: 'CreditCardIcon' },
+  { id: 'transfer', label: 'Virement', icon: 'BuildingLibraryIcon' },
+];
 
 interface NewReturnModalProps {
   onClose: () => void;
@@ -160,102 +207,134 @@ interface NewReturnModalProps {
 }
 
 function NewReturnModal({ onClose, onCreated }: NewReturnModalProps) {
-  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
-  const [products, setProducts] = useState<StockProduct[]>([]);
-  const [clients, setClients] = useState<Client[]>([]);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [allProducts, setAllProducts] = useState<StockProduct[]>([]);
+  const [allClients, setAllClients] = useState<Client[]>([]);
+
+  // Step 1 — line items
+  const [lineItems, setLineItems] = useState<LineItem[]>([]);
   const [productSearch, setProductSearch] = useState('');
-  const [clientSearch, setClientSearch] = useState('');
-  const [exchangeSearch, setExchangeSearch] = useState('');
-  const [selectedProduct, setSelectedProduct] = useState<StockProduct | null>(null);
+  const [showProductDrop, setShowProductDrop] = useState(false);
+
+  // Step 2 — decision
+  const [returnType, setReturnType] = useState<ReturnType>('remboursement');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
+  const [isDamaged, setIsDamaged] = useState(false);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
-  const [selectedExchangeProduct, setSelectedExchangeProduct] = useState<StockProduct | null>(null);
-  const [quantity, setQuantity] = useState(1);
-  const [unitPrice, setUnitPrice] = useState(0);
+  const [clientSearch, setClientSearch] = useState('');
+  const [freeClientName, setFreeClientName] = useState('');
+  const [originalReceipt, setOriginalReceipt] = useState('');
   const [reason, setReason] = useState<ReturnReason>('defective');
   const [reasonNotes, setReasonNotes] = useState('');
-  const [returnCase, setReturnCase] = useState<ReturnCase>('good_condition');
-  const [refundType, setRefundType] = useState<ReturnRefundType>('refund_cash');
-  const [isInternalLoss, setIsInternalLoss] = useState(false);
-  const [originalReceipt, setOriginalReceipt] = useState('');
-  const [freeClientName, setFreeClientName] = useState('');
+
+  // Exchange
+  const [exchangeSearch, setExchangeSearch] = useState('');
+  const [exchangeProduct, setExchangeProduct] = useState<StockProduct | null>(null);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    fetchStockProducts().then(setProducts);
-    clientService.getAll().then(setClients);
+    fetchStockProducts().then(setAllProducts);
+    clientService.getAll().then(setAllClients);
   }, []);
 
-  // Auto-set refund type based on case
-  useEffect(() => {
-    if (returnCase === 'store_credit') setRefundType('store_credit');
-    else if (returnCase === 'exchange') setRefundType('exchange');
-    else if (returnCase === 'good_condition') setRefundType('refund_cash');
-  }, [returnCase]);
-
-  // Auto-switch to avoir client when a client is selected
-  useEffect(() => {
-    if (selectedClient && returnCase === 'good_condition') {
-      setReturnCase('store_credit');
-    }
-  }, [selectedClient]);
-
-  const filteredProducts = products.filter(p =>
+  const filteredProducts = allProducts.filter(p =>
     p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
     p.ref.toLowerCase().includes(productSearch.toLowerCase())
-  );
+  ).slice(0, 8);
 
-  const filteredExchangeProducts = products.filter(p =>
-    (p.name.toLowerCase().includes(exchangeSearch.toLowerCase()) ||
-    p.ref.toLowerCase().includes(exchangeSearch.toLowerCase())) &&
-    p.id !== selectedProduct?.id
-  );
-
-  const filteredClients = clients.filter(c =>
+  const filteredClients = allClients.filter(c =>
     c.fullName.toLowerCase().includes(clientSearch.toLowerCase()) ||
     (c.phone || '').includes(clientSearch)
-  );
+  ).slice(0, 6);
 
-  const totalAmount = quantity * unitPrice;
-  const exchangePriceDiff = selectedExchangeProduct ? selectedExchangeProduct.sellPriceTtc - totalAmount : 0;
+  const filteredExchange = allProducts.filter(p =>
+    (p.name.toLowerCase().includes(exchangeSearch.toLowerCase()) ||
+     p.ref.toLowerCase().includes(exchangeSearch.toLowerCase())) &&
+    !lineItems.some(li => li.product.id === p.id)
+  ).slice(0, 6);
 
-  const getProductCondition = (): ProductCondition => {
-    if (returnCase === 'damaged') return 'damaged';
-    if (returnCase === 'good_condition' || returnCase === 'store_credit') return 'good';
-    if (returnCase === 'exchange') return 'good'; // exchange assumes good unless noted
-    return 'unknown';
+  const totalReturn = lineItems.reduce((s, li) => s + lineTotal(li), 0);
+
+  const addProduct = (p: StockProduct) => {
+    const existing = lineItems.find(li => li.product.id === p.id);
+    if (existing) {
+      setLineItems(prev => prev.map(li => li.product.id === p.id ? { ...li, quantity: li.quantity + 1 } : li));
+    } else {
+      setLineItems(prev => [...prev, {
+        id: `${p.id}-${Date.now()}`,
+        product: p,
+        quantity: 1,
+        unitPrice: p.sellPriceTtc,
+        discountPct: 0,
+      }]);
+    }
+    setProductSearch('');
+    setShowProductDrop(false);
   };
 
-  const getReturnToStock = (): boolean => {
-    return returnCase !== 'damaged';
+  const updateLine = (id: string, field: 'quantity' | 'unitPrice' | 'discountPct', value: number) => {
+    setLineItems(prev => prev.map(li => li.id === id ? { ...li, [field]: Math.max(0, value) } : li));
+  };
+
+  const removeLine = (id: string) => setLineItems(prev => prev.filter(li => li.id !== id));
+
+  const exchangePriceDiff = exchangeProduct ? exchangeProduct.sellPriceTtc - totalReturn : 0;
+
+  const getRefundType = (): ReturnRefundType => {
+    if (returnType === 'avoir') return 'store_credit';
+    if (returnType === 'exchange') return 'exchange';
+    return paymentMethod === 'cash' ? 'refund_cash' : 'refund_card';
+  };
+
+  const getDecision = (): string => {
+    if (returnType === 'avoir') return 'Avoir client';
+    if (returnType === 'exchange') return 'Échange';
+    const pm = PAYMENT_METHODS.find(m => m.id === paymentMethod);
+    return `Remboursement ${pm?.label ?? ''}`;
   };
 
   const handleSubmit = async () => {
-    if (!selectedProduct) { setError('Veuillez sélectionner un produit.'); return; }
-    if (quantity < 1) { setError('La quantité doit être au moins 1.'); return; }
-    if (returnCase === 'store_credit' && !selectedClient) { setError('Un avoir nécessite un client sélectionné.'); return; }
+    if (lineItems.length === 0) { setError('Ajoutez au moins un produit.'); return; }
+    if (returnType === 'avoir' && !selectedClient) { setError('Un avoir nécessite un client sélectionné.'); return; }
     setLoading(true);
     setError('');
 
+    const lineItemsPayload = lineItems.map(li => ({
+      productId: li.product.id,
+      productName: li.product.name,
+      productRef: li.product.ref,
+      qty: li.quantity,
+      unitPrice: li.unitPrice,
+      discountPct: li.discountPct,
+      lineTotal: lineTotal(li),
+    }));
+
+    const firstItem = lineItems[0];
     const input: CreateReturnInput = {
       clientId: selectedClient?.id,
       clientName: freeClientName.trim() || selectedClient?.fullName || undefined,
-      productId: selectedProduct.id,
-      productName: selectedProduct.name,
-      productRef: selectedProduct.ref,
-      quantity,
-      unitPrice,
+      productId: firstItem.product.id,
+      productName: lineItems.length === 1
+        ? firstItem.product.name
+        : `${firstItem.product.name} + ${lineItems.length - 1} autre(s)`,
+      productRef: firstItem.product.ref,
+      quantity: lineItems.reduce((s, li) => s + li.quantity, 0),
+      unitPrice: firstItem.unitPrice * (1 - firstItem.discountPct / 100),
       reason,
       reasonNotes: reasonNotes || undefined,
-      refundType,
-      productCondition: getProductCondition(),
-      returnToStock: getReturnToStock(),
-      isInternalLoss: returnCase === 'damaged' && isInternalLoss,
-      exchangeProductId: selectedExchangeProduct?.id,
-      exchangeProductName: selectedExchangeProduct?.name,
-      exchangePriceDiff: returnCase === 'exchange' ? exchangePriceDiff : 0,
-      decision: RETURN_CASES.find(c => c.id === returnCase)?.label,
+      refundType: getRefundType(),
+      paymentMethod: returnType === 'remboursement' ? paymentMethod : undefined,
+      productCondition: isDamaged ? 'damaged' : 'good',
+      returnToStock: !isDamaged,
+      isInternalLoss: false,
+      exchangeProductId: exchangeProduct?.id,
+      exchangeProductName: exchangeProduct?.name,
+      exchangePriceDiff: returnType === 'exchange' ? exchangePriceDiff : 0,
+      decision: getDecision(),
       originalReceipt: originalReceipt || undefined,
+      lineItems: lineItemsPayload,
     };
 
     const result = await returnsService.create(input);
@@ -267,11 +346,12 @@ function NewReturnModal({ onClose, onCreated }: NewReturnModalProps) {
     }
   };
 
-  const stepLabels = ['Produit & Client', 'Cas de retour', 'Motif', 'Confirmation'];
+  const stepLabels = ['Produits retournés', 'Décision & Paiement', 'Confirmation'];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div className="flex items-center gap-3">
@@ -279,8 +359,8 @@ function NewReturnModal({ onClose, onCreated }: NewReturnModalProps) {
               <Icon name="ArrowUturnLeftIcon" size={18} className="text-primary" />
             </div>
             <div>
-              <h2 className="text-base font-600 text-foreground">Nouveau retour</h2>
-              <p className="text-xs text-muted-foreground">Étape {step} / 4</p>
+              <h2 className="text-base font-600 text-foreground">Nouveau retour / Avoir</h2>
+              <p className="text-xs text-muted-foreground">Étape {step} / 3</p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 rounded-lg hover:bg-muted text-muted-foreground">
@@ -289,7 +369,7 @@ function NewReturnModal({ onClose, onCreated }: NewReturnModalProps) {
         </div>
 
         {/* Step indicator */}
-        <div className="px-6 pt-4 flex gap-2">
+        <div className="px-6 pt-3 flex gap-2">
           {stepLabels.map((label, i) => (
             <div key={i} className="flex-1">
               <div className={`h-1.5 rounded-full transition-colors ${step > i ? 'bg-primary' : step === i + 1 ? 'bg-primary/60' : 'bg-muted'}`} />
@@ -301,164 +381,187 @@ function NewReturnModal({ onClose, onCreated }: NewReturnModalProps) {
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
 
-          {/* STEP 1: Product & Client */}
+          {/* ── STEP 1: PRODUITS ── */}
           {step === 1 && (
             <>
               <div>
-                <label className="block text-sm font-500 text-foreground mb-1.5">Produit retourné *</label>
-                {selectedProduct ? (
-                  <div className="flex items-center gap-3 p-3 rounded-xl border border-primary/30 bg-primary/5">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-600 text-foreground truncate">{selectedProduct.name}</p>
-                      <p className="text-xs text-muted-foreground">Réf: {selectedProduct.ref} · Stock actuel: {selectedProduct.stock}</p>
+                <label className="block text-sm font-500 text-foreground mb-1.5">Ajouter un produit *</label>
+                <div className="relative">
+                  <Icon name="MagnifyingGlassIcon" size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    type="text"
+                    placeholder="Rechercher par nom ou référence..."
+                    value={productSearch}
+                    onChange={e => { setProductSearch(e.target.value); setShowProductDrop(true); }}
+                    onFocus={() => setShowProductDrop(true)}
+                    className="w-full pl-9 pr-4 py-2.5 text-sm border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                  {showProductDrop && productSearch && (
+                    <div className="absolute top-full left-0 right-0 z-20 bg-white border border-border rounded-xl shadow-lg mt-1 max-h-52 overflow-y-auto">
+                      {filteredProducts.length === 0
+                        ? <p className="px-4 py-3 text-sm text-muted-foreground">Aucun produit trouvé</p>
+                        : filteredProducts.map(p => (
+                          <button key={p.id} onClick={() => addProduct(p)}
+                            className="w-full flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-muted text-left">
+                            <div className="min-w-0">
+                              <p className="text-sm font-500 text-foreground truncate">{p.name}</p>
+                              <p className="text-xs text-muted-foreground">Réf: {p.ref}</p>
+                            </div>
+                            <span className="text-sm font-600 text-foreground shrink-0">{formatCurrency(p.sellPriceTtc)}</span>
+                          </button>
+                        ))}
                     </div>
-                    <button onClick={() => setSelectedProduct(null)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
-                      <Icon name="XMarkIcon" size={14} />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="relative">
-                    <Icon name="MagnifyingGlassIcon" size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                    <input type="text" placeholder="Rechercher un produit..." value={productSearch} onChange={e => setProductSearch(e.target.value)}
-                      className="w-full pl-9 pr-4 py-2.5 text-sm border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30" />
-                    {productSearch && (
-                      <div className="absolute top-full left-0 right-0 z-10 bg-white border border-border rounded-xl shadow-lg mt-1 max-h-48 overflow-y-auto">
-                        {filteredProducts.length === 0 ? <p className="px-4 py-3 text-sm text-muted-foreground">Aucun produit trouvé</p>
-                          : filteredProducts.slice(0, 8).map(p => (
-                            <button key={p.id} onClick={() => { setSelectedProduct(p); setUnitPrice(p.sellPriceTtc); setProductSearch(''); }}
-                              className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-muted text-left">
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-500 text-foreground truncate">{p.name}</p>
-                                <p className="text-xs text-muted-foreground">Réf: {p.ref} · {formatCurrency(p.sellPriceTtc)}</p>
-                              </div>
-                            </button>
-                          ))}
-                      </div>
-                    )}
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
 
-              {selectedProduct && (
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-500 text-foreground mb-1.5">Quantité *</label>
-                    <input type="number" min={1} value={quantity} onChange={e => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
-                      className="w-full px-3 py-2.5 text-sm border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-500 text-foreground mb-1.5">Prix unitaire (€) *</label>
-                    <input type="number" min={0} step={0.01} value={unitPrice} onChange={e => setUnitPrice(parseFloat(e.target.value) || 0)}
-                      className="w-full px-3 py-2.5 text-sm border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30" />
+              {/* Line items list */}
+              {lineItems.length > 0 && (
+                <div className="space-y-2">
+                  {lineItems.map(li => (
+                    <div key={li.id} className="p-3 rounded-xl border border-border bg-muted/20">
+                      <div className="flex items-start gap-2 mb-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-600 text-foreground truncate">{li.product.name}</p>
+                          <p className="text-xs text-muted-foreground">Réf: {li.product.ref} · Prix catalogue: {formatCurrency(li.product.sellPriceTtc)}</p>
+                        </div>
+                        <button onClick={() => removeLine(li.id)} className="p-1 rounded hover:bg-red-50 text-muted-foreground hover:text-red-500 shrink-0">
+                          <Icon name="XMarkIcon" size={14} />
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <p className="text-[10px] text-muted-foreground mb-1">Quantité</p>
+                          <div className="flex items-center gap-1">
+                            <button onClick={() => updateLine(li.id, 'quantity', li.quantity - 1)}
+                              className="w-6 h-6 rounded border border-border flex items-center justify-center hover:bg-muted text-xs">
+                              <Icon name="MinusIcon" size={10} />
+                            </button>
+                            <span className="w-8 text-center text-sm font-600">{li.quantity}</span>
+                            <button onClick={() => updateLine(li.id, 'quantity', li.quantity + 1)}
+                              className="w-6 h-6 rounded border border-border flex items-center justify-center hover:bg-muted text-xs">
+                              <Icon name="PlusIcon" size={10} />
+                            </button>
+                          </div>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-muted-foreground mb-1">Prix unitaire (€)</p>
+                          <input
+                            type="number" min={0} step={0.01}
+                            value={li.unitPrice}
+                            onChange={e => updateLine(li.id, 'unitPrice', parseFloat(e.target.value) || 0)}
+                            className="w-full px-2 py-1 text-sm border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary/40"
+                          />
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-muted-foreground mb-1">Remise (%)</p>
+                          <input
+                            type="number" min={0} max={100} step={1}
+                            value={li.discountPct}
+                            onChange={e => updateLine(li.id, 'discountPct', parseFloat(e.target.value) || 0)}
+                            placeholder="0"
+                            className="w-full px-2 py-1 text-sm border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary/40"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex justify-between items-center mt-2 pt-2 border-t border-border">
+                        <span className="text-xs text-muted-foreground">
+                          {li.discountPct > 0 ? `Après remise de ${li.discountPct}%` : 'Total ligne'}
+                        </span>
+                        <span className="text-sm font-700 text-foreground">{formatCurrency(lineTotal(li))}</span>
+                      </div>
+                    </div>
+                  ))}
+
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-primary/5 border border-primary/20">
+                    <span className="text-sm font-600 text-foreground">Total à rembourser / avoir</span>
+                    <span className="text-lg font-700 text-primary">{formatCurrency(totalReturn)}</span>
                   </div>
                 </div>
               )}
 
-              {selectedProduct && (
-                <div className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
-                  <span className="text-sm text-muted-foreground">Montant total du retour</span>
-                  <span className="text-base font-700 text-foreground">{formatCurrency(totalAmount)}</span>
+              {lineItems.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-10 text-center border-2 border-dashed border-border rounded-xl">
+                  <Icon name="ArchiveBoxIcon" size={32} className="text-muted-foreground mb-2" />
+                  <p className="text-sm text-muted-foreground">Recherchez et ajoutez les produits retournés</p>
                 </div>
               )}
-
-              <div>
-                <label className="block text-sm font-500 text-foreground mb-1.5">Client (optionnel)</label>
-                {selectedClient ? (
-                  <div className="flex items-center gap-3 p-3 rounded-xl border border-border bg-muted/30">
-                    <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
-                      <span className="text-xs font-600 text-primary">{selectedClient.firstName[0]}{selectedClient.lastName[0]}</span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-600 text-foreground">{selectedClient.fullName}</p>
-                      <p className="text-xs text-muted-foreground">{selectedClient.phone || selectedClient.email || ''}</p>
-                    </div>
-                    <button onClick={() => { setSelectedClient(null); setFreeClientName(''); }} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
-                      <Icon name="XMarkIcon" size={14} />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="relative">
-                    <Icon name="UserIcon" size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                    <input type="text" placeholder="Rechercher un client..." value={clientSearch} onChange={e => setClientSearch(e.target.value)}
-                      className="w-full pl-9 pr-4 py-2.5 text-sm border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30" />
-                    {clientSearch && (
-                      <div className="absolute top-full left-0 right-0 z-10 bg-white border border-border rounded-xl shadow-lg mt-1 max-h-40 overflow-y-auto">
-                        {filteredClients.length === 0 ? <p className="px-4 py-3 text-sm text-muted-foreground">Aucun client trouvé</p>
-                          : filteredClients.slice(0, 6).map(c => (
-                            <button key={c.id} onClick={() => { setSelectedClient(c); setFreeClientName(c.fullName); setClientSearch(''); }}
-                              className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-muted text-left">
-                              <p className="text-sm font-500 text-foreground">{c.fullName}</p>
-                              <p className="text-xs text-muted-foreground ml-auto">{c.phone || ''}</p>
-                            </button>
-                          ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Free-text client name — persists even without a DB link */}
-              <div>
-                <label className="block text-sm font-500 text-foreground mb-1.5">Nom du client (libre)</label>
-                <input
-                  type="text"
-                  placeholder="Nom du client (si non trouvé dans la liste)"
-                  value={freeClientName}
-                  onChange={e => setFreeClientName(e.target.value)}
-                  className="w-full px-3 py-2.5 text-sm border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-500 text-foreground mb-1.5">N° ticket original (optionnel)</label>
-                <input type="text" placeholder="Ex: TK-2024-0042" value={originalReceipt} onChange={e => setOriginalReceipt(e.target.value)}
-                  className="w-full px-3 py-2.5 text-sm border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30" />
-              </div>
             </>
           )}
 
-          {/* STEP 2: Return case */}
+          {/* ── STEP 2: DÉCISION ── */}
           {step === 2 && (
-            <div className="space-y-3">
-              <p className="text-sm font-600 text-foreground">Quel est le cas de retour ?</p>
-              {RETURN_CASES.map(rc => (
-                <button key={rc.id} onClick={() => setReturnCase(rc.id)}
-                  className={`w-full flex items-center gap-4 p-4 rounded-xl border-2 text-left transition-all ${returnCase === rc.id ? rc.color : 'border-border hover:border-primary/30'}`}>
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${returnCase === rc.id ? 'bg-white/60' : 'bg-muted'}`}>
-                    <Icon name={rc.icon as Parameters<typeof Icon>[0]['name']} size={20} className={returnCase === rc.id ? '' : 'text-muted-foreground'} />
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-700">{rc.label}</p>
-                    <p className="text-xs opacity-80 mt-0.5">{rc.desc}</p>
-                  </div>
-                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${returnCase === rc.id ? 'border-current' : 'border-muted-foreground'}`}>
-                    {returnCase === rc.id && <div className="w-2.5 h-2.5 rounded-full bg-current" />}
-                  </div>
-                </button>
-              ))}
+            <div className="space-y-4">
 
-              {/* Exchange product selector */}
-              {returnCase === 'exchange' && (
-                <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-xl space-y-3">
+              {/* Type principal */}
+              <div>
+                <p className="text-sm font-600 text-foreground mb-2">Que doit-on donner au client ?</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    { id: 'remboursement' as ReturnType, label: 'Remboursement', icon: 'BanknotesIcon', color: 'border-emerald-300 bg-emerald-50 text-emerald-800' },
+                    { id: 'avoir' as ReturnType, label: 'Avoir client', icon: 'GiftIcon', color: 'border-purple-300 bg-purple-50 text-purple-800' },
+                    { id: 'exchange' as ReturnType, label: 'Échange', icon: 'ArrowPathIcon', color: 'border-blue-300 bg-blue-50 text-blue-800' },
+                  ]).map(rt => (
+                    <button key={rt.id} onClick={() => setReturnType(rt.id)}
+                      className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${returnType === rt.id ? rt.color : 'border-border hover:border-primary/30'}`}>
+                      <Icon name={rt.icon as Parameters<typeof Icon>[0]['name']} size={22} className={returnType === rt.id ? '' : 'text-muted-foreground'} />
+                      <span className="text-xs font-700 text-center">{rt.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Payment method — only for remboursement */}
+              {returnType === 'remboursement' && (
+                <div>
+                  <p className="text-sm font-600 text-foreground mb-2">Mode de paiement du remboursement</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {PAYMENT_METHODS.map(m => (
+                      <button key={m.id} onClick={() => setPaymentMethod(m.id)}
+                        className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all ${paymentMethod === m.id ? 'border-primary bg-primary/5 text-primary' : 'border-border hover:border-primary/30 text-muted-foreground'}`}>
+                        <Icon name={m.icon as Parameters<typeof Icon>[0]['name']} size={20} />
+                        <span className="text-xs font-600">{m.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-3 p-3 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-between">
+                    <span className="text-sm text-emerald-700 font-500">Montant à rembourser</span>
+                    <span className="text-base font-700 text-emerald-800">{formatCurrency(totalReturn)}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Avoir amount info */}
+              {returnType === 'avoir' && (
+                <div className="p-3 rounded-xl bg-purple-50 border border-purple-200 flex items-center justify-between">
+                  <span className="text-sm text-purple-700 font-500">Avoir crédité sur le compte client</span>
+                  <span className="text-base font-700 text-purple-800">{formatCurrency(totalReturn)}</span>
+                </div>
+              )}
+
+              {/* Exchange product */}
+              {returnType === 'exchange' && (
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl space-y-3">
                   <p className="text-sm font-600 text-blue-800">Produit de remplacement</p>
-                  {selectedExchangeProduct ? (
+                  {exchangeProduct ? (
                     <div className="flex items-center gap-3 p-3 rounded-xl border border-blue-300 bg-white">
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-600 text-foreground">{selectedExchangeProduct.name}</p>
-                        <p className="text-xs text-muted-foreground">{formatCurrency(selectedExchangeProduct.sellPriceTtc)}</p>
+                        <p className="text-sm font-600 text-foreground">{exchangeProduct.name}</p>
+                        <p className="text-xs text-muted-foreground">{formatCurrency(exchangeProduct.sellPriceTtc)}</p>
                       </div>
-                      <button onClick={() => setSelectedExchangeProduct(null)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
+                      <button onClick={() => setExchangeProduct(null)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
                         <Icon name="XMarkIcon" size={14} />
                       </button>
                     </div>
                   ) : (
                     <div className="relative">
-                      <input type="text" placeholder="Rechercher le produit d'échange..." value={exchangeSearch} onChange={e => setExchangeSearch(e.target.value)}
+                      <input type="text" placeholder="Rechercher le produit d'échange..." value={exchangeSearch}
+                        onChange={e => setExchangeSearch(e.target.value)}
                         className="w-full px-3 py-2.5 text-sm border border-blue-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-200 bg-white" />
                       {exchangeSearch && (
-                        <div className="absolute top-full left-0 right-0 z-10 bg-white border border-border rounded-xl shadow-lg mt-1 max-h-40 overflow-y-auto">
-                          {filteredExchangeProducts.slice(0, 6).map(p => (
-                            <button key={p.id} onClick={() => { setSelectedExchangeProduct(p); setExchangeSearch(''); }}
+                        <div className="absolute top-full left-0 right-0 z-20 bg-white border border-border rounded-xl shadow-lg mt-1 max-h-40 overflow-y-auto">
+                          {filteredExchange.map(p => (
+                            <button key={p.id} onClick={() => { setExchangeProduct(p); setExchangeSearch(''); }}
                               className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-muted text-left">
                               <p className="text-sm font-500 text-foreground">{p.name}</p>
                               <p className="text-xs text-muted-foreground ml-auto">{formatCurrency(p.sellPriceTtc)}</p>
@@ -468,91 +571,155 @@ function NewReturnModal({ onClose, onCreated }: NewReturnModalProps) {
                       )}
                     </div>
                   )}
-                  {selectedExchangeProduct && (
+                  {exchangeProduct && (
                     <div className={`p-3 rounded-lg text-sm font-600 ${exchangePriceDiff > 0 ? 'bg-amber-50 text-amber-800' : exchangePriceDiff < 0 ? 'bg-emerald-50 text-emerald-800' : 'bg-gray-50 text-gray-700'}`}>
-                      {exchangePriceDiff > 0 ? `Supplément à payer : ${formatCurrency(exchangePriceDiff)}` :
-                       exchangePriceDiff < 0 ? `Avoir à rendre : ${formatCurrency(Math.abs(exchangePriceDiff))}` :
-                       'Échange sans différence de prix'}
+                      {exchangePriceDiff > 0 ? `Supplément à payer par le client : ${formatCurrency(exchangePriceDiff)}` :
+                       exchangePriceDiff < 0 ? `Avoir à rendre au client : ${formatCurrency(Math.abs(exchangePriceDiff))}` :
+                       'Échange à valeur égale'}
                     </div>
                   )}
                 </div>
               )}
 
-              {/* Damaged — internal loss option */}
-              {returnCase === 'damaged' && (
-                <div className="p-4 bg-red-50 border border-red-200 rounded-xl space-y-3">
-                  <p className="text-sm font-600 text-red-800">Ce produit ne retournera pas en stock vendable.</p>
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input type="checkbox" checked={isInternalLoss} onChange={e => setIsInternalLoss(e.target.checked)}
-                      className="w-4 h-4 rounded border-red-300 text-red-600 focus:ring-red-500" />
-                    <span className="text-sm text-red-700">Le problème vient de la boutique (perte interne)</span>
-                  </label>
-                  {isInternalLoss && (
-                    <div className="flex items-center gap-2 p-2.5 bg-red-100 rounded-lg">
-                      <Icon name="ExclamationTriangleIcon" size={14} className="text-red-600 shrink-0" />
-                      <p className="text-xs text-red-700">La perte de {formatCurrency(totalAmount)} sera enregistrée comme perte interne boutique.</p>
-                    </div>
-                  )}
+              {/* Damaged checkbox */}
+              <label className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${isDamaged ? 'border-red-300 bg-red-50' : 'border-border hover:border-red-200'}`}>
+                <input type="checkbox" checked={isDamaged} onChange={e => setIsDamaged(e.target.checked)}
+                  className="w-4 h-4 rounded border-red-300 text-red-600 focus:ring-red-500" />
+                <div>
+                  <p className="text-sm font-600 text-foreground">Produit abîmé / ne retourne pas en stock</p>
+                  <p className="text-xs text-muted-foreground">Le produit ne sera pas réintégré au stock vendable</p>
                 </div>
-              )}
+              </label>
+
+              {/* Client */}
+              <div>
+                <label className="block text-sm font-500 text-foreground mb-1.5">
+                  Client {returnType === 'avoir' ? '*' : '(optionnel)'}
+                </label>
+                {selectedClient ? (
+                  <div className="flex items-center gap-3 p-3 rounded-xl border border-border bg-muted/30">
+                    <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
+                      <span className="text-xs font-600 text-primary">{selectedClient.firstName[0]}{selectedClient.lastName[0]}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-600 text-foreground">{selectedClient.fullName}</p>
+                      <p className="text-xs text-muted-foreground">{selectedClient.phone || selectedClient.email || ''}</p>
+                    </div>
+                    <button onClick={() => { setSelectedClient(null); setFreeClientName(''); }}
+                      className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
+                      <Icon name="XMarkIcon" size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="relative">
+                      <Icon name="UserIcon" size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                      <input type="text" placeholder="Rechercher un client..." value={clientSearch}
+                        onChange={e => setClientSearch(e.target.value)}
+                        className="w-full pl-9 pr-4 py-2.5 text-sm border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                      {clientSearch && (
+                        <div className="absolute top-full left-0 right-0 z-10 bg-white border border-border rounded-xl shadow-lg mt-1 max-h-40 overflow-y-auto">
+                          {filteredClients.length === 0
+                            ? <p className="px-4 py-3 text-sm text-muted-foreground">Aucun client trouvé</p>
+                            : filteredClients.map(c => (
+                              <button key={c.id} onClick={() => { setSelectedClient(c); setFreeClientName(c.fullName); setClientSearch(''); }}
+                                className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-muted text-left">
+                                <p className="text-sm font-500 text-foreground">{c.fullName}</p>
+                                <p className="text-xs text-muted-foreground ml-auto">{c.phone || ''}</p>
+                              </button>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+                    <input type="text" placeholder="Nom du client (saisie libre)" value={freeClientName}
+                      onChange={e => setFreeClientName(e.target.value)}
+                      className="w-full px-3 py-2.5 text-sm border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                  </div>
+                )}
+              </div>
+
+              {/* Ticket original + motif */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-muted-foreground mb-1">N° ticket original</label>
+                  <input type="text" placeholder="TK-2024-0042" value={originalReceipt}
+                    onChange={e => setOriginalReceipt(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-border rounded-xl focus:outline-none focus:ring-1 focus:ring-primary/30" />
+                </div>
+                <div>
+                  <label className="block text-xs text-muted-foreground mb-1">Motif</label>
+                  <select value={reason} onChange={e => setReason(e.target.value as ReturnReason)}
+                    className="w-full px-3 py-2 text-sm border border-border rounded-xl focus:outline-none focus:ring-1 focus:ring-primary/30 bg-white">
+                    {(Object.entries(RETURN_REASON_LABELS) as [ReturnReason, string][]).map(([k, v]) => (
+                      <option key={k} value={k}>{v}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs text-muted-foreground mb-1">Notes (optionnel)</label>
+                <textarea rows={2} placeholder="Informations complémentaires..." value={reasonNotes}
+                  onChange={e => setReasonNotes(e.target.value)}
+                  className="w-full px-3 py-2.5 text-sm border border-border rounded-xl focus:outline-none focus:ring-1 focus:ring-primary/30 resize-none" />
+              </div>
             </div>
           )}
 
-          {/* STEP 3: Reason */}
+          {/* ── STEP 3: CONFIRMATION ── */}
           {step === 3 && (
-            <>
-              <div>
-                <label className="block text-sm font-500 text-foreground mb-3">Motif du retour *</label>
-                <div className="grid grid-cols-2 gap-2.5">
-                  {(Object.entries(RETURN_REASON_LABELS) as [ReturnReason, string][]).map(([key, label]) => (
-                    <button key={key} onClick={() => setReason(key)}
-                      className={`flex items-center gap-2.5 p-3 rounded-xl border text-left transition-all ${reason === key ? 'border-primary bg-primary/5 text-primary' : 'border-border hover:border-primary/40 text-foreground'}`}>
-                      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${reason === key ? 'border-primary' : 'border-muted-foreground'}`}>
-                        {reason === key && <div className="w-2 h-2 rounded-full bg-primary" />}
+            <div className="space-y-4">
+              {/* Decision badge */}
+              <div className={`p-4 rounded-xl border-2 ${
+                returnType === 'avoir' ? 'border-purple-300 bg-purple-50 text-purple-800' :
+                returnType === 'exchange' ? 'border-blue-300 bg-blue-50 text-blue-800' :
+                'border-emerald-300 bg-emerald-50 text-emerald-800'
+              }`}>
+                <p className="text-sm font-700">{getDecision()}</p>
+                {returnType === 'avoir' && selectedClient && (
+                  <p className="text-xs opacity-80 mt-0.5">Crédit sur le compte de {selectedClient.fullName}</p>
+                )}
+              </div>
+
+              {/* Items recap */}
+              <div className="rounded-xl border border-border overflow-hidden">
+                <div className="px-4 py-2 bg-muted/30 border-b border-border">
+                  <p className="text-xs font-600 uppercase tracking-wider text-muted-foreground">Articles retournés</p>
+                </div>
+                <div className="divide-y divide-border">
+                  {lineItems.map(li => (
+                    <div key={li.id} className="px-4 py-3 flex items-center justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-500 text-foreground truncate">{li.product.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {li.quantity} × {formatCurrency(li.unitPrice)}
+                          {li.discountPct > 0 && <span className="ml-1 text-amber-600">−{li.discountPct}%</span>}
+                        </p>
                       </div>
-                      <span className="text-sm font-500">{label}</span>
-                    </button>
+                      <span className="text-sm font-700 text-foreground">{formatCurrency(lineTotal(li))}</span>
+                    </div>
                   ))}
                 </div>
-              </div>
-              <div>
-                <label className="block text-sm font-500 text-foreground mb-1.5">Notes complémentaires (optionnel)</label>
-                <textarea rows={3} placeholder="Décrivez le problème en détail..." value={reasonNotes} onChange={e => setReasonNotes(e.target.value)}
-                  className="w-full px-3 py-2.5 text-sm border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none" />
-              </div>
-            </>
-          )}
-
-          {/* STEP 4: Confirmation */}
-          {step === 4 && (
-            <div className="space-y-4">
-              <div className={`p-4 rounded-xl border-2 ${RETURN_CASES.find(c => c.id === returnCase)?.color || ''}`}>
-                <p className="text-sm font-700 mb-1">Cas : {RETURN_CASES.find(c => c.id === returnCase)?.label}</p>
-                <p className="text-xs opacity-80">{RETURN_CASES.find(c => c.id === returnCase)?.desc}</p>
+                <div className="px-4 py-3 bg-muted/20 flex justify-between border-t border-border">
+                  <span className="text-sm font-600 text-foreground">Total</span>
+                  <span className="text-base font-700 text-foreground">{formatCurrency(totalReturn)}</span>
+                </div>
               </div>
 
+              {/* Details */}
               <div className="p-4 rounded-xl bg-muted/40 space-y-2">
-                <p className="text-xs font-600 uppercase tracking-wider text-muted-foreground mb-2">Récapitulatif</p>
                 {[
-                  { label: 'Produit', value: selectedProduct?.name },
-                  { label: 'Quantité', value: quantity },
+                  selectedClient ? { label: 'Client', value: selectedClient.fullName } :
+                  freeClientName ? { label: 'Client', value: freeClientName } : null,
                   { label: 'Motif', value: RETURN_REASON_LABELS[reason] },
-                  { label: 'État produit', value: PRODUCT_CONDITION_LABELS[getProductCondition()] },
-                  { label: 'Retour en stock', value: getReturnToStock() ? '✅ Oui' : '❌ Non' },
-                  returnCase === 'exchange' && selectedExchangeProduct ? { label: 'Échange avec', value: selectedExchangeProduct.name } : null,
-                  returnCase === 'exchange' && exchangePriceDiff !== 0 ? { label: 'Différence prix', value: formatCurrency(Math.abs(exchangePriceDiff)) } : null,
-                  returnCase === 'damaged' && isInternalLoss ? { label: 'Perte interne', value: formatCurrency(totalAmount) } : null,
-                  selectedClient ? { label: 'Client', value: selectedClient.fullName } : null,
+                  { label: 'État produit', value: isDamaged ? '❌ Abîmé — ne retourne pas en stock' : '✅ Bon état — retour en stock' },
+                  originalReceipt ? { label: 'Ticket original', value: originalReceipt } : null,
                 ].filter(Boolean).map((item: any, i) => (
                   <div key={i} className="flex justify-between text-sm">
                     <span className="text-muted-foreground">{item.label}</span>
                     <span className="font-500 text-foreground">{item.value}</span>
                   </div>
                 ))}
-                <div className="flex justify-between text-sm border-t border-border pt-2 mt-2">
-                  <span className="text-muted-foreground font-600">Montant</span>
-                  <span className="font-700 text-foreground">{formatCurrency(totalAmount)}</span>
-                </div>
               </div>
 
               {error && (
@@ -567,16 +734,16 @@ function NewReturnModal({ onClose, onCreated }: NewReturnModalProps) {
 
         {/* Footer */}
         <div className="px-6 py-4 border-t border-border flex items-center justify-between gap-3">
-          <button onClick={() => step > 1 ? setStep((step - 1) as 1 | 2 | 3 | 4) : onClose()}
+          <button onClick={() => step > 1 ? setStep((step - 1) as 1 | 2 | 3) : onClose()}
             className="px-4 py-2.5 text-sm font-500 text-muted-foreground hover:text-foreground border border-border rounded-xl hover:bg-muted transition-colors">
             {step === 1 ? 'Annuler' : 'Retour'}
           </button>
-          {step < 4 ? (
+          {step < 3 ? (
             <button onClick={() => {
-              if (step === 1 && !selectedProduct) { setError('Veuillez sélectionner un produit.'); return; }
-              if (step === 2 && returnCase === 'store_credit' && !selectedClient) { setError('Un avoir nécessite un client sélectionné.'); return; }
+              if (step === 1 && lineItems.length === 0) { setError('Ajoutez au moins un produit.'); return; }
+              if (step === 2 && returnType === 'avoir' && !selectedClient) { setError('Un avoir nécessite un client sélectionné.'); return; }
               setError('');
-              setStep((step + 1) as 2 | 3 | 4);
+              setStep((step + 1) as 2 | 3);
             }} className="px-5 py-2.5 text-sm font-600 bg-primary text-white rounded-xl hover:bg-primary/90 transition-colors">
               Suivant
             </button>
@@ -869,13 +1036,18 @@ export default function ReturnsPage() {
 
             {/* Returns by case breakdown */}
             <div className="bg-white border border-border rounded-2xl p-5">
-              <h3 className="font-600 text-foreground mb-4">Répartition par cas de retour</h3>
+              <h3 className="font-600 text-foreground mb-4">Répartition par décision</h3>
               <div className="grid grid-cols-4 gap-4">
-                {RETURN_CASES.map(rc => {
-                  const count = returns.filter(r => r.decision === rc.label).length;
+                {([
+                  { label: 'Remboursement', icon: 'BanknotesIcon', color: 'border-emerald-300 bg-emerald-50 text-emerald-800', match: (d: string) => d?.startsWith('Remboursement') },
+                  { label: 'Avoir client', icon: 'GiftIcon', color: 'border-purple-300 bg-purple-50 text-purple-800', match: (d: string) => d === 'Avoir client' || d === 'Avoir / Crédit client' },
+                  { label: 'Échange', icon: 'ArrowPathIcon', color: 'border-blue-300 bg-blue-50 text-blue-800', match: (d: string) => d === 'Échange' || d === 'Échange produit' },
+                  { label: 'Abîmé / Perte', icon: 'ExclamationTriangleIcon', color: 'border-red-300 bg-red-50 text-red-800', match: (d: string) => d === 'Abîmé / Perte' },
+                ] as const).map(rc => {
+                  const count = returns.filter(r => rc.match(r.decision ?? '')).length;
                   const pct = returns.length > 0 ? Math.round((count / returns.length) * 100) : 0;
                   return (
-                    <div key={rc.id} className={`p-4 rounded-xl border-2 ${rc.color}`}>
+                    <div key={rc.label} className={`p-4 rounded-xl border-2 ${rc.color}`}>
                       <Icon name={rc.icon as Parameters<typeof Icon>[0]['name']} size={20} className="mb-2" />
                       <p className="text-2xl font-700">{count}</p>
                       <p className="text-sm font-600">{rc.label}</p>

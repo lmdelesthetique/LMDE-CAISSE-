@@ -42,6 +42,16 @@ export interface ReturnRecord {
   updatedAt: string;
 }
 
+export interface ReturnLineItemInput {
+  productId?: string;
+  productName: string;
+  productRef?: string;
+  qty: number;
+  unitPrice: number;
+  discountPct: number;
+  lineTotal: number;
+}
+
 export interface CreateReturnInput {
   clientId?: string;
   clientName?: string;
@@ -53,6 +63,7 @@ export interface CreateReturnInput {
   reason: ReturnReason;
   reasonNotes?: string;
   refundType: ReturnRefundType;
+  paymentMethod?: 'cash' | 'card' | 'transfer';
   productCondition: ProductCondition;
   returnToStock: boolean;
   isInternalLoss?: boolean;
@@ -62,6 +73,7 @@ export interface CreateReturnInput {
   decision?: string;
   originalReceipt?: string;
   processedBy?: string;
+  lineItems?: ReturnLineItemInput[];
 }
 
 export const RETURN_REASON_LABELS: Record<ReturnReason, string> = {

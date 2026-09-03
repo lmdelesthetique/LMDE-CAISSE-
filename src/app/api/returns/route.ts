@@ -37,8 +37,53 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Génération numéro avoir: ${avoirError.message}` }, { status: 500 });
     }
 
-    const totalAmount = (body.quantity || 1) * (body.unitPrice || 0);
+    // Support for multi-product line items
+    const lineItems: Array<{
+      productId?: string;
+      productName: string;
+      productRef?: string;
+      qty: number;
+      unitPrice: number;
+      discountPct: number;
+      lineTotal: number;
+    }> = body.lineItems ?? [];
+
+    const hasMultipleItems = lineItems.length > 0;
+
+    // Compute total from lineItems if provided, otherwise from legacy fields
+    const totalAmount = hasMultipleItems
+      ? lineItems.reduce((s, li) => s + (li.lineTotal ?? li.qty * li.unitPrice), 0)
+      : (body.quantity || 1) * (body.unitPrice || 0);
+
+    // Primary product from first line item or legacy fields
+    const primaryProductId = hasMultipleItems ? (lineItems[0]?.productId || null) : (body.productId || null);
+    const primaryProductName = hasMultipleItems
+      ? lineItems.length === 1
+        ? lineItems[0].productName
+        : `${lineItems[0].productName} + ${lineItems.length - 1} autre(s)`
+      : body.productName;
+    const primaryProductRef = hasMultipleItems ? (lineItems[0]?.productRef || null) : (body.productRef || null);
+    const primaryQty = hasMultipleItems
+      ? lineItems.reduce((s, li) => s + li.qty, 0)
+      : (body.quantity || 1);
+    const primaryUnitPrice = hasMultipleItems
+      ? (lineItems[0]?.lineTotal ?? lineItems[0]?.qty * lineItems[0]?.unitPrice) / (lineItems[0]?.qty || 1)
+      : (body.unitPrice || 0);
+
     const isLoss = body.productCondition === 'damaged' && !body.returnToStock;
+
+    // Build structured reason_notes (JSON) with items + payment method + user notes
+    let storedReasonNotes: string | null = null;
+    if (hasMultipleItems || body.paymentMethod) {
+      storedReasonNotes = JSON.stringify({
+        __v: 1,
+        line_items: hasMultipleItems ? lineItems : undefined,
+        payment_method: body.paymentMethod || undefined,
+        user_notes: body.reasonNotes || undefined,
+      });
+    } else {
+      storedReasonNotes = body.reasonNotes || null;
+    }
 
     // 2. Insert return as completed immediately
     const { data: ret, error: retError } = await supabase
@@ -47,14 +92,14 @@ export async function POST(req: NextRequest) {
         avoir_number: avoirNumber,
         client_id: body.clientId || null,
         client_name: body.clientName || null,
-        product_id: body.productId || null,
-        product_name: body.productName,
-        product_ref: body.productRef || null,
-        quantity: body.quantity || 1,
-        unit_price: body.unitPrice || 0,
+        product_id: primaryProductId,
+        product_name: primaryProductName,
+        product_ref: primaryProductRef,
+        quantity: primaryQty,
+        unit_price: primaryUnitPrice,
         total_amount: totalAmount,
         reason: body.reason,
-        reason_notes: body.reasonNotes || null,
+        reason_notes: storedReasonNotes,
         refund_type: body.refundType,
         return_status: 'completed',
         product_condition: body.productCondition,
@@ -82,41 +127,50 @@ export async function POST(req: NextRequest) {
     let stockUpdated = false;
     let creditApplied = false;
 
-    // 3. Restock if product is in good condition and returnToStock
-    if (body.returnToStock && body.productCondition !== 'damaged' && body.productId) {
-      const { data: prod } = await supabase
-        .from('products')
-        .select('stock')
-        .eq('id', body.productId)
-        .maybeSingle();
-      if (prod) {
-        const newStock = (prod.stock || 0) + (body.quantity || 1);
-        await supabase
+    // 3. Restock products
+    const itemsToRestock = hasMultipleItems
+      ? lineItems.filter(li => li.productId)
+      : (body.returnToStock && body.productCondition !== 'damaged' && body.productId
+          ? [{ productId: body.productId, productName: body.productName, qty: body.quantity || 1 }]
+          : []);
+
+    if (body.returnToStock && body.productCondition !== 'damaged' && itemsToRestock.length > 0) {
+      for (const li of itemsToRestock) {
+        const pid = (li as any).productId;
+        if (!pid) continue;
+        const { data: prod } = await supabase
           .from('products')
-          .update({ stock: newStock, updated_at: new Date().toISOString() })
-          .eq('id', body.productId);
-        await supabase.from('stock_movements_log').insert({
-          product_id: body.productId,
-          product_name: body.productName,
-          movement_type: 'entry',
-          quantity_before: prod.stock || 0,
-          quantity_after: newStock,
-          quantity_change: body.quantity || 1,
-          reason: 'Retour client — bon état',
-          performed_by: body.processedBy || 'Admin',
-        });
-        stockUpdated = true;
-        // Non-blocking Shopify inventory push
-        getInventoryItemId(body.productId).then(async (invItemId) => {
-          if (invItemId) await adjustInventoryLevel(invItemId, body.quantity || 1);
-        }).catch(e => console.error('[returns] shopify sync error:', e.message));
+          .select('stock')
+          .eq('id', pid)
+          .maybeSingle();
+        if (prod) {
+          const newStock = (prod.stock || 0) + ((li as any).qty || 1);
+          await supabase
+            .from('products')
+            .update({ stock: newStock, updated_at: new Date().toISOString() })
+            .eq('id', pid);
+          await supabase.from('stock_movements_log').insert({
+            product_id: pid,
+            product_name: (li as any).productName,
+            movement_type: 'entry',
+            quantity_before: prod.stock || 0,
+            quantity_after: newStock,
+            quantity_change: (li as any).qty || 1,
+            reason: 'Retour client — bon état',
+            performed_by: body.processedBy || 'Admin',
+          });
+          stockUpdated = true;
+          getInventoryItemId(pid).then(async (invItemId) => {
+            if (invItemId) await adjustInventoryLevel(invItemId, (li as any).qty || 1);
+          }).catch(e => console.error('[returns] shopify sync error:', e.message));
+        }
       }
     } else if (isLoss || body.productCondition === 'damaged') {
       await supabase.from('return_losses').insert({
         return_id: ret.id,
-        product_id: body.productId || null,
-        product_name: body.productName,
-        quantity: body.quantity || 1,
+        product_id: primaryProductId,
+        product_name: primaryProductName,
+        quantity: primaryQty,
         total_loss: totalAmount,
         loss_reason: 'damaged_return',
         is_boutique_fault: Boolean(body.isInternalLoss),
