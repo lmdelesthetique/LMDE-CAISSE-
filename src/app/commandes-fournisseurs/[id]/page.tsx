@@ -480,11 +480,19 @@ export default function OrderDetailPage() {
     await supplierOrderService.changeStatus(order.id, targetStatus, 'Caisse', statusComment || undefined);
     if (targetStatus === 'fully_received') {
       const qtys: Record<string, number> = {};
-      (order.lines || []).forEach(l => { qtys[l.id] = l.qtyOrdered; });
+      (order.lines || []).forEach(l => {
+        const remaining = Math.max(0, l.qtyOrdered - (l.qtyReceived ?? 0));
+        if (remaining > 0) qtys[l.id] = remaining;
+      });
       await updateStockForReception(qtys);
     } else if (targetStatus === 'partially_received') {
       const qtys: Record<string, number> = {};
-      (order.lines || []).forEach(l => { qtys[l.id] = receivedQtys[l.id] ?? l.qtyReceived ?? 0; });
+      (order.lines || []).forEach(l => {
+        const entered = receivedQtys[l.id] ?? l.qtyReceived ?? 0;
+        const alreadyReceived = l.qtyReceived ?? 0;
+        const delta = Math.max(0, entered - alreadyReceived);
+        if (delta > 0) qtys[l.id] = delta;
+      });
       await updateStockForReception(qtys);
     }
     setShowStatusModal(false);
