@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { normalizePhone } from '@/lib/utils/phoneUtils';
+import ProDevisPanel from './ProDevisPanel';
 import {
   clientService,
   type Client,
@@ -106,7 +107,7 @@ const DISCOUNT_OPTIONS = [
   { value: 'custom', label: 'Remise personnalisée', percent: 0 },
 ];
 
-type Tab = 'overview' | 'purchases' | 'loyalty' | 'subscription' | 'notes' | 'pro';
+type Tab = 'overview' | 'purchases' | 'loyalty' | 'subscription' | 'notes' | 'pro' | 'devis';
 
 const STATUT_COMMERCIAL_CONFIG: Record<string, { label: string; color: string }> = {
   prospect:        { label: 'Prospect',       color: 'text-blue-700 bg-blue-50 border-blue-200' },
@@ -320,6 +321,7 @@ export default function ClientDetailPanel({
     { id: 'subscription', label: 'Abonnement', icon: 'CheckBadgeIcon' },
     { id: 'notes', label: `Notes (${notes.length})`, icon: 'ChatBubbleLeftEllipsisIcon' },
     ...(client.clientType === 'professionnel' ? [{ id: 'pro' as Tab, label: 'Fiche Pro', icon: 'BriefcaseIcon' }] : []),
+    ...(client.clientType === 'professionnel' ? [{ id: 'devis' as Tab, label: 'Devis PRO', icon: 'DocumentTextIcon' }] : []),
   ];
 
   const handleAddNote = async () => {
@@ -1605,6 +1607,11 @@ export default function ClientDetailPanel({
                 </>
               )}
             </div>
+          )}
+
+          {/* ── DEVIS PRO ── */}
+          {tab === 'devis' && (
+            <ProDevisPanel client={client} />
           )}
 
           {/* ── NOTES ── */}
