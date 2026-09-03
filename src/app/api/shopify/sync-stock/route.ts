@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adjustInventoryLevel, setInventoryLevel, updateLastSyncAt } from '@/lib/services/shopifyService';
-import { createClient as createSupabase } from '@supabase/supabase-js';
+import { createAdminClient } from '@/lib/supabase/admin';
 
 interface SyncItem {
   productId: string;
@@ -8,17 +8,12 @@ interface SyncItem {
   newStock?: number;
 }
 
-function getSupabase() {
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  return createSupabase(process.env.NEXT_PUBLIC_SUPABASE_URL!, key);
-}
-
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const items: SyncItem[] = body.items ?? [];
   if (!items.length) return NextResponse.json({ ok: true });
 
-  const supabase = getSupabase();
+  const supabase = createAdminClient();
 
   const results = await Promise.all(
     items.map(async (item) => {
@@ -36,9 +31,10 @@ export async function POST(req: NextRequest) {
       const invItemId = product.shopify_inventory_item_id as string;
       let ok: boolean;
 
-      // If new stock is explicitly 0 → set absolute to 0 (marks as out of stock)
-      if (item.newStock === 0) {
-        ok = await setInventoryLevel(invItemId, 0);
+      // Prefer absolute setInventoryLevel when newStock is known — avoids Shopify drift.
+      // Fall back to delta-based adjust only when absolute value is not provided.
+      if (item.newStock !== undefined) {
+        ok = await setInventoryLevel(invItemId, item.newStock);
       } else {
         ok = await adjustInventoryLevel(invItemId, item.delta);
       }

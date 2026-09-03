@@ -421,6 +421,15 @@ export async function addStock(productId: string, productName: string, currentSt
     performed_by: performedBy,
   });
 
+  // Non-blocking Shopify sync (absolute value)
+  if (typeof window !== 'undefined') {
+    fetch('/api/shopify/sync-stock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: [{ productId, delta: qty, newStock: newQty }] }),
+    }).catch(() => {});
+  }
+
   return true;
 }
 
@@ -451,6 +460,15 @@ export async function removeStock(productId: string, productName: string, curren
     performed_by: performedBy,
   });
 
+  // Non-blocking Shopify sync (absolute value)
+  if (typeof window !== 'undefined') {
+    fetch('/api/shopify/sync-stock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: [{ productId, delta: -qty, newStock: newQty }] }),
+    }).catch(() => {});
+  }
+
   return true;
 }
 
@@ -472,6 +490,15 @@ export async function adjustStock(productId: string, productName: string, curren
     reason,
     performed_by: performedBy,
   });
+
+  // Non-blocking Shopify sync with absolute value (adjustment must set exact qty, not delta)
+  if (typeof window !== 'undefined') {
+    fetch('/api/shopify/sync-stock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: [{ productId, delta: newQty - currentStock, newStock: newQty }] }),
+    }).catch(() => {});
+  }
 
   return true;
 }

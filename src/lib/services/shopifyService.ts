@@ -1,4 +1,4 @@
-import { createClient as createSupabase } from '@supabase/supabase-js';
+import { createAdminClient } from '@/lib/supabase/admin';
 
 const STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN ?? '';
 const API_VERSION = '2024-10';
@@ -12,7 +12,7 @@ async function getLocationId(): Promise<string> {
 
   // Try app_config first
   try {
-    const { data } = await getSupabase()
+    const { data } = await createAdminClient()
       .from('app_config')
       .select('value')
       .eq('key', 'shopify_location_id')
@@ -30,7 +30,7 @@ async function getLocationId(): Promise<string> {
         const id = String(loc.id);
         _locationIdCache = id;
         // Persist so subsequent calls skip the API round-trip
-        try { await getSupabase().from('app_config').upsert({ key: 'shopify_location_id', value: id, updated_at: new Date().toISOString() }); } catch { }
+        try { await createAdminClient().from('app_config').upsert({ key: 'shopify_location_id', value: id, updated_at: new Date().toISOString() }); } catch { }
         console.log('[shopify] auto-discovered location_id:', id);
         return id;
       }
@@ -39,19 +39,14 @@ async function getLocationId(): Promise<string> {
     console.error('[shopify] location auto-discovery failed:', e);
   }
 
+  console.error('[shopify] getLocationId: no location_id found — set SHOPIFY_LOCATION_ID env var or connect Shopify via /api/shopify/install');
   return '';
-}
-
-function getSupabase() {
-  // Use service role key when available (bypasses RLS for server-side writes)
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  return createSupabase(process.env.NEXT_PUBLIC_SUPABASE_URL!, key);
 }
 
 export async function getAccessToken(): Promise<string | null> {
   if (process.env.SHOPIFY_ACCESS_TOKEN) return process.env.SHOPIFY_ACCESS_TOKEN;
   try {
-    const { data } = await getSupabase()
+    const { data } = await createAdminClient()
       .from('app_config')
       .select('value')
       .eq('key', 'shopify_access_token')
@@ -61,7 +56,7 @@ export async function getAccessToken(): Promise<string | null> {
 }
 
 export async function saveAccessToken(token: string): Promise<void> {
-  const { error } = await getSupabase().from('app_config').upsert({
+  const { error } = await createAdminClient().from('app_config').upsert({
     key: 'shopify_access_token',
     value: token,
     updated_at: new Date().toISOString(),
@@ -221,7 +216,7 @@ export async function getShopifyRevenue(startISO: string, endISO: string): Promi
  */
 export async function getInventoryItemId(productId: string): Promise<string | null> {
   try {
-    const { data } = await getSupabase()
+    const { data } = await createAdminClient()
       .from('products')
       .select('shopify_inventory_item_id, shopify')
       .eq('id', productId)
@@ -284,7 +279,7 @@ export async function registerWebhook(address: string): Promise<{ ok: boolean; w
       const listJson = await listRes.json();
       const existing = (listJson.webhooks ?? []).find((w: { address: string; id: number }) => w.address === address);
       if (existing) {
-        await getSupabase().from('app_config').upsert({ key: 'shopify_webhook_id', value: String(existing.id), updated_at: new Date().toISOString() });
+        await createAdminClient().from('app_config').upsert({ key: 'shopify_webhook_id', value: String(existing.id), updated_at: new Date().toISOString() });
         return { ok: true, webhookId: String(existing.id), alreadyExists: true };
       }
     }
@@ -302,7 +297,7 @@ export async function registerWebhook(address: string): Promise<{ ok: boolean; w
 
   const json = await res.json();
   const webhookId = String(json.webhook?.id ?? '');
-  await getSupabase().from('app_config').upsert({ key: 'shopify_webhook_id', value: webhookId, updated_at: new Date().toISOString() });
+  await createAdminClient().from('app_config').upsert({ key: 'shopify_webhook_id', value: webhookId, updated_at: new Date().toISOString() });
   return { ok: true, webhookId };
 }
 
@@ -381,11 +376,11 @@ export async function getRecentOrders(limit = 10): Promise<ShopifyOrderSummary[]
 
 export async function getLastSyncAt(): Promise<string | null> {
   try {
-    const { data } = await getSupabase().from('app_config').select('value').eq('key', 'shopify_last_sync_at').maybeSingle();
+    const { data } = await createAdminClient().from('app_config').select('value').eq('key', 'shopify_last_sync_at').maybeSingle();
     return data?.value ?? null;
   } catch { return null; }
 }
 
 export async function updateLastSyncAt(): Promise<void> {
-  await getSupabase().from('app_config').upsert({ key: 'shopify_last_sync_at', value: new Date().toISOString(), updated_at: new Date().toISOString() });
+  await createAdminClient().from('app_config').upsert({ key: 'shopify_last_sync_at', value: new Date().toISOString(), updated_at: new Date().toISOString() });
 }

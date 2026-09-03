@@ -1,14 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient as createSupabase } from '@supabase/supabase-js';
 import { getAccessToken } from '@/lib/services/shopifyService';
+import { createAdminClient } from '@/lib/supabase/admin';
 
 const STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN ?? '';
 const API_VERSION = '2024-10';
-
-function getSupabase() {
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  return createSupabase(process.env.NEXT_PUBLIC_SUPABASE_URL!, key);
-}
 
 function parseNextUrl(linkHeader: string | null): string | null {
   if (!linkHeader) return null;
@@ -78,7 +73,7 @@ async function runBackfill(req: NextRequest, dryRun: boolean) {
   const days = Math.min(parseInt(searchParams.get('days') ?? '90'), 365);
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
-  const supabase = getSupabase();
+  const supabase = createAdminClient();
 
   // 1. Fetch all paid Shopify orders in the period (paginated)
   const allOrders: ShopifyOrder[] = [];

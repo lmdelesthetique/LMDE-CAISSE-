@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { adjustInventoryLevel, getInventoryItemId } from '@/lib/services/shopifyService';
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -105,6 +106,10 @@ export async function POST(req: NextRequest) {
           performed_by: body.processedBy || 'Admin',
         });
         stockUpdated = true;
+        // Non-blocking Shopify inventory push
+        getInventoryItemId(body.productId).then(async (invItemId) => {
+          if (invItemId) await adjustInventoryLevel(invItemId, body.quantity || 1);
+        }).catch(e => console.error('[returns] shopify sync error:', e.message));
       }
     } else if (isLoss || body.productCondition === 'damaged') {
       await supabase.from('return_losses').insert({

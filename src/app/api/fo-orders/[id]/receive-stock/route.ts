@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { setInventoryLevel } from '@/lib/services/shopifyService';
 
 // POST — integrates stock for a received supplier order:
 // - Adds qty_received (delta) to products.stock
@@ -74,13 +75,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     let productId: string | null = line.product_id ?? null;
     let currentStock = 0;
 
+    let shopifyInventoryItemId: string | null = null;
     if (productId) {
-      const { data: p } = await supabase.from('products').select('id, stock').eq('id', productId).maybeSingle();
+      const { data: p } = await supabase.from('products').select('id, stock, shopify, shopify_inventory_item_id').eq('id', productId).maybeSingle();
       currentStock = Number(p?.stock || 0);
+      if (p?.shopify && p.shopify_inventory_item_id) shopifyInventoryItemId = p.shopify_inventory_item_id;
     } else if (line.product_ref) {
-      const { data: rows } = await supabase.from('products').select('id, stock').eq('ref', line.product_ref).limit(1);
+      const { data: rows } = await supabase.from('products').select('id, stock, shopify, shopify_inventory_item_id').eq('ref', line.product_ref).limit(1);
       const p = rows?.[0];
-      if (p) { productId = p.id; currentStock = Number(p.stock || 0); }
+      if (p) {
+        productId = p.id;
+        currentStock = Number(p.stock || 0);
+        if (p.shopify && p.shopify_inventory_item_id) shopifyInventoryItemId = p.shopify_inventory_item_id;
+      }
     }
 
     if (!productId) {
@@ -94,6 +101,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     // Update product stock
     await supabase.from('products').update({ stock: newStock, updated_at: now }).eq('id', productId);
+
+    // Non-blocking Shopify inventory push (absolute value — most reliable)
+    if (shopifyInventoryItemId) {
+      setInventoryLevel(shopifyInventoryItemId, newStock).catch(e =>
+        console.error('[receive-stock] shopify push error:', e.message)
+      );
+    }
 
     if (realUnitCost > 0) {
       await supabase

@@ -103,69 +103,72 @@ export async function POST(req: NextRequest) {
   const shopifyOrderId = String(order.id);
   const orderRef = String(order.order_number);
 
-  // ── Stock deduction (idempotent) ───────────────────────────────────────────
-  const { data: alreadyProcessed } = await supabase
-    .from('stock_movements_log')
-    .select('id')
-    .eq('source', 'shopify_sale')
-    .eq('reference', orderRef)
-    .limit(1)
-    .maybeSingle();
+  // ── Stock deduction (idempotent per product+order) ─────────────────────────
+  // Check is done per product inside the loop to narrow the race window.
+  for (const item of lineItems) {
+    if (!item.quantity) continue;
 
-  if (!alreadyProcessed) {
-    for (const item of lineItems) {
-      if (!item.quantity) continue;
+    // Try by shopify_variant_id first, then fall back to ref (SKU)
+    let product: { id: string; name: string; stock: number } | null = null;
 
-      // Try by shopify_variant_id first, then fall back to ref (SKU)
-      let product: { id: string; name: string; stock: number } | null = null;
+    if (item.variant_id) {
+      const { data } = await supabase
+        .from('products')
+        .select('id, name, stock')
+        .eq('shopify_variant_id', String(item.variant_id))
+        .maybeSingle();
+      product = data;
+    }
 
-      if (item.variant_id) {
-        const { data } = await supabase
-          .from('products')
-          .select('id, name, stock')
-          .eq('shopify_variant_id', String(item.variant_id))
-          .maybeSingle();
-        product = data;
-      }
+    if (!product && item.sku) {
+      const { data } = await supabase
+        .from('products')
+        .select('id, name, stock')
+        .eq('ref', item.sku)
+        .maybeSingle();
+      product = data;
+    }
 
-      if (!product && item.sku) {
-        const { data } = await supabase
-          .from('products')
-          .select('id, name, stock')
-          .eq('ref', item.sku)
-          .maybeSingle();
-        product = data;
-      }
+    if (!product) continue;
 
-      if (!product) continue;
+    // Per-product idempotency: skip if this product was already deducted for this order
+    const { data: existingLog } = await supabase
+      .from('stock_movements_log')
+      .select('id')
+      .eq('source', 'shopify_sale')
+      .eq('reference', orderRef)
+      .eq('product_id', product.id)
+      .maybeSingle();
 
-      const stockBefore = Number(product.stock) || 0;
-      const newStock = Math.max(0, stockBefore - item.quantity);
+    if (existingLog) continue;
 
+    const stockBefore = Number(product.stock) || 0;
+    const newStock = Math.max(0, stockBefore - item.quantity);
+
+    await supabase
+      .from('products')
+      .update({ stock: newStock, updated_at: new Date().toISOString() })
+      .eq('id', product.id);
+
+    await supabase.from('stock_movements_log').insert({
+      product_id: product.id,
+      product_name: product.name,
+      movement_type: 'sale',
+      quantity_before: stockBefore,
+      quantity_after: newStock,
+      quantity_change: -item.quantity,
+      reason: `Vente Shopify — commande #${order.order_number}`,
+      reference: orderRef,
+      performed_by: 'Shopify',
+      source: 'shopify_sale',
+    });
+
+    if (newStock === 0) {
       await supabase
         .from('products')
-        .update({ stock: newStock, updated_at: new Date().toISOString() })
-        .eq('id', product.id);
-
-      await supabase.from('stock_movements_log').insert({
-        product_id: product.id,
-        product_name: product.name,
-        movement_type: 'sale',
-        quantity_before: stockBefore,
-        quantity_after: newStock,
-        quantity_change: -item.quantity,
-        reason: `Vente Shopify — commande #${order.order_number}`,
-        reference: orderRef,
-        performed_by: 'Shopify',
-        source: 'shopify_sale',
-      });
-
-      if (newStock === 0) {
-        await supabase
-          .from('products')
-          .update({ status: 'rupture', product_status: 'rupture' })
-          .eq('id', product.id);
-      }
+        .update({ status: 'rupture', product_status: 'rupture' })
+        .eq('id', product.id)
+        .neq('product_status', 'inactive');
     }
   }
 
@@ -183,72 +186,58 @@ export async function POST(req: NextRequest) {
 
   if (fulfillmentType === 'local_delivery') {
     const ship = order.shipping_address!;
-    const { data: existing } = await supabase
-      .from('deliveries')
-      .select('id')
-      .eq('shopify_order_id', shopifyOrderId)
-      .maybeSingle();
-
-    if (!existing) {
-      await supabase.from('deliveries').insert({
-        shopify_order_id: shopifyOrderId,
-        shopify_order_number: order.name,
-        client_name: ship.name || '',
-        client_phone: clientPhone,
-        delivery_address: buildAddress(ship),
-        delivery_notes: order.note || null,
-        products,
-        total_amount: totalAmount,
-        status: 'pending',
-        created_at: new Date().toISOString(),
-      });
+    const { error: deliveryErr } = await supabase.from('deliveries').insert({
+      shopify_order_id: shopifyOrderId,
+      shopify_order_number: order.name,
+      client_name: ship.name || '',
+      client_phone: clientPhone,
+      delivery_address: buildAddress(ship),
+      delivery_notes: order.note || null,
+      products,
+      total_amount: totalAmount,
+      status: 'pending',
+      created_at: new Date().toISOString(),
+    });
+    // Ignore unique violation (23505) — order already recorded
+    if (deliveryErr && !deliveryErr.code?.includes('23505')) {
+      console.error('[webhook] delivery insert error:', deliveryErr.message);
     }
   } else if (fulfillmentType === 'expedition') {
     const ship = order.shipping_address!;
-    const { data: existing } = await supabase
-      .from('expeditions')
-      .select('id')
-      .eq('shopify_order_id', shopifyOrderId)
-      .maybeSingle();
-
-    if (!existing) {
-      const carrierTitle = (order.shipping_lines ?? [])[0]?.title || 'Colissimo';
-      await supabase.from('expeditions').insert({
-        shopify_order_id: shopifyOrderId,
-        shopify_order_number: order.name,
-        client_name: ship.name || '',
-        client_phone: clientPhone,
-        shipping_address: buildAddress(ship),
-        carrier: carrierTitle,
-        products,
-        total_amount: totalAmount,
-        notes: order.note || null,
-        status: 'pending',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      });
+    const carrierTitle = (order.shipping_lines ?? [])[0]?.title || 'Colissimo';
+    const { error: expeditionErr } = await supabase.from('expeditions').insert({
+      shopify_order_id: shopifyOrderId,
+      shopify_order_number: order.name,
+      client_name: ship.name || '',
+      client_phone: clientPhone,
+      shipping_address: buildAddress(ship),
+      carrier: carrierTitle,
+      products,
+      total_amount: totalAmount,
+      notes: order.note || null,
+      status: 'pending',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+    if (expeditionErr && !expeditionErr.code?.includes('23505')) {
+      console.error('[webhook] expedition insert error:', expeditionErr.message);
     }
   } else {
     // pickup
-    const { data: existing } = await supabase
-      .from('pickup_notifications')
-      .select('id')
-      .eq('shopify_order_id', shopifyOrderId)
-      .maybeSingle();
-
-    if (!existing) {
-      await supabase.from('pickup_notifications').insert({
-        shopify_order_id: shopifyOrderId,
-        shopify_order_number: order.name,
-        client_name: order.shipping_address?.name || order.customer?.email || '',
-        client_phone: clientPhone,
-        client_email: order.customer?.email || null,
-        products,
-        total_amount: totalAmount,
-        notes: order.note || null,
-        status: 'pending',
-        created_at: new Date().toISOString(),
-      });
+    const { error: pickupErr } = await supabase.from('pickup_notifications').insert({
+      shopify_order_id: shopifyOrderId,
+      shopify_order_number: order.name,
+      client_name: order.shipping_address?.name || order.customer?.email || '',
+      client_phone: clientPhone,
+      client_email: order.customer?.email || null,
+      products,
+      total_amount: totalAmount,
+      notes: order.note || null,
+      status: 'pending',
+      created_at: new Date().toISOString(),
+    });
+    if (pickupErr && !pickupErr.code?.includes('23505')) {
+      console.error('[webhook] pickup insert error:', pickupErr.message);
     }
   }
 

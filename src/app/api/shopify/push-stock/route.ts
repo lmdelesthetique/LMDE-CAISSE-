@@ -1,11 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient as createSupabase } from '@supabase/supabase-js';
 import { setInventoryLevel, getAccessToken } from '@/lib/services/shopifyService';
-
-function getSupabase() {
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  return createSupabase(process.env.NEXT_PUBLIC_SUPABASE_URL!, key);
-}
+import { createAdminClient } from '@/lib/supabase/admin';
 
 // POST /api/shopify/push-stock
 // Body: { productIds?: string[] }  — omit to push ALL linked products
@@ -19,7 +14,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Shopify non connecté — token manquant', ok: 0, failed: 0, total: 0 }, { status: 503 });
   }
 
-  const supabase = getSupabase();
+  const supabase = createAdminClient();
 
   let query = supabase
     .from('products')

@@ -3,12 +3,6 @@ import { createAdminClient } from '@/lib/supabase/admin';
 
 const CONFIG_KEY = 'shopify_treated_orders';
 
-function createAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
-}
-
 async function getTreated(): Promise<string[]> {
   const { data } = await createAdminClient()
     .from('app_config')
