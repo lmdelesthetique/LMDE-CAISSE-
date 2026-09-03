@@ -43,15 +43,25 @@ export async function POST(req: NextRequest) {
   let failed = 0;
   const errors: string[] = [];
 
-  for (const p of products) {
-    const qty = Math.max(0, Number(p.stock) || 0);
-    const success = await setInventoryLevel(p.shopify_inventory_item_id, qty);
-    if (success) {
-      ok++;
-    } else {
-      failed++;
-      errors.push(`${p.name ?? p.id} (inv:${p.shopify_inventory_item_id})`);
-      console.error('[push-stock] failed:', p.name, p.shopify_inventory_item_id, 'qty:', qty);
+  // Process in parallel batches of 10 to respect Shopify rate limits (4 req/s leaky bucket)
+  const CONCURRENCY = 10;
+  for (let i = 0; i < products.length; i += CONCURRENCY) {
+    const batch = products.slice(i, i + CONCURRENCY);
+    const results = await Promise.all(
+      batch.map(async (p) => {
+        const qty = Math.max(0, Number(p.stock) || 0);
+        const success = await setInventoryLevel(p.shopify_inventory_item_id, qty);
+        return { p, success };
+      })
+    );
+    for (const { p, success } of results) {
+      if (success) {
+        ok++;
+      } else {
+        failed++;
+        errors.push(`${p.name ?? p.id} (inv:${p.shopify_inventory_item_id})`);
+        console.error('[push-stock] failed:', p.name, p.shopify_inventory_item_id);
+      }
     }
   }
 
