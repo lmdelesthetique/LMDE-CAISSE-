@@ -142,6 +142,23 @@ async function runBackfill(req: NextRequest, dryRun: boolean) {
   let totalDeducted = 0;
   let totalSkipped = 0;
 
+  // Cache for Shopify product→variants lookups (level-4 fallback) to avoid duplicate API calls
+  const shopifyVariantsCache = new Map<string, number[]>();
+  async function fetchShopifyVariantIds(shopifyProductId: string): Promise<number[]> {
+    if (shopifyVariantsCache.has(shopifyProductId)) return shopifyVariantsCache.get(shopifyProductId)!;
+    try {
+      const res = await fetch(
+        `https://${STORE_DOMAIN}/admin/api/${API_VERSION}/products/${shopifyProductId}/variants.json?fields=id`,
+        { headers: { 'X-Shopify-Access-Token': token! } }
+      );
+      if (!res.ok) { shopifyVariantsCache.set(shopifyProductId, []); return []; }
+      const json = await res.json();
+      const ids: number[] = (json.variants ?? []).map((v: any) => Number(v.id));
+      shopifyVariantsCache.set(shopifyProductId, ids);
+      return ids;
+    } catch { shopifyVariantsCache.set(shopifyProductId, []); return []; }
+  }
+
   for (const order of allOrders) {
     const orderRef = String(order.order_number);
     const orderResult: OrderResult = {
@@ -171,7 +188,7 @@ async function runBackfill(req: NextRequest, dryRun: boolean) {
         reason: '',
       };
 
-      // Match product — 3 levels of fallback
+      // Match product — 4 levels of fallback
       let product: { id: string; name: string; stock: number } | null = null;
       if (item.variant_id) {
         const found = byVariantId.get(String(item.variant_id));
@@ -181,15 +198,23 @@ async function runBackfill(req: NextRequest, dryRun: boolean) {
         const found = bySku.get(item.sku.toLowerCase().trim());
         if (found) { product = found; lineResult.matched_by = 'sku'; }
       }
-      // Fallback: match by Shopify product_id — handles multi-variant products where
-      // the sold variant_id differs from the one stored in the POS link
+      // Level 3: match by Shopify product_id (stored shopify_product_id vs order product_id)
       if (!product && item.product_id) {
         const found = byProductId.get(String(item.product_id));
         if (found) { product = found; lineResult.matched_by = 'variant_id'; }
       }
+      // Level 4: fetch ALL variants of the Shopify product and check if any are in our POS
+      // Handles the case where the POS was linked to a different variant of the same product
+      if (!product && item.product_id) {
+        const variantIds = await fetchShopifyVariantIds(String(item.product_id));
+        for (const vid of variantIds) {
+          const found = byVariantId.get(String(vid));
+          if (found) { product = found; lineResult.matched_by = 'variant_id'; break; }
+        }
+      }
 
       if (!product) {
-        lineResult.reason = `Produit introuvable (variant_id=${item.variant_id ?? '—'}, sku=${item.sku ?? '—'}) — lier ce produit dans Sync Shopify`;
+        lineResult.reason = `Produit introuvable (variant_id=${item.variant_id ?? '—'}, product_id=${item.product_id ?? '—'}, sku=${item.sku ?? '—'}) — lier ce produit dans Sync Shopify`;
         orderResult.lines.push(lineResult);
         orderResult.skipped_count++;
         totalSkipped++;
