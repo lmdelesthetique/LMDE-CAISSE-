@@ -847,7 +847,7 @@ export default function ShopifySyncPage() {
                           {backfillResult.summary.orders_unmatched > 0 && (
                             <p className="text-[10px] text-amber-600 mt-1 leading-tight max-w-[140px] mx-auto">
                               Vendu sur Shopify mais POS ne trouve pas le lien →{' '}
-                              <strong>cliquez 🔧 Réparer</strong> en haut, puis ré-analysez
+                              aller dans l'onglet <strong>Non liés</strong> pour les lier manuellement
                             </p>
                           )}
                         </div>
@@ -887,7 +887,7 @@ export default function ShopifySyncPage() {
                                         — non lié au POS,{' '}
                                         {line.sku
                                           ? `cherche "${line.sku}" dans l'onglet Non liés`
-                                          : 'clique 🔧 Réparer les liens en haut puis ré-analyse'}
+                                          : 'va dans Sync Shopify → onglet Non liés pour lier ce produit'}
                                       </span>
                                     )}
                                   </span>

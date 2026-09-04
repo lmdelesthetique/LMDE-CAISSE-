@@ -563,7 +563,6 @@ export default function ClientDashboardPage() {
       supabase
         .from('products')
         .select('id, name, image_url, sell_price_ttc, buy_price, description, category, stock, product_status, has_color_variants')
-        .neq('product_status', 'inactive')
         .order('name')
         .limit(5000),
     ]);
