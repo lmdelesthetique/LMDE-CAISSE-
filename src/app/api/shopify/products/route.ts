@@ -10,6 +10,17 @@ function parseNextUrl(linkHeader: string | null): string | null {
   return m ? m[1] : null;
 }
 
+async function fetchCount(token: string, status: string): Promise<number> {
+  const res = await fetch(
+    `https://${STORE_DOMAIN}/admin/api/${API_VERSION}/products/count.json?status=${status}`,
+    { headers: { 'X-Shopify-Access-Token': token }, next: { revalidate: 0 } }
+  );
+  if (!res.ok) return 0;
+  const j = await res.json();
+  return j.count ?? 0;
+}
+
+// Fetch all products for a given status, sequentially paginated
 async function fetchAllByStatus(token: string, status: string): Promise<unknown[]> {
   const results: unknown[] = [];
   let url: string | null =
@@ -37,17 +48,29 @@ export async function GET() {
   if (!token) return NextResponse.json({ error: 'Token manquant' }, { status: 401 });
 
   try {
-    // Shopify products API does not support status=any — fetch each status separately
-    const [active, archived, draft] = await Promise.all([
-      fetchAllByStatus(token, 'active'),
-      fetchAllByStatus(token, 'archived'),
-      fetchAllByStatus(token, 'draft'),
+    // First: get official counts from Shopify count API (fast, no pagination needed)
+    const [countActive, countArchived, countDraft] = await Promise.all([
+      fetchCount(token, 'active'),
+      fetchCount(token, 'archived'),
+      fetchCount(token, 'draft'),
     ]);
+    const totalExpected = countActive + countArchived + countDraft;
+
+    // Then: fetch all products sequentially per status to avoid rate limiting
+    const active = await fetchAllByStatus(token, 'active');
+    const archived = await fetchAllByStatus(token, 'archived');
+    const draft = await fetchAllByStatus(token, 'draft');
 
     const allProducts = [...active, ...archived, ...draft];
+
+    // Count total variants across all products
+    const totalVariants = allProducts.reduce((s, p: any) => s + (p.variants?.length ?? 0), 0);
+
     return NextResponse.json({
       products: allProducts,
       total: allProducts.length,
+      total_variants: totalVariants,
+      shopify_count_api: { active: countActive, archived: countArchived, draft: countDraft, total: totalExpected },
       by_status: { active: active.length, archived: archived.length, draft: draft.length },
     });
   } catch (e: any) {

@@ -417,6 +417,7 @@ export default function ShopifySyncPage() {
   // ── Auto-match state ────────────────────────────────────────────────────────
   const [autoMatchRunning, setAutoMatchRunning] = useState(false);
   const [autoMatchResult, setAutoMatchResult] = useState<any | null>(null);
+  const [shopifyDiag, setShopifyDiag] = useState<{ count_api: any; by_status: any; total_variants: number } | null>(null);
 
   // ── Repair product IDs state ────────────────────────────────────────────────
   const [repairingIds, setRepairingIds] = useState(false);
@@ -466,6 +467,9 @@ export default function ShopifySyncPage() {
       const shopifyJson = await shopifyRes.json();
       const shopify: ShopifyProduct[] = shopifyJson.products ?? [];
       setShopifyProducts(shopify);
+      if (shopifyJson.shopify_count_api) {
+        setShopifyDiag({ count_api: shopifyJson.shopify_count_api, by_status: shopifyJson.by_status, total_variants: shopifyJson.total_variants ?? 0 });
+      }
 
       setLoadingMsg('Calcul des correspondances…');
       setMatches(buildMatches(pos, shopify, currentIgnored));
@@ -717,7 +721,17 @@ export default function ShopifySyncPage() {
               <div>
                 <h1 className="text-xl font-semibold text-foreground">🔗 Synchronisation Shopify</h1>
                 <p className="text-sm text-muted-foreground mt-0.5">
-                  {loading ? loadingMsg : `${linkedCount} / ${totalPos} produits POS liés — ${shopifyProducts.length} produits Shopify`}
+                  {loading ? loadingMsg : (
+  <>
+    {linkedCount} / {totalPos} produits POS liés —{' '}
+    {shopifyProducts.length} produits Shopify
+    {shopifyDiag && (
+      <span className="text-[11px] text-muted-foreground ml-2">
+        ({shopifyDiag.by_status.active} actifs · {shopifyDiag.by_status.archived} archivés · {shopifyDiag.by_status.draft} brouillons · {shopifyDiag.total_variants} variantes)
+      </span>
+    )}
+  </>
+)}
                 </p>
               </div>
               <div className="flex items-center gap-3">
