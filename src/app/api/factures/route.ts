@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 
-async function generateNumero(supabase: ReturnType<typeof makeClient>, docType: string): Promise<string> {
+async function generateNumero(supabase: ReturnType<typeof createAdminClient>, docType: string): Promise<string> {
   const prefix =
     docType === 'estimate' || docType === 'devis' ? 'DEV'
     : docType === 'proforma' ? 'PRO'
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  let supabase: ReturnType<typeof makeClient>;
+  let supabase: ReturnType<typeof createAdminClient>;
   try {
     supabase = createAdminClient();
   } catch (e: any) {
@@ -95,7 +95,7 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const docType = searchParams.get('type') ?? 'all';
 
-  let supabase: ReturnType<typeof makeClient>;
+  let supabase: ReturnType<typeof createAdminClient>;
   try {
     supabase = createAdminClient();
   } catch (e: any) {

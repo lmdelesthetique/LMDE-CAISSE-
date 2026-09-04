@@ -8,7 +8,7 @@ export async function GET(req: NextRequest) {
 
   if (q.length < 2) return NextResponse.json({ products: [] });
 
-  let supabase: ReturnType<typeof makeClient>;
+  let supabase: ReturnType<typeof createAdminClient>;
   try {
     supabase = createAdminClient();
   } catch (e: any) {

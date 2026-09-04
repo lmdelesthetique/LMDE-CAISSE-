@@ -37,14 +37,14 @@ export async function POST(req: NextRequest) {
     const newStock = Math.max(0, currentStock - line.quantity);
 
     // Atomic conditional update — only succeeds if stock hasn't changed since we read it
-    const { error: updateErr, count } = await supabase
+    const { error: updateErr, data: updated } = await supabase
       .from('products')
       .update({ stock: newStock, updated_at: new Date().toISOString() })
       .eq('id', line.productId)
       .eq('stock', currentStock)
-      .select('id', { count: 'exact', head: true });
+      .select('id');
 
-    if (updateErr || count === 0) {
+    if (updateErr || !updated || updated.length === 0) {
       errors.push(`Stock modifié concurrent: ${product.name} — réessayez`);
       continue;
     }

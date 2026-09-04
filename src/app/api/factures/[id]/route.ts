@@ -23,7 +23,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  let supabase: ReturnType<typeof makeClient>;
+  let supabase: ReturnType<typeof createAdminClient>;
   try {
     supabase = createAdminClient();
   } catch (e: any) {
@@ -58,7 +58,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  let supabase: ReturnType<typeof makeClient>;
+  let supabase: ReturnType<typeof createAdminClient>;
   try {
     supabase = createAdminClient();
   } catch (e: any) {

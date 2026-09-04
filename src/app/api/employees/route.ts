@@ -3,7 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 
 // GET /api/employees?status=active
 export async function GET(req: NextRequest) {
-  let supabase: ReturnType<typeof makeClient>;
+  let supabase: ReturnType<typeof createAdminClient>;
   try {
     supabase = createAdminClient();
   } catch (e: any) {

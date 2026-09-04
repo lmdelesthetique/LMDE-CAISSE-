@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
   const pin = (body.pin ?? '').toString().trim();
   if (!pin || pin.length < 4) return NextResponse.json({ valid: false });
 
-  let supabase: ReturnType<typeof makeClient>;
+  let supabase: ReturnType<typeof createAdminClient>;
   try {
     supabase = createAdminClient();
   } catch (e: any) {
