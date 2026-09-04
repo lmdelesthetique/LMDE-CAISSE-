@@ -268,13 +268,41 @@ function QuickActionModal({ product, onClose, onSuccess, onOrderClick }: QuickAc
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<StockMovement[]>([]);
   const [histLoading, setHistLoading] = useState(false);
+  const [productDedupLoading, setProductDedupLoading] = useState(false);
+  const [productDedupResult, setProductDedupResult] = useState<string | null>(null);
 
   const loadHistory = useCallback(async () => {
     setHistLoading(true);
-    const h = await fetchMovementHistory(product.id, 20);
+    const h = await fetchMovementHistory(product.id, 200);
     setHistory(h);
     setHistLoading(false);
   }, [product.id]);
+
+  const handleProductDedup = useCallback(async () => {
+    if (!confirm(`Détecter et corriger les doublons de stock pour "${product.name}" sur les 365 derniers jours ?`)) return;
+    setProductDedupLoading(true);
+    setProductDedupResult(null);
+    try {
+      const res = await fetch('/api/products/dedup-stock', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ days: 365, windowDays: 30, productIds: [product.id] }),
+      });
+      const data = await res.json();
+      if (data.fixed > 0) {
+        const l = data.log[0];
+        setProductDedupResult(`✅ Stock corrigé : ${l.before} → ${l.after} (−${l.removed} doublon(s))`);
+        await loadHistory();
+        onSuccess?.();
+      } else {
+        setProductDedupResult('Aucun doublon détecté (fenêtre 30 jours, 365 jours d\'historique).');
+      }
+    } catch {
+      setProductDedupResult('Erreur lors de la correction.');
+    } finally {
+      setProductDedupLoading(false);
+    }
+  }, [product.id, product.name, loadHistory, onSuccess]);
 
   useEffect(() => {
     if (action === 'history') loadHistory();
@@ -525,10 +553,22 @@ function QuickActionModal({ product, onClose, onSuccess, onOrderClick }: QuickAc
         {/* History */}
         {action === 'history' && (
           <div className="p-5">
-            <div className="flex items-center justify-between mb-4">
-              <p className="font-500 text-sm text-foreground">Historique des mouvements</p>
-              <button onClick={() => setAction(null)} className="text-xs text-primary hover:underline">Retour</button>
+            <div className="flex items-center justify-between mb-3">
+              <p className="font-500 text-sm text-foreground">Historique ({history.length} mouvements)</p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleProductDedup}
+                  disabled={productDedupLoading || histLoading}
+                  className="text-xs px-2.5 py-1 rounded-lg bg-amber-100 text-amber-800 hover:bg-amber-200 transition-colors disabled:opacity-50 font-500"
+                >
+                  {productDedupLoading ? '⟳ Analyse…' : '🔍 Corriger doublons'}
+                </button>
+                <button onClick={() => setAction(null)} className="text-xs text-primary hover:underline">Retour</button>
+              </div>
             </div>
+            {productDedupResult && (
+              <div className="mb-3 p-2 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-800">{productDedupResult}</div>
+            )}
             {histLoading ? (
               <div className="flex items-center justify-center py-8">
                 <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -536,25 +576,43 @@ function QuickActionModal({ product, onClose, onSuccess, onOrderClick }: QuickAc
             ) : history.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-6">Aucun mouvement enregistré</p>
             ) : (
-              <div className="space-y-2 max-h-64 overflow-y-auto">
-                {history.map(m => {
-                  const cfg = MOVEMENT_LABELS[m.movementType] || MOVEMENT_LABELS.adjustment;
-                  return (
-                    <div key={m.id} className="flex items-center gap-3 p-3 rounded-xl bg-muted/50">
-                      <Icon name={cfg.icon as Parameters<typeof Icon>[0]['name']} size={16} className={cfg.color} />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-500 text-foreground">{cfg.label}</p>
-                        <p className="text-xs text-muted-foreground truncate">{m.reason || '—'}</p>
+              <div className="space-y-1.5 max-h-72 overflow-y-auto">
+                {(() => {
+                  // Client-side: flag suspected duplicates (same type+qty within 7 days)
+                  const suspectedIds = new Set<string>();
+                  const entries = history.filter(m => m.movementType === 'entry' || m.movementType === 'supplier_reception');
+                  for (let i = 0; i < entries.length; i++) {
+                    for (let j = i + 1; j < entries.length; j++) {
+                      const a = entries[i]; const b = entries[j];
+                      if (a.quantityChange !== b.quantityChange) continue;
+                      if (Math.abs(new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()) > 7 * 86400000) continue;
+                      suspectedIds.add(a.id); suspectedIds.add(b.id);
+                    }
+                  }
+                  return history.map(m => {
+                    const cfg = MOVEMENT_LABELS[m.movementType] || MOVEMENT_LABELS.adjustment;
+                    const isSuspect = suspectedIds.has(m.id) && !m.reason?.startsWith('[DOUBLON ANNULÉ]');
+                    const isCancelled = m.reason?.startsWith('[DOUBLON ANNULÉ]');
+                    return (
+                      <div key={m.id} className={`flex items-center gap-3 p-2.5 rounded-xl ${isSuspect ? 'bg-amber-50 border border-amber-200' : isCancelled ? 'bg-gray-50 opacity-50' : 'bg-muted/50'}`}>
+                        <Icon name={cfg.icon as Parameters<typeof Icon>[0]['name']} size={15} className={cfg.color} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-500 text-foreground flex items-center gap-1">
+                            {cfg.label}
+                            {isSuspect && <span className="text-[9px] bg-amber-200 text-amber-900 px-1 rounded font-600">DOUBLON ?</span>}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground truncate">{m.reason || '—'}{m.reference ? ` · Réf: ${m.reference}` : ''}</p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className={`text-xs font-600 ${m.quantityChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                            {m.quantityChange >= 0 ? '+' : ''}{m.quantityChange}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground">{new Date(m.createdAt).toLocaleDateString('fr-FR')}</p>
+                        </div>
                       </div>
-                      <div className="text-right shrink-0">
-                        <p className={`text-xs font-600 ${m.quantityChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                          {m.quantityChange >= 0 ? '+' : ''}{m.quantityChange}
-                        </p>
-                        <p className="text-[10px] text-muted-foreground">{new Date(m.createdAt).toLocaleDateString('fr-FR')}</p>
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  });
+                })()}
               </div>
             )}
           </div>
