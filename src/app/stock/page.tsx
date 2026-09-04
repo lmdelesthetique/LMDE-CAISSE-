@@ -589,7 +589,9 @@ export default function StockPage() {
   const [bulkLoading, setBulkLoading] = useState(false);
   const [recalcLoading, setRecalcLoading] = useState(false);
   const [dedupLoading, setDedupLoading] = useState(false);
-  const [dedupResult, setDedupResult] = useState<{ fixed: number; log: { name: string; removed: number; before: number; after: number }[] } | null>(null);
+  const [dedupResult, setDedupResult] = useState<{ fixed: number; log: { name: string; removed: number; before: number; after: number; details?: string }[] } | null>(null);
+  const [dedupPreview, setDedupPreview] = useState<{ total_duplicates: number; total_extra_units: number; groups: any[] } | null>(null);
+  const [dedupPreviewLoading, setDedupPreviewLoading] = useState(false);
   const [showReorder, setShowReorder] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -649,14 +651,37 @@ export default function StockPage() {
     }
   };
 
+  const handleDedupPreview = async () => {
+    setDedupPreviewLoading(true);
+    setDedupPreview(null);
+    setDedupResult(null);
+    try {
+      const res = await fetch('/api/products/dedup-stock?days=180&windowDays=3');
+      const data = await res.json();
+      setDedupPreview(data);
+    } catch (e) {
+      console.error('dedup-preview', e);
+    } finally {
+      setDedupPreviewLoading(false);
+    }
+  };
+
   const handleDedup = async () => {
-    if (!confirm('Détecter et corriger automatiquement tous les doublons de stock des 90 derniers jours ? Les unités en double seront soustraites du stock.')) return;
+    const msg = dedupPreview
+      ? `Corriger ${dedupPreview.total_duplicates} doublon(s) — supprimer ${dedupPreview.total_extra_units} unité(s) en trop ?`
+      : 'Détecter et corriger tous les doublons de stock des 180 derniers jours ?';
+    if (!confirm(msg)) return;
     setDedupLoading(true);
     setDedupResult(null);
     try {
-      const res = await fetch('/api/products/dedup-stock', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ days: 90 }) });
+      const res = await fetch('/api/products/dedup-stock', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ days: 180, windowDays: 3 }),
+      });
       const data = await res.json();
       setDedupResult(data);
+      setDedupPreview(null);
       if (data.fixed > 0) await loadData();
     } catch (e) {
       console.error('dedup-stock', e);
@@ -822,14 +847,25 @@ export default function StockPage() {
                 <span className="hidden sm:inline">Sync ventes</span>
               </button>
               <button
-                onClick={handleDedup}
-                disabled={dedupLoading}
-                title="Détecter et supprimer les doublons de stock (même produit, même quantité, même jour)"
+                onClick={handleDedupPreview}
+                disabled={dedupPreviewLoading || dedupLoading}
+                title="Analyser les doublons de stock (180 jours, fenêtre 3 jours, par référence facture)"
                 className="flex items-center gap-2 px-3 py-2 rounded-xl border border-amber-300 bg-amber-50 text-amber-800 text-sm font-500 hover:bg-amber-100 transition-colors disabled:opacity-50"
               >
-                <span className={dedupLoading ? 'animate-spin inline-block' : ''}>🔍</span>
-                <span className="hidden sm:inline">Corriger doublons</span>
+                <span className={dedupPreviewLoading ? 'animate-spin inline-block' : ''}>🔍</span>
+                <span className="hidden sm:inline">Analyser doublons</span>
               </button>
+              {dedupPreview && dedupPreview.total_duplicates > 0 && (
+                <button
+                  onClick={handleDedup}
+                  disabled={dedupLoading}
+                  title={`Corriger ${dedupPreview.total_duplicates} doublon(s) — supprimer ${dedupPreview.total_extra_units} unité(s) en trop`}
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl border border-red-300 bg-red-50 text-red-800 text-sm font-500 hover:bg-red-100 transition-colors disabled:opacity-50"
+                >
+                  <span className={dedupLoading ? 'animate-spin inline-block' : ''}>⚡</span>
+                  <span className="hidden sm:inline">Corriger {dedupPreview.total_duplicates} doublon(s)</span>
+                </button>
+              )}
               <button
                 onClick={loadData}
                 className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border text-sm font-500 hover:bg-muted transition-colors"
@@ -847,6 +883,25 @@ export default function StockPage() {
             </div>
           </div>
 
+          {/* Dedup preview banner */}
+          {dedupPreview && !dedupResult && (
+            <div className={`mx-6 mb-3 p-3 rounded-xl border text-sm ${dedupPreview.total_duplicates > 0 ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-gray-50 border-gray-200 text-gray-600'}`}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-500">
+                  {dedupPreview.total_duplicates > 0
+                    ? `⚠️ ${dedupPreview.total_duplicates} doublon(s) détecté(s) — ${dedupPreview.total_extra_units} unité(s) en trop`
+                    : '✅ Aucun doublon détecté (180 jours).'}
+                </span>
+                <button onClick={() => setDedupPreview(null)} className="text-xs opacity-60 hover:opacity-100">✕</button>
+              </div>
+              {dedupPreview.groups?.map((g: any, i: number) => (
+                <div key={i} className="text-xs mt-0.5 opacity-90">
+                  <span className="font-500">{g.product_name}</span> — {g.description} (+{g.extra_qty} unités en doublon)
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Dedup result banner */}
           {dedupResult && (
             <div className={`mx-6 mb-3 p-3 rounded-xl border text-sm ${dedupResult.fixed > 0 ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-gray-50 border-gray-200 text-gray-600'}`}>
@@ -860,7 +915,7 @@ export default function StockPage() {
               </div>
               {dedupResult.log?.map((l, i) => (
                 <div key={i} className="text-xs mt-1 opacity-80">
-                  {l.name} : {l.before} → {l.after} (−{l.removed} supprimés)
+                  {l.name} : {l.before} → {l.after} (−{l.removed} supprimés){l.details ? ` — ${l.details}` : ''}
                 </div>
               ))}
             </div>
