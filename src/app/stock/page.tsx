@@ -263,6 +263,8 @@ function QuickActionModal({ product, onClose, onSuccess, onOrderClick }: QuickAc
   const [qty, setQty] = useState(1);
   const [newQty, setNewQty] = useState(product.stock);
   const [reason, setReason] = useState('');
+  const [invoiceRef, setInvoiceRef] = useState('');
+  const [submitError, setSubmitError] = useState('');
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<StockMovement[]>([]);
   const [histLoading, setHistLoading] = useState(false);
@@ -281,10 +283,40 @@ function QuickActionModal({ product, onClose, onSuccess, onOrderClick }: QuickAc
   const handleSubmit = async () => {
     if (!reason.trim()) return;
     setLoading(true);
+    setSubmitError('');
     let ok = false;
-    if (action === 'add') ok = await addStock(product.id, product.name, product.stock, qty, reason);
-    else if (action === 'remove') ok = await removeStock(product.id, product.name, product.stock, qty, reason);
-    else if (action === 'adjust') ok = await adjustStock(product.id, product.name, product.stock, newQty, reason);
+    if (action === 'add') {
+      // Use API route for add — has dedup protection via invoice reference
+      try {
+        const res = await fetch('/api/products/stock-entry', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            productId: product.id,
+            productName: product.name,
+            currentStock: product.stock,
+            qty,
+            reason,
+            reference: invoiceRef.trim() || null,
+          }),
+        });
+        const data = await res.json();
+        if (data.duplicate) {
+          setSubmitError(data.message ?? 'Doublon détecté — ce stock a déjà été ajouté pour cette référence.');
+          setLoading(false);
+          return;
+        }
+        ok = data.ok === true;
+      } catch {
+        setSubmitError('Erreur réseau — réessayez.');
+        setLoading(false);
+        return;
+      }
+    } else if (action === 'remove') {
+      ok = await removeStock(product.id, product.name, product.stock, qty, reason);
+    } else if (action === 'adjust') {
+      ok = await adjustStock(product.id, product.name, product.stock, newQty, reason);
+    }
     setLoading(false);
     if (ok) { onSuccess(); onClose(); }
   };
@@ -416,8 +448,28 @@ function QuickActionModal({ product, onClose, onSuccess, onOrderClick }: QuickAc
                 className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
               />
             </div>
+            {action === 'add' && (
+              <div>
+                <label className="text-sm font-500 text-foreground mb-1.5 block">
+                  N° facture / commande <span className="text-muted-foreground font-400">(recommandé — bloque les doublons)</span>
+                </label>
+                <input
+                  type="text"
+                  value={invoiceRef}
+                  onChange={e => { setInvoiceRef(e.target.value); setSubmitError(''); }}
+                  placeholder="Ex: FAC-2026-0012, CMD-456..."
+                  className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                />
+              </div>
+            )}
+            {submitError && (
+              <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">
+                <span className="shrink-0">⚠️</span>
+                {submitError}
+              </div>
+            )}
             <div className="flex gap-3">
-              <button onClick={() => setAction(null)} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-500 hover:bg-muted transition-colors">
+              <button onClick={() => { setAction(null); setSubmitError(''); }} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-500 hover:bg-muted transition-colors">
                 Retour
               </button>
               <button
@@ -536,6 +588,8 @@ export default function StockPage() {
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [bulkLoading, setBulkLoading] = useState(false);
   const [recalcLoading, setRecalcLoading] = useState(false);
+  const [dedupLoading, setDedupLoading] = useState(false);
+  const [dedupResult, setDedupResult] = useState<{ fixed: number; log: { name: string; removed: number; before: number; after: number }[] } | null>(null);
   const [showReorder, setShowReorder] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -592,6 +646,22 @@ export default function StockPage() {
       console.error('recalculate-sales', e);
     } finally {
       setRecalcLoading(false);
+    }
+  };
+
+  const handleDedup = async () => {
+    if (!confirm('Détecter et corriger automatiquement tous les doublons de stock des 90 derniers jours ? Les unités en double seront soustraites du stock.')) return;
+    setDedupLoading(true);
+    setDedupResult(null);
+    try {
+      const res = await fetch('/api/products/dedup-stock', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ days: 90 }) });
+      const data = await res.json();
+      setDedupResult(data);
+      if (data.fixed > 0) await loadData();
+    } catch (e) {
+      console.error('dedup-stock', e);
+    } finally {
+      setDedupLoading(false);
     }
   };
 
@@ -752,6 +822,15 @@ export default function StockPage() {
                 <span className="hidden sm:inline">Sync ventes</span>
               </button>
               <button
+                onClick={handleDedup}
+                disabled={dedupLoading}
+                title="Détecter et supprimer les doublons de stock (même produit, même quantité, même jour)"
+                className="flex items-center gap-2 px-3 py-2 rounded-xl border border-amber-300 bg-amber-50 text-amber-800 text-sm font-500 hover:bg-amber-100 transition-colors disabled:opacity-50"
+              >
+                <span className={dedupLoading ? 'animate-spin inline-block' : ''}>🔍</span>
+                <span className="hidden sm:inline">Corriger doublons</span>
+              </button>
+              <button
                 onClick={loadData}
                 className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border text-sm font-500 hover:bg-muted transition-colors"
               >
@@ -767,6 +846,25 @@ export default function StockPage() {
               </button>
             </div>
           </div>
+
+          {/* Dedup result banner */}
+          {dedupResult && (
+            <div className={`mx-6 mb-3 p-3 rounded-xl border text-sm ${dedupResult.fixed > 0 ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-gray-50 border-gray-200 text-gray-600'}`}>
+              <div className="flex items-center justify-between">
+                <span>
+                  {dedupResult.fixed > 0
+                    ? `✅ ${dedupResult.fixed} produit(s) corrigé(s) — doublons supprimés :`
+                    : '✅ Aucun doublon détecté — tout est correct.'}
+                </span>
+                <button onClick={() => setDedupResult(null)} className="text-xs opacity-60 hover:opacity-100">✕</button>
+              </div>
+              {dedupResult.log?.map((l, i) => (
+                <div key={i} className="text-xs mt-1 opacity-80">
+                  {l.name} : {l.before} → {l.after} (−{l.removed} supprimés)
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Global product search bar */}
           <div className="px-6 pb-3 relative">
