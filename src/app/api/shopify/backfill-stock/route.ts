@@ -118,11 +118,11 @@ async function runBackfill(req: NextRequest, dryRun: boolean) {
   // Order refs that have at least one processed product (for reporting only)
   const processedOrderRefs = new Set((processedRows ?? []).map((r: any) => String(r.reference)));
 
-  // 3. Load all products with their shopify_variant_id and ref for matching
+  // 3. Load ALL products regardless of status — a product marked inactive in the POS
+  //    might still have a valid Shopify link and must be matchable for stock deduction.
   const { data: allProducts } = await supabase
     .from('products')
-    .select('id, name, stock, shopify_variant_id, shopify_product_id, ref, barcode')
-    .not('product_status', 'eq', 'inactive');
+    .select('id, name, stock, shopify_variant_id, shopify_product_id, ref, barcode');
 
   const byVariantId = new Map<string, { id: string; name: string; stock: number }>();
   const bySku = new Map<string, { id: string; name: string; stock: number }>();
