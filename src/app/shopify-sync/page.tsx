@@ -414,6 +414,10 @@ export default function ShopifySyncPage() {
   const [backfillResult, setBackfillResult] = useState<any | null>(null);
   const [showBackfill, setShowBackfill] = useState(false);
 
+  // ── Auto-match state ────────────────────────────────────────────────────────
+  const [autoMatchRunning, setAutoMatchRunning] = useState(false);
+  const [autoMatchResult, setAutoMatchResult] = useState<any | null>(null);
+
   // ── Repair product IDs state ────────────────────────────────────────────────
   const [repairingIds, setRepairingIds] = useState(false);
   const [repairResult, setRepairResult] = useState<{ repaired: number; failed: number; total: number } | null>(null);
@@ -656,6 +660,36 @@ export default function ShopifySyncPage() {
     }
   }, [backfillDays]);
 
+  // ── Auto-match + backfill: link unmatched products by name then deduct stock ─
+  const handleAutoMatch = useCallback(async () => {
+    if (!confirm(`Auto-lier les produits Shopify introuvables par correspondance de nom (${backfillDays} jours), puis décompter le stock ?\n\nCette opération :\n• Crée ou met à jour les liens Shopify pour les produits trouvés\n• Déduit le stock des commandes concernées\n\nIrréversible.`)) return;
+    setAutoMatchRunning(true);
+    setAutoMatchResult(null);
+    try {
+      // Step 1: auto-link
+      const linkRes = await fetch('/api/shopify/auto-match', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ days: backfillDays }),
+      });
+      const linkData = await linkRes.json();
+      if (!linkData.ok) { setAutoMatchResult({ error: linkData.error ?? 'Erreur auto-match' }); return; }
+
+      // Step 2: run backfill POST to deduct stock
+      const backfillRes = await fetch(`/api/shopify/backfill-stock?days=${backfillDays}`, { method: 'POST' });
+      const backfillData = await backfillRes.json();
+
+      setAutoMatchResult({ ...linkData, backfill: backfillData });
+      setBackfillResult({ ...backfillData, applied: true });
+      // Reload sync data to reflect new links
+      setTimeout(() => load(), 1500);
+    } catch (e: any) {
+      setAutoMatchResult({ error: e.message });
+    } finally {
+      setAutoMatchRunning(false);
+    }
+  }, [backfillDays, load]);
+
   // ── Repair missing shopify_product_id for existing links ───────────────────
   const handleRepairProductIds = useCallback(async () => {
     if (!confirm('Réparer les liens Shopify manquants ? L\'opération lit chaque variant depuis Shopify pour récupérer le product_id. Cela peut prendre quelques secondes.')) return;
@@ -809,7 +843,54 @@ export default function ShopifySyncPage() {
                       {backfillRunning ? <><span className="animate-spin">⟳</span> Application…</> : `⚡ Appliquer (${backfillResult.summary.total_lines_deducted} lignes)`}
                     </button>
                   )}
+                  {backfillResult && !backfillResult.error && (backfillResult.summary?.orders_unmatched > 0 || !backfillResult.applied) && (
+                    <button
+                      onClick={handleAutoMatch}
+                      disabled={autoMatchRunning || backfillRunning}
+                      className="text-sm font-medium bg-violet-600 text-white rounded-lg px-4 py-2 hover:bg-violet-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+                      title="Tente de lier automatiquement les produits Shopify introuvables en cherchant leur équivalent dans le POS par similarité de nom, puis déduit le stock"
+                    >
+                      {autoMatchRunning
+                        ? <><span className="animate-spin">⟳</span> Auto-liaison…</>
+                        : `🔗 Auto-lier introuvables + Décompter`}
+                    </button>
+                  )}
                 </div>
+
+                {autoMatchResult && (
+                  <div className={`rounded-xl p-4 border text-sm ${autoMatchResult.error ? 'bg-red-50 border-red-200 text-red-700' : 'bg-violet-50 border-violet-200 text-violet-900'}`}>
+                    {autoMatchResult.error ? (
+                      <span>❌ Auto-match : {autoMatchResult.error}</span>
+                    ) : (
+                      <div className="space-y-2">
+                        <p className="font-600">
+                          🔗 Auto-liaison terminée — {autoMatchResult.linked} produit{autoMatchResult.linked !== 1 ? 's' : ''} lié{autoMatchResult.linked !== 1 ? 's' : ''}
+                          {autoMatchResult.backfill && ` · ${autoMatchResult.backfill.summary?.total_lines_deducted ?? 0} ligne(s) de stock décomptée(s)`}
+                          {autoMatchResult.no_match > 0 && ` · ${autoMatchResult.no_match} non trouvé(s)`}
+                        </p>
+                        {autoMatchResult.log?.length > 0 && (
+                          <div className="max-h-32 overflow-y-auto space-y-0.5">
+                            {autoMatchResult.log.map((l: any, i: number) => (
+                              <p key={i} className="text-xs text-violet-700">
+                                ✅ {l.pos} ← {l.shopify} ({Math.round(l.score * 100)}%{l.relinked ? ', re-lié' : ''})
+                              </p>
+                            ))}
+                          </div>
+                        )}
+                        {autoMatchResult.unmatched?.length > 0 && (
+                          <div className="mt-2">
+                            <p className="text-xs font-500 text-amber-700 mb-1">Produits sans correspondance (lier manuellement dans l'onglet Non liés) :</p>
+                            <div className="max-h-24 overflow-y-auto space-y-0.5">
+                              {autoMatchResult.unmatched.map((u: any, i: number) => (
+                                <p key={i} className="text-xs text-amber-600">⚠️ {u.shopify_title} ×{u.order_count}{u.best_candidate ? ` (meilleur candidat : ${u.best_candidate}, score: ${Math.round(u.best_score * 100)}%)` : ''}</p>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {backfillResult?.error && (
                   <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
