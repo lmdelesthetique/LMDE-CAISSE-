@@ -112,6 +112,146 @@ const PENDING_STRIPE_LINKS: Record<string, string> = {
   elite: 'https://buy.stripe.com/6oUdRaa7h3Lh8YWeK37IY07',
 };
 
+// ─── Invoice PDF generator ────────────────────────────────────────────────────
+
+function generateInvoiceHTML(
+  order: SubscriptionOrder,
+  items: OrderItem[],
+  clientName: string,
+  planName: string,
+  planPrice: number,
+  subscriptionId: string,
+): string {
+  const yearMonth = order.order_month.replace('-', '');
+  const invoiceNum = `BOX-${yearMonth}-${subscriptionId.slice(0, 6).toUpperCase()}`;
+  const monthLabel = new Date(order.order_month + '-01').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+  const today = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
+  const totalProducts = order.total_sell_price ?? items.reduce((s, i) => s + i.total_sell_price, 0);
+  const shippingCost = order.shipping_cost ?? 0;
+  const benefit = order.benefit_amount ?? 0;
+  const fmt = (n: number) => n.toFixed(2).replace('.', ',') + ' €';
+
+  const rows = items.map(item => `
+    <tr>
+      <td>${(item.product?.name ?? 'Produit') + (item.color_variant ? ` <span class="variant">(${item.color_variant})</span>` : '')}</td>
+      <td class="center">${item.quantity}</td>
+      <td class="right">${fmt(item.unit_sell_price)}</td>
+      <td class="right bold">${fmt(item.total_sell_price)}</td>
+    </tr>`).join('');
+
+  return `<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Facture Box Beauté — ${invoiceNum}</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 13px; color: #111; background: #fff; padding: 40px; max-width: 700px; margin: 0 auto; }
+.header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 32px; padding-bottom: 20px; border-bottom: 3px solid #f43f5e; }
+.brand { font-size: 22px; font-weight: 900; color: #f43f5e; line-height: 1.2; }
+.brand small { display: block; font-size: 11px; font-weight: 400; color: #9ca3af; margin-top: 2px; }
+.invoice-meta { text-align: right; }
+.invoice-meta .num { font-size: 15px; font-weight: 800; color: #111; }
+.invoice-meta p { font-size: 11px; color: #6b7280; margin-top: 2px; }
+.client-box { background: #fdf2f8; border: 1px solid #fce7f3; border-radius: 10px; padding: 16px 20px; margin-bottom: 28px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.client-box .label { font-size: 10px; font-weight: 600; text-transform: uppercase; color: #9ca3af; letter-spacing: 0.05em; }
+.client-box .value { font-size: 14px; font-weight: 700; color: #111; }
+.client-box .value.accent { color: #f43f5e; }
+table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+thead tr { background: #f43f5e; color: white; }
+thead th { padding: 10px 12px; text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
+tbody tr { border-bottom: 1px solid #f3f4f6; }
+tbody tr:hover { background: #fafafa; }
+td { padding: 10px 12px; font-size: 12.5px; }
+td.center { text-align: center; }
+td.right { text-align: right; }
+td.bold { font-weight: 700; }
+.variant { font-size: 10px; color: #6b7280; font-weight: 400; }
+.summary { margin-left: auto; width: 300px; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; margin-bottom: 28px; }
+.summary-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; font-size: 13px; border-bottom: 1px solid #f3f4f6; }
+.summary-row:last-child { border-bottom: none; }
+.summary-row.total { background: #f43f5e; color: white; font-weight: 800; font-size: 14px; }
+.summary-row.saving { background: #fef3c7; color: #92400e; font-weight: 700; }
+.summary-row.saving .s-label::before { content: '💰 '; }
+.footer { text-align: center; color: #9ca3af; font-size: 11px; padding-top: 20px; border-top: 1px solid #f3f4f6; line-height: 1.8; }
+.footer strong { color: #f43f5e; }
+@media print { body { padding: 20px; } @page { margin: 15mm; size: A4; } }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="brand">
+    ✨ Le Monde de l'Esthétique
+    <small>Box Beauté Mensuelle</small>
+  </div>
+  <div class="invoice-meta">
+    <div class="num">FACTURE ${invoiceNum}</div>
+    <p>Générée le ${today}</p>
+    <p>Mois de livraison : ${monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1)}</p>
+  </div>
+</div>
+
+<div class="client-box">
+  <div>
+    <div class="label">Abonnée</div>
+    <div class="value">${clientName}</div>
+  </div>
+  <div>
+    <div class="label">Formule</div>
+    <div class="value accent">${planName}</div>
+  </div>
+  <div>
+    <div class="label">Forfait mensuel</div>
+    <div class="value">${fmt(planPrice)}</div>
+  </div>
+  <div>
+    <div class="label">Réf. abonnement</div>
+    <div class="value" style="font-size:11px;font-weight:500;color:#6b7280">${subscriptionId.slice(0, 8).toUpperCase()}</div>
+  </div>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Produit</th>
+      <th class="center">Qté</th>
+      <th class="right">Prix unit.</th>
+      <th class="right">Total</th>
+    </tr>
+  </thead>
+  <tbody>
+    ${rows || '<tr><td colspan="4" style="text-align:center;color:#9ca3af;padding:20px">Aucun produit enregistré</td></tr>'}
+  </tbody>
+</table>
+
+<div class="summary">
+  <div class="summary-row">
+    <span>Valeur catalogue produits</span>
+    <span>${fmt(totalProducts)}</span>
+  </div>
+  <div class="summary-row">
+    <span>Frais de livraison</span>
+    <span>${shippingCost > 0 ? fmt(shippingCost) : '<span style="color:#16a34a;font-weight:700">Offerts ✓</span>'}</span>
+  </div>
+  <div class="summary-row total">
+    <span>Forfait mensuel payé</span>
+    <span>${fmt(planPrice + shippingCost)}</span>
+  </div>
+  ${benefit > 0 ? `<div class="summary-row saving"><span class="s-label">Économie réalisée</span><span>${fmt(benefit)}</span></div>` : ''}
+</div>
+
+<div class="footer">
+  <p>Merci de votre fidélité ! 💖</p>
+  <p><strong>Le Monde de l'Esthétique</strong> · lmdecaisse.com</p>
+  <p style="margin-top:6px">Ce document est votre justificatif d'abonnement mensuel Box Beauté.</p>
+</div>
+
+<script>window.addEventListener('load', function() { setTimeout(function() { window.print(); }, 300); });</script>
+</body>
+</html>`;
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ClientDashboardPage() {
@@ -824,6 +964,13 @@ export default function ClientDashboardPage() {
     }
   };
 
+  const downloadInvoice = useCallback((order: SubscriptionOrder, items: OrderItem[]) => {
+    if (!clientUser) return;
+    const html = generateInvoiceHTML(order, items, clientUser.clientName, clientUser.planName, clientUser.planPrice, clientUser.subscriptionId);
+    const w = window.open('', '_blank');
+    if (w) { w.document.write(html); w.document.close(); }
+  }, [clientUser]);
+
   // ── Catalog groups ─────────────────────────────────────────────────────────
   const groupedCatalog = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
@@ -1504,6 +1651,19 @@ export default function ClientDashboardPage() {
                   <p className="text-xs text-amber-800 mt-0.5">Grâce à votre abonnement {clientUser.planName}</p>
                 </div>
               </div>
+            )}
+
+            {/* ── Bouton télécharger la facture ── */}
+            {!loadingOrder && currentOrder && ['confirmed', 'preparing', 'shipped', 'en_livraison', 'auto'].includes(currentOrder.status) && orderItems.length > 0 && (
+              <button
+                onClick={() => downloadInvoice(currentOrder, orderItems)}
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border border-rose-200 bg-white text-rose-600 text-sm font-bold hover:bg-rose-50 transition-colors shadow-sm"
+              >
+                <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m.75 12l3 3m0 0l3-3m-3 3v-6m-1.5-9H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                </svg>
+                Télécharger ma facture (PDF)
+              </button>
             )}
 
             {/* ── Delivery destination card (post-confirmation) ── */}
@@ -2313,6 +2473,19 @@ export default function ClientDashboardPage() {
                           ) : (
                             <>🔁 Reprendre cette commande</>
                           )}
+                        </button>
+                      )}
+
+                      {/* Invoice download button */}
+                      {items.length > 0 && order.status !== 'open' && order.status !== 'cancelled' && (
+                        <button
+                          onClick={() => downloadInvoice(order, items)}
+                          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-rose-200 bg-white text-rose-600 text-sm font-semibold hover:bg-rose-50 transition-colors"
+                        >
+                          <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m.75 12l3 3m0 0l3-3m-3 3v-6m-1.5-9H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                          </svg>
+                          Télécharger la facture (PDF)
                         </button>
                       )}
                     </div>
