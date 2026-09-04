@@ -17,7 +17,7 @@ export async function GET() {
   const allProducts: unknown[] = [];
   let url: string | null =
     `https://${STORE_DOMAIN}/admin/api/${API_VERSION}/products.json` +
-    `?limit=250&status=active&fields=id,title,status,variants,image`;
+    `?limit=250&status=any&fields=id,title,status,variants,image`;
 
   try {
     while (url) {

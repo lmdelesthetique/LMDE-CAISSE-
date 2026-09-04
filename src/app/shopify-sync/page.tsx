@@ -464,9 +464,7 @@ export default function ShopifySyncPage() {
         throw new Error(j.error ?? `HTTP ${shopifyRes.status}`);
       }
       const shopifyJson = await shopifyRes.json();
-      const shopify: ShopifyProduct[] = (shopifyJson.products ?? []).filter(
-        (p: ShopifyProduct) => p.status === 'active'
-      );
+      const shopify: ShopifyProduct[] = shopifyJson.products ?? [];
       setShopifyProducts(shopify);
 
       setLoadingMsg('Calcul des correspondances…');
@@ -719,7 +717,7 @@ export default function ShopifySyncPage() {
               <div>
                 <h1 className="text-xl font-semibold text-foreground">🔗 Synchronisation Shopify</h1>
                 <p className="text-sm text-muted-foreground mt-0.5">
-                  {loading ? loadingMsg : `${linkedCount} / ${totalPos} produits POS liés — ${shopifyProducts.length} produits actifs Shopify`}
+                  {loading ? loadingMsg : `${linkedCount} / ${totalPos} produits POS liés — ${shopifyProducts.length} produits Shopify`}
                 </p>
               </div>
               <div className="flex items-center gap-3">
