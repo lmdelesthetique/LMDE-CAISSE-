@@ -3354,16 +3354,24 @@ export default function OrderDetailPage() {
                     return (
                       <div key={line.id} className={`px-5 py-4 ${alert ? 'bg-red-50/30' : ''}`}>
                         <div className="flex items-start justify-between gap-4 flex-wrap">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <p className="font-500 text-foreground">{line.productName}</p>
-                              {alert && (
-                                <span className={`text-xs px-2 py-0.5 rounded-full border font-600 ${alert.color}`}>
-                                  {alert.label}
-                                </span>
-                              )}
+                          <div className="flex-1 min-w-0 flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-lg overflow-hidden bg-muted flex-shrink-0 border border-border">
+                              {line.productImageUrl
+                                ? <img src={line.productImageUrl} alt={line.productName} className="w-full h-full object-cover" />
+                                : <div className="w-full h-full flex items-center justify-center text-muted-foreground text-lg">📦</div>
+                              }
                             </div>
-                            <p className="text-xs text-muted-foreground mt-0.5">{line.productRef}</p>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="font-500 text-foreground">{line.productName}</p>
+                                {alert && (
+                                  <span className={`text-xs px-2 py-0.5 rounded-full border font-600 ${alert.color}`}>
+                                    {alert.label}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-muted-foreground mt-0.5">{line.productRef}</p>
+                            </div>
                           </div>
                           <div className="flex items-center gap-6 text-sm shrink-0">
                             <div className="text-right">
