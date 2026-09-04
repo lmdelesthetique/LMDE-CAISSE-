@@ -576,21 +576,51 @@ export default function ClientDashboardPage() {
     if (tab === 'catalogue' && products.length === 0) loadProducts();
   }, [tab, products.length, loadProducts]);
 
-  // ── Real-time stock sync ───────────────────────────────────────────────────
+  // ── Real-time sync — all product + category changes ──────────────────────
+  // Use refs so handlers always have the latest values without recreating the subscription.
+  const loadProductsRef = useRef(loadProducts);
+  useEffect(() => { loadProductsRef.current = loadProducts; }, [loadProducts]);
+  const visibleCatNamesRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    visibleCatNamesRef.current = new Set(visibleCategories.map((c) => c.name));
+  }, [visibleCategories]);
+
   useEffect(() => {
     if (!clientUser || tab !== 'catalogue') return;
     const supabase = createClient();
     const channel = supabase
-      .channel('portal-stock-sync')
+      .channel('portal-full-sync')
+      // Product updates
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'products' }, (payload: any) => {
+        const n = payload.new;
+        const o = payload.old ?? {};
+        // Structural changes (visibility-affecting) → full reload
+        if (n.product_status !== o.product_status || n.category !== o.category) {
+          loadProductsRef.current();
+          return;
+        }
+        // Fine-grained field update (stock, price, name, image, description)
         setProducts((prev) =>
           prev.map((p) =>
-            p.id === payload.new.id
-              // Update stock — keep product visible even if stock hits 0 (show RUPTURE badge)
-              ? { ...p, stock: payload.new.stock, sell_price_ttc: payload.new.sell_price_ttc }
+            p.id === n.id
+              ? { ...p, stock: n.stock, sell_price_ttc: n.sell_price_ttc, product_status: n.product_status, name: n.name, image_url: n.image_url, description: n.description }
               : p
           )
         );
+      })
+      // New product added → reload if in a visible category
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'products' }, (payload: any) => {
+        if (visibleCatNamesRef.current.has(payload.new.category ?? '')) {
+          loadProductsRef.current();
+        }
+      })
+      // Product deleted → remove from list
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'products' }, (payload: any) => {
+        setProducts((prev) => prev.filter((p) => p.id !== (payload.old?.id ?? '')));
+      })
+      // Category visibility toggled → reload categories + products
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'categories' }, () => {
+        loadProductsRef.current();
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };

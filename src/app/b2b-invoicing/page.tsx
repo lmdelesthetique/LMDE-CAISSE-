@@ -1553,12 +1553,22 @@ export default function B2BInvoicingPage() {
       }
 
       if (becomingPaid) {
-        // Déduire le stock
-        fetch('/api/b2b/deduct-stock', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ factureId: savedId, lines: doc.lines, clientName: doc.clientName, numero: savedNumber }),
-        }).catch(() => {});
+        // Déduire le stock (awaited — any failure is shown to the user)
+        try {
+          const stockRes = await fetch('/api/b2b/deduct-stock', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ factureId: savedId, lines: doc.lines, clientName: doc.clientName, numero: savedNumber }),
+          });
+          if (!stockRes.ok) {
+            const stockErr = await stockRes.json().catch(() => ({}));
+            console.error('[b2b deduct-stock] erreur:', stockErr);
+            alert(`⚠️ Facture enregistrée, mais la déduction de stock a échoué : ${stockErr.error ?? stockRes.status}. Vérifiez le stock manuellement.`);
+          }
+        } catch (stockE: any) {
+          console.error('[b2b deduct-stock] réseau:', stockE.message);
+          alert(`⚠️ Facture enregistrée, mais la déduction de stock n'a pas pu être effectuée (erreur réseau). Vérifiez le stock manuellement.`);
+        }
 
         // Créer un receipt pour comptabiliser dans le CA
         const receiptItems = doc.lines.map((l) => {
