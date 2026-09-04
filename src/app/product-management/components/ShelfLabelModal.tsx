@@ -36,6 +36,10 @@ const BADGE_CONFIG: Record<BadgeType, { label: string; color: string; bg: string
   none:        { label: '',            color: '#6b7280', bg: '#f9fafb', emoji: '' },
 };
 
+function fmtPrice(n: number): string {
+  return n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 function getPromoForProduct(promos: any[], product: ProductRecord, showPromo: boolean): ActivePromo | null {
   if (!showPromo) return null;
   for (const p of promos) {
@@ -129,10 +133,10 @@ export default function ShelfLabelModal({ products, initialProduct, onClose }: S
         next.delete(product.id);
       } else {
         next.add(product.id);
-        setProductQtys(q => ({ ...q, [product.id]: q[product.id] ?? 1 }));
       }
       return next;
     });
+    setProductQtys(q => q[product.id] !== undefined ? q : { ...q, [product.id]: 1 });
   };
 
   const setQtyFor = (id: string, qty: number) => {
@@ -171,7 +175,6 @@ export default function ShelfLabelModal({ products, initialProduct, onClose }: S
   const previewSales90d = previewProduct ? (sales90dMap[previewProduct.id] || 0) : 0;
 
   const badgeLabel = badgeType === 'none' ? '' : (customBadgeText || BADGE_CONFIG[badgeType].label);
-  const fmtPrice = (n: number) => n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const generateLabelHTML = useCallback((product: ProductRecord, promo: ActivePromo | null, sales90d: number, wMm: number, hMm: number, fontSize: number) => {
     const showBadge = badgeType !== 'none' && badgeLabel;
@@ -207,7 +210,7 @@ export default function ShelfLabelModal({ products, initialProduct, onClose }: S
     <span>Prix TTC</span>
   </div>
 </div>`;
-  }, [badgeType, badgeLabel, showImage, showSalesCount, fmtPrice]);
+  }, [badgeType, badgeLabel, showImage, showSalesCount]);
 
   const generateHTML = useCallback(() => {
     const [wMm, hMm] = labelSize.split('x').map(Number);

@@ -307,7 +307,7 @@ async function runBackfill(req: NextRequest, dryRun: boolean) {
     summary: {
       total_shopify_orders: allOrders.length,
       already_processed: ordersFullyAlreadyDone.length,
-      orders_needing_backfill: ordersWithNewDeductions.length,
+      orders_needing_backfill: ordersNeedingAttention.length,
       orders_with_deduction: ordersWithNewDeductions.length,
       orders_unmatched: ordersWithIntrouvable.length,
       total_lines_deducted: totalDeducted,

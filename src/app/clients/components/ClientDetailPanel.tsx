@@ -199,6 +199,7 @@ export default function ClientDetailPanel({
   const [loadingPro, setLoadingPro] = useState(false);
   const [savingPro, setSavingPro] = useState(false);
   const [proSaved, setProSaved] = useState(false);
+  const [proError, setProError] = useState('');
 
   useEffect(() => {
     if (tab !== 'pro') return;
@@ -286,8 +287,9 @@ export default function ClientDetailPanel({
 
   const handleSavePro = async () => {
     setSavingPro(true);
+    setProError('');
     try {
-      await fetch(`/api/clients/${client.id}/pro-profile`, {
+      const res = await fetch(`/api/clients/${client.id}/pro-profile`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -298,8 +300,15 @@ export default function ClientDetailPanel({
           budget_mensuel: proProfile.budget_mensuel ? parseFloat(proProfile.budget_mensuel) : null,
         }),
       });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setProError(body.error ?? `Erreur ${res.status} — veuillez réessayer.`);
+        return;
+      }
       setProSaved(true);
       setTimeout(() => setProSaved(false), 3000);
+    } catch {
+      setProError('Erreur réseau — veuillez réessayer.');
     } finally {
       setSavingPro(false);
     }
@@ -1594,6 +1603,12 @@ export default function ClientDetailPanel({
                   </div>
 
                   {/* Save */}
+                  {proError && (
+                    <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">
+                      <Icon name="ExclamationCircleIcon" size={16} className="text-red-500 shrink-0" />
+                      {proError}
+                    </div>
+                  )}
                   <button onClick={handleSavePro} disabled={savingPro}
                     className="w-full py-3 bg-primary text-primary-foreground rounded-xl text-sm font-700 hover:opacity-90 transition-opacity disabled:opacity-40 flex items-center justify-center gap-2">
                     {savingPro ? (

@@ -185,7 +185,7 @@ const NewReturnModal = forwardRef<NewReturnModalHandle, NewReturnModalProps>(
 
     const filteredProducts = allProducts.filter(p =>
       p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
-      p.ref.toLowerCase().includes(productSearch.toLowerCase())
+      (p.ref || '').toLowerCase().includes(productSearch.toLowerCase())
     ).slice(0, 8);
 
     const filteredClients = allClients.filter(c =>
@@ -195,7 +195,7 @@ const NewReturnModal = forwardRef<NewReturnModalHandle, NewReturnModalProps>(
 
     const filteredExchange = allProducts.filter(p =>
       (p.name.toLowerCase().includes(exchangeSearch.toLowerCase()) ||
-       p.ref.toLowerCase().includes(exchangeSearch.toLowerCase())) &&
+       (p.ref || '').toLowerCase().includes(exchangeSearch.toLowerCase())) &&
       !lineItems.some(li => li.product.id === p.id)
     ).slice(0, 6);
 
@@ -222,7 +222,8 @@ const NewReturnModal = forwardRef<NewReturnModalHandle, NewReturnModalProps>(
     const getRefundType = (): ReturnRefundType => {
       if (returnType === 'avoir') return 'store_credit';
       if (returnType === 'exchange') return 'exchange';
-      return paymentMethod === 'cash' ? 'refund_cash' : 'refund_card';
+      if (paymentMethod === 'cash') return 'refund_cash';
+      return 'refund_card'; // card and transfer both map to refund_card (no refund_transfer type in schema)
     };
 
     const getDecision = (): string => {
@@ -351,7 +352,7 @@ const NewReturnModal = forwardRef<NewReturnModalHandle, NewReturnModalProps>(
               </div>
               <div>
                 <h2 className="text-base font-600 text-foreground">Nouveau retour / Avoir</h2>
-                <p className="text-xs text-muted-foreground">Étape {step} / 2 · Scanner ou chercher les articles</p>
+                <p className="text-xs text-muted-foreground">Étape {step} / 2 · {step === 1 ? 'Scanner ou chercher les articles' : 'Décision & remboursement'}</p>
               </div>
             </div>
             <button onClick={onClose} className="p-2 rounded-lg hover:bg-muted text-muted-foreground">

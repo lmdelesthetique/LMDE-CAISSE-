@@ -47,7 +47,6 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     budget_tranche: body.budget_tranche ?? null,
     frequence_achat: body.frequence_achat ?? null,
     besoin_principal: body.besoin_principal ?? [],
-    produits_reassort: body.produits_reassort ?? [],
     updated_at: new Date().toISOString(),
   };
 
