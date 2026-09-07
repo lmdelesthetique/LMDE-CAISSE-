@@ -551,25 +551,16 @@ export default function ClientDashboardPage() {
   const loadProducts = useCallback(async () => {
     if (!clientUser) return;
     setLoadingProducts(true);
-    const supabase = createClient();
-
-    const [{ data: cats }, { data: prods }] = await Promise.all([
-      supabase
-        .from('categories')
-        .select('id, name, color, icon')
-        .eq('visible_in_client_portal', true)
-        .eq('is_active', true)
-        .order('sort_order'),
-      supabase
-        .from('products')
-        .select('id, name, image_url, sell_price_ttc, buy_price, description, category, stock, product_status, has_color_variants')
-        .order('name')
-        .limit(5000),
-    ]);
-    const visibleNames = new Set((cats ?? []).map((c: any) => c.name));
-    setVisibleCategories(cats ?? []);
-    setProducts(((prods ?? []) as PortalProduct[]).filter((p) => visibleNames.has(p.category ?? '')));
-    setLoadingProducts(false);
+    try {
+      const res = await fetch('/api/client-portal/catalog');
+      if (res.ok) {
+        const json = await res.json();
+        setVisibleCategories(json.categories ?? []);
+        setProducts(json.products ?? []);
+      }
+    } catch { /* réseau indisponible */ } finally {
+      setLoadingProducts(false);
+    }
   }, [clientUser]);
 
   useEffect(() => {
