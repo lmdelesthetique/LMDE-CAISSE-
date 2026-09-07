@@ -236,7 +236,7 @@ td.bold { font-weight: 700; }
   </div>
   <div class="summary-row total">
     <span>Forfait mensuel payé</span>
-    <span>${fmt(planPrice + shippingCost)}</span>
+    <span>${fmt(planPrice)}</span>
   </div>
   ${benefit > 0 ? `<div class="summary-row saving"><span class="s-label">Économie réalisée</span><span>${fmt(benefit)}</span></div>` : ''}
 </div>
