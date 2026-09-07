@@ -77,11 +77,20 @@ export async function GET(req: NextRequest) {
       existing.splice(0, existing.length, ...(refreshed.data ?? []));
     }
 
-    // Return only available (non-expired) rewards
+    // Build a map of current tier thresholds to detect retroactively raised thresholds
+    const tierThresholdMap = new Map(tiers.map((t: any) => [t.id, t.points_required]));
+
+    // Return only available (non-expired) rewards WHERE the client still meets the threshold.
+    // If an admin raised a tier's threshold after the reward was unlocked, hide the reward
+    // until the client reaches the new threshold (prevents showing "-5%" for 100-pt clients
+    // when Palier 1 was moved from 100 pts to 350 pts).
     const now = new Date().toISOString();
-    const available = existing.filter(
-      (r: any) => r.status === 'available' && (!r.expiry_date || r.expiry_date > now)
-    );
+    const available = existing.filter((r: any) => {
+      if (r.status !== 'available') return false;
+      if (r.expiry_date && r.expiry_date <= now) return false;
+      if (r.tier_id && tierThresholdMap.has(r.tier_id) && points < tierThresholdMap.get(r.tier_id)) return false;
+      return true;
+    });
 
     return NextResponse.json({ available, all: existing });
   } catch (e: any) {
