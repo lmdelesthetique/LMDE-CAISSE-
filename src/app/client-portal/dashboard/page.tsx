@@ -528,7 +528,7 @@ export default function ClientDashboardPage() {
       .from('subscription_orders')
       .select('*')
       .eq('subscription_id', clientUser.subscriptionId)
-      .neq('order_month', currentMonth)
+      .neq('status', 'open')
       .order('order_month', { ascending: false })
       .then(async ({ data: orders }) => {
         setPastOrders(orders ?? []);
@@ -545,7 +545,7 @@ export default function ClientDashboardPage() {
         }
         setPastOrderItems(byOrder);
       });
-  }, [clientUser, currentMonth]);
+  }, [clientUser]);
 
   // ── Load products + categories ─────────────────────────────────────────────
   const loadProducts = useCallback(async () => {
