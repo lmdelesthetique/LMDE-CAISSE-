@@ -17,6 +17,9 @@ interface Movement {
 
 interface DuplicateGroup {
   type: 'time' | 'reference';
+  // 'subtract': entry duplicates added too much stock → remove the excess
+  // 'add': sortie duplicates removed too much stock → add back the excess
+  correction_direction: 'subtract' | 'add';
   product_id: string;
   product_name: string;
   date: string;
@@ -31,16 +34,17 @@ function detectDuplicates(mvs: Movement[], windowMs: number): DuplicateGroup[] {
   const processedTime = new Set<string>();
   const processedRef = new Set<string>();
 
-  // ── Type 1: time-based (same product, same type, same qty within window) ──
-  for (let i = 0; i < mvs.length; i++) {
-    const m = mvs[i];
+  // ── Type 1: time-based (entry/reception only — same product, same type, same qty within window) ──
+  const entryMvs = mvs.filter(m => m.movement_type === 'entry' || m.movement_type === 'supplier_reception');
+  for (let i = 0; i < entryMvs.length; i++) {
+    const m = entryMvs[i];
     if (processedTime.has(m.id)) continue;
 
     const mTime = new Date(m.created_at).getTime();
     const matches: Movement[] = [m];
 
-    for (let j = i + 1; j < mvs.length; j++) {
-      const n = mvs[j];
+    for (let j = i + 1; j < entryMvs.length; j++) {
+      const n = entryMvs[j];
       if (processedTime.has(n.id)) continue;
       if (n.product_id !== m.product_id) continue;
       if (n.movement_type !== m.movement_type) continue;
@@ -55,6 +59,7 @@ function detectDuplicates(mvs: Movement[], windowMs: number): DuplicateGroup[] {
       const extraQty = extras.reduce((s, e) => s + Math.abs(Number(e.quantity_change)), 0);
       groups.push({
         type: 'time',
+        correction_direction: 'subtract',
         product_id: m.product_id,
         product_name: m.product_name || extras[0]?.product_name || '',
         date: m.created_at,
@@ -68,19 +73,19 @@ function detectDuplicates(mvs: Movement[], windowMs: number): DuplicateGroup[] {
     }
   }
 
-  // ── Type 2: reference-based (same invoice reference used twice for same product) ──
-  // Group by (product_id + reference) — a non-null reference used more than once is a duplicate.
+  // ── Type 2: reference-based (same reference used multiple times for same product) ──
+  // Works for both entries (subtract) and sorties (add back).
   const byRef = new Map<string, Movement[]>();
   for (const m of mvs) {
     if (!m.reference?.trim()) continue;
-    const key = `${m.product_id}::${m.reference.trim().toLowerCase()}`;
+    // Key includes movement_type so entry and sortie refs are tracked separately
+    const key = `${m.product_id}::${m.movement_type}::${m.reference.trim().toLowerCase()}`;
     const bucket = byRef.get(key) ?? [];
     bucket.push(m);
     byRef.set(key, bucket);
   }
   for (const [, group] of byRef) {
     if (group.length < 2) continue;
-    // Skip if already covered by time-based detection
     const allProcessed = group.every(m => processedRef.has(m.id));
     if (allProcessed) continue;
     group.forEach(m => processedRef.add(m.id));
@@ -88,15 +93,19 @@ function detectDuplicates(mvs: Movement[], windowMs: number): DuplicateGroup[] {
     const sorted = [...group].sort((a, b) => a.created_at.localeCompare(b.created_at));
     const extras = sorted.slice(1);
     const extraQty = extras.reduce((s, e) => s + Math.abs(Number(e.quantity_change)), 0);
+    const isSortie = sorted[0].movement_type === 'sortie';
     groups.push({
       type: 'reference',
+      correction_direction: isSortie ? 'add' : 'subtract',
       product_id: sorted[0].product_id,
       product_name: sorted[0].product_name || '',
       date: sorted[0].created_at,
       movements: sorted,
       extra_qty: extraQty,
       ids_to_cancel: extras.map(e => e.id),
-      description: `Facture/référence "${sorted[0].reference}" utilisée ${group.length}× pour ce produit`,
+      description: isSortie
+        ? `Sortie campagne "${sorted[0].reference}" appliquée ${group.length}× (${extraQty} unité(s) reprise(s))`
+        : `Facture/référence "${sorted[0].reference}" utilisée ${group.length}× pour ce produit`,
     });
   }
 
@@ -117,7 +126,7 @@ export async function GET(req: NextRequest) {
   let query = supabase
     .from('stock_movements_log')
     .select('id, product_id, product_name, movement_type, quantity_change, quantity_before, quantity_after, reason, reference, created_at, performed_by')
-    .in('movement_type', ['entry', 'supplier_reception'])
+    .in('movement_type', ['entry', 'supplier_reception', 'sortie'])
     .not('reason', 'ilike', '[DOUBLON ANNULÉ]%')
     .gte('created_at', since)
     .order('created_at', { ascending: true });
@@ -162,7 +171,7 @@ export async function POST(req: NextRequest) {
   let query = supabase
     .from('stock_movements_log')
     .select('id, product_id, product_name, movement_type, quantity_change, quantity_before, quantity_after, reason, reference, created_at')
-    .in('movement_type', ['entry', 'supplier_reception'])
+    .in('movement_type', ['entry', 'supplier_reception', 'sortie'])
     .not('reason', 'ilike', '[DOUBLON ANNULÉ]%')
     .gte('created_at', since)
     .order('created_at', { ascending: true });
@@ -181,18 +190,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, fixed: 0, message: 'Aucun doublon détecté.' });
   }
 
-  // Merge by product_id
-  const byProduct: Record<string, { extraQty: number; ids: string[]; name: string; reason: string; descriptions: string[] }> = {};
+  // Merge by product_id — net adjustment (positive = remove from stock, negative = add to stock)
+  const byProduct: Record<string, {
+    netAdjustment: number;
+    ids: string[];
+    name: string;
+    reason: string;
+    descriptions: string[];
+  }> = {};
+
   for (const g of groups) {
     if (!byProduct[g.product_id]) {
-      byProduct[g.product_id] = { extraQty: 0, ids: [], name: g.product_name, reason: g.movements[0]?.reason ?? '', descriptions: [] };
+      byProduct[g.product_id] = { netAdjustment: 0, ids: [], name: g.product_name, reason: g.movements[0]?.reason ?? '', descriptions: [] };
     }
-    byProduct[g.product_id].extraQty += g.extra_qty;
+    const delta = g.correction_direction === 'subtract' ? g.extra_qty : -g.extra_qty;
+    byProduct[g.product_id].netAdjustment += delta;
     byProduct[g.product_id].ids.push(...g.ids_to_cancel);
     byProduct[g.product_id].descriptions.push(g.description);
   }
 
-  const log: { name: string; removed: number; before: number; after: number; details: string }[] = [];
+  const log: { name: string; adjusted: number; before: number; after: number; details: string }[] = [];
   let fixed = 0;
 
   for (const [productId, g] of Object.entries(byProduct)) {
@@ -200,19 +217,24 @@ export async function POST(req: NextRequest) {
     if (!p) continue;
 
     const currentStock = Number(p.stock) || 0;
-    const newStock = Math.max(0, currentStock - g.extraQty);
+    const newStock = Math.max(0, currentStock - g.netAdjustment);
 
     await supabase.from('products').update({ stock: newStock, updated_at: now }).eq('id', productId);
 
-    if (newStock <= 0 && p.product_status !== 'inactive') {
+    // Only flag rupture when stock drops to 0 (not when we're adding stock back)
+    if (newStock <= 0 && g.netAdjustment > 0 && p.product_status !== 'inactive') {
       await supabase.from('products').update({ status: 'rupture', product_status: 'rupture' }).eq('id', productId);
     }
 
-    // Mark duplicates as cancelled (deduplicate ids first)
+    // Mark duplicate movements as cancelled
     const uniqueIds = [...new Set(g.ids)];
     await supabase.from('stock_movements_log')
       .update({ reason: `[DOUBLON ANNULÉ] ${g.reason}` })
       .in('id', uniqueIds);
+
+    const adjLabel = g.netAdjustment >= 0
+      ? `${g.netAdjustment} unité(s) supprimée(s)`
+      : `${Math.abs(g.netAdjustment)} unité(s) restituée(s)`;
 
     await supabase.from('stock_movements_log').insert({
       product_id: productId,
@@ -220,12 +242,12 @@ export async function POST(req: NextRequest) {
       movement_type: 'correction',
       quantity_before: currentStock,
       quantity_after: newStock,
-      quantity_change: -g.extraQty,
-      reason: `Correction doublons — ${g.extraQty} unité(s) supprimée(s) : ${g.descriptions.join('; ')}`,
+      quantity_change: newStock - currentStock,
+      reason: `Correction doublons — ${adjLabel} : ${g.descriptions.join('; ')}`,
       performed_by: 'Système',
     });
 
-    log.push({ name: g.name, removed: g.extraQty, before: currentStock, after: newStock, details: g.descriptions.join('; ') });
+    log.push({ name: g.name, adjusted: newStock - currentStock, before: currentStock, after: newStock, details: g.descriptions.join('; ') });
     fixed++;
   }
 
