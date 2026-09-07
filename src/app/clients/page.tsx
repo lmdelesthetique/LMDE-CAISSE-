@@ -343,6 +343,11 @@ export default function ClientsPage() {
           }}
           onNotesUpdated={(notes) => setDetailData((d) => d ? { ...d, notes } : d)}
           onSubscriptionUpdated={(sub) => setDetailData((d) => d ? { ...d, subscription: sub } : d)}
+          onDeleted={() => {
+            setClients((prev) => prev.filter((c) => c.id !== selectedClient?.id));
+            setSelectedClient(null);
+            setDetailData(null);
+          }}
         />
       )}
 

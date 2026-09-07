@@ -8,6 +8,7 @@ import { fetchReceiptById, modifyTicket, fetchTicketModifications, type ReceiptR
 import { sendReceiptEmail, type ReceiptEmailData } from '@/lib/services/emailService';
 import { toast } from 'sonner';
 import { generateTicketHTML, generateFactureHTML, loadSettingsFromCache, openAndPrint } from '@/lib/utils/ticketPrinter';
+import { normalizePhone } from '@/lib/utils/phoneUtils';
 
 // ── Colissimo helpers ─────────────────────────────────────────────────────────
 
@@ -537,6 +538,8 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
   const [hasDelivery, setHasDelivery] = useState(false);
   const [clientReferralCode, setClientReferralCode] = useState<string | undefined>(undefined);
+  const [clientPhone, setClientPhone] = useState<string | null>(null);
+  const [sendingWA, setSendingWA] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -559,7 +562,10 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
         if (rec.clientId) {
           fetch(`/api/clients/${rec.clientId}`)
             .then((r) => r.json())
-            .then((c) => { if (c?.referral_code) setClientReferralCode(c.referral_code); })
+            .then((c) => {
+              if (c?.referral_code) setClientReferralCode(c.referral_code);
+              if (c?.whatsapp || c?.phone) setClientPhone(c.whatsapp || c.phone);
+            })
             .catch(() => {});
         }
       } else {
@@ -636,6 +642,138 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
       globalDiscount: globalDiscount > 0 ? globalDiscount : undefined,
       logoUrl: `${window.location.origin}/assets/images/app_logo.png`,
     }));
+  };
+
+  const handleWhatsAppFacture = async () => {
+    if (!receipt) return;
+    setSendingWA(true);
+    try {
+      const { jsPDF } = await import('jspdf');
+      const autoTable = (await import('jspdf-autotable')).default;
+
+      const s = loadSettingsFromCache();
+      const now = new Date(receipt.createdAt);
+      const dateStr = now.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'America/Martinique' });
+      const subtotalHT = receipt.subtotalHT || receipt.totalAmount / (1 + s.tvaRate / 100);
+      const totalTVA = receipt.totalTVA || receipt.totalAmount - subtotalHT;
+      const totalItemDiscount = receipt.items.reduce((sum, i) => {
+        if (!i.discount || i.discount <= 0) return sum;
+        return sum + (i.discountType === 'percent' ? i.price * i.qty * (i.discount / 100) : i.discount);
+      }, 0);
+      const globalDiscount = Math.max(0, (receipt.discountAmount ?? 0) - totalItemDiscount);
+
+      const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+      const GOLD = [184, 150, 12] as [number, number, number];
+      const LGOLD = [253, 248, 231] as [number, number, number];
+      const W = 210;
+
+      // Header gold
+      doc.setFillColor(...GOLD);
+      doc.rect(0, 0, W, 38, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(18);
+      doc.text('FACTURE', 14, 14);
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`FAC-${receipt.ticketNumber}`, 14, 21);
+      doc.text(`Date : ${dateStr}`, 14, 27);
+      doc.text(s.companyName || 'Le Monde de L\'Esthétique', W - 14, 14, { align: 'right' });
+      if (s.companyLine1) doc.text(s.companyLine1, W - 14, 21, { align: 'right' });
+      if (s.companyCity) doc.text(s.companyCity, W - 14, 27, { align: 'right' });
+      if (s.companyPhone) doc.text(s.companyPhone, W - 14, 33, { align: 'right' });
+
+      let y = 46;
+
+      // Client block
+      if (receipt.clientName) {
+        doc.setFillColor(...LGOLD);
+        doc.roundedRect(14, y, W - 28, 12, 2, 2, 'F');
+        doc.setTextColor(80, 60, 0);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.text('CLIENT', 18, y + 5);
+        doc.setFont('helvetica', 'normal');
+        doc.text(receipt.clientName, 18, y + 10);
+        y += 18;
+      }
+
+      // Items table
+      const rows = receipt.items.map((item) => {
+        const lineDiscount = item.discount > 0
+          ? (item.discountType === 'percent' ? item.price * item.qty * (item.discount / 100) : item.discount)
+          : 0;
+        const lineTotal = Math.max(0, item.price * item.qty - lineDiscount);
+        return [
+          item.name,
+          item.qty.toString(),
+          `${item.price.toFixed(2)} €`,
+          lineDiscount > 0 ? `-${lineDiscount.toFixed(2)} €` : '',
+          `${lineTotal.toFixed(2)} €`,
+        ];
+      });
+
+      autoTable(doc, {
+        startY: y,
+        head: [['Article', 'Qté', 'Prix unit.', 'Remise', 'Total']],
+        body: rows,
+        theme: 'grid',
+        styles: { fontSize: 9, cellPadding: 3 },
+        headStyles: { fillColor: GOLD, textColor: [255, 255, 255], fontStyle: 'bold' },
+        columnStyles: { 0: { cellWidth: 75 }, 1: { halign: 'center', cellWidth: 15 }, 2: { halign: 'right', cellWidth: 28 }, 3: { halign: 'right', cellWidth: 28 }, 4: { halign: 'right', cellWidth: 30 } },
+        margin: { left: 14, right: 14 },
+      });
+
+      y = (doc as any).lastAutoTable.finalY + 6;
+
+      // Summary box
+      doc.setFillColor(...LGOLD);
+      doc.roundedRect(W - 90, y, 76, globalDiscount > 0 ? 38 : 30, 2, 2, 'F');
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(80, 60, 0);
+      let sy = y + 7;
+      doc.text('Sous-total HT :', W - 88, sy); doc.text(`${subtotalHT.toFixed(2)} €`, W - 16, sy, { align: 'right' }); sy += 6;
+      doc.text(`TVA (${s.tvaRate}%) :`, W - 88, sy); doc.text(`${totalTVA.toFixed(2)} €`, W - 16, sy, { align: 'right' }); sy += 6;
+      if (globalDiscount > 0) { doc.text('Remise :', W - 88, sy); doc.text(`-${globalDiscount.toFixed(2)} €`, W - 16, sy, { align: 'right' }); sy += 6; }
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(...GOLD);
+      doc.text('TOTAL TTC :', W - 88, sy); doc.text(`${receipt.totalAmount.toFixed(2)} €`, W - 16, sy, { align: 'right' });
+
+      // Payment
+      sy += 10;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(100, 100, 100);
+      doc.text(`Paiement : ${receipt.paymentMethod || '—'}`, 14, sy);
+
+      const pdfBytes = doc.output('arraybuffer');
+      const filename = `facture-${receipt.ticketNumber}-${Date.now()}.pdf`;
+
+      // Upload to storage
+      const fd = new FormData();
+      fd.append('file', new Blob([pdfBytes], { type: 'application/pdf' }));
+      fd.append('filename', filename);
+      const upRes = await fetch('/api/devis-pro/upload', { method: 'POST', body: fd });
+      const upJson = await upRes.json();
+
+      if (!upRes.ok || !upJson.url) {
+        toast.error('Impossible d\'uploader la facture. Essayez à nouveau.');
+        return;
+      }
+
+      const phone = normalizePhone(clientPhone ?? '');
+      const msg = `Bonjour${receipt.clientName ? ` ${receipt.clientName}` : ''} 👋\n\nVoici votre facture *FAC-${receipt.ticketNumber}* du ${dateStr} — montant : *${receipt.totalAmount.toFixed(2)} €*\n\n📄 Télécharger la facture : ${upJson.url}\n\nMerci pour votre confiance 🌸\n— Le Monde de L'Esthétique`;
+      const waUrl = phone
+        ? `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`
+        : `https://wa.me/?text=${encodeURIComponent(msg)}`;
+      window.open(waUrl, '_blank');
+    } catch (err: any) {
+      toast.error(`Erreur : ${err.message}`);
+    } finally {
+      setSendingWA(false);
+    }
   };
 
   const handleSendEmail = async () => {
@@ -934,6 +1072,20 @@ function TicketDetailModal({ ticketId, fallbackTicket, onClose, onModified }: Ti
                   Créer facture
                 </button>
               </div>
+
+              {/* WhatsApp facture */}
+              <button
+                onClick={handleWhatsAppFacture}
+                disabled={sendingWA}
+                className="w-full flex items-center justify-center gap-2 py-2.5 border border-green-200 bg-green-50 rounded-xl text-sm font-500 text-green-700 hover:bg-green-100 transition-colors disabled:opacity-50"
+              >
+                {sendingWA ? (
+                  <Icon name="ArrowPathIcon" size={15} className="animate-spin" />
+                ) : (
+                  <svg viewBox="0 0 24 24" className="w-4 h-4 fill-green-600" xmlns="http://www.w3.org/2000/svg"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                )}
+                {sendingWA ? 'Génération…' : 'Envoyer facture par WhatsApp'}
+              </button>
 
               {/* Delivery button */}
               {receipt.status !== 'cancelled' && !hasDelivery && (

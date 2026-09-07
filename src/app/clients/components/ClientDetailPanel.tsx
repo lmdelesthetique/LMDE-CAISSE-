@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { normalizePhone } from '@/lib/utils/phoneUtils';
 import ProDevisPanel from './ProDevisPanel';
@@ -52,6 +52,7 @@ interface ClientDetailPanelProps {
   onClientUpdated: (c: Client) => void;
   onNotesUpdated: (notes: ClientInternalNote[]) => void;
   onSubscriptionUpdated: (sub: ClientSubscription | null) => void;
+  onDeleted?: () => void;
 }
 
 const TIER_CONFIG = {
@@ -154,8 +155,11 @@ export default function ClientDetailPanel({
   onClientUpdated,
   onNotesUpdated,
   onSubscriptionUpdated,
+  onDeleted,
 }: ClientDetailPanelProps) {
   const [tab, setTab] = useState<Tab>('overview');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [newNote, setNewNote] = useState('');
   const [savingNote, setSavingNote] = useState(false);
   const [showSubForm, setShowSubForm] = useState(false);
@@ -199,10 +203,20 @@ export default function ClientDetailPanel({
   const [loadingPro, setLoadingPro] = useState(false);
   const [savingPro, setSavingPro] = useState(false);
   const [proSaved, setProSaved] = useState(false);
-  const [proError, setProError] = useState('');
+  const [proLoaded, setProLoaded] = useState(false);
+  const [autoSaving, setAutoSaving] = useState(false);
+  const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const buildProPayload = useCallback((p: ProProfile) => ({
+    ...p,
+    nb_cabines: p.nb_cabines ? parseInt(p.nb_cabines) : null,
+    nb_clientes_semaine: p.nb_clientes_semaine ? parseInt(p.nb_clientes_semaine) : null,
+    nb_employes: p.nb_employes ? parseInt(p.nb_employes) : null,
+    budget_mensuel: p.budget_mensuel ? parseFloat(p.budget_mensuel) : null,
+  }), []);
 
   useEffect(() => {
-    if (tab !== 'pro') return;
+    if (tab !== 'pro' || proLoaded) return;
     setLoadingPro(true);
     fetch(`/api/clients/${client.id}/pro-profile`)
       .then((r) => r.json())
@@ -229,8 +243,29 @@ export default function ClientDetailPanel({
           });
         }
       })
-      .finally(() => setLoadingPro(false));
-  }, [tab, client.id]);
+      .finally(() => { setLoadingPro(false); setProLoaded(true); });
+  }, [tab, client.id, proLoaded]);
+
+  // Auto-save 1.5s after every change (only once data is loaded from DB)
+  useEffect(() => {
+    if (!proLoaded) return;
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = setTimeout(async () => {
+      setAutoSaving(true);
+      try {
+        await fetch(`/api/clients/${client.id}/pro-profile`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(buildProPayload(proProfile)),
+        });
+        setProSaved(true);
+        setTimeout(() => setProSaved(false), 2000);
+      } catch { /* silent */ } finally {
+        setAutoSaving(false);
+      }
+    }, 1500);
+    return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
+  }, [proProfile, proLoaded, client.id, buildProPayload]);
 
   useEffect(() => {
     if (tab === 'loyalty') {
@@ -287,30 +322,34 @@ export default function ClientDetailPanel({
 
   const handleSavePro = async () => {
     setSavingPro(true);
-    setProError('');
     try {
       const res = await fetch(`/api/clients/${client.id}/pro-profile`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...proProfile,
-          nb_cabines: proProfile.nb_cabines ? parseInt(proProfile.nb_cabines) : null,
-          nb_clientes_semaine: proProfile.nb_clientes_semaine ? parseInt(proProfile.nb_clientes_semaine) : null,
-          nb_employes: proProfile.nb_employes ? parseInt(proProfile.nb_employes) : null,
-          budget_mensuel: proProfile.budget_mensuel ? parseFloat(proProfile.budget_mensuel) : null,
-        }),
+        body: JSON.stringify(buildProPayload(proProfile)),
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        setProError(body.error ?? `Erreur ${res.status} — veuillez réessayer.`);
-        return;
-      }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error ?? 'Erreur serveur'); }
       setProSaved(true);
       setTimeout(() => setProSaved(false), 3000);
-    } catch {
-      setProError('Erreur réseau — veuillez réessayer.');
+    } catch (err: any) {
+      alert(`Erreur sauvegarde Fiche Pro : ${err.message}`);
     } finally {
       setSavingPro(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/clients/${client.id}`, { method: 'DELETE' });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error ?? 'Erreur serveur'); }
+      onClose();
+      onDeleted?.();
+    } catch (err: any) {
+      alert(`Erreur suppression : ${err.message}`);
+    } finally {
+      setDeleting(false);
+      setShowDeleteConfirm(false);
     }
   };
 
@@ -528,6 +567,9 @@ export default function ClientDetailPanel({
             <button onClick={onEdit} className="flex items-center gap-1.5 px-3 py-1.5 border border-border rounded-lg text-sm font-500 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
               <Icon name="PencilIcon" size={14} />
               Modifier
+            </button>
+            <button onClick={() => setShowDeleteConfirm(true)} className="p-1.5 rounded-lg hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors" title="Supprimer ce client">
+              <Icon name="TrashIcon" size={16} />
             </button>
             <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
               <Icon name="XMarkIcon" size={18} />
@@ -1603,22 +1645,24 @@ export default function ClientDetailPanel({
                   </div>
 
                   {/* Save */}
-                  {proError && (
-                    <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">
-                      <Icon name="ExclamationCircleIcon" size={16} className="text-red-500 shrink-0" />
-                      {proError}
-                    </div>
-                  )}
-                  <button onClick={handleSavePro} disabled={savingPro}
-                    className="w-full py-3 bg-primary text-primary-foreground rounded-xl text-sm font-700 hover:opacity-90 transition-opacity disabled:opacity-40 flex items-center justify-center gap-2">
-                    {savingPro ? (
-                      <><Icon name="ArrowPathIcon" size={14} className="animate-spin" />Enregistrement…</>
-                    ) : proSaved ? (
-                      <><Icon name="CheckIcon" size={14} />Fiche Pro enregistrée !</>
-                    ) : (
-                      <><Icon name="CheckIcon" size={14} />Enregistrer la Fiche Pro</>
+                  <div className="flex items-center gap-3">
+                    <button onClick={handleSavePro} disabled={savingPro || autoSaving}
+                      className="flex-1 py-3 bg-primary text-primary-foreground rounded-xl text-sm font-700 hover:opacity-90 transition-opacity disabled:opacity-40 flex items-center justify-center gap-2">
+                      {savingPro ? (
+                        <><Icon name="ArrowPathIcon" size={14} className="animate-spin" />Enregistrement…</>
+                      ) : proSaved ? (
+                        <><Icon name="CheckIcon" size={14} />Fiche Pro enregistrée !</>
+                      ) : (
+                        <><Icon name="CheckIcon" size={14} />Enregistrer la Fiche Pro</>
+                      )}
+                    </button>
+                    {autoSaving && (
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground shrink-0">
+                        <Icon name="ArrowPathIcon" size={12} className="animate-spin" />
+                        <span>Sauvegarde auto…</span>
+                      </div>
                     )}
-                  </button>
+                  </div>
                 </>
               )}
             </div>
@@ -1673,6 +1717,43 @@ export default function ClientDetailPanel({
           )}
         </div>
       </div>
+
+      {/* Delete confirmation modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => !deleting && setShowDeleteConfirm(false)} />
+          <div className="relative bg-white rounded-2xl shadow-modal w-full max-w-sm mx-4 p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+                <Icon name="TrashIcon" size={18} className="text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-sm font-700 text-foreground">Supprimer ce client ?</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">{client.fullName}</p>
+              </div>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Cette action est <strong>irréversible</strong>. La fiche client, la fiche pro et les notes seront supprimées définitivement. L&apos;historique des achats sera conservé.
+            </p>
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={deleting}
+                className="flex-1 py-2.5 border border-border rounded-xl text-sm font-500 text-foreground hover:bg-muted transition-colors disabled:opacity-40"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="flex-1 py-2.5 bg-red-600 text-white rounded-xl text-sm font-600 hover:bg-red-700 transition-colors disabled:opacity-40 flex items-center justify-center gap-2"
+              >
+                {deleting ? <><Icon name="ArrowPathIcon" size={14} className="animate-spin" />Suppression…</> : <><Icon name="TrashIcon" size={14} />Supprimer</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
