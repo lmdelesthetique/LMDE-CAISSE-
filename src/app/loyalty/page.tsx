@@ -611,6 +611,7 @@ export default function LoyaltyPage() {
   const [recalculating, setRecalculating] = useState(false);
   const [recalcPoints, setRecalcPoints] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
+  const [extendingTiers, setExtendingTiers] = useState(false);
   const [productCategoryFilter, setProductCategoryFilter] = useState<ProductCategoryFilter>('all');
 
   const handleSyncAll = async () => {
@@ -645,6 +646,25 @@ export default function LoyaltyPage() {
       toast.error(`Erreur : ${e?.message ?? 'Recalcul points impossible'}`);
     } finally {
       setRecalcPoints(false);
+    }
+  };
+
+  const handleExtendTiers = async () => {
+    setExtendingTiers(true);
+    try {
+      const res = await fetch('/api/loyalty/seed-extended-tiers', { method: 'POST' });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+      if (json.added === 0) {
+        toast.success('Tous les paliers étendus (14-20) sont déjà présents');
+      } else {
+        toast.success(`✓ ${json.added} palier(s) ajouté(s) — Paliers 14 à 20 (jusqu\'à 15 000 pts)`);
+        await loadData();
+      }
+    } catch (e: any) {
+      toast.error(`Erreur : ${e?.message ?? 'Impossible d\'étendre les paliers'}`);
+    } finally {
+      setExtendingTiers(false);
     }
   };
 
@@ -812,6 +832,13 @@ export default function LoyaltyPage() {
                   {syncingAll
                     ? <><Icon name="ArrowPathIcon" size={15} className="animate-spin" />Sync…</>
                     : <><Icon name="ArrowPathIcon" size={15} />Synchroniser clients</>
+                  }
+                </button>
+                <button onClick={handleExtendTiers} disabled={extendingTiers || syncingAll}
+                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-600 hover:opacity-90 transition-opacity disabled:opacity-40">
+                  {extendingTiers
+                    ? <><Icon name="ArrowPathIcon" size={15} className="animate-spin" />Extension…</>
+                    : <><Icon name="SparklesIcon" size={15} />Étendre paliers (14-20)</>
                   }
                 </button>
                 <button onClick={() => { setEditingTier(null); setShowTierForm(true); }}

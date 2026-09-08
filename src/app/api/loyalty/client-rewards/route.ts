@@ -24,22 +24,29 @@ export async function GET(req: NextRequest) {
     let tiers = tiersRes.data ?? [];
     const existing = existingRes.data ?? [];
 
-    // If no tiers exist at all, seed the default 13-tier programme
+    // If no tiers exist at all, seed the full 20-tier programme
     if (tiers.length === 0 && !tiersRes.error) {
       const defaultTiers = [
-        { name: 'Palier 1 — Bienvenue',       points_required: 100,  reward_type: 'discount',       reward_description: 'Réduction -5% sur votre prochain achat',            reward_value: 5,  sort_order: 1 },
-        { name: 'Palier 2 — Fidèle',          points_required: 200,  reward_type: 'free_product',   reward_description: 'Produit surprise offert',                           reward_value: 0,  sort_order: 2 },
-        { name: 'Palier 3 — Régulière',       points_required: 320,  reward_type: 'double_points',  reward_description: 'Points doublés sur votre prochain achat',           reward_value: 0,  sort_order: 3 },
-        { name: 'Palier 4 — Privilège',       points_required: 420,  reward_type: 'discount',       reward_description: 'Réduction -10% sur toute la boutique',             reward_value: 10, sort_order: 4 },
-        { name: 'Palier 5 — Or',              points_required: 500,  reward_type: 'free_product',   reward_description: 'Ancienne collection offerte au choix',              reward_value: 0,  sort_order: 5 },
-        { name: 'Palier 6 — Prestige',        points_required: 650,  reward_type: 'private_offer',  reward_description: 'Offre privée exclusive — accès avant tout le monde', reward_value: 0,  sort_order: 6 },
-        { name: 'Palier 7 — VIP',             points_required: 700,  reward_type: 'vip_access',     reward_description: 'Accès offre VIP — pack fidélité premium',           reward_value: 0,  sort_order: 7 },
-        { name: 'Palier 8 — Diamant',         points_required: 1000, reward_type: 'free_product',   reward_description: 'Cadeau surprise premium',                           reward_value: 0,  sort_order: 8 },
-        { name: 'Palier 9 — Elite',           points_required: 1050, reward_type: 'discount',       reward_description: 'Remise catégorie spéciale -15%',                   reward_value: 15, sort_order: 9 },
-        { name: 'Palier 10 — Légende',        points_required: 1500, reward_type: 'buy_one_get_one',reward_description: 'Offre 1 acheté = 1 offert sur sélection',           reward_value: 0,  sort_order: 10 },
-        { name: 'Palier 11 — Ambassadrice',   points_required: 2000, reward_type: 'free_shipping',  reward_description: 'Livraison offerte + pack fidélité exclusif',        reward_value: 0,  sort_order: 11 },
-        { name: 'Palier 12 — Icône',          points_required: 3000, reward_type: 'vip_access',     reward_description: 'Accès VIP illimité + remise permanente -20%',      reward_value: 20, sort_order: 12 },
-        { name: 'Palier 13 — Légende Ultime', points_required: 5000, reward_type: 'private_offer',  reward_description: 'Programme ambassadrice — avantages sur mesure',     reward_value: 0,  sort_order: 13 },
+        { name: 'Palier 1 — Bienvenue',       points_required: 100,  reward_type: 'discount',       reward_description: 'Réduction -5% sur votre prochain achat',                        reward_value: 5,  sort_order: 1 },
+        { name: 'Palier 2 — Fidèle',          points_required: 200,  reward_type: 'free_product',   reward_description: 'Produit surprise offert',                                       reward_value: 0,  sort_order: 2 },
+        { name: 'Palier 3 — Régulière',       points_required: 320,  reward_type: 'double_points',  reward_description: 'Points doublés sur votre prochain achat',                       reward_value: 0,  sort_order: 3 },
+        { name: 'Palier 4 — Privilège',       points_required: 420,  reward_type: 'discount',       reward_description: 'Réduction -10% sur toute la boutique',                         reward_value: 10, sort_order: 4 },
+        { name: 'Palier 5 — Or',              points_required: 500,  reward_type: 'free_product',   reward_description: 'Ancienne collection offerte au choix',                          reward_value: 0,  sort_order: 5 },
+        { name: 'Palier 6 — Prestige',        points_required: 650,  reward_type: 'private_offer',  reward_description: 'Offre privée exclusive — accès avant tout le monde',            reward_value: 0,  sort_order: 6 },
+        { name: 'Palier 7 — VIP',             points_required: 700,  reward_type: 'vip_access',     reward_description: 'Accès offre VIP — pack fidélité premium',                      reward_value: 0,  sort_order: 7 },
+        { name: 'Palier 8 — Diamant',         points_required: 1000, reward_type: 'free_product',   reward_description: 'Cadeau surprise premium',                                      reward_value: 0,  sort_order: 8 },
+        { name: 'Palier 9 — Elite',           points_required: 1050, reward_type: 'discount',       reward_description: 'Remise catégorie spéciale -15%',                               reward_value: 15, sort_order: 9 },
+        { name: 'Palier 10 — Légende',        points_required: 1500, reward_type: 'buy_one_get_one',reward_description: 'Offre 1 acheté = 1 offert sur sélection',                      reward_value: 0,  sort_order: 10 },
+        { name: 'Palier 11 — Ambassadrice',   points_required: 2000, reward_type: 'free_shipping',  reward_description: 'Livraison offerte + pack fidélité exclusif',                   reward_value: 0,  sort_order: 11 },
+        { name: 'Palier 12 — Icône',          points_required: 3000, reward_type: 'vip_access',     reward_description: 'Accès VIP illimité + remise permanente -20%',                 reward_value: 20, sort_order: 12 },
+        { name: 'Palier 13 — Légende Ultime', points_required: 5000, reward_type: 'private_offer',  reward_description: 'Programme ambassadrice — avantages sur mesure',                reward_value: 0,  sort_order: 13 },
+        { name: 'Palier 14 — Éclat Royal',    points_required: 6000, reward_type: 'discount',       reward_description: 'Remise permanente -25% sur toute la boutique',                 reward_value: 25, sort_order: 14 },
+        { name: 'Palier 15 — Diamant Noir',   points_required: 7000, reward_type: 'vip_access',     reward_description: 'Accès VIP illimité + pack exclusif ambassadrice',              reward_value: 0,  sort_order: 15 },
+        { name: 'Palier 16 — Éternelle',      points_required: 8000, reward_type: 'buy_one_get_one',reward_description: 'Offre 1 acheté = 1 offert — sélection premium',                reward_value: 0,  sort_order: 16 },
+        { name: 'Palier 17 — Mythique',       points_required: 9000, reward_type: 'free_product',   reward_description: 'Cadeau surprise ultra-premium au choix',                       reward_value: 0,  sort_order: 17 },
+        { name: 'Palier 18 — Transcendante',  points_required: 10000,reward_type: 'private_offer',  reward_description: 'Offre privée sur mesure — avantages ambassadrice',             reward_value: 0,  sort_order: 18 },
+        { name: 'Palier 19 — Suprême',        points_required: 12000,reward_type: 'discount',       reward_description: 'Remise -30% + livraison offerte permanente',                   reward_value: 30, sort_order: 19 },
+        { name: 'Palier 20 — LMDE Royale',    points_required: 15000,reward_type: 'private_offer',  reward_description: 'Programme ambassadrice Royale — avantages exclusifs sur mesure',reward_value: 0,  sort_order: 20 },
       ];
       const { data: seeded } = await supabase.from('loyalty_tiers').insert(defaultTiers).select('*');
       if (seeded && seeded.length > 0) tiers = seeded;
