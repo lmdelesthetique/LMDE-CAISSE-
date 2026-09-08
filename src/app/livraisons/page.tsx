@@ -11,6 +11,24 @@ import {
   DELIVERY_STATUS_CONFIG,
 } from '@/lib/services/deliveryService';
 
+async function imgToBase64Delivery(url: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { reject(new Error('no ctx')); return; }
+      ctx.drawImage(img, 0, 0);
+      resolve(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
 type DriverOption = { id: string; name: string; phone: string | null; driverStatus: string };
 
 function parseLivraisonAddress(addr: string): { address1: string; city: string; zip: string; country: string } {
@@ -62,6 +80,7 @@ export default function LivraisonsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
   const [assigningId, setAssigningId] = useState<string | null>(null);
+  const [printingId, setPrintingId] = useState<string | null>(null);
   const [newShopifyIds, setNewShopifyIds] = useState<Set<string>>(new Set());
   const [colissimoModalData, setColissimoModalData] = useState<ColissimoData | null>(null);
   const seenIdsRef = useRef<Set<string>>(new Set());
@@ -174,6 +193,170 @@ export default function LivraisonsPage() {
       });
       loadAll();
     } catch { /* ignore */ }
+  };
+
+  const printBonDeLivraison = async (delivery: Delivery) => {
+    setPrintingId(delivery.id);
+    try {
+      const jsPDFLib = (await import('jspdf')).default;
+      await import('jspdf-autotable');
+      const doc = new jsPDFLib({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const W = 210;
+      const GOLD: [number, number, number] = [184, 150, 12];
+
+      // Header
+      doc.setFillColor(...GOLD);
+      doc.rect(0, 0, W, 30, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(17);
+      doc.setFont('helvetica', 'bold');
+      doc.text('MONDE DE L\'ESTHÉTIQUE', 14, 13);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      doc.text('BON DE LIVRAISON', 14, 22);
+
+      if (delivery.shopifyOrderNumber) {
+        doc.setFontSize(15);
+        doc.setFont('helvetica', 'bold');
+        doc.text(delivery.shopifyOrderNumber, W - 14, 13, { align: 'right' });
+      }
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.text(
+        new Date(delivery.createdAt).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }),
+        W - 14, 22, { align: 'right' }
+      );
+
+      let y = 42;
+      doc.setTextColor(30, 30, 30);
+
+      // Client
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(120, 120, 120);
+      doc.text('CLIENT', 14, y);
+      y += 5;
+      doc.setTextColor(20, 20, 20);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.text(delivery.clientName, 14, y);
+      y += 5;
+      if (delivery.clientPhone) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.text(delivery.clientPhone, 14, y);
+        y += 5;
+      }
+
+      y += 4;
+
+      // Address
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(120, 120, 120);
+      doc.text('ADRESSE DE LIVRAISON', 14, y);
+      y += 5;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(20, 20, 20);
+      const addrLines = doc.splitTextToSize(delivery.deliveryAddress, 170);
+      doc.text(addrLines, 14, y);
+      y += addrLines.length * 4.5;
+
+      // Notes
+      if (delivery.deliveryNotes) {
+        y += 4;
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(120, 120, 120);
+        doc.text('NOTES', 14, y);
+        y += 5;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(20, 20, 20);
+        const noteLines = doc.splitTextToSize(delivery.deliveryNotes, 170);
+        doc.text(noteLines, 14, y);
+        y += noteLines.length * 4.5;
+      }
+
+      // Divider
+      y += 6;
+      doc.setDrawColor(...GOLD);
+      doc.setLineWidth(0.6);
+      doc.line(14, y, W - 14, y);
+      y += 8;
+
+      // Products heading
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(120, 120, 120);
+      doc.text('ARTICLES', 14, y);
+      y += 7;
+
+      const products = delivery.products ?? [];
+
+      if (products.length === 0) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(150, 150, 150);
+        doc.text('Aucun article détaillé', 14, y);
+        y += 8;
+      } else {
+        for (const p of products) {
+          const rowH = 24;
+          if (y + rowH > 278) { doc.addPage(); y = 14; }
+
+          let imgData: string | null = null;
+          if (p.imageUrl) {
+            try { imgData = await imgToBase64Delivery(p.imageUrl); } catch { /* skip */ }
+          }
+
+          if (imgData) {
+            doc.addImage(imgData, 'JPEG', 14, y, 20, 20);
+          } else {
+            doc.setFillColor(240, 240, 240);
+            doc.setDrawColor(210, 210, 210);
+            doc.rect(14, y, 20, 20, 'FD');
+            doc.setFontSize(6);
+            doc.setTextColor(180, 180, 180);
+            doc.text('IMG', 24, y + 11, { align: 'center' });
+          }
+
+          doc.setTextColor(20, 20, 20);
+          doc.setFontSize(9);
+          doc.setFont('helvetica', 'bold');
+          const nameLines = doc.splitTextToSize(p.name, 155);
+          doc.text(nameLines, 38, y + 7);
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(8);
+          doc.setTextColor(80, 80, 80);
+          doc.text(`Quantité : ${p.qty}`, 38, y + 7 + nameLines.length * 4.5);
+
+          // Separator between products
+          doc.setDrawColor(230, 230, 230);
+          doc.setLineWidth(0.2);
+          doc.line(14, y + rowH, W - 14, y + rowH);
+
+          y += rowH + 2;
+        }
+      }
+
+      // Footer
+      const footerY = 287;
+      doc.setFillColor(...GOLD);
+      doc.rect(0, footerY, W, 10, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'normal');
+      doc.text('MONDE DE L\'ESTHÉTIQUE — Martinique · Merci de votre confiance 💅', W / 2, footerY + 6, { align: 'center' });
+
+      const filename = `bon-livraison-${delivery.shopifyOrderNumber ?? delivery.id.slice(0, 8)}.pdf`;
+      doc.save(filename);
+    } catch (e: any) {
+      console.error('[printBonDeLivraison]', e?.message ?? e);
+    } finally {
+      setPrintingId(null);
+    }
   };
 
   const handleCreateSubmit = async (e: React.FormEvent) => {
@@ -512,6 +695,16 @@ export default function LivraisonsPage() {
                       {/* Actions */}
                       <td className="px-4 py-3">
                         <div className="flex flex-col gap-1.5 items-start">
+                          <button
+                            onClick={() => printBonDeLivraison(d)}
+                            disabled={printingId === d.id}
+                            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-3 py-2 rounded-lg font-bold text-sm transition-colors whitespace-nowrap"
+                          >
+                            {printingId === d.id
+                              ? <><svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>PDF…</>
+                              : <>🖨️ Bon de commande</>
+                            }
+                          </button>
                           {d.deliveryAddress && (
                             <button
                               onClick={() => { openColiship(); setColissimoModalData(deliveryToColissimoData(d.clientName, d.deliveryAddress, d.clientPhone)); }}
