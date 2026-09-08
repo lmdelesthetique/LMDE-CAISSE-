@@ -108,7 +108,7 @@ const DISCOUNT_OPTIONS = [
   { value: 'custom', label: 'Remise personnalisée', percent: 0 },
 ];
 
-type Tab = 'overview' | 'purchases' | 'loyalty' | 'subscription' | 'notes' | 'pro' | 'devis';
+type Tab = 'overview' | 'purchases' | 'loyalty' | 'subscription' | 'notes' | 'pro' | 'devis' | 'histoDevis';
 
 const STATUT_COMMERCIAL_CONFIG: Record<string, { label: string; color: string }> = {
   prospect:        { label: 'Prospect',       color: 'text-blue-700 bg-blue-50 border-blue-200' },
@@ -200,6 +200,7 @@ export default function ClientDetailPanel({
 
   // Fiche Pro
   const [proProfile, setProProfile] = useState<ProProfile>(EMPTY_PRO);
+  const [devisHistory, setDevisHistory] = useState<any[]>([]);
   const [loadingPro, setLoadingPro] = useState(false);
   const [savingPro, setSavingPro] = useState(false);
   const [proSaved, setProSaved] = useState(false);
@@ -216,7 +217,7 @@ export default function ClientDetailPanel({
   }), []);
 
   useEffect(() => {
-    if (tab !== 'pro' || proLoaded) return;
+    if ((tab !== 'pro' && tab !== 'histoDevis') || proLoaded) return;
     setLoadingPro(true);
     fetch(`/api/clients/${client.id}/pro-profile`)
       .then((r) => r.json())
@@ -241,6 +242,7 @@ export default function ClientDetailPanel({
             statut_commercial: profile.statut_commercial ?? 'prospect',
             prochain_suivi: profile.prochain_suivi ?? '',
           });
+          setDevisHistory(profile.devis_history ?? []);
         }
       })
       .finally(() => { setLoadingPro(false); setProLoaded(true); });
@@ -370,6 +372,7 @@ export default function ClientDetailPanel({
     { id: 'notes', label: `Notes (${notes.length})`, icon: 'ChatBubbleLeftEllipsisIcon' },
     ...(client.clientType === 'professionnel' ? [{ id: 'pro' as Tab, label: 'Fiche Pro', icon: 'BriefcaseIcon' }] : []),
     ...(client.clientType === 'professionnel' ? [{ id: 'devis' as Tab, label: 'Devis PRO', icon: 'DocumentTextIcon' }] : []),
+    ...(client.clientType === 'professionnel' ? [{ id: 'histoDevis' as Tab, label: `Historique${devisHistory.length > 0 ? ` (${devisHistory.length})` : ''}`, icon: 'ClockIcon' }] : []),
   ];
 
   const handleAddNote = async () => {
@@ -1670,7 +1673,123 @@ export default function ClientDetailPanel({
 
           {/* ── DEVIS PRO ── */}
           {tab === 'devis' && (
-            <ProDevisPanel client={client} />
+            <ProDevisPanel client={client} onHistoryChanged={(h) => setDevisHistory(h)} />
+          )}
+
+          {/* ── HISTORIQUE DEVIS ── */}
+          {tab === 'histoDevis' && (
+            <div className="p-6 space-y-4">
+              {loadingPro ? (
+                <div className="flex items-center justify-center py-12">
+                  <Icon name="ArrowPathIcon" size={22} className="animate-spin text-muted-foreground" />
+                </div>
+              ) : devisHistory.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-center">
+                  <span className="text-5xl mb-4">📋</span>
+                  <p className="text-base font-600 text-foreground">Aucun devis archivé</p>
+                  <p className="text-sm text-muted-foreground mt-1">Les devis archivés depuis l&apos;onglet Devis PRO apparaîtront ici.</p>
+                  <button
+                    onClick={() => setTab('devis' as Tab)}
+                    className="mt-4 flex items-center gap-2 px-4 py-2 bg-[#B8960C] text-white rounded-xl text-sm font-700 hover:bg-[#8B7009] transition-colors"
+                  >
+                    <Icon name="DocumentTextIcon" size={14} />
+                    Aller au Devis PRO
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="bg-[#FDF8E7] border border-[#B8960C]/20 rounded-xl p-3 text-center">
+                      <p className="text-2xl font-800 text-[#B8960C] tabular-nums">{devisHistory.length}</p>
+                      <p className="text-[11px] text-[#8B7009]">Devis archivés</p>
+                    </div>
+                    <div className="bg-[#FDF8E7] border border-[#B8960C]/20 rounded-xl p-3 text-center">
+                      <p className="text-2xl font-800 text-[#B8960C] tabular-nums">
+                        {devisHistory.reduce((s: number, d: any) => s + Number(d.clientPays ?? 0), 0).toFixed(0)} €
+                      </p>
+                      <p className="text-[11px] text-[#8B7009]">Total payé</p>
+                    </div>
+                    <div className="bg-pink-50 border border-pink-200 rounded-xl p-3 text-center">
+                      <p className="text-2xl font-800 text-pink-600 tabular-nums">
+                        {devisHistory.reduce((s: number, d: any) => s + Number(d.totalValue ?? d.clientPays ?? 0), 0).toFixed(0)} €
+                      </p>
+                      <p className="text-[11px] text-pink-700">Val. totale reçue</p>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    {devisHistory.map((d: any, i: number) => {
+                      const baseIt = (d.items ?? []).filter((it: any) => !it.isBonus);
+                      const bonusIt = (d.items ?? []).filter((it: any) => it.isBonus);
+                      const discPct = d.discountPct ?? d.discount ?? 0;
+                      const pays = Number(d.clientPays ?? 0);
+                      const totalVal = Number(d.totalValue ?? pays);
+                      const savings = totalVal - pays;
+                      return (
+                        <div key={i} className="bg-white border border-border rounded-xl overflow-hidden">
+                          <div className="bg-[#FDF8E7] px-4 py-3 flex items-center justify-between border-b border-[#B8960C]/15">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-700 text-[#8B7009]">
+                                {d.date ? new Date(d.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }) : `Devis #${devisHistory.length - i}`}
+                              </span>
+                              {discPct > 0 && <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-700">-{discPct}%</span>}
+                              {d.freeShipping && <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-700">🚚 livraison offerte</span>}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {savings > 0 && <span className="text-[10px] text-pink-600 font-700">+{savings.toFixed(0)} € offerts</span>}
+                              <span className="text-sm font-800 text-[#B8960C] tabular-nums">{pays.toFixed(2)} €</span>
+                            </div>
+                          </div>
+                          <div className="px-4 py-3 space-y-2">
+                            {baseIt.length > 0 && (
+                              <div>
+                                <p className="text-[10px] font-700 uppercase tracking-wide text-muted-foreground mb-1.5">Commande principale</p>
+                                <div className="space-y-1">
+                                  {baseIt.map((it: any, j: number) => (
+                                    <div key={j} className="flex items-center justify-between text-xs">
+                                      <span className="flex items-center gap-1.5 text-foreground min-w-0">
+                                        {it.imageUrl && <img src={it.imageUrl} alt="" className="w-6 h-6 rounded object-cover shrink-0 border border-border" />}
+                                        <span className="truncate">{it.qty > 1 ? `${it.qty}× ` : ''}{it.name}</span>
+                                      </span>
+                                      <span className="tabular-nums text-muted-foreground shrink-0 ml-2">{((it.sellPrice ?? it.price ?? 0) * (it.qty ?? 1)).toFixed(2)} €</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {bonusIt.length > 0 && (
+                              <div>
+                                <p className="text-[10px] font-700 uppercase tracking-wide text-pink-600 mb-1.5">Produits offerts (Budget Pro)</p>
+                                <div className="space-y-1">
+                                  {bonusIt.map((it: any, j: number) => (
+                                    <div key={j} className="flex items-center justify-between text-xs">
+                                      <span className="flex items-center gap-1.5 text-pink-700 min-w-0">
+                                        {it.imageUrl && <img src={it.imageUrl} alt="" className="w-6 h-6 rounded object-cover shrink-0 border border-pink-200" />}
+                                        <span className="truncate">✨ {it.qty > 1 ? `${it.qty}× ` : ''}{it.name}</span>
+                                      </span>
+                                      <span className="tabular-nums text-pink-500 shrink-0 ml-2 font-600">OFFERT</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                          <div className="border-t border-border px-4 py-2.5 flex items-center justify-between">
+                            <span className="text-[11px] text-muted-foreground">
+                              {baseIt.length} produit(s){bonusIt.length > 0 ? ` · ${bonusIt.length} offert(s)` : ''}
+                              {totalVal > pays ? ` · valeur totale ${totalVal.toFixed(2)} €` : ''}
+                            </span>
+                            <button onClick={() => setTab('devis' as Tab)} className="text-[11px] font-700 text-[#B8960C] hover:text-[#8B7009] flex items-center gap-1">
+                              <Icon name="DocumentTextIcon" size={11} />
+                              Ouvrir Devis PRO
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
           )}
 
           {/* ── NOTES ── */}
