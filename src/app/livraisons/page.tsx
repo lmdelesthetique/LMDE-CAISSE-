@@ -202,96 +202,118 @@ export default function LivraisonsPage() {
       await import('jspdf-autotable');
       const doc = new jsPDFLib({ orientation: 'portrait', unit: 'mm', format: 'a4' });
       const W = 210;
+      const H = 297;
+      const M = 10; // margin
       const GOLD: [number, number, number] = [184, 150, 12];
+      const DARK: [number, number, number] = [15, 15, 15];
 
-      // Header
+      // ── TOP HEADER BAND ──────────────────────────────────────────────────────
       doc.setFillColor(...GOLD);
-      doc.rect(0, 0, W, 30, 'F');
+      doc.rect(0, 0, W, 22, 'F');
       doc.setTextColor(255, 255, 255);
-      doc.setFontSize(17);
+      doc.setFontSize(11);
       doc.setFont('helvetica', 'bold');
-      doc.text('MONDE DE L\'ESTHÉTIQUE', 14, 13);
-      doc.setFontSize(9);
-      doc.setFont('helvetica', 'normal');
-      doc.text('BON DE LIVRAISON', 14, 22);
-
-      if (delivery.shopifyOrderNumber) {
-        doc.setFontSize(15);
-        doc.setFont('helvetica', 'bold');
-        doc.text(delivery.shopifyOrderNumber, W - 14, 13, { align: 'right' });
-      }
+      doc.text('MONDE DE L\'ESTHÉTIQUE', M, 9);
       doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.text('BON D\'EXPÉDITION', M, 16);
+
+      // Order # + date top-right
+      const orderRef = delivery.shopifyOrderNumber ?? `#${delivery.id.slice(0, 8)}`;
+      doc.setFontSize(16);
+      doc.setFont('helvetica', 'bold');
+      doc.text(orderRef, W - M, 11, { align: 'right' });
+      doc.setFontSize(7);
       doc.setFont('helvetica', 'normal');
       doc.text(
         new Date(delivery.createdAt).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }),
-        W - 14, 22, { align: 'right' }
+        W - M, 18, { align: 'right' }
       );
 
-      let y = 42;
-      doc.setTextColor(30, 30, 30);
+      // ── DESTINATAIRE BOX (full-width, tall) ──────────────────────────────────
+      const boxY = 26;
+      const boxH = 110;
+      doc.setFillColor(250, 250, 250);
+      doc.setDrawColor(220, 220, 220);
+      doc.setLineWidth(0.4);
+      doc.rect(M, boxY, W - M * 2, boxH, 'FD');
 
-      // Client
-      doc.setFontSize(8);
+      // "DESTINATAIRE" label
+      doc.setFillColor(...GOLD);
+      doc.rect(M, boxY, 52, 7, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(7.5);
       doc.setFont('helvetica', 'bold');
-      doc.setTextColor(120, 120, 120);
-      doc.text('CLIENT', 14, y);
-      y += 5;
-      doc.setTextColor(20, 20, 20);
+      doc.text('DESTINATAIRE', M + 3, boxY + 5);
+
+      let ty = boxY + 16;
+
+      // Client name — VERY LARGE
+      doc.setTextColor(...DARK);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.text(delivery.clientName, 14, y);
-      y += 5;
+      doc.setFontSize(32);
+      const nameStr = delivery.clientName.toUpperCase();
+      const nameLines = doc.splitTextToSize(nameStr, W - M * 2 - 8);
+      doc.text(nameLines, M + 4, ty);
+      ty += nameLines.length * 13 + 4;
+
+      // Phone — large
       if (delivery.clientPhone) {
+        doc.setFontSize(16);
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(9);
-        doc.text(delivery.clientPhone, 14, y);
-        y += 5;
+        doc.setTextColor(80, 80, 80);
+        doc.text(delivery.clientPhone, M + 4, ty);
+        ty += 10;
       }
 
-      y += 4;
+      // Separator inside box
+      doc.setDrawColor(200, 200, 200);
+      doc.setLineWidth(0.3);
+      doc.line(M + 4, ty, W - M - 4, ty);
+      ty += 8;
 
-      // Address
-      doc.setFontSize(8);
+      // Address — VERY LARGE
       doc.setFont('helvetica', 'bold');
-      doc.setTextColor(120, 120, 120);
-      doc.text('ADRESSE DE LIVRAISON', 14, y);
-      y += 5;
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
-      doc.setTextColor(20, 20, 20);
-      const addrLines = doc.splitTextToSize(delivery.deliveryAddress, 170);
-      doc.text(addrLines, 14, y);
-      y += addrLines.length * 4.5;
+      doc.setFontSize(22);
+      doc.setTextColor(...DARK);
+      const addrLines = doc.splitTextToSize(delivery.deliveryAddress.toUpperCase(), W - M * 2 - 8);
+      doc.text(addrLines, M + 4, ty);
 
-      // Notes
+      // ── NOTES BAND ──────────────────────────────────────────────────────────
+      let y = boxY + boxH + 6;
+
       if (delivery.deliveryNotes) {
-        y += 4;
-        doc.setFontSize(8);
+        doc.setFillColor(255, 251, 235);
+        doc.setDrawColor(251, 191, 36);
+        doc.setLineWidth(0.4);
+        doc.rect(M, y, W - M * 2, 14, 'FD');
+        doc.setFontSize(7);
         doc.setFont('helvetica', 'bold');
-        doc.setTextColor(120, 120, 120);
-        doc.text('NOTES', 14, y);
-        y += 5;
+        doc.setTextColor(146, 64, 14);
+        doc.text('NOTES :', M + 3, y + 5.5);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(9);
-        doc.setTextColor(20, 20, 20);
-        const noteLines = doc.splitTextToSize(delivery.deliveryNotes, 170);
-        doc.text(noteLines, 14, y);
-        y += noteLines.length * 4.5;
+        doc.setTextColor(30, 30, 30);
+        const noteLines = doc.splitTextToSize(delivery.deliveryNotes, W - M * 2 - 30);
+        doc.text(noteLines, M + 22, y + 5.5);
+        y += 18;
       }
 
-      // Divider
-      y += 6;
-      doc.setDrawColor(...GOLD);
-      doc.setLineWidth(0.6);
-      doc.line(14, y, W - 14, y);
-      y += 8;
-
-      // Products heading
+      // ── ARTICLES SECTION ────────────────────────────────────────────────────
+      y += 4;
+      // Section header
+      doc.setFillColor(245, 245, 245);
+      doc.setDrawColor(220, 220, 220);
+      doc.setLineWidth(0.3);
+      doc.rect(M, y, W - M * 2, 8, 'FD');
       doc.setFontSize(8);
       doc.setFont('helvetica', 'bold');
-      doc.setTextColor(120, 120, 120);
-      doc.text('ARTICLES', 14, y);
-      y += 7;
+      doc.setTextColor(80, 80, 80);
+      doc.text('ARTICLES', M + 4, y + 5.5);
+      const nbArticles = (delivery.products ?? []).length;
+      doc.setFont('helvetica', 'normal');
+      doc.text(`${nbArticles} article${nbArticles !== 1 ? 's' : ''}`, W - M - 4, y + 5.5, { align: 'right' });
+      y += 12;
 
       const products = delivery.products ?? [];
 
@@ -299,12 +321,12 @@ export default function LivraisonsPage() {
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(9);
         doc.setTextColor(150, 150, 150);
-        doc.text('Aucun article détaillé', 14, y);
-        y += 8;
+        doc.text('Aucun article détaillé', M + 4, y);
       } else {
         for (const p of products) {
-          const rowH = 24;
-          if (y + rowH > 278) { doc.addPage(); y = 14; }
+          const imgSize = 28;
+          const rowH = imgSize + 6;
+          if (y + rowH > H - 20) { doc.addPage(); y = 14; }
 
           let imgData: string | null = null;
           if (p.imageUrl) {
@@ -312,45 +334,48 @@ export default function LivraisonsPage() {
           }
 
           if (imgData) {
-            doc.addImage(imgData, 'JPEG', 14, y, 20, 20);
+            doc.addImage(imgData, 'JPEG', M, y, imgSize, imgSize);
           } else {
-            doc.setFillColor(240, 240, 240);
+            doc.setFillColor(238, 238, 238);
             doc.setDrawColor(210, 210, 210);
-            doc.rect(14, y, 20, 20, 'FD');
-            doc.setFontSize(6);
+            doc.rect(M, y, imgSize, imgSize, 'FD');
+            doc.setFontSize(7);
             doc.setTextColor(180, 180, 180);
-            doc.text('IMG', 24, y + 11, { align: 'center' });
+            doc.text('IMG', M + imgSize / 2, y + imgSize / 2 + 1, { align: 'center' });
           }
 
-          doc.setTextColor(20, 20, 20);
-          doc.setFontSize(9);
+          // Product name — large enough to read clearly
+          doc.setTextColor(...DARK);
           doc.setFont('helvetica', 'bold');
-          const nameLines = doc.splitTextToSize(p.name, 155);
-          doc.text(nameLines, 38, y + 7);
+          doc.setFontSize(13);
+          const nameW = W - M * 2 - imgSize - 6;
+          const pNameLines = doc.splitTextToSize(p.name, nameW);
+          doc.text(pNameLines, M + imgSize + 5, y + 9);
+
+          // Qty badge
           doc.setFont('helvetica', 'normal');
-          doc.setFontSize(8);
-          doc.setTextColor(80, 80, 80);
-          doc.text(`Quantité : ${p.qty}`, 38, y + 7 + nameLines.length * 4.5);
+          doc.setFontSize(11);
+          doc.setTextColor(100, 100, 100);
+          doc.text(`QTÉ : ${p.qty}`, M + imgSize + 5, y + 9 + pNameLines.length * 6);
 
-          // Separator between products
-          doc.setDrawColor(230, 230, 230);
+          // Row separator
+          doc.setDrawColor(235, 235, 235);
           doc.setLineWidth(0.2);
-          doc.line(14, y + rowH, W - 14, y + rowH);
+          doc.line(M, y + rowH, W - M, y + rowH);
 
-          y += rowH + 2;
+          y += rowH + 4;
         }
       }
 
-      // Footer
-      const footerY = 287;
+      // ── FOOTER ──────────────────────────────────────────────────────────────
       doc.setFillColor(...GOLD);
-      doc.rect(0, footerY, W, 10, 'F');
+      doc.rect(0, H - 10, W, 10, 'F');
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(7);
       doc.setFont('helvetica', 'normal');
-      doc.text('MONDE DE L\'ESTHÉTIQUE — Martinique · Merci de votre confiance 💅', W / 2, footerY + 6, { align: 'center' });
+      doc.text('MONDE DE L\'ESTHÉTIQUE — Martinique · lmdecaisse.com', W / 2, H - 4, { align: 'center' });
 
-      const filename = `bon-livraison-${delivery.shopifyOrderNumber ?? delivery.id.slice(0, 8)}.pdf`;
+      const filename = `bon-expedition-${orderRef.replace('#', '')}.pdf`;
       doc.save(filename);
     } catch (e: any) {
       console.error('[printBonDeLivraison]', e?.message ?? e);
