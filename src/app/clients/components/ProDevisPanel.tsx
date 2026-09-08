@@ -524,7 +524,7 @@ function ItemList({ items, onQtyChange, onRemove, variant = 'gold' }: {
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export default function ProDevisPanel({ client }: { client: Client }) {
+export default function ProDevisPanel({ client, onHistoryChanged }: { client: Client; onHistoryChanged?: (history: any[]) => void }) {
   const [items, setItems] = useState<ReassortItem[]>([]);
   const [devisHistory, setDevisHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -639,6 +639,7 @@ export default function ProDevisPanel({ client }: { client: Client }) {
         body: JSON.stringify({ produits_reassort: [], devis_history: newHistory }),
       });
       setDevisHistory(newHistory);
+      onHistoryChanged?.(newHistory);
       setItems([]);
       setDiscountPct(0);
       setShowArchiveConfirm(false);
@@ -661,13 +662,44 @@ export default function ProDevisPanel({ client }: { client: Client }) {
 
       const baseLines = baseItems.map((i) => `• ${i.name}${i.ref ? ` (${i.ref})` : ''} × ${i.qty} — ${(i.sellPrice * i.qty).toFixed(2)} €`).join('\n');
       const bonusLines = bonusItems.length > 0
-        ? `\n\n✨ *Produits Budget Pro (offerts) :*\n${bonusItems.map((i) => `• ${i.name} × ${i.qty} — ${(i.sellPrice * i.qty).toFixed(2)} €`).join('\n')}`
+        ? `\n\n✨ *Produits offerts (Budget Pro) :*\n${bonusItems.map((i) => `• ${i.name} × ${i.qty} — ${(i.sellPrice * i.qty).toFixed(2)} €`).join('\n')}`
         : '';
-      const discLine = discountPct > 0 ? `\nOffre commerciale : -${discountPct}% (-${discountAmount.toFixed(2)} €)` : '';
-      const shippingLine = freeShipping ? '\n🚚 Livraison offerte ✓' : '';
+      const discLine = discountPct > 0 ? `\n🏷️ Remise commerciale : -${discountPct}% (-${discountAmount.toFixed(2)} €)` : '';
+      const shippingLine = freeShipping ? '\n🚚 Livraison offerte ✅' : '';
       const creditLine = credit > 0 ? `\n✨ Bonus Budget Pro : +${credit} € en produits offerts` : '';
-      const pdfLine = pdfUrl ? `\n\n📄 *Ton devis PDF :*\n${pdfUrl}` : '';
-      const msg = `Coucou ${client.firstName} 🌸\n\nJe te prépare ton réassort du mois.\n\n📦 *Ta commande :*\n${baseLines}${discLine}${shippingLine}${creditLine}${bonusLines}\n\n*Tu paies : ${clientPays.toFixed(2)} €*${bonusItems.length > 0 ? `\n*Valeur totale emportée : ${totalValue.toFixed(2)} €*` : ''}${pdfLine}\n\n${credit > 0 ? '⚠️ _Bonus Budget Pro valable uniquement sur ce devis · non cumulable · non reportable._\n\n' : ''}Tu veux repartir sur la même chose ou modifier quelque chose ? 😊`;
+      const pdfLine = pdfUrl ? `\n\n📄 *Ton devis complet en PDF :*\n${pdfUrl}` : '';
+      const avantageLines = [
+        `• Tu es *prioritaire sur le stock* — tes produits sont réservés chaque mois avant tout le monde 🔒`,
+        `• Ton réassort est *préparé automatiquement* — plus rien à gérer de ton côté 🙌`,
+        freeShipping ? `• *Livraison offerte* 🚚✅` : null,
+        `• *Livraison avant la date de ton choix* 📅`,
+        credit > 0 ? `• *+${credit} € de produits offerts* grâce au Bonus Budget Pro ✨` : null,
+      ].filter(Boolean).join('\n');
+      const msg = [
+        `Coucou ${client.firstName} 🌸`,
+        ``,
+        `Voici ton *devis mensuel LMDE PRO* ✨`,
+        ``,
+        `Ce devis est établi sur la base de tes dépenses habituelles du mois. Tu n'es pas obligée de prendre exactement les mêmes produits — on s'adapte ensemble selon tes besoins. L'essentiel : c'est *100% automatique*, tu n'as plus rien à gérer.`,
+        ``,
+        `🎯 *Tes avantages en tant que pro LMDE :*`,
+        avantageLines,
+        ``,
+        `📦 *Ta commande :*`,
+        baseLines,
+        discLine || null,
+        shippingLine || null,
+        creditLine || null,
+        bonusLines || null,
+        ``,
+        `*💳 Tu paies : ${clientPays.toFixed(2)} €*`,
+        bonusItems.length > 0 ? `*🎁 Valeur totale emportée : ${totalValue.toFixed(2)} €*` : null,
+        pdfLine || null,
+        ``,
+        credit > 0 ? `⚠️ _Bonus Budget Pro valable uniquement sur ce devis · non cumulable · non reportable._` : null,
+        ``,
+        `Tu valides cette commande ou tu veux ajuster quelque chose ? 😊`,
+      ].filter((v) => v !== null).join('\n');
       window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
     } finally { setSendingWhatsApp(false); }
   };
