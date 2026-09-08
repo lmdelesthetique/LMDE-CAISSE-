@@ -75,14 +75,41 @@ export async function POST(
       .map((item: any) => ({
         productId: item.productId || item.product_id,
         qty: Number(item.qty || item.quantity) || 1,
+        isKit: Boolean(item.isKit),
+        kitComponents: Array.isArray(item.kitComponents) ? item.kitComponents : [],
       }));
 
     for (const item of stockItems) {
       try {
-        await supabase.rpc('deduct_stock_on_reservation', {
-          p_product_id: item.productId,
-          p_qty: item.qty,
-        });
+        // For kit items: deduct each component's stock, not the kit product
+        if (item.isKit || item.kitComponents.length > 0) {
+          let components: Array<{ componentId?: string; component_id?: string; quantity: number }> = item.kitComponents;
+
+          // If stored components are empty, fetch live from DB
+          if (components.length === 0) {
+            const { data: kitRows } = await supabase
+              .from('product_kits')
+              .select('component_id, quantity')
+              .eq('product_id', item.productId);
+            components = (kitRows ?? []) as any[];
+          }
+
+          for (const comp of components) {
+            const compId = (comp as any).componentId ?? (comp as any).component_id;
+            const compQty = Number((comp as any).quantity ?? 1) * item.qty;
+            if (compId) {
+              await supabase.rpc('deduct_stock_on_reservation', {
+                p_product_id: compId,
+                p_qty: compQty,
+              });
+            }
+          }
+        } else {
+          await supabase.rpc('deduct_stock_on_reservation', {
+            p_product_id: item.productId,
+            p_qty: item.qty,
+          });
+        }
       } catch { /* non-blocking */ }
     }
   }

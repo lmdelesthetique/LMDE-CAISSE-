@@ -26,7 +26,42 @@ export default async function ReservationPublicPage({ params }: { params: Promis
   const { data, error } = await supabase.from('reservations').select('*').eq('id', id).maybeSingle();
   if (error || !data) notFound();
 
-  const items: Array<Record<string, unknown>> = Array.isArray(data.items) ? data.items : [];
+  const rawItems: Array<Record<string, unknown>> = Array.isArray(data.items) ? data.items : [];
+
+  // Refresh kit components live from product_kits for any item with a productId
+  const items: Array<Record<string, unknown>> = await Promise.all(
+    rawItems.map(async (item) => {
+      const productId = (item.productId as string) || null;
+      if (!productId) return item;
+
+      const { data: kitRows } = await supabase
+        .from('product_kits')
+        .select('component_id, quantity')
+        .eq('product_id', productId);
+
+      if (!kitRows || kitRows.length === 0) return item;
+
+      const componentIds = kitRows.map((r: any) => r.component_id);
+      const { data: products } = await supabase
+        .from('products')
+        .select('id, name, ref, image_url')
+        .in('id', componentIds);
+
+      const productMap = new Map((products ?? []).map((p: any) => [p.id, p]));
+      const freshComponents = kitRows.map((row: any) => {
+        const prod = productMap.get(row.component_id) as any;
+        return {
+          componentId: row.component_id,
+          quantity: row.quantity,
+          name: prod?.name ?? '',
+          ref: prod?.ref ?? '',
+          imageUrl: prod?.image_url ?? null,
+        };
+      });
+
+      return { ...item, isKit: true, kitComponents: freshComponents };
+    })
+  );
   const totalAmount = Number(data.total_amount) || 0;
   const depositPaid = Number(data.deposit_paid) || 0;
   const balanceDue = Number(data.balance_due) || 0;

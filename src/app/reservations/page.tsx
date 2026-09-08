@@ -951,7 +951,16 @@ export default function ReservationsPage() {
         const msgAvailable = `Bonjour ${firstName},\n\nVotre colis est arrivé et disponible en ${country} à l'adresse suivante :\n${relayAddress}.\n\nPour récupérer votre colis, appelez le : ${relayPhone}\n\nMerci pour votre confiance ! 🌸\n— Le Monde de l'Esthétique`;
         const siteUrl = typeof window !== 'undefined' ? window.location.origin : process.env.NEXT_PUBLIC_SITE_URL || 'https://lmdecaisse.com';
         const ticketLink = `${siteUrl}/reservation/${res.id}`;
-        const itemsList = res.items.map((it) => `• ${it.name} ×${it.qty}`).join('\n');
+        const itemsList = res.items.map((it: any) => {
+          let line = `• ${it.name} ×${it.qty}`;
+          if (Array.isArray(it.kitComponents) && it.kitComponents.length > 0) {
+            const compLines = it.kitComponents
+              .map((c: any) => `   ‣ ${c.name} ×${(Number(c.quantity) || 1) * it.qty}`)
+              .join('\n');
+            line += '\n' + compLines;
+          }
+          return line;
+        }).join('\n');
         const msgTicket = `Bonjour ${firstName} 🌸\n\nVoici votre ticket de réservation n° *${res.reservationNumber}* :\n\n${itemsList}\n\n💰 Total : *${res.totalAmount.toFixed(2)} €*\n✅ Acompte versé : ${res.depositPaid.toFixed(2)} €\n💳 Solde à régler : *${res.balanceDue.toFixed(2)} €*\n\n📸 Voir votre ticket avec les photos :\n${ticketLink}\n\nMerci de votre confiance ! 💕\n— Le Monde de l'Esthétique`;
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
