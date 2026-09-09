@@ -615,7 +615,7 @@ export default function ProDevisPanel({ client, onHistoryChanged }: { client: Cl
   const saveReassort = async () => {
     setSaving(true);
     try {
-      await fetch(`/api/clients/${client.id}/pro-profile`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ produits_reassort: items }) });
+      await fetch(`/api/clients/${client.id}/pro-profile`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ produits_reassort: items }) });
       setSavedOk(true); setTimeout(() => setSavedOk(false), 3000);
     } finally { setSaving(false); }
   };
@@ -634,7 +634,7 @@ export default function ProDevisPanel({ client, onHistoryChanged }: { client: Cl
       };
       const newHistory = [entry, ...devisHistory];
       await fetch(`/api/clients/${client.id}/pro-profile`, {
-        method: 'PUT',
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ produits_reassort: [], devis_history: newHistory }),
       });

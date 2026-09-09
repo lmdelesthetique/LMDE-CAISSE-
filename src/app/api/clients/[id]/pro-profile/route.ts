@@ -59,3 +59,40 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ profile: data });
 }
+
+// PATCH: partial update — only updates the fields explicitly provided in the body
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  let body: any;
+  try { body = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
+
+  const supabase = createAdminClient();
+
+  const ALLOWED: Record<string, true> = {
+    produits_reassort: true, devis_history: true,
+    salon_name: true, prestation_types: true, nb_cabines: true,
+    nb_clientes_semaine: true, nb_employes: true, budget_mensuel: true,
+    fournisseur_principal: true, frequence_commande: true, mode_commande: true,
+    marques_utilisees: true, produits_consommables: true, produits_recherches: true,
+    problemes_fournisseurs: true, formule_box_proposee: true, date_premier_contact: true,
+    statut_commercial: true, prochain_suivi: true, main_activity: true,
+    work_location: true, activity_level: true, produits_utilises: true,
+    fournisseur_actuel: true, budget_tranche: true, frequence_achat: true,
+    besoin_principal: true,
+  };
+
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  for (const [k, v] of Object.entries(body)) {
+    if (ALLOWED[k]) patch[k] = v;
+  }
+
+  // Upsert so it works even if no profile row exists yet
+  const { data, error } = await supabase
+    .from('client_pro_profiles')
+    .upsert({ client_id: id, ...patch }, { onConflict: 'client_id' })
+    .select()
+    .single();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ profile: data });
+}
