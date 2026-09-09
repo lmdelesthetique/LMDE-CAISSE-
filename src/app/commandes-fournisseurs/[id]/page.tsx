@@ -207,6 +207,7 @@ export default function OrderDetailPage() {
   const [damagedQtys, setDamagedQtys] = useState<Record<string, number>>({});
   const [stockUpdateBanner, setStockUpdateBanner] = useState<string | null>(null);
   const [updatingStock, setUpdatingStock] = useState(false);
+  const [unmatchedLines, setUnmatchedLines] = useState<Array<{ lineId: string; productRef: string; productName: string; qty: number }>>([]);
 
   // Invoice real prices (entered by employee from received PDF)
   const [realPrices, setRealPrices] = useState<Record<string, string>>({});
@@ -423,6 +424,20 @@ export default function OrderDetailPage() {
     if (tab === 'messaging' && unreadMsgCount > 0) setUnreadMsgCount(0);
   }, [tab, unreadMsgCount]);
 
+  // Detect lines with no product_id (unmatched) to surface the warning on page load
+  useEffect(() => {
+    if (!order?.lines) return;
+    const unmatched = order.lines
+      .filter((l: any) => !l.productId && (l.qtyReceived ?? 0) < l.qtyOrdered)
+      .map((l: any) => ({
+        lineId: l.id,
+        productRef: l.productRef || '',
+        productName: l.productName || l.productRef || '',
+        qty: l.qtyOrdered,
+      }));
+    setUnmatchedLines(unmatched);
+  }, [order?.lines]);
+
   // Auto-backfill product images silently on first load (fixes supplier portal too)
   useEffect(() => {
     if (backfilledImages || !id || loading) return;
@@ -447,9 +462,14 @@ export default function OrderDetailPage() {
         setStockUpdateBanner('⚠️ Stock déjà mis à jour pour cette commande (cliquer "Forcer re-sync" si besoin)');
       } else if (json.ok) {
         const notMatched = json.notMatched ?? 0;
-        const warning = notMatched > 0 ? ` · ⚠️ ${notMatched} produit${notMatched > 1 ? 's' : ''} non trouvé${notMatched > 1 ? 's' : ''} (vérifier les refs)` : '';
+        if (Array.isArray(json.unmatchedLines) && json.unmatchedLines.length > 0) {
+          setUnmatchedLines(json.unmatchedLines);
+        } else if (notMatched === 0) {
+          setUnmatchedLines([]);
+        }
         const partial = isPartial && !json.fullyReceived ? ' · Réception partielle — vous pouvez continuer à réceptionner' : '';
-        setStockUpdateBanner(`✅ ${json.updated} produit${json.updated !== 1 ? 's' : ''} intégré${json.updated !== 1 ? 's' : ''} au stock${warning}${partial}`);
+        const okMsg = json.updated > 0 ? `✅ ${json.updated} produit${json.updated !== 1 ? 's' : ''} intégré${json.updated !== 1 ? 's' : ''} au stock${partial}` : '';
+        setStockUpdateBanner(okMsg || null);
         load();
         // Non-blocking Shopify sync
         fetch('/api/shopify/sync-stock', {
@@ -471,7 +491,11 @@ export default function OrderDetailPage() {
   const handleForceRestock = async () => {
     if (!order) return;
     const qtys: Record<string, number> = {};
-    (order.lines || []).forEach(l => { qtys[l.id] = l.qtyOrdered; });
+    // Send only the REMAINING delta (not yet received) to prevent double-counting
+    (order.lines || []).forEach((l: any) => {
+      const remaining = Math.max(0, l.qtyOrdered - (l.qtyReceived ?? 0));
+      qtys[l.id] = remaining; // 0 for already-received lines → skipped by route
+    });
     await updateStockForReception(qtys, true);
   };
 
@@ -2743,6 +2767,44 @@ export default function OrderDetailPage() {
                       </div>
                     </div>
                   ))}
+                  {/* Persistent unmatched lines warning — always visible until fixed */}
+                  {unmatchedLines.length > 0 && (
+                    <div className="bg-red-50 border border-red-300 rounded-xl p-4 space-y-2">
+                      <div className="flex items-center gap-2 text-red-700">
+                        <Icon name="ExclamationTriangleIcon" size={16} className="shrink-0" />
+                        <p className="text-sm font-700">{unmatchedLines.length} produit{unmatchedLines.length > 1 ? 's' : ''} non intégré{unmatchedLines.length > 1 ? 's' : ''} au stock — product_id manquant</p>
+                      </div>
+                      <p className="text-xs text-red-600">Ces produits n'ont pas été trouvés dans la base. Ouvrez la fiche produit pour corriger la référence, puis cliquez "Forcer re-sync".</p>
+                      <div className="space-y-1.5 mt-2">
+                        {unmatchedLines.map((ul) => (
+                          <div key={ul.lineId} className="flex items-center justify-between gap-3 bg-white rounded-lg px-3 py-2 border border-red-200">
+                            <div className="min-w-0">
+                              <p className="text-xs font-600 text-foreground truncate">{ul.productName || '(sans nom)'}</p>
+                              <p className="text-[11px] text-red-500 font-mono">{ul.productRef || '—'} · {ul.qty} unité{ul.qty > 1 ? 's' : ''} non intégré{ul.qty > 1 ? 'es' : 'e'}</p>
+                            </div>
+                            <a
+                              href={`/product-management?search=${encodeURIComponent(ul.productRef || ul.productName)}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-red-600 text-white rounded-lg text-[11px] font-600 hover:bg-red-700 transition-colors shrink-0"
+                            >
+                              <Icon name="PencilIcon" size={11} />
+                              Modifier produit
+                            </a>
+                          </div>
+                        ))}
+                      </div>
+                      <button
+                        onClick={handleForceRestock}
+                        disabled={updatingStock}
+                        className="mt-1 flex items-center gap-2 px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-600 hover:bg-red-700 transition-colors disabled:opacity-40"
+                      >
+                        {updatingStock ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Icon name="ArrowPathIcon" size={13} />}
+                        Réessayer l'intégration (après correction)
+                      </button>
+                    </div>
+                  )}
+
                   {/* Persistent stock-updated badge */}
                   {order.stockUpdated ? (
                     <div className="flex items-center gap-3 px-4 py-3 bg-emerald-50 border border-emerald-300 rounded-xl text-emerald-800">
@@ -2760,7 +2822,7 @@ export default function OrderDetailPage() {
                         <button
                           onClick={handleForceRestock}
                           disabled={updatingStock}
-                          title="Forcer la re-intégration du stock (si le stock n'a pas été mis à jour correctement)"
+                          title="Forcer la re-intégration (uniquement pour les lignes non encore reçues)"
                           className="text-[11px] font-500 text-orange-600 hover:text-orange-800 underline underline-offset-2 disabled:opacity-40"
                         >
                           {updatingStock ? '...' : 'Forcer re-sync'}
@@ -2778,8 +2840,8 @@ export default function OrderDetailPage() {
                   <div className="flex flex-wrap gap-3">
                     <button
                       onClick={handleFullReception}
-                      disabled={updatingStock || order.stockUpdated}
-                      title={order.stockUpdated ? 'Stock déjà mis à jour pour cette commande' : undefined}
+                      disabled={updatingStock || (order.stockUpdated && unmatchedLines.length === 0)}
+                      title={order.stockUpdated && unmatchedLines.length === 0 ? 'Stock déjà mis à jour pour cette commande' : undefined}
                       className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-500 hover:bg-emerald-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       {updatingStock ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Icon name="CheckCircleIcon" size={15} />}
@@ -2787,8 +2849,8 @@ export default function OrderDetailPage() {
                     </button>
                     <button
                       onClick={handlePartialReception}
-                      disabled={updatingStock || order.stockUpdated}
-                      title={order.stockUpdated ? 'Stock déjà mis à jour pour cette commande' : undefined}
+                      disabled={updatingStock || (order.stockUpdated && unmatchedLines.length === 0)}
+                      title={order.stockUpdated && unmatchedLines.length === 0 ? 'Stock déjà mis à jour pour cette commande' : undefined}
                       className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-lg text-sm font-500 hover:bg-amber-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       {updatingStock ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Icon name="ExclamationCircleIcon" size={15} />}

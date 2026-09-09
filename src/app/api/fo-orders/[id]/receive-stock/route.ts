@@ -36,7 +36,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const { data: lines } = await supabase
     .from('fo_order_lines')
-    .select('id, product_id, product_ref, qty_ordered, qty_received, unit_price, confirmed_unit_price, color')
+    .select('id, product_id, product_ref, product_name, qty_ordered, qty_received, unit_price, confirmed_unit_price, color')
     .eq('order_id', id);
 
   if (!lines?.length) return NextResponse.json({ error: 'No lines found' }, { status: 400 });
@@ -49,6 +49,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   let totalReceived = 0;
   let totalOrdered = 0;
   const now = new Date().toISOString();
+  const unmatchedLines: Array<{ lineId: string; productRef: string; productName: string; qty: number }> = [];
 
   for (const line of lines) {
     totalOrdered += Number(line.qty_ordered || 0);
@@ -91,6 +92,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     if (!productId) {
+      unmatchedLines.push({
+        lineId: line.id,
+        productRef: line.product_ref || '',
+        productName: line.product_name || line.product_ref || '',
+        qty: Number(line.qty_ordered || 0),
+      });
       totalReceived += prevQtyReceived;
       continue;
     }
@@ -154,11 +161,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     updated++;
   }
 
-  // Lock stock_updated only when all lines are fully received (not for partial)
   const fullyReceived = totalReceived >= totalOrdered;
+  const notMatched = unmatchedLines.length;
+  // Only lock as stock_integrated when ALL lines were matched — otherwise keep open for retry
   if (updated > 0) {
     const orderUpdate: any = { updated_at: now };
-    if (!isPartial || fullyReceived) {
+    if (notMatched === 0 && (!isPartial || fullyReceived)) {
       orderUpdate.stock_updated = true;
       orderUpdate.stock_updated_at = now;
       orderUpdate.order_status = 'stock_integrated';
@@ -166,5 +174,5 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     await supabase.from('fo_orders').update(orderUpdate).eq('id', id);
   }
 
-  return NextResponse.json({ ok: true, updated, notMatched: lines.length - updated, fullyReceived });
+  return NextResponse.json({ ok: true, updated, notMatched, unmatchedLines, fullyReceived });
 }

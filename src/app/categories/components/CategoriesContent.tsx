@@ -8,6 +8,8 @@ import { Category, CategoryFormData, fetchCategories, createCategory, updateCate
 import { categoryStore } from '@/lib/stores/dataStore';
 import { createClient } from '@/lib/supabase/client';
 import { fetchAll } from '@/lib/utils/fetchAll';
+import ProductFormModal from '@/app/product-management/components/ProductFormModal';
+import { type ProductRecord, type ColorVariant } from '@/app/product-management/components/mockProducts';
 
 const supabase = createClient();
 
@@ -424,6 +426,33 @@ interface CategoryDetailPanelProps {
   onCategoryUpdated: () => void;
 }
 
+function mapDbProduct(r: any): ProductRecord {
+  const purchasePriceSupplier = Number(r.purchase_price_supplier) || 0;
+  const buyPrice = Number(r.buy_price) || 0;
+  const transport = Number(r.transport) || 0;
+  const customs = Number(r.customs) || 0;
+  const otherFees = Number(r.other_fees) || 0;
+  const structurePct = Number(r.structure_pct) || 0;
+  const baseCost = buyPrice + transport + customs + otherFees;
+  const costPrice = purchasePriceSupplier > 0 && Math.abs(buyPrice - purchasePriceSupplier) > 0.001
+    ? buyPrice : baseCost + baseCost * (structurePct / 100);
+  const sellPriceHT = Number(r.sell_price_ht) || Number(r.sell_price_ttc) / 1.085 || 0;
+  const sellPriceTTC = Number(r.sell_price_ttc) || sellPriceHT * 1.085;
+  return {
+    id: r.id, ref: r.ref || '', barcode: r.barcode || r.ref || '',
+    name: r.name || '', category: r.category || '', supplier: r.supplier || '',
+    supplierId: r.supplier_id || undefined, purchasePriceSupplier, buyPrice,
+    transport, customs, otherFees, structurePct, costPrice, sellPriceHT, sellPriceTTC,
+    marginAmount: sellPriceHT - costPrice,
+    marginPct: sellPriceHT > 0 ? ((sellPriceHT - costPrice) / sellPriceHT) * 100 : 0,
+    stock: Number(r.stock) || 0, minStock: Number(r.min_stock) || 5,
+    status: r.status || r.product_status || 'active',
+    shopify: Boolean(r.shopify), variants: Boolean(r.has_color_variants),
+    imageUrl: r.image_url || undefined, isKit: Boolean(r.is_kit),
+    isFavorite: Boolean(r.is_favorite), description: r.description || '',
+  };
+}
+
 function CategoryDetailPanel({ category, allCategories, onBack, onCategoryUpdated }: CategoryDetailPanelProps) {
   const [products, setProducts] = useState<CategoryProduct[]>([]);
   const [loading, setLoading] = useState(true);
@@ -435,6 +464,9 @@ function CategoryDetailPanel({ category, allCategories, onBack, onCategoryUpdate
   // Multi-select state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showRemoveMultiple, setShowRemoveMultiple] = useState(false);
+  // Product edit state
+  const [editProduct, setEditProduct] = useState<ProductRecord | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
 
@@ -454,6 +486,65 @@ function CategoryDetailPanel({ category, allCategories, onBack, onCategoryUpdate
   }, [category.name]);
 
   useEffect(() => { loadProducts(); }, [loadProducts]);
+
+  const openProductEdit = async (product: CategoryProduct) => {
+    const { data: p } = await supabase.from('products').select('*').eq('id', product.id).maybeSingle();
+    if (!p) return;
+    const { data: variantRows } = await supabase
+      .from('product_color_stock').select('id, color_name, color_hex, quantity, min_stock')
+      .eq('product_id', product.id).order('created_at', { ascending: true });
+    const colorVariants: ColorVariant[] = (variantRows || []).map((v: any) => ({
+      id: v.id, colorName: v.color_name || '', colorHex: v.color_hex || '#000000',
+      quantity: Number(v.quantity) || 0, minStock: Number(v.min_stock) || 0,
+    }));
+    setEditProduct({ ...mapDbProduct(p), colorVariants: colorVariants.length > 0 ? colorVariants : undefined });
+    setShowEditModal(true);
+  };
+
+  const handleSaveProduct = async (data: any, imageUrl?: string, colorVariants?: ColorVariant[]) => {
+    if (!editProduct) return;
+    const tvaRate = Number(data.tva || 8.5);
+    const sellPriceHT = Number(data.sellPriceHT) || 0;
+    const newStock = Number(data.quantityAvailable) || 0;
+    const prevStock = editProduct.stock || 0;
+    let computedStatus = data.status || 'active';
+    if (computedStatus !== 'inactive' && computedStatus !== 'coming_soon' && computedStatus !== 'archived') {
+      computedStatus = newStock === 0 ? 'rupture' : 'active';
+    }
+    const payload: any = {
+      name: data.name, ref: data.ref || null, barcode: data.barcode || null,
+      category: data.category, supplier: data.supplier || null,
+      supplier_id: data.supplierId || null, buy_price: Number(data.buyPrice) || 0,
+      transport: Number(data.transport) || 0, customs: Number(data.customs) || 0,
+      other_fees: Number(data.otherFees) || 0, structure_pct: Number(data.structurePct) || 0,
+      sell_price_ht: sellPriceHT, sell_price_ttc: Math.round(sellPriceHT * (1 + tvaRate / 100) * 100) / 100,
+      min_stock: Number(data.minStock) || 5, stock: newStock,
+      status: computedStatus, product_status: computedStatus, shopify: Boolean(data.shopify),
+      image_url: (imageUrl && !imageUrl.startsWith('data:')) ? imageUrl : null,
+      description: data.description || null, updated_at: new Date().toISOString(),
+    };
+    const stockMovement = newStock !== prevStock ? {
+      product_id: editProduct.id, product_name: data.name,
+      movement_type: newStock > prevStock ? 'entry' : 'adjustment',
+      quantity_before: prevStock, quantity_after: newStock,
+      quantity_change: newStock - prevStock,
+      reason: 'Modification fiche produit (depuis Catégories)',
+      source: 'product_edit', performed_by: 'Admin',
+    } : undefined;
+    const res = await fetch(`/api/products/${editProduct.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...payload, colorVariants, stockMovement }),
+    });
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({}));
+      showToast(`Erreur: ${json.error ?? res.status}`);
+      return;
+    }
+    showToast(`"${data.name}" mis à jour`);
+    setShowEditModal(false);
+    setEditProduct(null);
+    loadProducts();
+  };
 
   const handleRemove = async (product: CategoryProduct) => {
     setRemovingId(product.id);
@@ -651,6 +742,13 @@ function CategoryDetailPanel({ category, allCategories, onBack, onCategoryUpdate
                         <td className="px-4 py-3">
                           <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button
+                              onClick={() => openProductEdit(product)}
+                              title="Modifier la fiche produit"
+                              className="p-1.5 rounded-lg hover:bg-violet-50 text-muted-foreground hover:text-violet-600 transition-colors"
+                            >
+                              <Icon name="PencilIcon" size={14} />
+                            </button>
+                            <button
                               onClick={() => setMoveProduct(product)}
                               title="Déplacer vers une autre catégorie"
                               className="p-1.5 rounded-lg hover:bg-blue-50 text-muted-foreground hover:text-blue-600 transition-colors"
@@ -701,6 +799,14 @@ function CategoryDetailPanel({ category, allCategories, onBack, onCategoryUpdate
           categoryName={category.name}
           onClose={() => setShowRemoveMultiple(false)}
           onRemoved={() => { loadProducts(); onCategoryUpdated(); showToast(`${selectedProductsList.length} produit(s) retiré(s) de la catégorie`); }}
+        />
+      )}
+
+      {showEditModal && editProduct && (
+        <ProductFormModal
+          product={editProduct}
+          onClose={() => { setShowEditModal(false); setEditProduct(null); }}
+          onSave={handleSaveProduct}
         />
       )}
     </div>
