@@ -27,6 +27,59 @@ interface SearchProduct {
   stock: number;
 }
 
+// ── Devis templates ────────────────────────────────────────────────────────────
+
+export interface DevisTemplate {
+  id: string;
+  name: string;
+  emoji: string;
+  color: string;
+  discountPct: number;
+  items: Array<{
+    productId: string;
+    productRef: string;
+    productName: string;
+    sellPrice: number;
+    qty: number;
+    isBonus: boolean;
+  }>;
+}
+
+const TEMPLATE_LS_KEY = 'beautypos_devis_pro_templates';
+
+function loadTemplates(): DevisTemplate[] {
+  try {
+    if (typeof window === 'undefined') return [];
+    const raw = localStorage.getItem(TEMPLATE_LS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
+function persistTemplates(tpls: DevisTemplate[]): void {
+  try { localStorage.setItem(TEMPLATE_LS_KEY, JSON.stringify(tpls)); } catch { /* ignore */ }
+}
+
+const TEMPLATE_COLOR_OPTIONS = [
+  { value: '#B8960C', bg: '#FDF8E7', text: '#8B7009' },
+  { value: '#EC4899', bg: '#FDF2F8', text: '#9D174D' },
+  { value: '#7C3AED', bg: '#F5F3FF', text: '#5B21B6' },
+  { value: '#059669', bg: '#ECFDF5', text: '#065F46' },
+  { value: '#2563EB', bg: '#EFF6FF', text: '#1E40AF' },
+  { value: '#D97706', bg: '#FFFBEB', text: '#92400E' },
+  { value: '#DC2626', bg: '#FEF2F2', text: '#991B1B' },
+  { value: '#0891B2', bg: '#ECFEFF', text: '#164E63' },
+];
+
+const TEMPLATE_EMOJIS = ['💅', '👁️', '🦶', '✨', '🌸', '💎', '🎁', '🖌️', '🌿', '💋', '🔬', '💼', '🪮', '🧴', '💆', '🧖', '🌺', '⭐'];
+
+const DEFAULT_TEMPLATES: DevisTemplate[] = [
+  { id: 'tpl-onglerie', name: 'Onglerie', emoji: '💅', color: '#EC4899', discountPct: 0, items: [] },
+  { id: 'tpl-extension-cils', name: 'Extension Cils', emoji: '👁️', color: '#7C3AED', discountPct: 0, items: [] },
+  { id: 'tpl-pedicure', name: 'Pédicure', emoji: '🦶', color: '#059669', discountPct: 0, items: [] },
+  { id: 'tpl-gel-builder', name: 'Gel Builder', emoji: '🖌️', color: '#2563EB', discountPct: 0, items: [] },
+  { id: 'tpl-decouverte', name: 'Pack Découverte', emoji: '🎁', color: '#B8960C', discountPct: 5, items: [] },
+];
+
 // ── Brand colors ───────────────────────────────────────────────────────────────
 const GOLD  = [184, 150, 12]  as [number, number, number];
 const PINK  = [236, 72, 153]  as [number, number, number];
@@ -530,6 +583,17 @@ export default function ProDevisPanel({ client, onHistoryChanged }: { client: Cl
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedOk, setSavedOk] = useState(false);
+
+  // Templates
+  const [templates, setTemplates] = useState<DevisTemplate[]>([]);
+  const [showTemplateEditor, setShowTemplateEditor] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<DevisTemplate | null>(null);
+  const [applyingTemplateId, setApplyingTemplateId] = useState<string | null>(null);
+  const [tplName, setTplName] = useState('');
+  const [tplEmoji, setTplEmoji] = useState('💅');
+  const [tplColor, setTplColor] = useState('#B8960C');
+  const [tplDiscountPct, setTplDiscountPct] = useState(0);
+  const [tplItems, setTplItems] = useState<DevisTemplate['items']>([]);
   const [archiving, setArchiving] = useState(false);
   const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
   const [showCustomBase, setShowCustomBase] = useState(false);
@@ -553,15 +617,41 @@ export default function ProDevisPanel({ client, onHistoryChanged }: { client: Cl
     fetch(`/api/clients/${client.id}/pro-profile`)
       .then((r) => r.json())
       .then(({ profile }) => {
-        if (profile?.produits_reassort && Array.isArray(profile.produits_reassort)) {
-          setItems(profile.produits_reassort.map((i: any) => ({ isBonus: false, ...i })));
-        }
-        if (profile?.devis_history && Array.isArray(profile.devis_history)) {
-          setDevisHistory(profile.devis_history);
+        // Prefer Supabase data if migration has been run, else fall back to localStorage
+        const lsKey = `beautypos_devis_${client.id}`;
+        const lsRaw = typeof window !== 'undefined' ? localStorage.getItem(lsKey) : null;
+        const lsData = lsRaw ? JSON.parse(lsRaw) : null;
+
+        const reassort = profile?.produits_reassort ?? lsData?.produits_reassort ?? null;
+        const history = profile?.devis_history ?? lsData?.devis_history ?? null;
+
+        if (Array.isArray(reassort)) setItems(reassort.map((i: any) => ({ isBonus: false, ...i })));
+        if (Array.isArray(history)) setDevisHistory(history);
+      })
+      .catch(() => {
+        // If Supabase fetch fails, load from localStorage
+        const lsKey = `beautypos_devis_${client.id}`;
+        const lsRaw = typeof window !== 'undefined' ? localStorage.getItem(lsKey) : null;
+        if (lsRaw) {
+          const lsData = JSON.parse(lsRaw);
+          if (Array.isArray(lsData.produits_reassort)) setItems(lsData.produits_reassort.map((i: any) => ({ isBonus: false, ...i })));
+          if (Array.isArray(lsData.devis_history)) setDevisHistory(lsData.devis_history);
         }
       })
       .finally(() => setLoading(false));
   }, [client.id]);
+
+  // Load templates from localStorage (once, client-side only)
+  useEffect(() => {
+    const stored = loadTemplates();
+    // First-time: pre-populate with default starter templates
+    if (stored.length === 0) {
+      persistTemplates(DEFAULT_TEMPLATES);
+      setTemplates(DEFAULT_TEMPLATES);
+    } else {
+      setTemplates(stored);
+    }
+  }, []);
 
   // ── Derived state ──────────────────────────────────────────────────────────
   const baseItems = items.filter((i) => !i.isBonus);
@@ -612,10 +702,25 @@ export default function ProDevisPanel({ client, onHistoryChanged }: { client: Cl
   const removeItem = (id: string, isBonus: boolean) =>
     setItems((prev) => prev.filter((i) => !(i.id === id && i.isBonus === isBonus)));
 
+  const [migrationNeeded, setMigrationNeeded] = useState(false);
+
+  const lsDevisKey = `beautypos_devis_${client.id}`;
+
+  const persistDevisLocally = (newItems: ReassortItem[], newHistory: any[]) => {
+    try {
+      localStorage.setItem(lsDevisKey, JSON.stringify({ produits_reassort: newItems, devis_history: newHistory }));
+    } catch { /* ignore */ }
+  };
+
   const saveReassort = async () => {
     setSaving(true);
     try {
-      await fetch(`/api/clients/${client.id}/pro-profile`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ produits_reassort: items }) });
+      // Always save to localStorage first (reliable)
+      persistDevisLocally(items, devisHistory);
+      // Try Supabase (fails gracefully if columns missing)
+      const res = await fetch(`/api/clients/${client.id}/pro-profile`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ produits_reassort: items }) });
+      const json = await res.json().catch(() => ({}));
+      if (json.migrationNeeded) setMigrationNeeded(true);
       setSavedOk(true); setTimeout(() => setSavedOk(false), 3000);
     } finally { setSaving(false); }
   };
@@ -633,17 +738,128 @@ export default function ProDevisPanel({ client, onHistoryChanged }: { client: Cl
         freeShipping,
       };
       const newHistory = [entry, ...devisHistory];
+      // Always save to localStorage first
+      persistDevisLocally([], newHistory);
+      // Try Supabase
       await fetch(`/api/clients/${client.id}/pro-profile`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ produits_reassort: [], devis_history: newHistory }),
-      });
+      }).catch(() => { /* graceful failure */ });
       setDevisHistory(newHistory);
       onHistoryChanged?.(newHistory);
       setItems([]);
       setDiscountPct(0);
       setShowArchiveConfirm(false);
     } finally { setArchiving(false); }
+  };
+
+  // ── Template handlers ──────────────────────────────────────────────────────
+
+  const handleApplyTemplate = async (template: DevisTemplate) => {
+    if (template.items.length === 0) {
+      import('sonner').then(({ toast }) => toast.info(`Le modèle "${template.name}" est vide — cliquez Modifier pour ajouter des produits`));
+      return;
+    }
+    setApplyingTemplateId(template.id);
+    try {
+      const productIds = [...new Set(template.items.filter((i) => i.productId).map((i) => i.productId))];
+      const priceMap: Record<string, { price: number; imageUrl: string | null }> = {};
+      if (productIds.length > 0) {
+        const res = await fetch(`/api/products/batch?ids=${productIds.join(',')}`);
+        if (res.ok) {
+          const data = await res.json();
+          (data.products ?? []).forEach((p: any) => {
+            priceMap[p.id] = { price: Number(p.sell_price_ttc) || 0, imageUrl: p.image_url ?? null };
+          });
+        }
+      }
+      const newItems: ReassortItem[] = template.items.map((ti) => ({
+        id: ti.productId || `tpl-${Date.now()}-${Math.random()}`,
+        name: ti.productName,
+        ref: ti.productRef,
+        imageUrl: priceMap[ti.productId]?.imageUrl ?? null,
+        sellPrice: priceMap[ti.productId]?.price ?? ti.sellPrice,
+        qty: ti.qty,
+        isCustom: !ti.productId,
+        isBonus: ti.isBonus,
+      }));
+      setItems(newItems);
+      if (template.discountPct > 0) setDiscountPct(template.discountPct);
+      const { toast } = await import('sonner');
+      toast.success(`Modèle "${template.name}" appliqué — ${newItems.length} produit(s) chargé(s)`);
+    } finally {
+      setApplyingTemplateId(null);
+    }
+  };
+
+  const openNewTemplate = () => {
+    setEditingTemplate(null);
+    setTplName('');
+    setTplEmoji('💅');
+    setTplColor('#B8960C');
+    setTplDiscountPct(0);
+    setTplItems([]);
+    setShowTemplateEditor(true);
+  };
+
+  const openEditTemplate = (t: DevisTemplate) => {
+    setEditingTemplate(t);
+    setTplName(t.name);
+    setTplEmoji(t.emoji);
+    setTplColor(t.color);
+    setTplDiscountPct(t.discountPct);
+    setTplItems([...t.items]);
+    setShowTemplateEditor(true);
+  };
+
+  const handleSaveTemplate = () => {
+    if (!tplName.trim()) return;
+    if (editingTemplate) {
+      const updated = templates.map((t) =>
+        t.id === editingTemplate.id
+          ? { ...t, name: tplName.trim(), emoji: tplEmoji, color: tplColor, discountPct: tplDiscountPct, items: tplItems }
+          : t
+      );
+      persistTemplates(updated);
+      setTemplates(updated);
+    } else {
+      const newTpl: DevisTemplate = {
+        id: `tpl-${Date.now()}`,
+        name: tplName.trim(),
+        emoji: tplEmoji,
+        color: tplColor,
+        discountPct: tplDiscountPct,
+        items: tplItems,
+      };
+      const updated = [...templates, newTpl];
+      persistTemplates(updated);
+      setTemplates(updated);
+    }
+    setShowTemplateEditor(false);
+  };
+
+  const handleDeleteTemplate = (id: string) => {
+    const updated = templates.filter((t) => t.id !== id);
+    persistTemplates(updated);
+    setTemplates(updated);
+    if (editingTemplate?.id === id) setShowTemplateEditor(false);
+  };
+
+  const addProductToTemplate = (p: SearchProduct) => {
+    setTplItems((prev) => {
+      const ex = prev.find((i) => i.productId === p.id && !i.isBonus);
+      if (ex) return prev.map((i) => (i.productId === p.id && !i.isBonus ? { ...i, qty: i.qty + 1 } : i));
+      return [...prev, { productId: p.id, productRef: p.ref, productName: p.name, sellPrice: p.sellPrice, qty: 1, isBonus: false }];
+    });
+  };
+
+  const addBonusProductToTemplate = (p: SearchProduct) => {
+    setTplItems((prev) => {
+      const ex = prev.find((i) => i.productId === p.id && i.isBonus);
+      if (ex) return prev.map((i) => (i.productId === p.id && i.isBonus ? { ...i, qty: i.qty + 1 } : i));
+      return [...prev, { productId: p.id, productRef: p.ref, productName: p.name, sellPrice: p.sellPrice, qty: 1, isBonus: true }];
+    });
   };
 
   const handleWhatsApp = async () => {
@@ -739,6 +955,227 @@ export default function ProDevisPanel({ client, onHistoryChanged }: { client: Cl
 
   return (
     <div className="p-6 space-y-6">
+
+      {/* ══ MIGRATION BANNER ═══════════════════════════════════════════════════ */}
+      {migrationNeeded && (
+        <div className="bg-red-50 border border-red-300 rounded-xl p-4">
+          <div className="flex items-start gap-3">
+            <span className="text-lg shrink-0">⚠️</span>
+            <div className="flex-1">
+              <p className="text-sm font-700 text-red-800">Migration base de données requise</p>
+              <p className="text-xs text-red-600 mt-1">Les colonnes <code className="bg-red-100 px-1 rounded">produits_reassort</code> et <code className="bg-red-100 px-1 rounded">devis_history</code> sont manquantes dans la table.</p>
+              <p className="text-xs text-red-600 mt-1">Allez dans <strong>Supabase → SQL Editor</strong> et exécutez :</p>
+              <pre className="mt-2 bg-red-900 text-red-100 text-[10px] p-2 rounded-lg overflow-x-auto leading-relaxed">{`ALTER TABLE public.client_pro_profiles
+  ADD COLUMN IF NOT EXISTS produits_reassort jsonb DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS devis_history     jsonb DEFAULT '[]'::jsonb;`}</pre>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ MODÈLES DE DEVIS ═══════════════════════════════════════════════════ */}
+      <div>
+        <div className="flex items-center justify-between gap-3 mb-2.5">
+          <p className="text-[11px] font-700 uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+            <Icon name="BookmarkIcon" size={12} />Modèles de devis
+          </p>
+          <button
+            onClick={openNewTemplate}
+            className="flex items-center gap-1 text-xs font-600 text-[#B8960C] hover:text-[#8B7009] transition-colors"
+          >
+            <Icon name="PlusIcon" size={12} />Nouveau
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {templates.map((t) => {
+            const colorOpt = TEMPLATE_COLOR_OPTIONS.find((c) => c.value === t.color) ?? TEMPLATE_COLOR_OPTIONS[0];
+            const isApplying = applyingTemplateId === t.id;
+            return (
+              <div key={t.id} className="flex items-center rounded-xl overflow-hidden border" style={{ borderColor: t.color + '40' }}>
+                <button
+                  onClick={() => handleApplyTemplate(t)}
+                  disabled={isApplying}
+                  className="flex items-center gap-1.5 px-3 py-2 text-xs font-700 transition-colors hover:opacity-80 disabled:opacity-60"
+                  style={{ background: colorOpt.bg, color: colorOpt.text }}
+                  title={t.items.length === 0 ? 'Modèle vide — cliquez Modifier pour configurer' : `Appliquer "${t.name}" (${t.items.length} produit${t.items.length > 1 ? 's' : ''})`}
+                >
+                  {isApplying
+                    ? <Icon name="ArrowPathIcon" size={12} className="animate-spin" />
+                    : <span className="text-sm leading-none">{t.emoji}</span>}
+                  {t.name}
+                  {t.items.length === 0
+                    ? <span className="text-[9px] opacity-60">(vide)</span>
+                    : <span className="text-[9px] opacity-70">·{t.items.length}</span>}
+                </button>
+                <button
+                  onClick={() => openEditTemplate(t)}
+                  className="px-2 py-2 border-l transition-colors hover:bg-black/5"
+                  style={{ borderColor: t.color + '30', color: colorOpt.text, background: colorOpt.bg }}
+                  title="Modifier ce modèle"
+                >
+                  <Icon name="PencilIcon" size={11} />
+                </button>
+              </div>
+            );
+          })}
+          {templates.length === 0 && (
+            <button onClick={openNewTemplate} className="flex items-center gap-2 px-4 py-2.5 border-2 border-dashed border-[#B8960C]/30 rounded-xl text-xs text-[#B8960C] font-600 hover:border-[#B8960C]/60 transition-colors w-full justify-center">
+              <Icon name="PlusIcon" size={13} />Créer votre premier modèle de devis
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Template editor modal */}
+      {showTemplateEditor && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={(e) => { if (e.target === e.currentTarget) setShowTemplateEditor(false); }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+            {/* Header */}
+            <div className="sticky top-0 bg-white border-b border-border px-5 py-4 flex items-center justify-between">
+              <h3 className="font-700 text-foreground">{editingTemplate ? 'Modifier le modèle' : 'Nouveau modèle de devis'}</h3>
+              <button onClick={() => setShowTemplateEditor(false)} className="p-1.5 rounded-lg hover:bg-muted transition-colors">
+                <Icon name="XMarkIcon" size={16} />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              {/* Name */}
+              <div>
+                <label className="block text-xs font-700 text-muted-foreground uppercase tracking-wide mb-1.5">Nom du modèle</label>
+                <input
+                  type="text"
+                  value={tplName}
+                  onChange={(e) => setTplName(e.target.value)}
+                  placeholder="Ex : Onglerie, Extension Cils, Pack Découverte…"
+                  autoFocus
+                  className="w-full px-3 py-2.5 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#B8960C]/30"
+                />
+              </div>
+
+              {/* Emoji + Color */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-700 text-muted-foreground uppercase tracking-wide mb-1.5">Emoji</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {TEMPLATE_EMOJIS.map((e) => (
+                      <button key={e} onClick={() => setTplEmoji(e)}
+                        className={`w-8 h-8 rounded-lg text-base flex items-center justify-center transition-all ${tplEmoji === e ? 'ring-2 ring-[#B8960C] bg-[#FDF8E7] scale-110' : 'hover:bg-muted'}`}>
+                        {e}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-700 text-muted-foreground uppercase tracking-wide mb-1.5">Couleur</label>
+                  <div className="flex flex-wrap gap-2">
+                    {TEMPLATE_COLOR_OPTIONS.map((c) => (
+                      <button key={c.value} onClick={() => setTplColor(c.value)}
+                        className={`w-7 h-7 rounded-full transition-all ${tplColor === c.value ? 'ring-2 ring-offset-2 ring-gray-400 scale-110' : 'hover:scale-105'}`}
+                        style={{ background: c.value }}
+                        title={c.value}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Discount */}
+              <div>
+                <label className="block text-xs font-700 text-muted-foreground uppercase tracking-wide mb-1.5">Remise automatique</label>
+                <div className="flex flex-wrap gap-2">
+                  {[0, 5, 10, 15].map((pct) => (
+                    <button key={pct} onClick={() => setTplDiscountPct(pct)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-700 border transition-colors ${tplDiscountPct === pct ? 'bg-amber-500 text-white border-amber-500' : 'border-border text-muted-foreground hover:border-amber-300'}`}>
+                      {pct === 0 ? 'Aucune' : `-${pct}%`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Products — base */}
+              <div>
+                <label className="block text-xs font-700 text-muted-foreground uppercase tracking-wide mb-1.5">
+                  Produits du modèle
+                  <span className="ml-2 normal-case font-500 text-[10px]">({tplItems.filter(i => !i.isBonus).length} produit{tplItems.filter(i => !i.isBonus).length > 1 ? 's' : ''} · {tplItems.filter(i => i.isBonus).length} offert{tplItems.filter(i => i.isBonus).length > 1 ? 's' : ''})</span>
+                </label>
+                <ProductSearchBox placeholder="Rechercher un produit à ajouter…" onAdd={addProductToTemplate} variant="gold" />
+                {tplItems.filter((i) => !i.isBonus).length > 0 && (
+                  <div className="mt-2 space-y-1.5">
+                    {tplItems.filter((i) => !i.isBonus).map((ti, idx) => (
+                      <div key={`${ti.productId}-${idx}`} className="flex items-center gap-2 bg-[#FDF8E7] rounded-lg px-3 py-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-600 truncate">{ti.productName}</p>
+                          <p className="text-[10px] text-muted-foreground">{ti.productRef} · {ti.sellPrice.toFixed(2)} €</p>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button onClick={() => setTplItems((prev) => prev.map((t, i) => (i === prev.findIndex(x => x.productId === ti.productId && !x.isBonus) && !t.isBonus) ? { ...t, qty: Math.max(1, t.qty - 1) } : t))}
+                            className="w-6 h-6 rounded border border-border flex items-center justify-center text-xs hover:bg-muted">−</button>
+                          <span className="w-5 text-center text-xs font-700">{ti.qty}</span>
+                          <button onClick={() => setTplItems((prev) => prev.map((t, i) => (i === prev.findIndex(x => x.productId === ti.productId && !x.isBonus) && !t.isBonus) ? { ...t, qty: t.qty + 1 } : t))}
+                            className="w-6 h-6 rounded border border-border flex items-center justify-center text-xs hover:bg-muted">+</button>
+                          <button onClick={() => setTplItems((prev) => { const idx = prev.findIndex(x => x.productId === ti.productId && !x.isBonus); return prev.filter((_, i) => i !== idx); })}
+                            className="w-6 h-6 rounded border border-border flex items-center justify-center text-red-500 hover:bg-red-50 ml-0.5">
+                            <Icon name="XMarkIcon" size={11} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Products — bonus (Budget Pro) */}
+              <div>
+                <label className="block text-xs font-700 text-pink-600 uppercase tracking-wide mb-1.5">✨ Produits offerts (Budget Pro)</label>
+                <ProductSearchBox placeholder="Produits à inclure en bonus…" onAdd={addBonusProductToTemplate} variant="pink" />
+                {tplItems.filter((i) => i.isBonus).length > 0 && (
+                  <div className="mt-2 space-y-1.5">
+                    {tplItems.filter((i) => i.isBonus).map((ti, idx) => (
+                      <div key={`bonus-${ti.productId}-${idx}`} className="flex items-center gap-2 bg-pink-50 rounded-lg px-3 py-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-600 truncate text-pink-800">{ti.productName} <span className="text-[9px] bg-pink-200 text-pink-700 px-1 rounded font-700">OFFERT</span></p>
+                          <p className="text-[10px] text-pink-500">{ti.productRef} · {ti.sellPrice.toFixed(2)} €</p>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button onClick={() => setTplItems((prev) => prev.map((t, i) => (i === prev.findIndex(x => x.productId === ti.productId && x.isBonus) && t.isBonus) ? { ...t, qty: Math.max(1, t.qty - 1) } : t))}
+                            className="w-6 h-6 rounded border border-pink-200 flex items-center justify-center text-xs hover:bg-pink-100">−</button>
+                          <span className="w-5 text-center text-xs font-700 text-pink-700">{ti.qty}</span>
+                          <button onClick={() => setTplItems((prev) => prev.map((t, i) => (i === prev.findIndex(x => x.productId === ti.productId && x.isBonus) && t.isBonus) ? { ...t, qty: t.qty + 1 } : t))}
+                            className="w-6 h-6 rounded border border-pink-200 flex items-center justify-center text-xs hover:bg-pink-100">+</button>
+                          <button onClick={() => setTplItems((prev) => { const idx = prev.findIndex(x => x.productId === ti.productId && x.isBonus); return prev.filter((_, i) => i !== idx); })}
+                            className="w-6 h-6 rounded border border-pink-200 flex items-center justify-center text-red-400 hover:bg-red-50 ml-0.5">
+                            <Icon name="XMarkIcon" size={11} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="sticky bottom-0 bg-white border-t border-border px-5 py-4 flex gap-3">
+              <button
+                onClick={handleSaveTemplate}
+                disabled={!tplName.trim()}
+                className="flex-1 py-2.5 bg-[#B8960C] text-white rounded-xl text-sm font-700 hover:bg-[#8B7009] disabled:opacity-40 transition-colors flex items-center justify-center gap-2"
+              >
+                <Icon name="CheckIcon" size={14} />
+                {editingTemplate ? 'Enregistrer les modifications' : 'Créer le modèle'}
+              </button>
+              {editingTemplate && (
+                <button
+                  onClick={() => { if (window.confirm(`Supprimer le modèle "${editingTemplate.name}" ?`)) handleDeleteTemplate(editingTemplate.id); }}
+                  className="px-4 py-2.5 border border-red-200 text-red-600 rounded-xl text-sm font-600 hover:bg-red-50 transition-colors"
+                >
+                  <Icon name="TrashIcon" size={14} />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ══ COMMANDE PRINCIPALE ══════════════════════════════════════════════════ */}
       <div className="border border-[#B8960C]/30 rounded-xl overflow-hidden">
