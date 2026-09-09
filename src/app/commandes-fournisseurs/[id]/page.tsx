@@ -209,6 +209,25 @@ export default function OrderDetailPage() {
   const [updatingStock, setUpdatingStock] = useState(false);
   const [unmatchedLines, setUnmatchedLines] = useState<Array<{ lineId: string; productRef: string; productName: string; qty: number }>>([]);
 
+  // Date de réception effective
+  const [editingReceivedAt, setEditingReceivedAt] = useState(false);
+  const [receivedAtVal, setReceivedAtVal] = useState('');
+  const [savingReceivedAt, setSavingReceivedAt] = useState(false);
+
+  // Stock audit (Vérifier)
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditResult, setAuditResult] = useState<null | {
+    referenceDate: string | null;
+    lines: Array<{
+      lineId: string; productId: string | null; productRef: string; productName: string;
+      qtyOrdered: number; qtyReceived: number; currentStock: number;
+      soldSinceReception: number; manualAdjustmentsSince: number;
+      expectedStock: number; discrepancy: number;
+      status: 'ok' | 'over' | 'under' | 'no_product';
+    }>;
+    hasDiscrepancies: boolean;
+  }>(null);
+
   // Invoice real prices (entered by employee from received PDF)
   const [realPrices, setRealPrices] = useState<Record<string, string>>({});
   const [savingPrices, setSavingPrices] = useState(false);
@@ -497,6 +516,29 @@ export default function OrderDetailPage() {
       qtys[l.id] = remaining; // 0 for already-received lines → skipped by route
     });
     await updateStockForReception(qtys, true);
+  };
+
+  const handleVerifyStock = async () => {
+    if (!order) return;
+    setAuditLoading(true);
+    try {
+      const res = await fetch(`/api/fo-orders/${order.id}/verify-stock`);
+      const json = await res.json();
+      setAuditResult(json);
+    } catch {
+      setAuditResult(null);
+    } finally {
+      setAuditLoading(false);
+    }
+  };
+
+  const handleSaveReceivedAt = async () => {
+    if (!order) return;
+    setSavingReceivedAt(true);
+    await supplierOrderService.update(order.id, { receivedAt: receivedAtVal || undefined } as any);
+    setEditingReceivedAt(false);
+    setSavingReceivedAt(false);
+    load();
   };
 
   const handleStatusChange = async () => {
@@ -2719,6 +2761,58 @@ export default function OrderDetailPage() {
               </div>
             ) : null}
 
+            {/* Date de réception effective */}
+            <div className="bg-white border border-border rounded-xl p-4 shadow-card">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
+                    <Icon name="CalendarDaysIcon" size={16} className="text-blue-600" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-700 text-muted-foreground uppercase tracking-wide">Date de réception effective</p>
+                    {editingReceivedAt ? (
+                      <div className="flex items-center gap-2 mt-1">
+                        <input
+                          type="date"
+                          value={receivedAtVal}
+                          onChange={(e) => setReceivedAtVal(e.target.value)}
+                          className="px-2 py-1 border border-blue-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 bg-blue-50"
+                        />
+                        <button
+                          onClick={handleSaveReceivedAt}
+                          disabled={savingReceivedAt}
+                          className="flex items-center gap-1 px-2.5 py-1 bg-blue-600 text-white rounded-lg text-xs font-600 hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                        >
+                          {savingReceivedAt ? <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Icon name="CheckIcon" size={11} />}
+                          OK
+                        </button>
+                        <button onClick={() => setEditingReceivedAt(false)} className="text-xs text-muted-foreground hover:text-foreground px-1.5 py-1">✕</button>
+                      </div>
+                    ) : (
+                      <p className="text-sm font-600 text-foreground mt-0.5">
+                        {order.receivedAt
+                          ? new Date(order.receivedAt).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
+                          : <span className="text-muted-foreground italic text-xs">Non renseignée — utilisée pour l&apos;audit stock</span>}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                {!editingReceivedAt && (
+                  <button
+                    onClick={() => {
+                      const d = order.receivedAt ? order.receivedAt.split('T')[0] : '';
+                      setReceivedAtVal(d);
+                      setEditingReceivedAt(true);
+                    }}
+                    className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-500 hover:bg-muted text-muted-foreground transition-colors"
+                  >
+                    <Icon name="PencilIcon" size={13} />
+                    {order.receivedAt ? 'Modifier' : 'Renseigner'}
+                  </button>
+                )}
+              </div>
+            </div>
+
             <div className="bg-white border border-border rounded-xl p-5 shadow-card">
               <h3 className="font-600 text-foreground mb-4 flex items-center gap-2">
                 <Icon name="ArchiveBoxIcon" size={16} className="text-primary" />
@@ -2871,7 +2965,97 @@ export default function OrderDetailPage() {
                         </span>
                       )}
                     </button>
+                    {order.stockUpdated && (
+                      <button
+                        onClick={handleVerifyStock}
+                        disabled={auditLoading}
+                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-500 hover:bg-blue-700 transition-colors disabled:opacity-60"
+                      >
+                        {auditLoading
+                          ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          : <Icon name="MagnifyingGlassIcon" size={15} />}
+                        Vérifier le stock
+                      </button>
+                    )}
                   </div>
+
+                  {/* Stock audit results */}
+                  {auditResult && (
+                    <div className="border border-blue-200 rounded-xl overflow-hidden">
+                      <div className="bg-blue-50 px-4 py-3 flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          <Icon name="MagnifyingGlassIcon" size={16} className="text-blue-600" />
+                          <p className="text-sm font-700 text-blue-900">
+                            Audit stock
+                            {auditResult.hasDiscrepancies
+                              ? <span className="ml-2 text-red-600">⚠️ Écarts détectés</span>
+                              : <span className="ml-2 text-emerald-600">✅ Tout est correct</span>}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          {auditResult.referenceDate && (
+                            <span className="text-xs text-blue-600">Depuis le {new Date(auditResult.referenceDate).toLocaleDateString('fr-FR')}</span>
+                          )}
+                          <button onClick={() => setAuditResult(null)} className="text-blue-400 hover:text-blue-600">
+                            <Icon name="XMarkIcon" size={16} />
+                          </button>
+                        </div>
+                      </div>
+                      {!auditResult.referenceDate && (
+                        <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 text-xs text-amber-700 font-500">
+                          ⚠️ Aucune date de réception renseignée — renseignez-la ci-dessus pour un audit précis
+                        </div>
+                      )}
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b border-blue-100 bg-white">
+                            <th className="text-left px-4 py-2 text-muted-foreground font-600">Produit</th>
+                            <th className="text-center px-3 py-2 text-muted-foreground font-600">Reçu</th>
+                            <th className="text-center px-3 py-2 text-muted-foreground font-600">Vendu</th>
+                            <th className="text-center px-3 py-2 text-muted-foreground font-600">Ajust.</th>
+                            <th className="text-center px-3 py-2 text-muted-foreground font-600">Attendu</th>
+                            <th className="text-center px-3 py-2 text-muted-foreground font-600">Réel</th>
+                            <th className="text-center px-3 py-2 text-muted-foreground font-600">Écart</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {auditResult.lines.map((line) => {
+                            const bg = line.status === 'ok' ? '' : line.status === 'over' ? 'bg-red-50' : line.status === 'under' ? 'bg-amber-50' : 'bg-gray-50';
+                            return (
+                              <tr key={line.lineId} className={`border-b border-border last:border-0 ${bg}`}>
+                                <td className="px-4 py-2">
+                                  <p className="font-500 text-foreground truncate max-w-[180px]">{line.productName}</p>
+                                  <p className="text-[10px] text-muted-foreground font-mono">{line.productRef}</p>
+                                </td>
+                                <td className="px-3 py-2 text-center font-600">{line.qtyReceived}</td>
+                                <td className="px-3 py-2 text-center text-red-600">−{line.soldSinceReception}</td>
+                                <td className="px-3 py-2 text-center text-blue-600">{line.manualAdjustmentsSince >= 0 ? `+${line.manualAdjustmentsSince}` : line.manualAdjustmentsSince}</td>
+                                <td className="px-3 py-2 text-center font-600 text-blue-700">{line.expectedStock}</td>
+                                <td className="px-3 py-2 text-center font-700">{line.currentStock}</td>
+                                <td className="px-3 py-2 text-center">
+                                  {line.status === 'no_product' ? (
+                                    <span className="text-gray-400 text-[10px]">Non lié</span>
+                                  ) : line.discrepancy === 0 ? (
+                                    <span className="text-emerald-600 font-700">✓</span>
+                                  ) : (
+                                    <span className={`font-700 ${line.discrepancy > 0 ? 'text-red-600' : 'text-amber-600'}`}>
+                                      {line.discrepancy > 0 ? `+${line.discrepancy}` : line.discrepancy}
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                      {auditResult.hasDiscrepancies && (
+                        <div className="px-4 py-3 bg-red-50 border-t border-red-200 text-xs text-red-700">
+                          <strong>Légende :</strong> Écart <span className="text-red-600 font-700">positif</span> = stock trop élevé (probable doublon de réception) · Écart <span className="text-amber-600 font-700">négatif</span> = stock trop bas (vente non comptabilisée ou correction manuelle)
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                 </div>
               )}
             </div>
