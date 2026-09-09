@@ -26,15 +26,34 @@ export async function GET(req: NextRequest) {
 }
 
 // POST /api/loyalty/redemptions — create a redemption record
+// If pointsCost is provided (> 0), deducts that many points from client balance.
 export async function POST(req: NextRequest) {
   let body: any;
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
 
-  const { clientId, tierId, pointsAtRedemption, rewardType, rewardDescription, rewardValue, rewardProductId, cashierName, notes } = body ?? {};
+  const { clientId, tierId, pointsAtRedemption, pointsCost, rewardType, rewardDescription, rewardValue, rewardProductId, cashierName, notes } = body ?? {};
   if (!clientId || !rewardType) return NextResponse.json({ error: 'clientId and rewardType required' }, { status: 400 });
 
   try {
     const supabase = createAdminClient();
+
+    // Deduct points if the reward has a points cost
+    const costInPoints = Number(pointsCost ?? 0);
+    let newBalance: number | null = null;
+    if (costInPoints > 0) {
+      const { data: client } = await supabase.from('clients').select('loyalty_points').eq('id', clientId).maybeSingle();
+      const currentPoints = Number(client?.loyalty_points ?? 0);
+      if (currentPoints < costInPoints) {
+        return NextResponse.json({ error: `Points insuffisants (${currentPoints} disponibles, ${costInPoints} requis)` }, { status: 400 });
+      }
+      newBalance = Math.max(0, currentPoints - costInPoints);
+      const { error: ptErr } = await supabase.from('clients').update({ loyalty_points: newBalance, updated_at: new Date().toISOString() }).eq('id', clientId);
+      if (ptErr) {
+        console.error('[api/loyalty/redemptions POST] points deduction:', ptErr.message);
+        return NextResponse.json({ error: `Déduction points: ${ptErr.message}` }, { status: 500 });
+      }
+    }
+
     const { data, error } = await supabase
       .from('loyalty_redemptions')
       .insert({
@@ -56,7 +75,7 @@ export async function POST(req: NextRequest) {
       console.error('[api/loyalty/redemptions POST]', error.message);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
-    return NextResponse.json(data, { status: 201 });
+    return NextResponse.json({ ...data, newLoyaltyBalance: newBalance }, { status: 201 });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }

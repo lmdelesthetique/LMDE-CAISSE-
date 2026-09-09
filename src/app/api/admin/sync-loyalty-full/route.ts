@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAdminSecret } from '@/lib/utils/adminGuard';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 // POST /api/admin/sync-loyalty-full
@@ -9,6 +10,8 @@ import { createAdminClient } from '@/lib/supabase/admin';
 // 4. Add missing tier rewards for clients who now qualify
 // Safe to run multiple times (idempotent).
 export async function POST(req: NextRequest) {
+  const denied = requireAdminSecret(req);
+  if (denied) return denied;
   const { searchParams } = new URL(req.url);
   const dryRun = searchParams.get('dry') === 'true';
 

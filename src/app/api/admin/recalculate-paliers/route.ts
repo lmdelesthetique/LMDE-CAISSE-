@@ -1,10 +1,13 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { requireAdminSecret } from '@/lib/utils/adminGuard';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 // POST /api/admin/recalculate-paliers
 // Backfills client_loyalty_rewards for every client based on their current loyalty_points.
 // Safe to call multiple times — skips tiers that already have a reward row.
-export async function POST() {
+export async function POST(req: NextRequest) {
+  const denied = requireAdminSecret(req);
+  if (denied) return denied;
   try {
     const supabase = createAdminClient();
 

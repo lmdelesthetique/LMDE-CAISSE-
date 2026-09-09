@@ -3010,24 +3010,26 @@ export default function OrderDetailPage() {
                         <thead>
                           <tr className="border-b border-blue-100 bg-white">
                             <th className="text-left px-4 py-2 text-muted-foreground font-600">Produit</th>
+                            <th className="text-center px-3 py-2 text-muted-foreground font-600" title="Stock existant AVANT cette commande">Avant</th>
                             <th className="text-center px-3 py-2 text-muted-foreground font-600">Reçu</th>
                             <th className="text-center px-3 py-2 text-muted-foreground font-600">Vendu</th>
                             <th className="text-center px-3 py-2 text-muted-foreground font-600">Ajust.</th>
-                            <th className="text-center px-3 py-2 text-muted-foreground font-600">Attendu</th>
+                            <th className="text-center px-3 py-2 text-muted-foreground font-600 text-blue-700">Attendu</th>
                             <th className="text-center px-3 py-2 text-muted-foreground font-600">Réel</th>
                             <th className="text-center px-3 py-2 text-muted-foreground font-600">Écart</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {auditResult.lines.map((line) => {
+                          {auditResult.lines.map((line: any) => {
                             const bg = line.status === 'ok' ? '' : line.status === 'over' ? 'bg-red-50' : line.status === 'under' ? 'bg-amber-50' : 'bg-gray-50';
                             return (
                               <tr key={line.lineId} className={`border-b border-border last:border-0 ${bg}`}>
                                 <td className="px-4 py-2">
-                                  <p className="font-500 text-foreground truncate max-w-[180px]">{line.productName}</p>
+                                  <p className="font-500 text-foreground truncate max-w-[160px]">{line.productName}</p>
                                   <p className="text-[10px] text-muted-foreground font-mono">{line.productRef}</p>
                                 </td>
-                                <td className="px-3 py-2 text-center font-600">{line.qtyReceived}</td>
+                                <td className="px-3 py-2 text-center text-gray-500">{line.stockBeforeReception ?? '—'}</td>
+                                <td className="px-3 py-2 text-center font-600">+{line.qtyReceived}</td>
                                 <td className="px-3 py-2 text-center text-red-600">−{line.soldSinceReception}</td>
                                 <td className="px-3 py-2 text-center text-blue-600">{line.manualAdjustmentsSince >= 0 ? `+${line.manualAdjustmentsSince}` : line.manualAdjustmentsSince}</td>
                                 <td className="px-3 py-2 text-center font-600 text-blue-700">{line.expectedStock}</td>
@@ -3048,11 +3050,10 @@ export default function OrderDetailPage() {
                           })}
                         </tbody>
                       </table>
-                      {auditResult.hasDiscrepancies && (
-                        <div className="px-4 py-3 bg-red-50 border-t border-red-200 text-xs text-red-700">
-                          <strong>Légende :</strong> Écart <span className="text-red-600 font-700">positif</span> = stock trop élevé (probable doublon de réception) · Écart <span className="text-amber-600 font-700">négatif</span> = stock trop bas (vente non comptabilisée ou correction manuelle)
-                        </div>
-                      )}
+                      <div className="px-4 py-2 border-t border-blue-100 bg-blue-50/50 text-[10px] text-blue-700">
+                        Formule : <strong>Attendu = Avant + Reçu − Vendu + Ajust.</strong>
+                        {auditResult.hasDiscrepancies && <span className="ml-3">· Écart <span className="text-red-600 font-700">positif</span> = stock trop élevé · Écart <span className="text-amber-600 font-700">négatif</span> = stock trop bas (vente non comptabilisée)</span>}
+                      </div>
                     </div>
                   )}
 

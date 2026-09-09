@@ -8,10 +8,11 @@ export interface StockVerifyLine {
   productName: string;
   qtyOrdered: number;
   qtyReceived: number;
+  stockBeforeReception: number; // stock that already existed before this order arrived
   currentStock: number;
   soldSinceReception: number;
   manualAdjustmentsSince: number;
-  expectedStock: number;
+  expectedStock: number; // stockBefore + received - sold + adjustments
   discrepancy: number; // positive = over-stocked, negative = under-stocked
   status: 'ok' | 'over' | 'under' | 'no_product';
 }
@@ -96,6 +97,26 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     });
   }
 
+  // Get stock BEFORE this order's reception using movements log
+  // The reception log stores quantity_before = stock at the moment of reception
+  // This allows us to compute: expected = stockBefore + received - sold + adjustments
+  const preReceptionMap = new Map<string, number>();
+  if (productIds.length > 0 && order.order_number) {
+    const { data: receptionMovements } = await supabase
+      .from('stock_movements_log')
+      .select('product_id, quantity_before, created_at')
+      .in('product_id', productIds)
+      .eq('movement_type', 'supplier_reception')
+      .ilike('reason', `%${order.order_number}%`)
+      .order('created_at', { ascending: true });
+
+    // Take the FIRST entry per product — that's the stock before any reception from this order
+    (receptionMovements ?? []).forEach((m) => {
+      if (!m.product_id || preReceptionMap.has(m.product_id)) return;
+      preReceptionMap.set(m.product_id, Number(m.quantity_before ?? 0));
+    });
+  }
+
   const result: StockVerifyLine[] = lines.map((line) => {
     const productId = line.product_id ?? null;
     const qtyOrdered = Number(line.qty_ordered || 0);
@@ -109,6 +130,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         productName: line.product_name || line.product_ref || '',
         qtyOrdered,
         qtyReceived,
+        stockBeforeReception: 0,
         currentStock: 0,
         soldSinceReception: 0,
         manualAdjustmentsSince: 0,
@@ -121,8 +143,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const currentStock = stockMap.get(productId) ?? 0;
     const soldSinceReception = salesMap.get(productId) ?? 0;
     const manualAdjustmentsSince = manualMap.get(productId) ?? 0;
-    // Expected = what was received - sold since - manual deductions + manual additions
-    const expectedStock = qtyReceived - soldSinceReception + manualAdjustmentsSince;
+
+    // Stock before reception: from movements log if available, else estimate from current - received
+    const stockBeforeReception = preReceptionMap.has(productId)
+      ? preReceptionMap.get(productId)!
+      : Math.max(0, currentStock - qtyReceived + soldSinceReception - manualAdjustmentsSince);
+
+    // Correct formula: stock before + received - sold since + manual adjustments since
+    const expectedStock = stockBeforeReception + qtyReceived - soldSinceReception + manualAdjustmentsSince;
     const discrepancy = currentStock - expectedStock;
 
     let status: StockVerifyLine['status'] = 'ok';
@@ -135,6 +163,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       productName: line.product_name || line.product_ref || '',
       qtyOrdered,
       qtyReceived,
+      stockBeforeReception,
       currentStock,
       soldSinceReception,
       manualAdjustmentsSince,

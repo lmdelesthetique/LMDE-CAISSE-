@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { requireAdminSecret } from '@/lib/utils/adminGuard';
 import { createClient as createSupabase } from '@supabase/supabase-js';
 
 function makeAdminClient() {

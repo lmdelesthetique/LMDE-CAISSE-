@@ -3,8 +3,9 @@
 // No DB column required — the token encodes and authenticates the order ID
 
 function getSecret(): string {
-  // Use service role key as HMAC secret — always available
-  return process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'lmde-invoice-secret';
+  const secret = process.env.INVOICE_TOKEN_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!secret) throw new Error('[invoiceToken] INVOICE_TOKEN_SECRET or SUPABASE_SERVICE_ROLE_KEY must be set');
+  return secret;
 }
 
 export async function generateInvoiceToken(orderId: string): Promise<string> {

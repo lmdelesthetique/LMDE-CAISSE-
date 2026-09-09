@@ -1,11 +1,14 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { requireAdminSecret } from '@/lib/utils/adminGuard';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 // POST /api/admin/recalculate-points
 // Recomputes loyalty_points, total_spent, and total_visits for EVERY client
 // from both receipts AND client_purchases (old system). Takes MAX to never reduce points.
 // force=true: sets receipt-derived total absolutely (dangerous — avoid in production).
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  const denied = requireAdminSecret(req);
+  if (denied) return denied;
   const force = new URL(req.url).searchParams.get('force') === 'true';
 
   try {

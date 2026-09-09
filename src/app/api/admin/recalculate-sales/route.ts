@@ -1,11 +1,14 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { requireAdminSecret } from '@/lib/utils/adminGuard';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 function getSupabase() {
   return createAdminClient();
 }
 
-export async function POST() {
+export async function POST(req: NextRequest) {
+  const denied = requireAdminSecret(req);
+  if (denied) return denied;
   const supabase = getSupabase();
   const now = new Date();
   const since7d  = new Date(now.getTime() -  7 * 24 * 60 * 60 * 1000).toISOString();
