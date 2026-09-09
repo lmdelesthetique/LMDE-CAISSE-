@@ -56,7 +56,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
           pushBody: `${delivery.client_name ?? ''} — ${delivery.delivery_address ?? ''}`,
           url: '/livreur/dashboard',
         }),
-      }).catch(() => {});
+      }).catch((e: any) => console.error('[livraisons] push notification failed:', e.message));
     }
 
     // WhatsApp to driver on assignment (non-blocking)

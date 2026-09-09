@@ -47,6 +47,56 @@ export async function POST(
     is_balance: true,
   };
 
+  // STEP 1: Deduct stock FIRST (before marking complete)
+  // Payment is already received — stock must be deducted before we commit the sale.
+  const stockErrors: string[] = [];
+  if (existing.reservation_status !== 'completed' && Array.isArray(existing.items)) {
+    const stockItems = (existing.items as any[])
+      .filter((item: any) => item.productId || item.product_id)
+      .map((item: any) => ({
+        productId: item.productId || item.product_id,
+        qty: Number(item.qty || item.quantity) || 1,
+        isKit: Boolean(item.isKit),
+        kitComponents: Array.isArray(item.kitComponents) ? item.kitComponents : [],
+      }));
+
+    for (const item of stockItems) {
+      try {
+        if (item.isKit || item.kitComponents.length > 0) {
+          let components: Array<{ componentId?: string; component_id?: string; quantity: number }> = item.kitComponents;
+          if (components.length === 0) {
+            const { data: kitRows } = await supabase
+              .from('product_kits')
+              .select('component_id, quantity')
+              .eq('product_id', item.productId);
+            components = (kitRows ?? []) as any[];
+          }
+          for (const comp of components) {
+            const compId = (comp as any).componentId ?? (comp as any).component_id;
+            const compQty = Number((comp as any).quantity ?? 1) * item.qty;
+            if (compId) {
+              const { error: stockErr } = await supabase.rpc('deduct_stock_on_reservation', { p_product_id: compId, p_qty: compQty });
+              if (stockErr) {
+                console.error('[record-balance] kit component stock deduction failed:', compId, stockErr.message);
+                stockErrors.push(`Composant ${compId}: ${stockErr.message}`);
+              }
+            }
+          }
+        } else {
+          const { error: stockErr } = await supabase.rpc('deduct_stock_on_reservation', { p_product_id: item.productId, p_qty: item.qty });
+          if (stockErr) {
+            console.error('[record-balance] stock deduction failed:', item.productId, stockErr.message);
+            stockErrors.push(`Produit ${item.productId}: ${stockErr.message}`);
+          }
+        }
+      } catch (e: any) {
+        console.error('[record-balance] stock deduction exception:', e.message);
+        stockErrors.push(e.message);
+      }
+    }
+  }
+
+  // STEP 2: Mark as completed (payment received — must commit regardless of stock errors)
   const { data, error } = await supabase
     .from('reservations')
     .update({
@@ -68,51 +118,9 @@ export async function POST(
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Deduct stock for sold items (non-blocking, only if not already completed)
-  if (existing.reservation_status !== 'completed' && Array.isArray(existing.items)) {
-    const stockItems = (existing.items as any[])
-      .filter((item: any) => item.productId || item.product_id)
-      .map((item: any) => ({
-        productId: item.productId || item.product_id,
-        qty: Number(item.qty || item.quantity) || 1,
-        isKit: Boolean(item.isKit),
-        kitComponents: Array.isArray(item.kitComponents) ? item.kitComponents : [],
-      }));
-
-    for (const item of stockItems) {
-      try {
-        // For kit items: deduct each component's stock, not the kit product
-        if (item.isKit || item.kitComponents.length > 0) {
-          let components: Array<{ componentId?: string; component_id?: string; quantity: number }> = item.kitComponents;
-
-          // If stored components are empty, fetch live from DB
-          if (components.length === 0) {
-            const { data: kitRows } = await supabase
-              .from('product_kits')
-              .select('component_id, quantity')
-              .eq('product_id', item.productId);
-            components = (kitRows ?? []) as any[];
-          }
-
-          for (const comp of components) {
-            const compId = (comp as any).componentId ?? (comp as any).component_id;
-            const compQty = Number((comp as any).quantity ?? 1) * item.qty;
-            if (compId) {
-              await supabase.rpc('deduct_stock_on_reservation', {
-                p_product_id: compId,
-                p_qty: compQty,
-              });
-            }
-          }
-        } else {
-          await supabase.rpc('deduct_stock_on_reservation', {
-            p_product_id: item.productId,
-            p_qty: item.qty,
-          });
-        }
-      } catch { /* non-blocking */ }
-    }
+  if (stockErrors.length > 0) {
+    console.warn('[record-balance] completed with stock errors (investigate manually):', stockErrors);
   }
 
-  return NextResponse.json(data);
+  return NextResponse.json({ ...data, stockErrors: stockErrors.length > 0 ? stockErrors : undefined });
 }

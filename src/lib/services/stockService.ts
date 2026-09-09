@@ -427,7 +427,7 @@ export async function addStock(productId: string, productName: string, currentSt
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ items: [{ productId, delta: qty, newStock: newQty }] }),
-    }).catch(() => {});
+    }).catch((e) => console.error("[stockService] shopify sync failed:", e.message));
   }
 
   return true;
@@ -466,7 +466,7 @@ export async function removeStock(productId: string, productName: string, curren
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ items: [{ productId, delta: -qty, newStock: newQty }] }),
-    }).catch(() => {});
+    }).catch((e) => console.error("[stockService] shopify sync failed:", e.message));
   }
 
   return true;
@@ -497,7 +497,7 @@ export async function adjustStock(productId: string, productName: string, curren
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ items: [{ productId, delta: newQty - currentStock, newStock: newQty }] }),
-    }).catch(() => {});
+    }).catch((e) => console.error("[stockService] shopify sync failed:", e.message));
   }
 
   return true;
@@ -749,17 +749,29 @@ export async function deductStockForSale(
         }
       }
     } else {
-      // Regular product
+      // Regular product — use optimistic locking: only update if stock hasn't changed since we read it
       const newStock = Math.max(0, currentStock - item.qty);
 
-      const { error: updateError } = await supabase
+      const { data: updatedRows, error: updateError } = await supabase
         .from('products')
         .update({ stock: newStock, updated_at: new Date().toISOString() })
-        .eq('id', item.productId);
+        .eq('id', item.productId)
+        .eq('stock', currentStock) // optimistic lock: reject if stock changed concurrently
+        .select('stock');
 
       if (updateError) {
         errors.push(`Erreur décompte stock: ${item.name}`);
         continue;
+      }
+
+      if (!updatedRows || updatedRows.length === 0) {
+        // Stock changed concurrently — re-read and retry once
+        const { data: fresh } = await supabase.from('products').select('stock').eq('id', item.productId).maybeSingle();
+        if (fresh !== null) {
+          const retryNew = Math.max(0, Number(fresh.stock) - item.qty);
+          await supabase.from('products').update({ stock: retryNew, updated_at: new Date().toISOString() }).eq('id', item.productId);
+          console.warn(`[stockService] optimistic lock retry for ${item.name}: ${fresh.stock} → ${retryNew}`);
+        }
       }
 
       shopifySyncItems.push({ productId: item.productId, delta: -item.qty, newStock });
@@ -790,7 +802,7 @@ export async function deductStockForSale(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ items: shopifySyncItems }),
-    }).catch(() => {});
+    }).catch((e) => console.error("[stockService] shopify sync failed:", e.message));
   }
 
   // Non-blocking: recalculate sales_7d / sales_30d from movement history
@@ -798,7 +810,7 @@ export async function deductStockForSale(
     items.filter(i => !i.isFreePrice && i.productId && !i.productId.startsWith('free-')).map(i => i.productId)
   )];
   if (soldIds.length > 0) {
-    recalculateSalesCounters(soldIds).catch(() => {});
+    recalculateSalesCounters(soldIds).catch((e) => console.error("[stockService] recalculate failed:", e.message));
   }
 
   return { success: errors.length === 0, errors };

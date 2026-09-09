@@ -55,14 +55,15 @@ export async function GET(req: NextRequest) {
 
   if (!data) return NextResponse.json(null);
 
-  // Fetch ALL receipts of the day (no payment_method filter — we parse ourselves)
+  // Fetch ALL real (non-demo) receipts of the day
+  // Use 'or' filter so null is_demo also passes (not yet set = real sale)
   const { data: allReceipts } = await supabase
     .from('receipts')
     .select('total_amount, payment_method')
     .gte('created_at', dayStart(date))
     .lte('created_at', dayEnd(date))
     .eq('status', 'completed')
-    .neq('is_demo', true);
+    .or('is_demo.is.null,is_demo.eq.false');
 
   const cashIn = (allReceipts ?? []).reduce((sum, r) => {
     const amount = parseFloat(String(r.total_amount ?? 0));

@@ -104,8 +104,23 @@ export async function POST(req: NextRequest) {
   const shopifyOrderId = String(order.id);
   const orderRef = String(order.order_number);
 
+  // ── Order-level idempotency guard ──────────────────────────────────────────
+  // Check at order level FIRST to prevent concurrent webhook replays from
+  // both passing the per-product checks before either logs the first deduction.
+  const { data: orderAlreadyProcessed } = await supabase
+    .from('stock_movements_log')
+    .select('id')
+    .eq('source', 'shopify_sale')
+    .eq('reference', orderRef)
+    .limit(1)
+    .maybeSingle();
+
+  if (orderAlreadyProcessed) {
+    console.log(`[webhook] Order #${orderRef} already processed — skipping duplicate webhook`);
+    return NextResponse.json({ ok: true, skipped: true });
+  }
+
   // ── Stock deduction (idempotent per product+order) ─────────────────────────
-  // Check is done per product inside the loop to narrow the race window.
   for (const item of lineItems) {
     if (!item.quantity) continue;
 

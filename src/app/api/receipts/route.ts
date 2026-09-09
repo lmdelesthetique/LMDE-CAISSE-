@@ -95,6 +95,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'total_amount requis et doit être ≥ 0' }, { status: 400 });
   }
 
+  // Idempotency guard: reject duplicate submissions within 30s window
+  // (protects against double-tap on "Complete Sale" during network lag)
+  const thirtySecondsAgo = new Date(Date.now() - 30_000).toISOString();
+  const { data: recentDuplicate } = await supabase
+    .from('receipts')
+    .select('id, ticket_number')
+    .eq('total_amount', totalAmount)
+    .eq('payment_method', String(body.payment_method ?? ''))
+    .eq('items_count', Number(body.items_count ?? 0))
+    .gte('created_at', thirtySecondsAgo)
+    .limit(1)
+    .maybeSingle();
+
+  if (recentDuplicate) {
+    console.warn('[api/receipts POST] duplicate detected within 30s window, returning existing:', recentDuplicate.id);
+    return NextResponse.json({ id: recentDuplicate.id, ticket_number: recentDuplicate.ticket_number, duplicate: true }, { status: 200 });
+  }
+
   const { data, error } = await supabase
     .from('receipts')
     .insert(body)
