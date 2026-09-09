@@ -128,6 +128,54 @@ function MultiChip({ options, selected, onChange }: {
   );
 }
 
+function MultiChipWithCustom({ options, selected, onChange, placeholder }: {
+  options: { value: string; label: string }[];
+  selected: string[];
+  onChange: (vals: string[]) => void;
+  placeholder?: string;
+}) {
+  const [customInput, setCustomInput] = React.useState('');
+  const predefinedValues = new Set(options.map((o) => o.value));
+  const customValues = selected.filter((v) => !predefinedValues.has(v));
+
+  const addCustom = () => {
+    const trimmed = customInput.trim();
+    if (trimmed && !selected.includes(trimmed)) onChange([...selected, trimmed]);
+    setCustomInput('');
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-1.5">
+        {options.map((o) => {
+          const active = selected.includes(o.value);
+          return (
+            <button key={o.value} type="button"
+              onClick={() => onChange(active ? selected.filter((v) => v !== o.value) : [...selected, o.value])}
+              className={`px-2.5 py-1 rounded-full text-xs font-600 transition-colors ${active ? 'bg-violet-600 text-white' : 'bg-white border border-violet-200 text-violet-700 hover:border-violet-400'}`}>
+              {o.label}
+            </button>
+          );
+        })}
+        {customValues.map((v) => (
+          <button key={v} type="button" onClick={() => onChange(selected.filter((s) => s !== v))}
+            className="px-2.5 py-1 rounded-full text-xs font-600 bg-pink-500 text-white flex items-center gap-1">
+            {v} ×
+          </button>
+        ))}
+      </div>
+      <div className="flex gap-1.5">
+        <input value={customInput} onChange={(e) => setCustomInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCustom(); } }}
+          placeholder={placeholder ?? 'Autre… (Entrée pour ajouter)'}
+          className="flex-1 px-2.5 py-1.5 border border-violet-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-violet-300" />
+        <button type="button" onClick={addCustom}
+          className="px-2.5 py-1.5 bg-violet-100 text-violet-700 rounded-lg text-xs font-600 hover:bg-violet-200">+</button>
+      </div>
+    </div>
+  );
+}
+
 const TRAVAILLE_A_OPTIONS = [
   { value: 'domicile', label: 'Domicile' },
   { value: 'salon', label: 'Salon' },
@@ -154,6 +202,14 @@ interface ProForm {
   budgetTranche: string;
   frequenceAchat: string;
   besoinPrincipal: string[];
+  nbCabines: string;
+  nbClientesSemaine: string;
+  nbEmployes: string;
+  marquesUtilisees: string;
+  produitsRecherches: string;
+  problemesFournisseurs: string;
+  datePremierContact: string;
+  prochainSuivi: string;
 }
 
 export default function ClientFormModal({ client, onClose, onSaved }: ClientFormModalProps) {
@@ -188,6 +244,14 @@ export default function ClientFormModal({ client, onClose, onSaved }: ClientForm
     budgetTranche: '',
     frequenceAchat: '',
     besoinPrincipal: [],
+    nbCabines: '',
+    nbClientesSemaine: '',
+    nbEmployes: '',
+    marquesUtilisees: '',
+    produitsRecherches: '',
+    problemesFournisseurs: '',
+    datePremierContact: '',
+    prochainSuivi: '',
   });
 
   const isPro = form.clientType === 'professionnel';
@@ -212,6 +276,14 @@ export default function ClientFormModal({ client, onClose, onSaved }: ClientForm
             budgetTranche: p.budget_tranche ?? '',
             frequenceAchat: p.frequence_achat ?? '',
             besoinPrincipal: toArr(p.besoin_principal),
+            nbCabines: p.nb_cabines?.toString() ?? '',
+            nbClientesSemaine: p.nb_clientes_semaine?.toString() ?? '',
+            nbEmployes: p.nb_employes?.toString() ?? '',
+            marquesUtilisees: p.marques_utilisees ?? '',
+            produitsRecherches: p.produits_recherches ?? '',
+            problemesFournisseurs: p.problemes_fournisseurs ?? '',
+            datePremierContact: p.date_premier_contact ?? '',
+            prochainSuivi: p.prochain_suivi ?? '',
           });
         }
       })
@@ -238,6 +310,14 @@ export default function ClientFormModal({ client, onClose, onSaved }: ClientForm
         budget_tranche: proForm.budgetTranche || null,
         frequence_achat: proForm.frequenceAchat || null,
         besoin_principal: proForm.besoinPrincipal,
+        nb_cabines: proForm.nbCabines ? parseInt(proForm.nbCabines) : null,
+        nb_clientes_semaine: proForm.nbClientesSemaine ? parseInt(proForm.nbClientesSemaine) : null,
+        nb_employes: proForm.nbEmployes ? parseInt(proForm.nbEmployes) : null,
+        marques_utilisees: proForm.marquesUtilisees || null,
+        produits_recherches: proForm.produitsRecherches || null,
+        problemes_fournisseurs: proForm.problemesFournisseurs || null,
+        date_premier_contact: proForm.datePremierContact || null,
+        prochain_suivi: proForm.prochainSuivi || null,
       }),
     });
   };
@@ -364,12 +444,13 @@ export default function ClientFormModal({ client, onClose, onSaved }: ClientForm
                 {/* Activité + Lieu — MULTI */}
                 <div className="col-span-2">
                   <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1.5">
-                    Activité pro <span className="text-violet-400 normal-case font-400">(plusieurs possibles)</span>
+                    Activité pro <span className="text-violet-400 normal-case font-400">(plusieurs possibles, ajouter les vôtres)</span>
                   </label>
-                  <MultiChip
+                  <MultiChipWithCustom
                     options={ACTIVITE_OPTIONS}
                     selected={proForm.mainActivity}
                     onChange={(v) => setPro('mainActivity', v)}
+                    placeholder="Ex: Microblading, Cryolipolyse… (Entrée)"
                   />
                 </div>
 
@@ -448,6 +529,62 @@ export default function ClientFormModal({ client, onClose, onSaved }: ClientForm
                     selected={proForm.besoinPrincipal}
                     onChange={(v) => setPro('besoinPrincipal', v)}
                   />
+                </div>
+
+                {/* Chiffres clés */}
+                <div className="col-span-2">
+                  <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1.5">Chiffres clés</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { key: 'nbCabines', label: 'Cabines / postes', ph: '3' },
+                      { key: 'nbClientesSemaine', label: 'Clientes/semaine', ph: '25' },
+                      { key: 'nbEmployes', label: 'Employées', ph: '2' },
+                    ].map(({ key, label, ph }) => (
+                      <div key={key}>
+                        <label className="text-[10px] text-violet-500 font-600 block mb-0.5">{label}</label>
+                        <input type="number" min={0} value={(proForm as any)[key]}
+                          onChange={(e) => setPro(key as keyof ProForm, e.target.value)}
+                          placeholder={ph}
+                          className="w-full px-2 py-1.5 border border-violet-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-violet-300" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Marques */}
+                <div className="col-span-2">
+                  <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1">Marques utilisées</label>
+                  <textarea value={proForm.marquesUtilisees} onChange={(e) => setPro('marquesUtilisees', e.target.value)}
+                    rows={2} placeholder="Ex: OPI, CND, Manucurist…"
+                    className="w-full px-3 py-2 border border-violet-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-violet-300 resize-none" />
+                </div>
+
+                {/* Produits recherchés */}
+                <div className="col-span-2">
+                  <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1">Produits recherchés / introuvables</label>
+                  <textarea value={proForm.produitsRecherches} onChange={(e) => setPro('produitsRecherches', e.target.value)}
+                    rows={2} placeholder="Ex: durcisseur UV pro, limes 100/180…"
+                    className="w-full px-3 py-2 border border-violet-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-violet-300 resize-none" />
+                </div>
+
+                {/* Problèmes fournisseurs */}
+                <div className="col-span-2">
+                  <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1">Problèmes avec les fournisseurs actuels</label>
+                  <textarea value={proForm.problemesFournisseurs} onChange={(e) => setPro('problemesFournisseurs', e.target.value)}
+                    rows={2} placeholder="Ex: délais longs, prix élevés, ruptures…"
+                    className="w-full px-3 py-2 border border-violet-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-violet-300 resize-none" />
+                </div>
+
+                {/* Dates suivi */}
+                <div>
+                  <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1">1er contact</label>
+                  <input type="date" value={proForm.datePremierContact} onChange={(e) => setPro('datePremierContact', e.target.value)}
+                    className="w-full px-3 py-2 border border-violet-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-violet-300" />
+                </div>
+                <div>
+                  <label className="text-xs font-600 text-muted-foreground uppercase tracking-wide block mb-1">Prochain suivi</label>
+                  <input type="date" value={proForm.prochainSuivi} onChange={(e) => setPro('prochainSuivi', e.target.value)}
+                    className="w-full px-3 py-2 border border-violet-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-violet-300" />
                 </div>
               </div>
             </div>
