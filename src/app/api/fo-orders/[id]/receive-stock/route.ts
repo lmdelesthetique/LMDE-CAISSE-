@@ -13,8 +13,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
   const body = await req.json().catch(() => ({}));
-  // qtysToAdd: delta quantities to add to stock (not cumulative total)
-  const qtysToAdd: Record<string, number> = body.qtysToAdd ?? {};
+  // qtysToAdd: delta quantities to add to stock (not cumulative total) — sanitize to non-negative integers
+  const rawQtys: Record<string, unknown> = body.qtysToAdd ?? {};
+  const qtysToAdd: Record<string, number> = {};
+  for (const [k, v] of Object.entries(rawQtys)) {
+    const n = Math.floor(Number(v));
+    if (n > 0) qtysToAdd[k] = n; // silently ignore 0 or negative values
+  }
   // optional missing/damaged per line: { lineId: number }
   const qtysMissing: Record<string, number> = body.qtysMissing ?? {};
   const qtysDamaged: Record<string, number> = body.qtysDamaged ?? {};

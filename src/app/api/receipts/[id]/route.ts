@@ -74,10 +74,64 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const updateData: Record<string, unknown> = {};
   const auditEntries: Array<Record<string, unknown>> = [];
 
-  // Cancellation
+  // Cancellation: reverse stock, loyalty points and store credit
   if (changes.status === 'cancelled') {
     updateData.status = 'cancelled';
     auditEntries.push({ receipt_id: id, modified_by: modifiedBy, field_changed: 'status', old_value: 'completed', new_value: 'cancelled', reason });
+
+    // Fetch full receipt to reverse its effects
+    const { data: fullReceipt } = await supabase
+      .from('receipts')
+      .select('items, client_id, loyalty_points_earned, store_credit_used, total_amount')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (fullReceipt) {
+      // Reverse stock for each item sold
+      const items: Array<{ productId?: string; product_id?: string; qty?: number; quantity?: number }> =
+        Array.isArray(fullReceipt.items) ? fullReceipt.items : [];
+      for (const item of items) {
+        const productId = item.productId ?? item.product_id;
+        const qty = Number(item.qty ?? item.quantity ?? 0);
+        if (!productId || qty <= 0) continue;
+        const { data: prod } = await supabase.from('products').select('stock, name').eq('id', productId).maybeSingle();
+        if (prod) {
+          const newStock = (prod.stock || 0) + qty;
+          await supabase.from('products').update({ stock: newStock, updated_at: new Date().toISOString() }).eq('id', productId);
+          await supabase.from('stock_movements_log').insert({
+            product_id: productId,
+            product_name: prod.name,
+            movement_type: 'return',
+            quantity_before: prod.stock || 0,
+            quantity_after: newStock,
+            quantity_change: qty,
+            reason: `Annulation ticket #${id}`,
+            performed_by: modifiedBy || 'Admin',
+            source: 'receipt_cancellation',
+          }).then(({ error: logErr }) => { if (logErr) console.error('[receipts/cancel] stock log:', logErr.message); });
+        }
+      }
+
+      // Reverse loyalty points earned on this receipt
+      const pointsToReverse = Number(fullReceipt.loyalty_points_earned ?? 0);
+      if (pointsToReverse > 0 && fullReceipt.client_id) {
+        const { data: clientData } = await supabase.from('clients').select('loyalty_points').eq('id', fullReceipt.client_id).maybeSingle();
+        if (clientData) {
+          const newPoints = Math.max(0, Number(clientData.loyalty_points ?? 0) - pointsToReverse);
+          await supabase.from('clients').update({ loyalty_points: newPoints, updated_at: new Date().toISOString() }).eq('id', fullReceipt.client_id);
+        }
+      }
+
+      // Reverse store credit used on this receipt (re-credit the client)
+      const creditUsed = parseFloat(String(fullReceipt.store_credit_used ?? 0));
+      if (creditUsed > 0 && fullReceipt.client_id) {
+        const { data: clientData } = await supabase.from('clients').select('store_credit').eq('id', fullReceipt.client_id).maybeSingle();
+        if (clientData) {
+          const newCredit = parseFloat(String(clientData.store_credit ?? 0)) + creditUsed;
+          await supabase.from('clients').update({ store_credit: newCredit, updated_at: new Date().toISOString() }).eq('id', fullReceipt.client_id);
+        }
+      }
+    }
   }
 
   if (changes.clientName !== undefined && changes.clientName !== current.client_name) {

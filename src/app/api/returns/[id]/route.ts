@@ -64,6 +64,14 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     const { data: ret } = await supabase.from('returns').select('*').eq('id', id).maybeSingle();
     if (!ret) return NextResponse.json({ error: 'Retour introuvable' }, { status: 404 });
 
+    // Block deletion if the avoir has been partially or fully used at POS
+    if (ret.avoir_status === 'used' || ret.avoir_status === 'partial') {
+      return NextResponse.json(
+        { error: `Impossible de supprimer : l'avoir a déjà été utilisé en caisse (statut : ${ret.avoir_status})` },
+        { status: 409 }
+      );
+    }
+
     // Reverse stock increment
     if (ret.stock_updated && ret.product_id) {
       const { data: prod } = await supabase

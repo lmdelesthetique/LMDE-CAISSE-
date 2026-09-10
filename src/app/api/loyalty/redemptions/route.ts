@@ -36,24 +36,19 @@ export async function POST(req: NextRequest) {
 
   try {
     const supabase = createAdminClient();
-
-    // Deduct points if the reward has a points cost
     const costInPoints = Number(pointsCost ?? 0);
-    let newBalance: number | null = null;
+
+    // Check points balance BEFORE creating the record to give a clean error
+    let currentPoints = 0;
     if (costInPoints > 0) {
       const { data: client } = await supabase.from('clients').select('loyalty_points').eq('id', clientId).maybeSingle();
-      const currentPoints = Number(client?.loyalty_points ?? 0);
+      currentPoints = Number(client?.loyalty_points ?? 0);
       if (currentPoints < costInPoints) {
         return NextResponse.json({ error: `Points insuffisants (${currentPoints} disponibles, ${costInPoints} requis)` }, { status: 400 });
       }
-      newBalance = Math.max(0, currentPoints - costInPoints);
-      const { error: ptErr } = await supabase.from('clients').update({ loyalty_points: newBalance, updated_at: new Date().toISOString() }).eq('id', clientId);
-      if (ptErr) {
-        console.error('[api/loyalty/redemptions POST] points deduction:', ptErr.message);
-        return NextResponse.json({ error: `Déduction points: ${ptErr.message}` }, { status: 500 });
-      }
     }
 
+    // STEP 1: Create redemption record FIRST — if this fails, no points are lost
     const { data, error } = await supabase
       .from('loyalty_redemptions')
       .insert({
@@ -75,6 +70,22 @@ export async function POST(req: NextRequest) {
       console.error('[api/loyalty/redemptions POST]', error.message);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    // STEP 2: Deduct points only after the redemption record exists
+    let newBalance: number | null = null;
+    if (costInPoints > 0) {
+      newBalance = Math.max(0, currentPoints - costInPoints);
+      const { error: ptErr } = await supabase
+        .from('clients')
+        .update({ loyalty_points: newBalance, updated_at: new Date().toISOString() })
+        .eq('id', clientId);
+      if (ptErr) {
+        // Record exists but points weren't deducted — log for manual reconciliation
+        console.error('[api/loyalty/redemptions POST] points deduction failed (record id:', data.id, '):', ptErr.message);
+        return NextResponse.json({ ...data, newLoyaltyBalance: null, pointsDeductionError: ptErr.message }, { status: 201 });
+      }
+    }
+
     return NextResponse.json({ ...data, newLoyaltyBalance: newBalance }, { status: 201 });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });

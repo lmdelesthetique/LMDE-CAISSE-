@@ -6,11 +6,11 @@ const dayStart = (d: string) => `${d}T00:00:00${MTQ_OFFSET}`;
 const dayEnd   = (d: string) => `${d}T23:59:59${MTQ_OFFSET}`;
 
 function cashPortionOfReceipt(paymentMethod: string, totalAmount: number): number {
-  const pm = String(paymentMethod ?? '').trim();
-  if (pm === 'Espèces' || pm === 'cash') return totalAmount;
-  if (pm === 'Mixte' || pm === 'mixed') return totalAmount;
-  if (pm.startsWith('Mixte|')) {
-    const parts = pm.split('|');
+  const pm = String(paymentMethod ?? '').trim().toLowerCase();
+  if (pm === 'espèces' || pm === 'especes' || pm === 'cash') return totalAmount;
+  if (pm === 'mixte' || pm === 'mixed') return totalAmount;
+  if (pm.startsWith('mixte|')) {
+    const parts = String(paymentMethod ?? '').trim().split('|');
     return parseFloat(parts[2] ?? '0') || 0;
   }
   return 0;

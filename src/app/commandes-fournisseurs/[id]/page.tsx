@@ -216,6 +216,8 @@ export default function OrderDetailPage() {
 
   // Stock audit (Vérifier)
   const [auditLoading, setAuditLoading] = useState(false);
+  const [fixingDiscrepancies, setFixingDiscrepancies] = useState(false);
+  const [fixResult, setFixResult] = useState<{ fixed: number; log: any[] } | null>(null);
   const [auditResult, setAuditResult] = useState<null | {
     referenceDate: string | null;
     lines: Array<{
@@ -525,11 +527,155 @@ export default function OrderDetailPage() {
       const res = await fetch(`/api/fo-orders/${order.id}/verify-stock`);
       const json = await res.json();
       setAuditResult(json);
+      setFixResult(null);
     } catch {
       setAuditResult(null);
     } finally {
       setAuditLoading(false);
     }
+  };
+
+  const handleFixDiscrepancies = async () => {
+    if (!order || !auditResult) return;
+    const actionable = auditResult.lines.filter((l: any) => l.discrepancy !== 0 && l.status !== 'no_product');
+    if (!actionable.length) return;
+    const overCount = actionable.filter((l: any) => l.discrepancy > 0).length;
+    const underCount = actionable.filter((l: any) => l.discrepancy < 0).length;
+    const msg = [
+      overCount > 0 ? `${overCount} produit(s) en DOUBLE (stock trop élevé → sera réduit)` : '',
+      underCount > 0 ? `${underCount} produit(s) MANQUANT (stock trop bas → sera ajouté)` : '',
+    ].filter(Boolean).join('\n');
+    if (!window.confirm(`Corriger automatiquement les écarts de stock ?\n\n${msg}\n\nCette action est enregistrée dans le journal de stock.`)) return;
+    setFixingDiscrepancies(true);
+    try {
+      const res = await fetch(`/api/fo-orders/${order.id}/fix-stock-discrepancies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lines: actionable.map((l: any) => ({
+            productId: l.productId ?? null,
+            productRef: l.productRef ?? '',
+            productName: l.productName ?? '',
+            discrepancy: l.discrepancy,
+          })),
+          orderNumber: order.orderNumber,
+        }),
+      });
+      const json = await res.json();
+      setFixResult(json);
+      // Re-run audit to confirm corrections
+      await handleVerifyStock();
+    } catch (e: any) {
+      alert(`Erreur : ${e.message}`);
+    } finally {
+      setFixingDiscrepancies(false);
+    }
+  };
+
+  const handlePrintReceptionChecklist = () => {
+    if (!order) return;
+    const orderLines = order.lines || [];
+    const now = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+    const rows = orderLines.map((l) => {
+      const imgSrc = l.productImageUrl || '';
+      const priceTTC = l.salePrice > 0 ? `${l.salePrice.toFixed(2)} €` : '—';
+      const img = imgSrc
+        ? `<img src="${imgSrc}" style="width:56px;height:56px;object-fit:cover;border-radius:6px;border:1px solid #e5e7eb;" />`
+        : `<div style="width:56px;height:56px;border-radius:6px;border:1px solid #e5e7eb;background:#f3f4f6;display:flex;align-items:center;justify-content:center;font-size:20px;">📦</div>`;
+      return `
+        <tr style="border-bottom:1px solid #e5e7eb;page-break-inside:avoid;">
+          <td style="padding:8px 6px;text-align:center;vertical-align:middle;">${img}</td>
+          <td style="padding:8px 6px;vertical-align:middle;">
+            <div style="font-weight:700;font-size:13px;color:#111827;">${l.productName}</div>
+            <div style="font-size:11px;color:#6b7280;font-family:monospace;">${l.productRef || '—'}</div>
+          </td>
+          <td style="padding:8px 6px;text-align:center;vertical-align:middle;font-weight:700;font-size:13px;">${priceTTC}</td>
+          <td style="padding:8px 6px;text-align:center;vertical-align:middle;font-weight:700;font-size:15px;color:#1d4ed8;">${l.qtyOrdered}</td>
+          <td style="padding:8px 6px;text-align:center;vertical-align:middle;"><div style="width:22px;height:22px;border:2px solid #6b7280;border-radius:4px;margin:0 auto;"></div></td>
+          <td style="padding:8px 6px;text-align:center;vertical-align:middle;"><div style="width:22px;height:22px;border:2px solid #6b7280;border-radius:4px;margin:0 auto;"></div></td>
+          <td style="padding:8px 6px;text-align:center;vertical-align:middle;"><div style="width:22px;height:22px;border:2px solid #6b7280;border-radius:4px;margin:0 auto;"></div></td>
+        </tr>`;
+    }).join('');
+
+    const totalQty = orderLines.reduce((s, l) => s + l.qtyOrdered, 0);
+    const totalTTC = orderLines.reduce((s, l) => s + (l.salePrice || 0) * l.qtyOrdered, 0);
+
+    const html = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Récap réception — ${order.orderNumber || order.id}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #111827; background: #fff; padding: 24px; font-size: 13px; }
+    h1 { font-size: 20px; font-weight: 800; color: #111827; }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; border-bottom: 2px solid #111827; padding-bottom: 14px; }
+    .header-left .subtitle { font-size: 12px; color: #6b7280; margin-top: 4px; }
+    .badge { display: inline-block; padding: 3px 10px; border-radius: 99px; font-size: 11px; font-weight: 700; background: #dbeafe; color: #1d4ed8; }
+    table { width: 100%; border-collapse: collapse; }
+    thead tr { background: #f9fafb; }
+    th { padding: 9px 6px; font-size: 11px; font-weight: 700; color: #374151; text-transform: uppercase; letter-spacing: .04em; border-bottom: 2px solid #e5e7eb; }
+    th.check { background: #fefce8; color: #92400e; }
+    .total-row td { font-weight: 700; background: #f3f4f6; border-top: 2px solid #111827; padding: 8px 6px; }
+    .footer { margin-top: 28px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
+    .sig-box { border: 1px solid #d1d5db; border-radius: 8px; padding: 10px 14px; min-height: 70px; }
+    .sig-box .label { font-size: 11px; font-weight: 700; color: #6b7280; text-transform: uppercase; margin-bottom: 4px; }
+    @media print {
+      body { padding: 12px; }
+      @page { margin: 1cm; size: A4; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="header-left">
+      <h1>Fiche de réception</h1>
+      <div class="subtitle">
+        Commande <strong>${order.orderNumber || order.id}</strong> &nbsp;·&nbsp;
+        Fournisseur : <strong>${order.supplierName || '—'}</strong> &nbsp;·&nbsp;
+        Imprimée le ${now}
+      </div>
+    </div>
+    <div><span class="badge">${totalQty} articles</span></div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width:70px;text-align:center;">Photo</th>
+        <th style="text-align:left;">Produit / Référence</th>
+        <th style="width:80px;text-align:center;">Prix TTC</th>
+        <th style="width:60px;text-align:center;">Qté</th>
+        <th class="check" style="width:80px;text-align:center;">Reçu ✓</th>
+        <th class="check" style="width:80px;text-align:center;">Étiquette ✓</th>
+        <th class="check" style="width:80px;text-align:center;">En rayon ✓</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rows}
+      <tr class="total-row">
+        <td colspan="2" style="text-align:right;padding-right:12px;">TOTAL</td>
+        <td style="text-align:center;">${totalTTC > 0 ? totalTTC.toFixed(2) + ' €' : '—'}</td>
+        <td style="text-align:center;">${totalQty}</td>
+        <td colspan="3"></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="footer">
+    <div class="sig-box"><div class="label">Réceptionné par</div></div>
+    <div class="sig-box"><div class="label">Contrôlé par</div></div>
+    <div class="sig-box"><div class="label">Date &amp; heure</div></div>
+  </div>
+</body>
+</html>`;
+
+    const win = window.open('', '_blank');
+    if (!win) { alert('Autorisez les pop-ups pour imprimer'); return; }
+    win.document.write(html);
+    win.document.close();
+    setTimeout(() => { win.focus(); win.print(); }, 400);
   };
 
   const handleSaveReceivedAt = async () => {
@@ -1212,20 +1358,28 @@ export default function OrderDetailPage() {
       const rate = realPricesCurrency === 'USD' ? effectiveRate! : 1;
 
       // Pre-compute confirmed subtotal so we can do proportional fee allocation per line
-      const confirmedSubtotalSIP = lines.reduce((s, l) => {
+      const linesForSIP = order.lines || [];
+      const confirmedSubtotalSIP = linesForSIP.reduce((s, l) => {
         const cu = (parseFloat(realPrices[l.id] || '0') || 0) * rate || (l.confirmedUnitPrice ?? l.unitPrice) * rate;
         return s + cu * l.qtyOrdered;
       }, 0);
       const productsCostSIP = confirmedSubtotalSIP > 0 ? confirmedSubtotalSIP : order.subtotal;
-      const totalQtySIP = lines.reduce((s, l) => s + l.qtyOrdered, 0);
+      const totalQtySIP = linesForSIP.reduce((s, l) => s + l.qtyOrdered, 0);
+      // Compute fees locally to avoid relying on render-scope totalFees ordering
+      const getECSIP = (key: string): number =>
+        costModes[key] === 'pct'
+          ? order.subtotal * (costPcts[key] || 0) / 100
+          : ((costs as any)[key] || 0) * (costsCurrency === 'USD' ? (costsEffectiveRate ?? 1) : 1);
+      const totalFeesSIP = ['transport', 'customs', 'vat', 'freight', 'bank', 'exchange', 'local', 'other']
+        .reduce((s, k) => s + getECSIP(k), 0);
 
-      const prices = lines.map(l => {
+      const prices = linesForSIP.map(l => {
         const confirmedUnitPrice = (parseFloat(realPrices[l.id] || '0') || 0) * rate;
         if (confirmedUnitPrice <= 0) return null;
         // Real unit cost = invoice price + proportional share of all fees (same as display formula)
         const feesPerUnit = productsCostSIP > 0
-          ? totalFees * confirmedUnitPrice / productsCostSIP
-          : (totalQtySIP > 0 ? totalFees / totalQtySIP : 0);
+          ? totalFeesSIP * confirmedUnitPrice / productsCostSIP
+          : (totalQtySIP > 0 ? totalFeesSIP / totalQtySIP : 0);
         const realUnitCost = confirmedUnitPrice + feesPerUnit;
         return { lineId: l.id, confirmedUnitPrice, realUnitCost };
       }).filter(Boolean);
@@ -1246,6 +1400,7 @@ export default function OrderDetailPage() {
 
   const handleFullReception = async () => {
     if (!order) return;
+    if (!window.confirm('Confirmer la réception TOTALE de cette commande ? Le stock sera mis à jour immédiatement.')) return;
     await supplierOrderService.changeStatus(order.id, 'fully_received', 'Caisse', 'Réception totale');
     // Delta: only add what hasn't been received yet to avoid double-counting
     const qtys: Record<string, number> = {};
@@ -1259,6 +1414,7 @@ export default function OrderDetailPage() {
 
   const handlePartialReception = async () => {
     if (!order) return;
+    if (!window.confirm('Confirmer la réception PARTIELLE ? Seules les quantités saisies dans le tableau seront intégrées au stock.')) return;
     await supplierOrderService.changeStatus(order.id, 'partially_received', 'Caisse', 'Réception partielle');
     // Delta: qty to add = what user entered - what was already received (prevents double-counting)
     const qtys: Record<string, number> = {};
@@ -2977,12 +3133,19 @@ export default function OrderDetailPage() {
                         Vérifier le stock
                       </button>
                     )}
+                    <button
+                      onClick={handlePrintReceptionChecklist}
+                      className="flex items-center gap-2 px-4 py-2 bg-gray-700 text-white rounded-lg text-sm font-500 hover:bg-gray-900 transition-colors"
+                    >
+                      <Icon name="PrinterIcon" size={15} />
+                      Imprimer le récap
+                    </button>
                   </div>
 
                   {/* Stock audit results */}
                   {auditResult && (
                     <div className="border border-blue-200 rounded-xl overflow-hidden">
-                      <div className="bg-blue-50 px-4 py-3 flex items-center justify-between gap-3">
+                      <div className="bg-blue-50 px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
                         <div className="flex items-center gap-2">
                           <Icon name="MagnifyingGlassIcon" size={16} className="text-blue-600" />
                           <p className="text-sm font-700 text-blue-900">
@@ -2992,15 +3155,37 @@ export default function OrderDetailPage() {
                               : <span className="ml-2 text-emerald-600">✅ Tout est correct</span>}
                           </p>
                         </div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 flex-wrap">
                           {auditResult.referenceDate && (
                             <span className="text-xs text-blue-600">Depuis le {new Date(auditResult.referenceDate).toLocaleDateString('fr-FR')}</span>
                           )}
-                          <button onClick={() => setAuditResult(null)} className="text-blue-400 hover:text-blue-600">
+                          {auditResult.hasDiscrepancies && auditResult.lines.some((l: any) => l.discrepancy !== 0 && l.status !== 'no_product') && (
+                            <button
+                              onClick={handleFixDiscrepancies}
+                              disabled={fixingDiscrepancies}
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 text-white text-xs font-600 rounded-lg hover:bg-orange-600 transition-colors disabled:opacity-50"
+                            >
+                              {fixingDiscrepancies
+                                ? <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                : <Icon name="WrenchScrewdriverIcon" size={13} />}
+                              {fixingDiscrepancies ? 'Correction...' : 'Corriger les écarts'}
+                            </button>
+                          )}
+                          <button onClick={() => { setAuditResult(null); setFixResult(null); }} className="text-blue-400 hover:text-blue-600">
                             <Icon name="XMarkIcon" size={16} />
                           </button>
                         </div>
                       </div>
+                      {fixResult && (
+                        <div className="px-4 py-2.5 bg-emerald-50 border-b border-emerald-200 text-xs text-emerald-800 font-500">
+                          ✅ {fixResult.fixed} produit(s) corrigé(s) — stock mis à jour et enregistré dans le journal.
+                          {fixResult.log?.length > 0 && (
+                            <span className="ml-2 text-emerald-600">
+                              ({fixResult.log.map((l: any) => `${l.name} : ${l.adjustment > 0 ? '+' : ''}${l.adjustment}`).join(', ')})
+                            </span>
+                          )}
+                        </div>
+                      )}
                       {!auditResult.referenceDate && (
                         <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 text-xs text-amber-700 font-500">
                           ⚠️ Aucune date de réception renseignée — renseignez-la ci-dessus pour un audit précis

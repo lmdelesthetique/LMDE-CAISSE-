@@ -23,12 +23,14 @@ function dayEnd(date: string): string { return `${date}T23:59:59${MTQ_OFFSET}`; 
  * - Autres             → 0
  */
 function cashPortionOfReceipt(paymentMethod: string, totalAmount: number): number {
-  const pm = String(paymentMethod ?? '').trim();
-  if (pm === 'Espèces' || pm === 'cash') return totalAmount;
-  if (pm === 'Mixte' || pm === 'mixed') return totalAmount;
-  if (pm.startsWith('Mixte|')) {
-    // Format : Mixte|<montant_cb>|<montant_cash>
-    const parts = pm.split('|');
+  const pm = String(paymentMethod ?? '').trim().toLowerCase();
+  // Pure cash — case-insensitive
+  if (pm === 'espèces' || pm === 'especes' || pm === 'cash') return totalAmount;
+  // Full mixed (all cash) — case-insensitive
+  if (pm === 'mixte' || pm === 'mixed') return totalAmount;
+  // Split mixed: Mixte|<montant_cb>|<montant_cash> (original stored as mixed case)
+  if (pm.startsWith('mixte|')) {
+    const parts = String(paymentMethod ?? '').trim().split('|');
     return parseFloat(parts[2] ?? '0') || 0;
   }
   return 0;

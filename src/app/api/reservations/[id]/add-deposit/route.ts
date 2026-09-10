@@ -38,7 +38,8 @@ export async function POST(
   const totalAmount = Number(existing.total_amount ?? 0);
   const newTotal = currentDepositPaid + amt;
 
-  if (newTotal + balancePaid > totalAmount + 0.01) {
+  // Compare as integer cents to avoid floating-point drift
+  if (Math.round((newTotal + balancePaid) * 100) > Math.round(totalAmount * 100)) {
     return NextResponse.json({ error: 'Le montant total dépasse le montant de la commande' }, { status: 400 });
   }
 
@@ -55,7 +56,7 @@ export async function POST(
     cashier_name: cashierName || null,
   };
 
-  const isNowFullyPaid = newTotal + balancePaid >= totalAmount - 0.01;
+  const isNowFullyPaid = Math.round((newTotal + balancePaid) * 100) >= Math.round(totalAmount * 100);
 
   const updatePayload: Record<string, any> = {
     deposit_paid: newTotal,
