@@ -784,10 +784,28 @@ export default function ProDevisPanel({ client, onHistoryChanged }: { client: Cl
         isCustom: !ti.productId,
         isBonus: ti.isBonus,
       }));
-      setItems(newItems);
-      if (template.discountPct > 0) setDiscountPct(template.discountPct);
+
+      // MERGE with existing items instead of replacing — allows combining multiple templates
+      // If a product already exists (same id, not custom), increment its quantity
+      setItems((prev) => {
+        if (prev.length === 0) return newItems;
+        const merged = [...prev];
+        for (const newItem of newItems) {
+          const existingIdx = !newItem.isCustom
+            ? merged.findIndex((i) => i.id === newItem.id && !i.isCustom)
+            : -1;
+          if (existingIdx >= 0) {
+            merged[existingIdx] = { ...merged[existingIdx], qty: merged[existingIdx].qty + newItem.qty };
+          } else {
+            merged.push(newItem);
+          }
+        }
+        return merged;
+      });
+
+      if (template.discountPct > 0 && discountPct === 0) setDiscountPct(template.discountPct);
       const { toast } = await import('sonner');
-      toast.success(`Modèle "${template.name}" appliqué — ${newItems.length} produit(s) chargé(s)`);
+      toast.success(`Modèle "${template.name}" ajouté — ${newItems.length} produit(s)`);
     } finally {
       setApplyingTemplateId(null);
     }
