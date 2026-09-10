@@ -1451,6 +1451,11 @@ export default function B2BInvoicingPage() {
   const [editingDoc, setEditingDoc] = useState<Partial<B2BDocument> | null>(null);
   const [previewDoc, setPreviewDoc] = useState<B2BDocument | null>(null);
   const [emailDoc, setEmailDoc] = useState<B2BDocument | null>(null);
+  const [deliveryDoc, setDeliveryDoc] = useState<B2BDocument | null>(null);
+  const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [deliveryNotes, setDeliveryNotes] = useState('');
+  const [creatingDelivery, setCreatingDelivery] = useState(false);
+  const [deliveryCreated, setDeliveryCreated] = useState<string | null>(null);
 
   // Devis emitted from POS (stored in factures table with doc_type='devis')
   const [posDevis, setPosDevis] = useState<any[]>([]);
@@ -1615,6 +1620,43 @@ export default function B2BInvoicingPage() {
       } catch { /* ignore, still remove from state */ }
     }
     setDocs((prev) => prev.filter((d) => d.id !== id));
+  }
+
+  async function handleCreateDelivery() {
+    if (!deliveryDoc) return;
+    if (!deliveryAddress.trim()) { alert('Adresse de livraison requise'); return; }
+    setCreatingDelivery(true);
+    try {
+      const products = deliveryDoc.lines.map((l: any) => ({
+        name: l.description || l.name || '',
+        qty: l.quantity,
+        price: l.unitPriceTtc ?? l.unitPrice ?? 0,
+      }));
+      const res = await fetch('/api/livraisons', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_name: deliveryDoc.clientName,
+          client_phone: deliveryDoc.clientPhone || null,
+          delivery_address: deliveryAddress.trim(),
+          delivery_notes: [
+            `Réf. facture : ${deliveryDoc.number}`,
+            deliveryNotes.trim(),
+          ].filter(Boolean).join('\n'),
+          products,
+          total_amount: deliveryDoc.totalTtc,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) { alert(`Erreur : ${json.error}`); return; }
+      setDeliveryCreated(deliveryDoc.number);
+      setDeliveryDoc(null);
+      setDeliveryNotes('');
+    } catch (e: any) {
+      alert(`Erreur réseau : ${e.message}`);
+    } finally {
+      setCreatingDelivery(false);
+    }
   }
 
   function handleConvertToInvoice(doc: B2BDocument) {
@@ -1826,6 +1868,19 @@ export default function B2BInvoicingPage() {
                               </a>
                             );
                           })()}
+                          {(doc.type === 'invoice' || doc.type === 'proforma') && (
+                            <button
+                              onClick={() => {
+                                setDeliveryDoc(doc);
+                                setDeliveryAddress(doc.clientAddress || '');
+                                setDeliveryNotes('');
+                              }}
+                              className="p-1.5 rounded-lg hover:bg-blue-50 text-muted-foreground hover:text-blue-600 transition-colors"
+                              title="Créer une livraison"
+                            >
+                              <Icon name="TruckIcon" size={14} />
+                            </button>
+                          )}
                           <button
                             onClick={() => handleDelete(doc.id)}
                             className="p-1.5 rounded-lg hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-colors"
@@ -1924,6 +1979,89 @@ export default function B2BInvoicingPage() {
       )}
       {emailDoc && (
         <EmailModal doc={emailDoc} onClose={() => setEmailDoc(null)} />
+      )}
+
+      {/* ── Livraison modal ─────────────────────────────────────────────── */}
+      {deliveryDoc && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="flex items-center gap-3 px-5 py-4 border-b border-border">
+              <Icon name="TruckIcon" size={20} className="text-blue-600" />
+              <h2 className="text-base font-700 text-foreground flex-1">Créer une livraison</h2>
+              <button onClick={() => setDeliveryDoc(null)} className="text-muted-foreground hover:text-foreground">
+                <Icon name="XMarkIcon" size={18} />
+              </button>
+            </div>
+            <div className="px-5 py-4 space-y-4">
+              <div className="bg-blue-50 rounded-xl p-3 text-sm">
+                <p className="font-600 text-blue-900">{deliveryDoc.clientName}</p>
+                {deliveryDoc.clientPhone && <p className="text-blue-700 text-xs mt-0.5">{deliveryDoc.clientPhone}</p>}
+                <p className="text-blue-600 text-xs mt-0.5">Réf. {deliveryDoc.number} · {deliveryDoc.totalTtc.toFixed(2)} €</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-600 text-muted-foreground mb-1">Adresse de livraison *</label>
+                <textarea
+                  value={deliveryAddress}
+                  onChange={(e) => setDeliveryAddress(e.target.value)}
+                  rows={2}
+                  className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none"
+                  placeholder="12 Rue des Fleurs, 97200 Fort-de-France"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-600 text-muted-foreground mb-1">Produits ({deliveryDoc.lines.length} ligne{deliveryDoc.lines.length > 1 ? 's' : ''})</label>
+                <div className="bg-muted/40 rounded-lg px-3 py-2 text-xs text-muted-foreground max-h-28 overflow-y-auto space-y-0.5">
+                  {deliveryDoc.lines.map((l: any, i: number) => (
+                    <div key={i} className="flex justify-between">
+                      <span className="truncate max-w-[240px]">{l.description || l.name || '—'}</span>
+                      <span className="font-600 ml-2 shrink-0">× {l.quantity}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-600 text-muted-foreground mb-1">Notes livreur (optionnel)</label>
+                <input
+                  value={deliveryNotes}
+                  onChange={(e) => setDeliveryNotes(e.target.value)}
+                  className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+                  placeholder="Appeler avant de livrer, code porte 1234..."
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 px-5 py-4 border-t border-border">
+              <button
+                onClick={() => setDeliveryDoc(null)}
+                className="flex-1 px-4 py-2 border border-border rounded-lg text-sm font-500 hover:bg-muted transition-colors"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleCreateDelivery}
+                disabled={creatingDelivery || !deliveryAddress.trim()}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-600 hover:bg-blue-700 transition-colors disabled:opacity-50"
+              >
+                {creatingDelivery
+                  ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Création...</>
+                  : <><Icon name="TruckIcon" size={15} /> Envoyer en livraison</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Toast succès livraison ───────────────────────────────────────── */}
+      {deliveryCreated && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 bg-blue-600 text-white px-5 py-3 rounded-xl shadow-xl text-sm font-500 animate-in slide-in-from-bottom-4">
+          <Icon name="TruckIcon" size={18} />
+          <span>Livraison créée pour {deliveryCreated} — visible dans l'espace Livraisons</span>
+          <button onClick={() => setDeliveryCreated(null)} className="ml-2 opacity-70 hover:opacity-100">
+            <Icon name="XMarkIcon" size={16} />
+          </button>
+        </div>
       )}
     </AppLayout>
   );
