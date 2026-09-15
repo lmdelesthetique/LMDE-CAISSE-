@@ -686,8 +686,14 @@ export const reservationService = {
       if (input.clientComment !== undefined) updatePayload.client_comment = input.clientComment || null;
       if (input.pickupDate !== undefined) updatePayload.pickup_date = input.pickupDate || null;
       if (input.estimatedArrivalDate !== undefined) updatePayload.estimated_arrival_date = input.estimatedArrivalDate || null;
-      if (input.depositAmount !== undefined) updatePayload.deposit_amount = input.depositAmount;
-      if (input.depositPercent !== undefined) updatePayload.deposit_percent = input.depositPercent ?? null;
+      if (input.depositAmount !== undefined) {
+        updatePayload.deposit_amount = input.depositAmount;
+        // Always sync deposit_percent when deposit_amount is updated.
+        // If depositPercent is undefined (user chose custom amount), we clear it in DB to prevent stale % recalculating deposit on next edit.
+        updatePayload.deposit_percent = input.depositPercent !== undefined ? (input.depositPercent ?? null) : null;
+      } else if (input.depositPercent !== undefined) {
+        updatePayload.deposit_percent = input.depositPercent ?? null;
+      }
       if (input.reservationType !== undefined) updatePayload.reservation_type = input.reservationType || null;
       if (input.recoveryMode !== undefined) updatePayload.recovery_mode = input.recoveryMode;
       if (input.deliveryAddress !== undefined) updatePayload.delivery_address = input.deliveryAddress || null;
@@ -719,14 +725,20 @@ export const reservationService = {
 
       if (existing && input.items) {
         const oldItems: ReservationItem[] = Array.isArray(existing.items) ? existing.items : [];
-        for (const item of oldItems) {
-          if (item.productId) {
-            try { await supabase.rpc('reinject_stock_on_cancel', { p_product_id: item.productId, p_qty: item.qty }); } catch {}
+        const newItems = input.items;
+        // Only touch stock if items actually changed (avoids double-movement when re-saving unchanged reservation)
+        const itemsKey = (items: ReservationItem[]) =>
+          items.filter(it => it.productId).map(it => `${it.productId}:${it.qty}`).sort().join('|');
+        if (itemsKey(oldItems) !== itemsKey(newItems)) {
+          for (const item of oldItems) {
+            if (item.productId) {
+              try { await supabase.rpc('reinject_stock_on_cancel', { p_product_id: item.productId, p_qty: item.qty }); } catch {}
+            }
           }
-        }
-        for (const item of input.items) {
-          if (item.productId) {
-            try { await supabase.rpc('deduct_stock_on_reservation', { p_product_id: item.productId, p_qty: item.qty }); } catch {}
+          for (const item of newItems) {
+            if (item.productId) {
+              try { await supabase.rpc('deduct_stock_on_reservation', { p_product_id: item.productId, p_qty: item.qty }); } catch {}
+            }
           }
         }
       }
@@ -748,7 +760,7 @@ export const reservationService = {
     try {
       const { data, error } = await supabase
         .from('reservations')
-        .select('reservation_status, deposit_paid, balance_paid, total_amount, balance_due, reservation_type, recovery_mode');
+        .select('reservation_status, deposit_paid, balance_paid, total_amount, reservation_type, recovery_mode');
       if (error) { return empty; }
       const rows = data ?? [];
       const activeRows = rows.filter((r) => r.reservation_status !== 'cancelled' && r.reservation_status !== 'completed');
@@ -764,12 +776,18 @@ export const reservationService = {
         }
       }
 
+      // Compute balance_due in JS — DB generated column only does total_amount − deposit_paid and misses balance_paid
+      const rowBalanceDue = (r: any) => Math.max(
+        parseFloat(r.total_amount ?? 0) - parseFloat(r.deposit_paid ?? 0) - parseFloat(r.balance_paid ?? 0),
+        0
+      );
+
       const nonCancelledRows = rows.filter((r) => r.reservation_status !== 'cancelled');
       const totalDepositsCollected = nonCancelledRows.reduce((sum, r) => sum + parseFloat(r.deposit_paid ?? 0), 0);
       const totalBalancesCollected = nonCancelledRows.reduce((sum, r) => sum + parseFloat(r.balance_paid ?? 0), 0);
       // Real revenue = deposits + balances (no double counting — each is recorded separately on different days)
       const totalRealRevenue = totalDepositsCollected + totalBalancesCollected;
-      const pendingBalanceCount = activeRows.filter((r) => parseFloat(r.balance_due ?? 0) > 0).length;
+      const pendingBalanceCount = activeRows.filter((r) => rowBalanceDue(r) > 0).length;
 
       return {
         total: rows.length,
@@ -779,7 +797,7 @@ export const reservationService = {
         completed: rows.filter((r) => r.reservation_status === 'completed').length,
         cancelled: rows.filter((r) => r.reservation_status === 'cancelled').length,
         totalDepositsCollected,
-        totalAmountPending: activeRows.reduce((sum, r) => sum + parseFloat(r.balance_due ?? 0), 0),
+        totalAmountPending: activeRows.reduce((sum, r) => sum + rowBalanceDue(r), 0),
         totalBalancesCollected,
         totalRealRevenue,
         pendingBalanceCount,

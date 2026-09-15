@@ -829,7 +829,16 @@ export default function ReservationFormModal({ onClose, onSaved, reservation }: 
                     <button
                       key={preset.value}
                       type="button"
-                      onClick={() => { setDepositPercent(depositPercent === preset.value ? null : preset.value); setDepositCustom(''); }}
+                      onClick={() => {
+                        if (depositPercent === preset.value) {
+                          // Deselecting % — carry the current computed amount into the custom field so it's not lost
+                          setDepositCustom(depositAmount > 0 ? depositAmount.toFixed(2) : '');
+                          setDepositPercent(null);
+                        } else {
+                          setDepositPercent(preset.value);
+                          setDepositCustom('');
+                        }
+                      }}
                       className={`px-4 py-2 rounded-lg border text-sm font-600 transition-all ${
                         depositPercent === preset.value
                           ? 'border-primary bg-primary/10 text-primary' :'border-border text-muted-foreground hover:border-primary/40'

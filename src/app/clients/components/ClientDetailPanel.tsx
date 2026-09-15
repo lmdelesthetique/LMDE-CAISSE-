@@ -135,6 +135,14 @@ interface ProProfile {
   date_premier_contact: string;
   statut_commercial: string;
   prochain_suivi: string;
+  main_activity: string[];
+  work_location: string[];
+  activity_level: string;
+  produits_utilises: string[];
+  fournisseur_actuel: string[];
+  budget_tranche: string;
+  frequence_achat: string;
+  besoin_principal: string[];
 }
 
 const EMPTY_PRO: ProProfile = {
@@ -142,7 +150,158 @@ const EMPTY_PRO: ProProfile = {
   budget_mensuel: '', fournisseur_principal: '', frequence_commande: '', mode_commande: '',
   marques_utilisees: '', produits_consommables: '', produits_recherches: '', problemes_fournisseurs: '',
   formule_box_proposee: '', date_premier_contact: '', statut_commercial: 'prospect', prochain_suivi: '',
+  main_activity: [], work_location: [], activity_level: '', produits_utilises: [],
+  fournisseur_actuel: [], budget_tranche: '', frequence_achat: '', besoin_principal: [],
 };
+
+const PRO_ACTIVITE_OPTIONS = [
+  { value: 'onglerie', label: 'Onglerie' },
+  { value: 'cils', label: 'Cils' },
+  { value: 'pedicure', label: 'Pédicure' },
+  { value: 'coiffure', label: 'Coiffure' },
+  { value: 'esthetique', label: 'Esthétique' },
+  { value: 'autre', label: 'Autre' },
+];
+
+const PRO_TRAVAILLE_OPTIONS = [
+  { value: 'domicile', label: 'Domicile' },
+  { value: 'salon', label: 'Salon' },
+  { value: 'institut', label: 'Institut' },
+  { value: 'mobile', label: 'Mobile' },
+  { value: 'location_cabine', label: 'Location cabine' },
+];
+
+const PRO_NIVEAU_OPTIONS = [
+  { value: 'debutante', label: 'Débutante' },
+  { value: 'en_developpement', label: 'En développement' },
+  { value: 'etablie', label: 'Établie' },
+  { value: 'gros_volume', label: 'Gros volume' },
+];
+
+const PRO_PRODUITS_OPTIONS = [
+  { value: 'gel_x', label: 'Gel X' },
+  { value: 'gel', label: 'Gel' },
+  { value: 'acrylique', label: 'Acrylique' },
+  { value: 'vernis', label: 'Vernis' },
+  { value: 'cils', label: 'Cils' },
+  { value: 'pedicure', label: 'Pédicure' },
+  { value: 'strass', label: 'Strass' },
+  { value: 'uv', label: 'UV / Lampe' },
+  { value: 'consommable', label: 'Consommable' },
+  { value: 'other', label: 'Autre' },
+];
+
+const PRO_FOURNISSEUR_OPTIONS = [
+  { value: 'local', label: 'Local' },
+  { value: 'france', label: 'France' },
+  { value: 'usa', label: 'USA' },
+  { value: 'internet', label: 'Internet' },
+  { value: 'plusieurs', label: 'Plusieurs' },
+];
+
+const PRO_BUDGET_OPTIONS = [
+  { value: '<100', label: '< 100 €' },
+  { value: '100-200', label: '100 – 200 €' },
+  { value: '200-300', label: '200 – 300 €' },
+  { value: '300-500', label: '300 – 500 €' },
+  { value: '+500', label: '+ 500 €' },
+];
+
+const PRO_FREQUENCE_OPTIONS = [
+  { value: 'hebdo', label: 'Hebdomadaire' },
+  { value: '2x_mois', label: '2× / mois' },
+  { value: 'mensuel', label: 'Mensuel' },
+  { value: 'occasionnel', label: 'Occasionnel' },
+];
+
+const PRO_BESOIN_OPTIONS = [
+  { value: 'prix', label: 'Prix' },
+  { value: 'disponibilite', label: 'Disponibilité' },
+  { value: 'livraison', label: 'Livraison rapide' },
+  { value: 'qualite', label: 'Qualité' },
+  { value: 'choix', label: 'Choix' },
+  { value: 'conseil', label: 'Conseil' },
+];
+
+const PRO_STATUT_OPTIONS = [
+  { value: 'prospect', label: 'Prospect' },
+  { value: 'a_relancer', label: 'À relancer' },
+  { value: 'cliente_test', label: 'Cliente test' },
+  { value: 'cliente_active', label: 'Cliente active' },
+  { value: 'cliente_recurrente', label: 'Cliente récurrente' },
+  { value: 'cliente_vip', label: 'Cliente VIP' },
+  { value: 'devis_envoye', label: 'Devis envoyé' },
+  { value: 'contrat_signe', label: 'Contrat signé' },
+  { value: 'actif', label: 'Actif' },
+  { value: 'inactive', label: 'Inactive' },
+];
+
+function ProMultiChip({ options, selected, onChange }: {
+  options: { value: string; label: string }[];
+  selected: string[];
+  onChange: (vals: string[]) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {options.map((o) => {
+        const active = selected.includes(o.value);
+        return (
+          <button key={o.value} type="button"
+            onClick={() => onChange(active ? selected.filter((v) => v !== o.value) : [...selected, o.value])}
+            className={`px-2.5 py-1 rounded-full text-xs font-600 transition-colors ${active ? 'bg-indigo-600 text-white' : 'bg-white border border-indigo-200 text-indigo-700 hover:border-indigo-400'}`}>
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ProMultiChipWithCustom({ options, selected, onChange, placeholder }: {
+  options: { value: string; label: string }[];
+  selected: string[];
+  onChange: (vals: string[]) => void;
+  placeholder?: string;
+}) {
+  const [customInput, setCustomInput] = React.useState('');
+  const predefinedValues = new Set(options.map((o) => o.value));
+  const customValues = selected.filter((v) => !predefinedValues.has(v));
+  const addCustom = () => {
+    const trimmed = customInput.trim();
+    if (trimmed && !selected.includes(trimmed)) onChange([...selected, trimmed]);
+    setCustomInput('');
+  };
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-1.5">
+        {options.map((o) => {
+          const active = selected.includes(o.value);
+          return (
+            <button key={o.value} type="button"
+              onClick={() => onChange(active ? selected.filter((v) => v !== o.value) : [...selected, o.value])}
+              className={`px-2.5 py-1 rounded-full text-xs font-600 transition-colors ${active ? 'bg-indigo-600 text-white' : 'bg-white border border-indigo-200 text-indigo-700 hover:border-indigo-400'}`}>
+              {o.label}
+            </button>
+          );
+        })}
+        {customValues.map((v) => (
+          <button key={v} type="button" onClick={() => onChange(selected.filter((s) => s !== v))}
+            className="px-2.5 py-1 rounded-full text-xs font-600 bg-pink-500 text-white flex items-center gap-1">
+            {v} ×
+          </button>
+        ))}
+      </div>
+      <div className="flex gap-1.5">
+        <input value={customInput} onChange={(e) => setCustomInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCustom(); } }}
+          placeholder={placeholder ?? 'Autre… (Entrée pour ajouter)'}
+          className="flex-1 px-2.5 py-1.5 border border-indigo-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-300" />
+        <button type="button" onClick={addCustom}
+          className="px-2.5 py-1.5 bg-indigo-100 text-indigo-700 rounded-lg text-xs font-600 hover:bg-indigo-200">+</button>
+      </div>
+    </div>
+  );
+}
 
 export default function ClientDetailPanel({
   client,
@@ -223,6 +382,7 @@ export default function ClientDetailPanel({
       .then((r) => r.json())
       .then(({ profile }) => {
         if (profile) {
+          const toArr = (v: any) => Array.isArray(v) ? v : (v ? [v] : []);
           setProProfile({
             salon_name: profile.salon_name ?? '',
             prestation_types: profile.prestation_types ?? [],
@@ -241,6 +401,14 @@ export default function ClientDetailPanel({
             date_premier_contact: profile.date_premier_contact ?? '',
             statut_commercial: profile.statut_commercial ?? 'prospect',
             prochain_suivi: profile.prochain_suivi ?? '',
+            main_activity: toArr(profile.main_activity),
+            work_location: toArr(profile.work_location),
+            activity_level: profile.activity_level ?? '',
+            produits_utilises: toArr(profile.produits_utilises),
+            fournisseur_actuel: toArr(profile.fournisseur_actuel),
+            budget_tranche: profile.budget_tranche ?? '',
+            frequence_achat: profile.frequence_achat ?? '',
+            besoin_principal: toArr(profile.besoin_principal),
           });
           setDevisHistory(profile.devis_history ?? []);
         }
@@ -1498,15 +1666,34 @@ export default function ClientDetailPanel({
                       <Icon name="BuildingStorefrontIcon" size={13} />
                       Profil du salon
                     </h3>
-                    <div>
-                      <label className="text-xs font-600 text-muted-foreground block mb-1">Nom du salon</label>
-                      <input type="text" value={proProfile.salon_name}
-                        onChange={(e) => setProProfile((p) => ({ ...p, salon_name: e.target.value }))}
-                        placeholder="Ex: Chez Marie Beauty"
-                        className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="col-span-2">
+                        <label className="text-xs font-600 text-muted-foreground block mb-1">Nom du salon / activité</label>
+                        <input type="text" value={proProfile.salon_name}
+                          onChange={(e) => setProProfile((p) => ({ ...p, salon_name: e.target.value }))}
+                          placeholder="Ex: Chez Marie Beauty"
+                          className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="text-xs font-600 text-muted-foreground block mb-1">Statut professionnel</label>
+                        <select value={proProfile.statut_commercial}
+                          onChange={(e) => setProProfile((p) => ({ ...p, statut_commercial: e.target.value }))}
+                          className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white">
+                          {PRO_STATUT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                        </select>
+                      </div>
                     </div>
                     <div>
-                      <label className="text-xs font-600 text-muted-foreground block mb-2">Type de prestations</label>
+                      <label className="text-xs font-600 text-muted-foreground block mb-2">Activité principale <span className="text-indigo-400 normal-case font-400">(plusieurs possibles)</span></label>
+                      <ProMultiChipWithCustom
+                        options={PRO_ACTIVITE_OPTIONS}
+                        selected={proProfile.main_activity}
+                        onChange={(v) => setProProfile((p) => ({ ...p, main_activity: v }))}
+                        placeholder="Ex: Microblading, Cryolipolyse… (Entrée)"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-600 text-muted-foreground block mb-2">Type de prestations (box)</label>
                       <div className="flex flex-wrap gap-2">
                         {['onglerie', 'extension_cils', 'pedicure', 'esthetique', 'autre'].map((p) => (
                           <button key={p} type="button" onClick={() => togglePrestation(p)}
@@ -1515,6 +1702,23 @@ export default function ClientDetailPanel({
                           </button>
                         ))}
                       </div>
+                    </div>
+                    <div>
+                      <label className="text-xs font-600 text-muted-foreground block mb-2">Travaille à <span className="text-indigo-400 normal-case font-400">(plusieurs possibles)</span></label>
+                      <ProMultiChip
+                        options={PRO_TRAVAILLE_OPTIONS}
+                        selected={proProfile.work_location}
+                        onChange={(v) => setProProfile((p) => ({ ...p, work_location: v }))}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-600 text-muted-foreground block mb-1">Niveau d&apos;activité</label>
+                      <select value={proProfile.activity_level}
+                        onChange={(e) => setProProfile((p) => ({ ...p, activity_level: e.target.value }))}
+                        className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white">
+                        <option value="">— Choisir —</option>
+                        {PRO_NIVEAU_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
                     </div>
                     <div className="grid grid-cols-3 gap-3">
                       {[
@@ -1539,7 +1743,24 @@ export default function ClientDetailPanel({
                       <Icon name="BanknotesIcon" size={13} />
                       Budget & habitudes d&apos;achat
                     </h3>
+                    <div>
+                      <label className="text-xs font-600 text-muted-foreground block mb-2">Fournisseur actuel <span className="text-emerald-400 normal-case font-400">(plusieurs possibles)</span></label>
+                      <ProMultiChip
+                        options={PRO_FOURNISSEUR_OPTIONS}
+                        selected={proProfile.fournisseur_actuel}
+                        onChange={(v) => setProProfile((p) => ({ ...p, fournisseur_actuel: v }))}
+                      />
+                    </div>
                     <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs font-600 text-muted-foreground block mb-1">Budget / mois</label>
+                        <select value={proProfile.budget_tranche}
+                          onChange={(e) => setProProfile((p) => ({ ...p, budget_tranche: e.target.value }))}
+                          className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white">
+                          <option value="">— Choisir —</option>
+                          {PRO_BUDGET_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                        </select>
+                      </div>
                       <div>
                         <label className="text-xs font-600 text-muted-foreground block mb-1">Budget mensuel estimé (€)</label>
                         <input type="number" min="0" value={proProfile.budget_mensuel}
@@ -1547,15 +1768,17 @@ export default function ClientDetailPanel({
                           placeholder="500"
                           className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
                       </div>
-                      <div>
-                        <label className="text-xs font-600 text-muted-foreground block mb-1">Fournisseur principal actuel</label>
-                        <input type="text" value={proProfile.fournisseur_principal}
-                          onChange={(e) => setProProfile((p) => ({ ...p, fournisseur_principal: e.target.value }))}
-                          placeholder="Ex: OPI, Manucurist…"
-                          className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
-                      </div>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs font-600 text-muted-foreground block mb-1">Fréquence d&apos;achat</label>
+                        <select value={proProfile.frequence_achat}
+                          onChange={(e) => setProProfile((p) => ({ ...p, frequence_achat: e.target.value }))}
+                          className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white">
+                          <option value="">— Choisir —</option>
+                          {PRO_FREQUENCE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                        </select>
+                      </div>
                       <div>
                         <label className="text-xs font-600 text-muted-foreground block mb-1">Fréquence de commande</label>
                         <select value={proProfile.frequence_commande}
@@ -1566,6 +1789,15 @@ export default function ClientDetailPanel({
                           <option value="bi_mensuel">Bi-mensuel</option>
                           <option value="mensuel">Mensuel</option>
                         </select>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs font-600 text-muted-foreground block mb-1">Fournisseur principal (texte)</label>
+                        <input type="text" value={proProfile.fournisseur_principal}
+                          onChange={(e) => setProProfile((p) => ({ ...p, fournisseur_principal: e.target.value }))}
+                          placeholder="Ex: OPI, Manucurist…"
+                          className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
                       </div>
                       <div>
                         <label className="text-xs font-600 text-muted-foreground block mb-1">Mode de commande préféré</label>
@@ -1579,6 +1811,14 @@ export default function ClientDetailPanel({
                         </select>
                       </div>
                     </div>
+                    <div>
+                      <label className="text-xs font-600 text-muted-foreground block mb-2">Besoin principal <span className="text-emerald-400 normal-case font-400">(plusieurs possibles)</span></label>
+                      <ProMultiChip
+                        options={PRO_BESOIN_OPTIONS}
+                        selected={proProfile.besoin_principal}
+                        onChange={(v) => setProProfile((p) => ({ ...p, besoin_principal: v }))}
+                      />
+                    </div>
                   </div>
 
                   {/* Section 3 — Produits */}
@@ -1587,11 +1827,19 @@ export default function ClientDetailPanel({
                       <Icon name="SparklesIcon" size={13} />
                       Produits utilisés
                     </h3>
+                    <div>
+                      <label className="text-xs font-600 text-muted-foreground block mb-2">Produits utilisés <span className="text-rose-400 normal-case font-400">(plusieurs possibles)</span></label>
+                      <ProMultiChip
+                        options={PRO_PRODUITS_OPTIONS}
+                        selected={proProfile.produits_utilises}
+                        onChange={(v) => setProProfile((p) => ({ ...p, produits_utilises: v }))}
+                      />
+                    </div>
                     {[
                       { key: 'marques_utilisees', label: 'Marques utilisées actuellement', placeholder: 'Ex: OPI, CND, Manucurist, Orly…' },
                       { key: 'produits_consommables', label: 'Produits consommables récurrents', placeholder: 'Ex: gels couleur x10/mois, top coat x5/mois…' },
-                      { key: 'produits_recherches', label: 'Produits recherchés mais introuvables localement', placeholder: 'Ex: durcisseur UV professionnel, limes 100/180…' },
-                      { key: 'problemes_fournisseurs', label: 'Problèmes rencontrés avec les fournisseurs actuels', placeholder: 'Ex: délais trop longs, prix élevés, ruptures de stock…' },
+                      { key: 'produits_recherches', label: 'Produits recherchés / introuvables', placeholder: 'Ex: durcisseur UV professionnel, limes 100/180…' },
+                      { key: 'problemes_fournisseurs', label: 'Problèmes avec les fournisseurs actuels', placeholder: 'Ex: délais trop longs, prix élevés, ruptures de stock…' },
                     ].map(({ key, label, placeholder }) => (
                       <div key={key}>
                         <label className="text-xs font-600 text-muted-foreground block mb-1">{label}</label>
@@ -1622,23 +1870,12 @@ export default function ClientDetailPanel({
                         </select>
                       </div>
                       <div>
-                        <label className="text-xs font-600 text-muted-foreground block mb-1">Statut commercial</label>
-                        <select value={proProfile.statut_commercial}
-                          onChange={(e) => setProProfile((p) => ({ ...p, statut_commercial: e.target.value }))}
-                          className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white">
-                          <option value="prospect">Prospect</option>
-                          <option value="devis_envoye">Devis envoyé</option>
-                          <option value="contrat_signe">Contrat signé</option>
-                          <option value="actif">Actif</option>
-                        </select>
-                      </div>
-                      <div>
                         <label className="text-xs font-600 text-muted-foreground block mb-1">Date du premier contact</label>
                         <input type="date" value={proProfile.date_premier_contact}
                           onChange={(e) => setProProfile((p) => ({ ...p, date_premier_contact: e.target.value }))}
                           className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
                       </div>
-                      <div>
+                      <div className="col-span-2">
                         <label className="text-xs font-600 text-muted-foreground block mb-1">Prochain suivi prévu</label>
                         <input type="date" value={proProfile.prochain_suivi}
                           onChange={(e) => setProProfile((p) => ({ ...p, prochain_suivi: e.target.value }))}
