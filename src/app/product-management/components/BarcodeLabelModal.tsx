@@ -358,7 +358,14 @@ export default function BarcodeLabelModal({ products, onClose, initialQtys, orde
   const [isPrinting, setIsPrinting] = useState(false);
   const [activeTab, setActiveTab] = useState<'config' | 'preview'>('config');
   const [search, setSearch] = useState('');
+  const [sortOrder, setSortOrder] = useState<'original' | 'az' | 'za'>('original');
   const searchRef = useRef<HTMLInputElement>(null);
+
+  const sortedProducts = useMemo(() => {
+    if (sortOrder === 'az') return [...products].sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+    if (sortOrder === 'za') return [...products].sort((a, b) => b.name.localeCompare(a.name, 'fr'));
+    return products;
+  }, [products, sortOrder]);
 
   // Variant support
   const [colorVariantsMap, setColorVariantsMap] = useState<Record<string, VariantRow[]>>({});
@@ -419,7 +426,7 @@ export default function BarcodeLabelModal({ products, onClose, initialQtys, orde
 
   const allLabels: ProductRecord[] = useMemo(() => {
     const list: ProductRecord[] = [];
-    products.forEach((p) => {
+    sortedProducts.forEach((p) => {
       const variants = colorVariantsMap[p.id] || [];
       const isExpanded = expandedProducts.has(p.id) && variants.length > 0;
       if (isExpanded) {
@@ -438,7 +445,7 @@ export default function BarcodeLabelModal({ products, onClose, initialQtys, orde
       }
     });
     return list;
-  }, [products, selectedIds, productQtys, colorVariantsMap, expandedProducts, selectedVariantIds, variantQtys]);
+  }, [sortedProducts, selectedIds, productQtys, colorVariantsMap, expandedProducts, selectedVariantIds, variantQtys]);
 
   const totalLabels = allLabels.length;
   const totalPages = Math.ceil(Math.max(1, totalLabels) / SHEET.perPage);
@@ -465,26 +472,26 @@ export default function BarcodeLabelModal({ products, onClose, initialQtys, orde
   };
 
   const toggleAll = () => {
-    if (selectedIds.size === products.length) setSelectedIds(new Set());
-    else setSelectedIds(new Set(products.map((p) => p.id)));
+    if (selectedIds.size === sortedProducts.length) setSelectedIds(new Set());
+    else setSelectedIds(new Set(sortedProducts.map((p) => p.id)));
   };
 
   const setAllQty = (qty: number) => {
     const updated: Record<string, number> = {};
-    products.forEach((p) => { updated[p.id] = qty; });
+    sortedProducts.forEach((p) => { updated[p.id] = qty; });
     setProductQtys(updated);
   };
 
   // ─── Search + filtered helpers ───────────────────────────────────────────────
   const filteredProducts = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return products;
-    return products.filter((p) =>
+    if (!q) return sortedProducts;
+    return sortedProducts.filter((p) =>
       p.name.toLowerCase().includes(q) ||
       (p.ref || '').toLowerCase().includes(q) ||
       (p.barcode || '').toLowerCase().includes(q)
     );
-  }, [products, search]);
+  }, [sortedProducts, search]);
 
   const selectedInFilter = useMemo(
     () => filteredProducts.filter((p) => selectedIds.has(p.id)),
@@ -792,6 +799,26 @@ window.addEventListener('load', function() { window.print(); });
                   {' · '}<span className="text-primary font-700">{totalLabels} étiq.</span>
                 </p>
                 <span className="text-[10px] text-muted-foreground">{selectedIds.size} sél.</span>
+              </div>
+            </div>
+
+            {/* Sort buttons */}
+            <div className="px-3 pb-2 pt-1 border-b border-border shrink-0">
+              <div className="flex items-center gap-1">
+                <span className="text-[9px] text-muted-foreground shrink-0">Tri :</span>
+                {(['original', 'az', 'za'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => setSortOrder(mode)}
+                    className={`flex-1 text-[9px] font-700 rounded px-1.5 py-1 border transition-colors ${
+                      sortOrder === mode
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'border-border text-muted-foreground hover:bg-muted'
+                    }`}
+                  >
+                    {mode === 'original' ? 'Original' : mode === 'az' ? 'A → Z' : 'Z → A'}
+                  </button>
+                ))}
               </div>
             </div>
 
