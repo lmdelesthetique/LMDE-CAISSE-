@@ -83,6 +83,7 @@ export default function LivraisonsPage() {
   const [printingId, setPrintingId] = useState<string | null>(null);
   const [newShopifyIds, setNewShopifyIds] = useState<Set<string>>(new Set());
   const [colissimoModalData, setColissimoModalData] = useState<ColissimoData | null>(null);
+  const [selectedDelivery, setSelectedDelivery] = useState<Delivery | null>(null);
   const seenIdsRef = useRef<Set<string>>(new Set());
   const initialLoadDone = useRef(false);
   const channelRef = useRef<any>(null);
@@ -636,7 +637,26 @@ export default function LivraisonsPage() {
 
                       {/* Items */}
                       <td className="px-4 py-3 hidden lg:table-cell">
-                        <span className="text-xs text-gray-500">{products.length} article{products.length !== 1 ? 's' : ''}</span>
+                        <button
+                          onClick={() => setSelectedDelivery(d)}
+                          className="group flex items-center gap-1.5 hover:text-orange-600 transition-colors"
+                        >
+                          {products.slice(0, 3).map((p, i) => (
+                            p.imageUrl ? (
+                              <img key={i} src={p.imageUrl} alt="" className="w-7 h-7 rounded-md object-cover border border-gray-200 group-hover:border-orange-300 transition-colors" />
+                            ) : (
+                              <div key={i} className="w-7 h-7 rounded-md bg-gray-100 border border-gray-200 flex items-center justify-center">
+                                <span className="text-[10px] text-gray-400">?</span>
+                              </div>
+                            )
+                          ))}
+                          {products.length > 3 && (
+                            <span className="text-[10px] font-bold text-gray-400 group-hover:text-orange-500">+{products.length - 3}</span>
+                          )}
+                          <span className="text-xs text-gray-500 group-hover:text-orange-600 ml-0.5">
+                            {products.length} art.
+                          </span>
+                        </button>
                       </td>
 
                       {/* Amount */}
@@ -920,6 +940,72 @@ export default function LivraisonsPage() {
           data={colissimoModalData}
           onClose={() => setColissimoModalData(null)}
         />
+      )}
+
+      {/* ── Modal détail articles ────────────────────────────────────── */}
+      {selectedDelivery && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setSelectedDelivery(null)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[85vh] flex flex-col overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
+              <div>
+                <p className="font-bold text-gray-900 text-base">{selectedDelivery.clientName}</p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {selectedDelivery.shopifyOrderNumber ? `Commande ${selectedDelivery.shopifyOrderNumber}` : 'Livraison manuelle'}
+                  {' · '}
+                  {(selectedDelivery.products ?? []).length} article{(selectedDelivery.products ?? []).length !== 1 ? 's' : ''}
+                </p>
+              </div>
+              <button onClick={() => setSelectedDelivery(null)}
+                className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-200 transition-colors">
+                ✕
+              </button>
+            </div>
+
+            {/* Products list */}
+            <div className="overflow-y-auto flex-1 p-4 space-y-3">
+              {(selectedDelivery.products ?? []).length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <span className="text-4xl mb-3">📦</span>
+                  <p className="text-sm text-gray-500">Aucun article enregistré pour cette livraison</p>
+                </div>
+              ) : (
+                (selectedDelivery.products ?? []).map((p, i) => (
+                  <div key={i} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-100">
+                    {p.imageUrl ? (
+                      <img src={p.imageUrl} alt={p.name} className="w-16 h-16 rounded-xl object-cover border border-gray-200 shrink-0" />
+                    ) : (
+                      <div className="w-16 h-16 rounded-xl bg-gray-200 flex items-center justify-center shrink-0">
+                        <span className="text-2xl">📦</span>
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-gray-900 text-sm leading-tight">{p.name}</p>
+                      {p.sku && <p className="text-[11px] text-gray-400 mt-0.5">Réf : {p.sku}</p>}
+                      <div className="flex items-center gap-3 mt-1.5">
+                        <span className="text-xs font-bold text-orange-600 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-full">
+                          × {p.qty}
+                        </span>
+                        {p.price != null && (
+                          <span className="text-xs text-gray-500">{(p.price * p.qty).toFixed(2)} €</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Footer */}
+            {selectedDelivery.totalAmount != null && (
+              <div className="px-5 py-3 border-t border-gray-100 shrink-0 flex items-center justify-between bg-gray-50">
+                <span className="text-sm text-gray-500">Total commande</span>
+                <span className="text-base font-bold text-gray-900">{selectedDelivery.totalAmount.toFixed(2)} €</span>
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
