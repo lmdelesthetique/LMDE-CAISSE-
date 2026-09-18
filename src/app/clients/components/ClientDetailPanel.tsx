@@ -1239,7 +1239,7 @@ export default function ClientDetailPanel({
                                         )}
                                       </div>
                                       <p className="text-[10px] text-violet-600 mt-1">
-                                        Débloquée le {new Date(r.unlockedAt).toLocaleDateString('fr-FR')} · {r.pointsAtUnlock.toLocaleString('fr-FR')} pts
+                                        Débloquée le {new Date(r.unlockedAt).toLocaleDateString('fr-FR')}
                                         {r.expiryDate && <> · Expire le {new Date(r.expiryDate).toLocaleDateString('fr-FR')}</>}
                                       </p>
                                     </div>
@@ -1271,7 +1271,7 @@ export default function ClientDetailPanel({
                                       {r.cashierName && <> · Par : {r.cashierName}</>}
                                     </p>
                                     <p className="text-[10px] text-emerald-600 mt-0.5">
-                                      Débloquée le {new Date(r.unlockedAt).toLocaleDateString('fr-FR')} · {r.pointsAtUnlock.toLocaleString('fr-FR')} pts
+                                      Débloquée le {new Date(r.unlockedAt).toLocaleDateString('fr-FR')}
                                     </p>
                                   </div>
                                   <span className="text-[10px] font-700 px-2 py-1 rounded-full bg-emerald-200 text-emerald-800 shrink-0">

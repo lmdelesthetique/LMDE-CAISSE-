@@ -130,8 +130,7 @@ export function AvailableRewardsModal({
                         )}
                       </div>
                       <p className="text-[10px] text-muted-foreground mt-1">
-                        Débloquée le {new Date(reward.unlockedAt).toLocaleDateString('fr-FR')} ·{' '}
-                        {reward.pointsAtUnlock.toLocaleString('fr-FR')} pts
+                        Débloquée le {new Date(reward.unlockedAt).toLocaleDateString('fr-FR')}
                         {reward.expiryDate && !isExpiringSoon && (
                           <> · Expire le {new Date(reward.expiryDate).toLocaleDateString('fr-FR')}</>
                         )}
