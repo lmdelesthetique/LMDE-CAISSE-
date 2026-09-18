@@ -808,8 +808,9 @@ export default function DevisProPage() {
           <div className="shrink-0 px-5 py-4 border-b border-border">
             <div className="flex items-center justify-between mb-1">
               <div className="flex items-center gap-2">
-                <button onClick={() => setSelected(null)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
-                  <Icon name="ArrowLeftIcon" size={16} />
+                <button onClick={() => setSelected(null)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-muted hover:bg-muted/80 text-foreground text-xs font-600 transition-colors">
+                  <Icon name="ArrowLeftIcon" size={14} />
+                  Retour
                 </button>
                 <div>
                   <h2 className="text-base font-800 text-foreground">
