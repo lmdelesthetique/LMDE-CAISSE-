@@ -179,6 +179,8 @@ export default function DevisProPage() {
   const [clientSearchLoading, setClientSearchLoading] = useState(false);
   const [newDevisClient, setNewDevisClient] = useState<any | null>(null);
   const clientSearchRef = useRef<HTMLInputElement>(null);
+  const [editingDevisId, setEditingDevisId] = useState<string | null>(null);
+  const [restoringItems, setRestoringItems] = useState(false);
 
   // ── Fetch list ──────────────────────────────────────────────────────────────
   const fetchDevis = useCallback(async () => {
@@ -223,9 +225,10 @@ export default function DevisProPage() {
     setAdresseLivraison(selected.adresse_livraison ?? '');
     setToCommander(new Set());
 
+    // In ProDevisPanel, item.id IS the product UUID for non-custom items
     const productIds = selected.items
-      .filter((i) => !i.isCustom && i.productId)
-      .map((i) => i.productId as string);
+      .filter((i) => !i.isCustom && i.id && !i.id.startsWith('custom-'))
+      .map((i) => i.productId ?? i.id); // support both formats
 
     if (productIds.length === 0) { setStockMap({}); return; }
 
@@ -381,6 +384,27 @@ export default function DevisProPage() {
       toast.error('Erreur de migration');
     } finally {
       setMigrating(false);
+    }
+  };
+
+  // ── Modifier un devis existant ───────────────────────────────────────────────
+  const openEditDevis = async (devis: DevisPro) => {
+    if (!devis.client) return;
+    setRestoringItems(true);
+    try {
+      // Restore items into client's produits_reassort so ProDevisPanel loads them
+      await fetch(`/api/clients/${devis.client_id}/pro-profile`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ produits_reassort: devis.items }),
+      });
+      setEditingDevisId(devis.id);
+      setNewDevisClient(devis.client);
+      setShowNewDevis(true);
+    } catch {
+      toast.error('Erreur lors de l\'ouverture');
+    } finally {
+      setRestoringItems(false);
     }
   };
 
@@ -622,6 +646,17 @@ export default function DevisProPage() {
                 </div>
               </div>
               <div className="flex items-center gap-1.5">
+                {['brouillon', 'envoye', 'en_discussion'].includes(selected.statut) && (
+                  <button
+                    onClick={() => openEditDevis(selected)}
+                    disabled={restoringItems}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-orange-200 bg-orange-50 hover:bg-orange-100 text-orange-600 text-[11px] font-700 transition-colors disabled:opacity-50"
+                    title="Modifier ce devis"
+                  >
+                    {restoringItems ? <Icon name="ArrowPathIcon" size={13} className="animate-spin" /> : <Icon name="PencilSquareIcon" size={13} />}
+                    Modifier
+                  </button>
+                )}
                 <button
                   onClick={() => sendWhatsApp(selected)}
                   className="p-2 rounded-xl border border-border hover:bg-green-50 hover:border-green-200 text-green-600 transition-colors"
@@ -693,7 +728,8 @@ export default function DevisProPage() {
               </p>
               <div className="space-y-2">
                 {selected.items.map((item, idx) => {
-                  const stock = item.productId ? (stockMap[item.productId] ?? null) : null;
+                  const lookupId = item.productId ?? item.id;
+                  const stock = (!item.isCustom && !item.id.startsWith('custom-')) ? (stockMap[lookupId] ?? null) : null;
                   const needsOrder = toCommander.has(item.id);
                   const isShortage = stock !== null && stock < item.qty;
                   return (
@@ -944,14 +980,14 @@ export default function DevisProPage() {
             <div className="relative flex flex-col w-full bg-white overflow-hidden">
               <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-border bg-white z-10">
                 <div className="flex items-center gap-2">
-                  <button onClick={() => setNewDevisClient(null)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
+                  <button onClick={() => { setNewDevisClient(null); setEditingDevisId(null); }} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
                     <Icon name="ArrowLeftIcon" size={16} />
                   </button>
                   <p className="text-sm font-700 text-foreground">
-                    Nouveau devis — {newDevisClient.firstName} {newDevisClient.lastName}
+                    {editingDevisId ? 'Modifier le devis' : 'Nouveau devis'} — {newDevisClient.firstName} {newDevisClient.lastName}
                   </p>
                 </div>
-                <button onClick={() => { setShowNewDevis(false); fetchDevis(); }}
+                <button onClick={() => { setShowNewDevis(false); setEditingDevisId(null); fetchDevis(); }}
                   className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
                   <Icon name="XMarkIcon" size={18} />
                 </button>
@@ -959,7 +995,19 @@ export default function DevisProPage() {
               <div className="flex-1 overflow-y-auto">
                 <ProDevisPanel
                   client={newDevisClient}
-                  onHistoryChanged={() => { setShowNewDevis(false); fetchDevis(); }}
+                  onHistoryChanged={async () => {
+                    // If editing an existing devis, mark it as replaced
+                    if (editingDevisId) {
+                      await fetch(`/api/devis-pro/${editingDevisId}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ statut: 'annule' }),
+                      }).catch(() => {});
+                      setEditingDevisId(null);
+                    }
+                    setShowNewDevis(false);
+                    fetchDevis();
+                  }}
                 />
               </div>
             </div>
