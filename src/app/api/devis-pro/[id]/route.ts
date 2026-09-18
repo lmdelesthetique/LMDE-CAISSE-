@@ -171,6 +171,72 @@ async function createReceiptFromDevis(supabase: ReturnType<typeof createAdminCli
     }
     await supabase.from('clients').update(clientUpdates).eq('id', devis.client_id);
   }
+
+  // If livraison: mark existing delivery as delivered, or create one for records
+  if (devis.type_expedition === 'livraison' && devis.adresse_livraison) {
+    const existingDeliveryId = (devis as any).delivery_id;
+    if (existingDeliveryId) {
+      await supabase.from('deliveries').update({
+        status: 'delivered',
+        delivered_at: new Date().toISOString(),
+        ...(receipt ? { receipt_id: receipt.id } : {}),
+      }).eq('id', existingDeliveryId);
+    } else {
+      // Create a delivered record (shortcut flow — was marked livre directly)
+      await supabase.from('deliveries').insert({
+        client_name: clientName,
+        client_phone: devis.client?.first_name ? null : null,
+        delivery_address: devis.adresse_livraison,
+        delivery_notes: devis.notes_preparation || null,
+        products: items.filter((i: any) => !String(i.id || '').startsWith('custom-')).map((i: any) => ({
+          name: i.name, qty: i.qty, sku: i.sku || '',
+        })),
+        total_amount: totalAmount,
+        receipt_id: receipt?.id || null,
+        status: 'delivered',
+        delivered_at: new Date().toISOString(),
+      });
+    }
+  }
+}
+
+// Creates a pending delivery when devis is ready for livraison
+async function createLivraisonPending(supabase: ReturnType<typeof createAdminClient>, devisId: string) {
+  const { data: devis } = await supabase
+    .from('devis_pro')
+    .select(`*, client:clients(id, first_name, last_name, phone, whatsapp)`)
+    .eq('id', devisId)
+    .single();
+
+  if (!devis || devis.type_expedition !== 'livraison' || !devis.adresse_livraison) return;
+
+  // Check no delivery already exists for this devis
+  const existingId = (devis as any).delivery_id;
+  if (existingId) return;
+
+  const items: any[] = Array.isArray(devis.items) ? devis.items : [];
+  const clientName = devis.client
+    ? `${devis.client.first_name || ''} ${devis.client.last_name || ''}`.trim()
+    : null;
+  const clientPhone = devis.client?.phone || devis.client?.whatsapp || null;
+
+  const { data: delivery } = await supabase.from('deliveries').insert({
+    client_name: clientName,
+    client_phone: clientPhone,
+    delivery_address: devis.adresse_livraison,
+    delivery_notes: devis.notes_preparation || null,
+    products: items.filter((i: any) => !String(i.id || '').startsWith('custom-')).map((i: any) => ({
+      name: i.name, qty: i.qty, sku: i.sku || '',
+    })),
+    total_amount: Number(devis.client_pays) || 0,
+    status: 'pending',
+  }).select('id').single();
+
+  if (delivery?.id) {
+    // Save delivery_id back to devis (ignore if column missing)
+    await supabase.from('devis_pro').update({ delivery_id: delivery.id }).eq('id', devisId).then(() => {});
+    console.log('[devis-pro livraison] created pending delivery', delivery.id, 'for devis', devis.numero);
+  }
 }
 
 // GET /api/devis-pro/[id]
@@ -194,17 +260,16 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
 
   const supabase = createAdminClient();
 
-  // Read current statut before update — used to detect the 'livre' transition
   const { data: current } = await supabase
     .from('devis_pro')
-    .select('statut')
+    .select('statut, type_expedition, adresse_livraison, delivery_id')
     .eq('id', id)
     .single();
 
   const allowed = [
     'items', 'discount_pct', 'credit', 'total_ttc', 'client_pays', 'free_shipping',
     'statut', 'type_expedition', 'adresse_livraison', 'notes', 'notes_preparation',
-    'pdf_url', 'paiements', 'paye_total',
+    'pdf_url', 'paiements', 'paye_total', 'delivery_id',
     'sent_at', 'validated_at', 'ready_at', 'delivered_at',
   ];
 
@@ -216,13 +281,20 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   const { data, error } = await supabase.from('devis_pro').update(patch).eq('id', id).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Trigger receipt + stock decrement when transitioning to 'livre'
   const wasAlreadyLivre = current?.statut === 'livre';
   const becomesLivre = body.statut === 'livre';
   if (!wasAlreadyLivre && becomesLivre) {
-    // Run async — don't block the PATCH response
     createReceiptFromDevis(supabase, id).catch((e) =>
       console.error('[devis-pro receipt] unexpected error:', e)
+    );
+  }
+
+  const wasAlreadyPret = current?.statut === 'pret';
+  const becomesPret = body.statut === 'pret';
+  const typeExp = body.type_expedition ?? current?.type_expedition;
+  if (!wasAlreadyPret && becomesPret && typeExp === 'livraison') {
+    createLivraisonPending(supabase, id).catch((e) =>
+      console.error('[devis-pro livraison] unexpected error:', e)
     );
   }
 
