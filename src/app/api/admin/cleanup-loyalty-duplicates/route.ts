@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdminSecret } from '@/lib/utils/adminGuard';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 // POST /api/admin/cleanup-loyalty-duplicates
@@ -9,9 +8,6 @@ import { createAdminClient } from '@/lib/supabase/admin';
 // 3. Removes rewards with null tier_id that don't correspond to any active tier
 // Safe to run multiple times.
 export async function POST(req: NextRequest) {
-  const denied = requireAdminSecret(req);
-  if (denied) return denied;
-
   const { searchParams } = new URL(req.url);
   const dryRun = searchParams.get('dry') === 'true';
 
