@@ -205,7 +205,7 @@ async function createLivraisonPending(supabase: ReturnType<typeof createAdminCli
     .eq('id', devisId)
     .single();
 
-  if (!devis || devis.type_expedition !== 'livraison' || !devis.adresse_livraison) return;
+  if (!devis || devis.type_expedition !== 'livraison') return;
 
   // Check no delivery already exists for this devis
   const existingId = (devis as any).delivery_id;
@@ -319,7 +319,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   // Create pending delivery when status becomes 'pret' OR when the livraison address
   // is saved on a devis that is already 'pret' (address added after status was set)
   const isPretNowOrStaying = becomesPret || (wasAlreadyPret && !becomesLivre);
-  if (typeExp === 'livraison' && newAddr && isPretNowOrStaying && hasNoDelivery) {
+  if (typeExp === 'livraison' && isPretNowOrStaying && hasNoDelivery) {
     createLivraisonPending(supabase, id).catch((e) =>
       console.error('[devis-pro livraison] unexpected error:', e)
     );

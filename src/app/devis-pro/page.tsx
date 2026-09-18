@@ -176,6 +176,7 @@ export default function DevisProPage() {
   const [typeExpedition, setTypeExpedition] = useState<'livraison' | 'retrait'>('retrait');
   const [adresseLivraison, setAdresseLivraison] = useState('');
   const [migrating, setMigrating] = useState(false);
+  const [sendingToDelivery, setSendingToDelivery] = useState(false);
 
   // ── Nouveau devis: client picker + ProDevisPanel overlay ────────────────────
   const [showNewDevis, setShowNewDevis] = useState(false);
@@ -417,6 +418,38 @@ export default function DevisProPage() {
     setDevisList((prev) => prev.map((d) => d.id === selected.id ? { ...d, paiements, paye_total: payeTotal } : d));
     setEditingPaymentIdx(null);
     toast.success('Paiement modifié');
+  };
+
+  // ── Envoyer en livraison (crée une livraison en attente dans le module Livraisons) ──
+  const handleSendToDelivery = async () => {
+    if (!selected) return;
+    setSendingToDelivery(true);
+    try {
+      // Save expedition info + address, then move to 'pret' — backend creates the delivery
+      const patch: any = {
+        type_expedition: 'livraison',
+        adresse_livraison: adresseLivraison || null,
+        notes_preparation: notesPrepa || null,
+      };
+      // Only change to 'pret' if not already at or past that stage
+      if (!['pret', 'livre'].includes(selected.statut)) {
+        patch.statut = 'pret';
+        patch.ready_at = new Date().toISOString();
+      }
+      const res = await fetch(`/api/devis-pro/${selected.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
+      });
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      const updated = json.devis;
+      setDevisList((prev) => prev.map((d) => d.id === selected.id ? { ...d, ...updated } : d));
+      setSelected((prev) => prev ? { ...prev, ...updated } : prev);
+      toast.success('🚚 Envoyé en livraison — visible dans le suivi Livraisons');
+    } catch (e: any) {
+      toast.error(`Erreur : ${e instanceof Error ? e.message : 'Impossible'}`);
+    } finally {
+      setSendingToDelivery(false);
+    }
   };
 
   // ── Save expedition + notes ──────────────────────────────────────────────────
@@ -1169,6 +1202,18 @@ export default function DevisProPage() {
               >
                 <Icon name="ChatBubbleLeftRightIcon" size={16} />
                 Envoyer la facture WhatsApp
+              </button>
+            )}
+            {selected.type_expedition === 'livraison' && !['livre', 'annule'].includes(selected.statut) && (
+              <button
+                onClick={handleSendToDelivery}
+                disabled={sendingToDelivery || statusUpdating}
+                className="w-full mt-2 py-3 bg-sky-600 text-white rounded-2xl text-sm font-700 hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {sendingToDelivery
+                  ? <><Icon name="ArrowPathIcon" size={16} className="animate-spin" />Envoi en cours…</>
+                  : <><Icon name="TruckIcon" size={16} />🚚 Envoyer en livraison</>
+                }
               </button>
             )}
             {selected.statut !== 'annule' && selected.statut !== 'livre' && (
