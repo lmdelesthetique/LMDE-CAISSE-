@@ -716,7 +716,7 @@ export default function DevisProPage() {
           <div className="shrink-0 px-5 py-4 border-b border-border">
             <div className="flex items-center justify-between mb-1">
               <div className="flex items-center gap-2">
-                <button onClick={() => setSelected(null)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors lg:hidden">
+                <button onClick={() => setSelected(null)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
                   <Icon name="ArrowLeftIcon" size={16} />
                 </button>
                 <div>
