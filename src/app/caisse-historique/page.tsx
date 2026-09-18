@@ -150,6 +150,17 @@ function parseMethod(raw: string): { label: string; color: string; detail?: stri
       detail: `CB: ${fmt(cbNum)} € + Espèces: ${fmt(cashNum)} €`,
     };
   }
+  // Espèces|given|change — stored when cash is tendered with change
+  if (raw.startsWith('Espèces|')) {
+    const [, given, change] = raw.split('|');
+    const givenNum = parseFloat(given ?? '0');
+    const changeNum = parseFloat(change ?? '0');
+    return {
+      label: 'Espèces',
+      color: METHOD_COLORS['Espèces'],
+      detail: changeNum > 0 ? `Donné: ${fmt(givenNum)} € · Monnaie: ${fmt(changeNum)} €` : undefined,
+    };
+  }
   // Alma 4x, Alma 3x, Alma 4x (+46.63€ frais), etc. → canonical "Alma"
   if (raw.startsWith('Alma') || raw === 'alma') {
     return { label: 'Alma', color: METHOD_COLORS['Alma'] };

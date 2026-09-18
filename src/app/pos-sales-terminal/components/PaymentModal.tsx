@@ -81,9 +81,15 @@ export default function PaymentModal({ mode, totalTTC, client, cartItems, onClos
       setSumupStep('awaiting');
       return;
     }
-    await handleConfirmFinal(method === 'Mixte' && cbAmountNum > 0
-      ? `Mixte|${cbAmountNum.toFixed(2)}|${Math.max(0, cashRemainder).toFixed(2)}`
-      : method);
+    const cashGivenRoundedLocal = Math.round((parseFloat(cashGiven) || 0) * 100) / 100;
+    const changeLocal = Math.max(0, cashGivenRoundedLocal - totalDue);
+    await handleConfirmFinal(
+      method === 'Mixte' && cbAmountNum > 0
+        ? `Mixte|${cbAmountNum.toFixed(2)}|${Math.max(0, cashRemainder).toFixed(2)}`
+        : method === 'Espèces' && cashGivenRoundedLocal > 0
+          ? `Espèces|${cashGivenRoundedLocal.toFixed(2)}|${changeLocal.toFixed(2)}`
+          : method
+    );
   };
 
   // Alma fee helpers

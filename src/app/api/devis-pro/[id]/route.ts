@@ -314,7 +314,12 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   const wasAlreadyPret = current?.statut === 'pret';
   const becomesPret = body.statut === 'pret';
   const typeExp = body.type_expedition ?? current?.type_expedition;
-  if (!wasAlreadyPret && becomesPret && typeExp === 'livraison') {
+  const newAddr = body.adresse_livraison ?? current?.adresse_livraison;
+  const hasNoDelivery = !current?.delivery_id;
+  // Create pending delivery when status becomes 'pret' OR when the livraison address
+  // is saved on a devis that is already 'pret' (address added after status was set)
+  const isPretNowOrStaying = becomesPret || (wasAlreadyPret && !becomesLivre);
+  if (typeExp === 'livraison' && newAddr && isPretNowOrStaying && hasNoDelivery) {
     createLivraisonPending(supabase, id).catch((e) =>
       console.error('[devis-pro livraison] unexpected error:', e)
     );
