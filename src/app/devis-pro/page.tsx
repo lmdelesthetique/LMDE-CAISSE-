@@ -46,6 +46,7 @@ interface DevisPro {
   notes?: string;
   notes_preparation?: string;
   pdf_url?: string;
+  receipt_id?: string;
   paiements: Paiement[];
   paye_total: number;
   sent_at?: string;
@@ -167,6 +168,9 @@ export default function DevisProPage() {
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentNote, setPaymentNote] = useState('');
   const [cashGiven, setCashGiven] = useState('');
+  const [editingPaymentIdx, setEditingPaymentIdx] = useState<number | null>(null);
+  const [editPaymentAmount, setEditPaymentAmount] = useState('');
+  const [editPaymentNote, setEditPaymentNote] = useState('');
   const [notesPrepa, setNotesPrepa] = useState('');
   const [savingNotes, setSavingNotes] = useState(false);
   const [typeExpedition, setTypeExpedition] = useState<'livraison' | 'retrait'>('retrait');
@@ -363,6 +367,43 @@ export default function DevisProPage() {
     toast.success('Paiement enregistré');
   };
 
+  // ── Delete payment ───────────────────────────────────────────────────────────
+  const deletePayment = async (idx: number) => {
+    if (!selected) return;
+    const paiements = selected.paiements.filter((_, i) => i !== idx);
+    const payeTotal = paiements.reduce((s, p) => s + p.amount, 0);
+    const res = await fetch(`/api/devis-pro/${selected.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paiements, paye_total: payeTotal }),
+    });
+    const json = await res.json();
+    if (json.error) { toast.error(json.error); return; }
+    setSelected((prev) => prev ? { ...prev, paiements, paye_total: payeTotal } : prev);
+    setDevisList((prev) => prev.map((d) => d.id === selected.id ? { ...d, paiements, paye_total: payeTotal } : d));
+    toast.success('Paiement supprimé');
+  };
+
+  // ── Edit payment ─────────────────────────────────────────────────────────────
+  const saveEditPayment = async (idx: number) => {
+    if (!selected) return;
+    const amount = parseFloat(editPaymentAmount);
+    if (!amount || amount <= 0) { toast.error('Montant invalide'); return; }
+    const paiements = selected.paiements.map((p, i) =>
+      i === idx ? { ...p, amount, note: editPaymentNote.trim() || p.note } : p
+    );
+    const payeTotal = paiements.reduce((s, p) => s + p.amount, 0);
+    const res = await fetch(`/api/devis-pro/${selected.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paiements, paye_total: payeTotal }),
+    });
+    const json = await res.json();
+    if (json.error) { toast.error(json.error); return; }
+    setSelected((prev) => prev ? { ...prev, paiements, paye_total: payeTotal } : prev);
+    setDevisList((prev) => prev.map((d) => d.id === selected.id ? { ...d, paiements, paye_total: payeTotal } : d));
+    setEditingPaymentIdx(null);
+    toast.success('Paiement modifié');
+  };
+
   // ── Save expedition + notes ──────────────────────────────────────────────────
   const savePrepaInfo = async () => {
     if (!selected) return;
@@ -442,10 +483,21 @@ export default function DevisProPage() {
     if (!phone) { toast.error('Pas de numéro WhatsApp'); return; }
     const clean = phone.replace(/\s/g, '');
     const intl = clean.startsWith('0') ? '+596' + clean.slice(1) : clean.startsWith('+') ? clean : '+596' + clean;
+
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || (typeof window !== 'undefined' ? window.location.origin : 'https://lmdecaisse.com');
     const itemLines = devis.items.map((i) => `• ${i.name} x${i.qty}`).join('\n');
-    let msg = `Bonjour ${devis.client?.firstName} 🌸\n\nVoici votre facture pour votre commande ${devis.numero ?? ''} :\n\n${itemLines}\n\n*Total : ${fmtMoney(devis.client_pays)}*`;
-    if (devis.pdf_url) msg += `\n\n📄 Votre facture PDF : ${devis.pdf_url}`;
-    msg += '\n\nMerci pour votre commande ! 🙏';
+    const totalPaye = devis.paye_total > 0 ? devis.paye_total : devis.client_pays;
+    const expeditionLine = devis.type_expedition === 'livraison'
+      ? `🚚 *Livraison* à : ${devis.adresse_livraison || 'adresse à confirmer'}`
+      : `🏪 *Retrait en boutique* disponible`;
+
+    const factureLink = devis.receipt_id
+      ? `${siteUrl}/facture/${devis.receipt_id}`
+      : (devis.pdf_url || null);
+
+    let msg = `Bonjour ${devis.client?.firstName} 🌸\n\nVoici votre facture pour votre commande *${devis.numero ?? ''}* :\n\n${itemLines}\n\n✅ *Total payé : ${fmtMoney(totalPaye)}*\n\n${expeditionLine}`;
+    if (factureLink) msg += `\n\n📄 Consulter votre facture en ligne :\n${factureLink}`;
+    msg += '\n\nMerci pour votre confiance ! 🙏\n— Le Monde de l\'Esthétique';
     window.open(`https://wa.me/${intl}?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
@@ -869,13 +921,46 @@ export default function DevisProPage() {
               )}
 
               {selected.paiements.map((p, i) => (
-                <div key={i} className="flex items-center justify-between py-1.5">
-                  <div className="flex items-center gap-2">
-                    <Icon name={PAYMENT_METHODS.find((m) => m.value === p.method)?.icon ?? 'BanknotesIcon'} size={13} className="text-muted-foreground" />
-                    <span className="text-xs text-foreground">{PAYMENT_METHODS.find((m) => m.value === p.method)?.label}</span>
-                    {p.note && <span className="text-[10px] text-muted-foreground">({p.note})</span>}
-                  </div>
-                  <span className="text-xs font-700 text-emerald-600">+{fmtMoney(p.amount)}</span>
+                <div key={i} className="py-1.5">
+                  {editingPaymentIdx === i ? (
+                    <div className="flex flex-col gap-1.5 bg-muted/30 rounded-xl p-2 border border-border">
+                      <div className="flex items-center gap-2">
+                        <input type="number" value={editPaymentAmount} onChange={(e) => setEditPaymentAmount(e.target.value)}
+                          step="0.01" min="0" placeholder="Montant"
+                          className="flex-1 px-2 py-1.5 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                        <button onClick={() => saveEditPayment(i)} className="px-3 py-1.5 text-xs font-700 bg-primary text-primary-foreground rounded-lg hover:opacity-90">✓</button>
+                        <button onClick={() => setEditingPaymentIdx(null)} className="px-3 py-1.5 text-xs border border-border rounded-lg hover:bg-muted">✕</button>
+                      </div>
+                      <input value={editPaymentNote} onChange={(e) => setEditPaymentNote(e.target.value)}
+                        placeholder="Note (optionnel)"
+                        className="w-full px-2 py-1.5 text-xs border border-border rounded-lg focus:outline-none" />
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between group">
+                      <div className="flex items-center gap-2">
+                        <Icon name={PAYMENT_METHODS.find((m) => m.value === p.method)?.icon ?? 'BanknotesIcon'} size={13} className="text-muted-foreground" />
+                        <span className="text-xs text-foreground">{PAYMENT_METHODS.find((m) => m.value === p.method)?.label}</span>
+                        {p.note && <span className="text-[10px] text-muted-foreground">({p.note})</span>}
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs font-700 text-emerald-600">+{fmtMoney(p.amount)}</span>
+                        <button
+                          onClick={() => { setEditingPaymentIdx(i); setEditPaymentAmount(String(p.amount)); setEditPaymentNote(p.note || ''); setShowPaymentForm(false); }}
+                          className="opacity-0 group-hover:opacity-100 ml-1 p-1 rounded text-muted-foreground hover:text-primary transition-all"
+                          title="Modifier"
+                        >
+                          <Icon name="PencilIcon" size={11} />
+                        </button>
+                        <button
+                          onClick={() => deletePayment(i)}
+                          className="opacity-0 group-hover:opacity-100 p-1 rounded text-muted-foreground hover:text-red-500 transition-all"
+                          title="Supprimer"
+                        >
+                          <Icon name="TrashIcon" size={11} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
 
