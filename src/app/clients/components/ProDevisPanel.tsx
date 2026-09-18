@@ -740,7 +740,24 @@ export default function ProDevisPanel({ client, onHistoryChanged }: { client: Cl
       const newHistory = [entry, ...devisHistory];
       // Always save to localStorage first
       persistDevisLocally([], newHistory);
-      // Try Supabase
+      // Save to new devis_pro table (global view)
+      fetch('/api/devis-pro', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_id: client.id,
+          items,
+          discount_pct: discountPct,
+          credit,
+          total_ttc: totalValue,
+          client_pays: clientPays,
+          free_shipping: freeShipping,
+          statut: 'envoye',
+          sent_at: new Date().toISOString(),
+          pdf_url: null,
+        }),
+      }).catch(() => { /* graceful failure */ });
+      // Try Supabase legacy (backward compat)
       await fetch(`/api/clients/${client.id}/pro-profile`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
