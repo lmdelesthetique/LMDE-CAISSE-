@@ -1,9 +1,11 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { toast } from 'sonner';
+import dynamic from 'next/dynamic';
+
+const ProDevisPanel = dynamic(() => import('@/app/clients/components/ProDevisPanel'), { ssr: false });
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -150,14 +152,11 @@ function StockBadge({ qty, stock }: { qty: number; stock: number | null }) {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function DevisProPage() {
-  const router = useRouter();
-
   const [devisList, setDevisList] = useState<DevisPro[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<Statut | 'tous'>('tous');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<DevisPro | null>(null);
-  const [panelLoading, setPanelLoading] = useState(false);
 
   // Panel state
   const [stockMap, setStockMap] = useState<Record<string, number>>({});
@@ -172,6 +171,14 @@ export default function DevisProPage() {
   const [typeExpedition, setTypeExpedition] = useState<'livraison' | 'retrait'>('retrait');
   const [adresseLivraison, setAdresseLivraison] = useState('');
   const [migrating, setMigrating] = useState(false);
+
+  // ── Nouveau devis: client picker + ProDevisPanel overlay ────────────────────
+  const [showNewDevis, setShowNewDevis] = useState(false);
+  const [clientSearch, setClientSearch] = useState('');
+  const [clientResults, setClientResults] = useState<any[]>([]);
+  const [clientSearchLoading, setClientSearchLoading] = useState(false);
+  const [newDevisClient, setNewDevisClient] = useState<any | null>(null);
+  const clientSearchRef = useRef<HTMLInputElement>(null);
 
   // ── Fetch list ──────────────────────────────────────────────────────────────
   const fetchDevis = useCallback(async () => {
@@ -188,6 +195,25 @@ export default function DevisProPage() {
   }, []);
 
   useEffect(() => { fetchDevis(); }, [fetchDevis]);
+
+  // ── Client search for new devis ─────────────────────────────────────────────
+  useEffect(() => {
+    if (!showNewDevis) { setClientSearch(''); setClientResults([]); setNewDevisClient(null); return; }
+    setTimeout(() => clientSearchRef.current?.focus(), 100);
+  }, [showNewDevis]);
+
+  useEffect(() => {
+    if (!showNewDevis || newDevisClient) return;
+    const t = setTimeout(async () => {
+      setClientSearchLoading(true);
+      try {
+        const res = await fetch(`/api/clients?search=${encodeURIComponent(clientSearch)}&limit=15`);
+        const json = await res.json();
+        setClientResults(json.clients ?? []);
+      } catch { setClientResults([]); } finally { setClientSearchLoading(false); }
+    }, 200);
+    return () => clearTimeout(t);
+  }, [clientSearch, showNewDevis, newDevisClient]);
 
   // ── Fetch stock for selected devis ─────────────────────────────────────────
   useEffect(() => {
@@ -393,7 +419,7 @@ export default function DevisProPage() {
                 Importer anciens
               </button>
               <button
-                onClick={() => router.push('/clients')}
+                onClick={() => setShowNewDevis(true)}
                 className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-xl text-sm font-700 hover:opacity-90 transition-opacity"
               >
                 <Icon name="PlusIcon" size={16} />
@@ -856,6 +882,88 @@ export default function DevisProPage() {
               </button>
             )}
           </div>
+        </div>
+      )}
+
+      {/* ── Nouveau devis overlay ── */}
+      {showNewDevis && (
+        <div className="fixed inset-0 z-50 flex items-stretch">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => !newDevisClient && setShowNewDevis(false)} />
+
+          {/* Step 1: Client picker */}
+          {!newDevisClient && (
+            <div className="relative m-auto w-full max-w-md bg-white rounded-2xl shadow-2xl flex flex-col max-h-[80vh]">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
+                <h2 className="text-base font-800 text-foreground">Nouveau devis — Choisir un client</h2>
+                <button onClick={() => setShowNewDevis(false)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
+                  <Icon name="XMarkIcon" size={18} />
+                </button>
+              </div>
+              <div className="px-4 py-3 border-b border-border shrink-0">
+                <div className="relative">
+                  <Icon name="MagnifyingGlassIcon" size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    ref={clientSearchRef}
+                    value={clientSearch}
+                    onChange={(e) => setClientSearch(e.target.value)}
+                    placeholder="Rechercher un client..."
+                    className="w-full pl-8 pr-4 py-2 text-sm border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto p-2">
+                {clientSearchLoading ? (
+                  <div className="flex justify-center py-8"><Icon name="ArrowPathIcon" size={20} className="animate-spin text-muted-foreground" /></div>
+                ) : clientResults.length === 0 ? (
+                  <p className="text-center text-sm text-muted-foreground py-8">
+                    {clientSearch.trim() ? 'Aucun client trouvé' : 'Tapez pour rechercher...'}
+                  </p>
+                ) : (
+                  clientResults.map((c) => (
+                    <button key={c.id} onClick={() => setNewDevisClient(c)}
+                      className="w-full text-left px-3 py-3 rounded-xl hover:bg-muted transition-colors flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                        <span className="text-[11px] font-800 text-primary">{c.firstName?.[0]}{c.lastName?.[0]}</span>
+                      </div>
+                      <div>
+                        <p className="text-sm font-700 text-foreground">{c.firstName} {c.lastName}</p>
+                        {c.phone && <p className="text-[10px] text-muted-foreground">{c.phone}</p>}
+                      </div>
+                      {c.clientType && (
+                        <span className="ml-auto text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full">{c.clientType}</span>
+                      )}
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: ProDevisPanel for selected client */}
+          {newDevisClient && (
+            <div className="relative flex flex-col w-full bg-white overflow-hidden">
+              <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-border bg-white z-10">
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setNewDevisClient(null)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
+                    <Icon name="ArrowLeftIcon" size={16} />
+                  </button>
+                  <p className="text-sm font-700 text-foreground">
+                    Nouveau devis — {newDevisClient.firstName} {newDevisClient.lastName}
+                  </p>
+                </div>
+                <button onClick={() => { setShowNewDevis(false); fetchDevis(); }}
+                  className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
+                  <Icon name="XMarkIcon" size={18} />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                <ProDevisPanel
+                  client={newDevisClient}
+                  onHistoryChanged={() => { setShowNewDevis(false); fetchDevis(); }}
+                />
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

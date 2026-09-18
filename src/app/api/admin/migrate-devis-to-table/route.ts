@@ -48,7 +48,7 @@ export async function POST() {
           statut: 'livre',
           pdf_url: entry.pdfUrl ?? entry.pdf_url ?? null,
           paiements: [],
-          paye_total: clientPays,
+          paye_total: 0,
           sent_at: new Date(entryDate).toISOString(),
           delivered_at: new Date(entryDate).toISOString(),
           created_at: new Date(entryDate).toISOString(),

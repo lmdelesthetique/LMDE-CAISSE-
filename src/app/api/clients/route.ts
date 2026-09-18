@@ -7,6 +7,34 @@ function generateReferralCode(firstName: string): string {
   return clean + num;
 }
 
+// GET /api/clients?search=query&limit=20
+export async function GET(req: NextRequest) {
+  const { searchParams } = req.nextUrl;
+  const search = searchParams.get('search') ?? '';
+  const limit = parseInt(searchParams.get('limit') ?? '20');
+  const supabase = createAdminClient();
+  let query = supabase
+    .from('clients')
+    .select('id, first_name, last_name, phone, whatsapp, client_type, email')
+    .order('last_name', { ascending: true })
+    .limit(limit);
+  if (search.trim()) {
+    query = query.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,phone.ilike.%${search}%`);
+  }
+  const { data, error } = await query;
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  const clients = (data ?? []).map((r) => ({
+    id: r.id,
+    firstName: r.first_name,
+    lastName: r.last_name,
+    phone: r.phone,
+    whatsapp: r.whatsapp,
+    clientType: r.client_type,
+    email: r.email,
+  }));
+  return NextResponse.json({ clients });
+}
+
 export async function POST(req: NextRequest) {
   let body: any;
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
