@@ -12,12 +12,11 @@ function generateTicketNumber(): string {
   return `TKT-${yy}${mm}${dd}-${rand}`;
 }
 
-// Creates a receipt + decrements stock when a devis is delivered and paid
+// Creates a receipt + decrements stock when a devis is delivered
 async function createReceiptFromDevis(supabase: ReturnType<typeof createAdminClient>, devisId: string) {
-  // Fetch the full devis with client info
   const { data: devis, error: fetchErr } = await supabase
     .from('devis_pro')
-    .select(`*, client:clients(id, first_name, last_name)`)
+    .select(`*, client:clients(id, first_name, last_name, store_credit, total_spent)`)
     .eq('id', devisId)
     .single();
 
@@ -29,20 +28,39 @@ async function createReceiptFromDevis(supabase: ReturnType<typeof createAdminCli
   const items: any[] = Array.isArray(devis.items) ? devis.items : [];
   const paiements: any[] = Array.isArray(devis.paiements) ? devis.paiements : [];
 
-  // Build payment_method string from paiements array
-  const uniqueMethods = [...new Set(paiements.map((p: any) => p.method).filter(Boolean))];
-  const paymentMethod = uniqueMethods.length > 1
-    ? `Mixte|${uniqueMethods.join('|')}`
-    : uniqueMethods[0] || 'Virement';
+  const clientPays = Number(devis.client_pays) || Number(devis.total_ttc) || 0;
+  // Use what was actually paid, capped at what's owed — never inflate CA with unpaid amounts
+  const payeTotal = Number(devis.paye_total) || 0;
+  const totalAmount = payeTotal > 0 ? Math.min(payeTotal, clientPays) : clientPays;
+  if (totalAmount <= 0) return;
+
+  // Avoir (store credit) used — must be deducted from client balance
+  const avoirUsed = paiements
+    .filter((p: any) => p.method === 'avoir')
+    .reduce((s: number, p: any) => s + Number(p.amount || 0), 0);
+
+  // Build payment_method in POS-compatible format for correct cash counting
+  // POS cash format: 'especes' or 'Mixte|<autres_total>|<especes_total>'
+  const especesTotal = paiements
+    .filter((p: any) => p.method === 'especes')
+    .reduce((s: number, p: any) => s + Number(p.amount || 0), 0);
+  const nonEspecesTotal = Math.max(0, totalAmount - especesTotal);
+
+  let paymentMethod: string;
+  if (especesTotal > 0 && nonEspecesTotal > 0) {
+    paymentMethod = `Mixte|${nonEspecesTotal.toFixed(2)}|${especesTotal.toFixed(2)}`;
+  } else if (especesTotal > 0) {
+    paymentMethod = 'especes';
+  } else {
+    const uniqueMethods = [...new Set(paiements.map((p: any) => p.method).filter(Boolean))];
+    const m = uniqueMethods[0] || 'virement';
+    paymentMethod = m === 'carte' ? 'CB' : m === 'sumup' ? 'SumUp' : m === 'avoir' ? 'store_credit' : m === 'virement' ? 'transfer' : m;
+  }
 
   const clientName = devis.client
     ? `${devis.client.first_name || ''} ${devis.client.last_name || ''}`.trim()
     : null;
 
-  const totalAmount = Number(devis.client_pays) || Number(devis.total_ttc) || 0;
-  if (totalAmount <= 0) return; // Nothing to record
-
-  // Build receipt items (exclude custom items — they have no product ID)
   const receiptItems = items.map((item: any) => {
     const isCustom = String(item.id || '').startsWith('custom-');
     return {
@@ -61,11 +79,9 @@ async function createReceiptFromDevis(supabase: ReturnType<typeof createAdminCli
     };
   });
 
-  // Compute HT / TVA
   const totalTTC = totalAmount;
   const totalHT = Math.round((totalTTC / 1.085) * 100) / 100;
   const totalTVA = Math.round((totalTTC - totalHT) * 100) / 100;
-
   const discountPct = Number(devis.discount_pct) || 0;
   const discountAmount = discountPct > 0
     ? Math.round((Number(devis.total_ttc) * discountPct / 100) * 100) / 100
@@ -73,24 +89,27 @@ async function createReceiptFromDevis(supabase: ReturnType<typeof createAdminCli
 
   const ticketNumber = generateTicketNumber();
 
+  const receiptInsert: any = {
+    ticket_number: ticketNumber,
+    items: receiptItems,
+    items_count: receiptItems.length,
+    subtotal_ht: totalHT,
+    total_tva: totalTVA,
+    total_amount: totalAmount,
+    discount_amount: discountAmount,
+    payment_method: paymentMethod,
+    payment_type: 'sale',
+    client_id: devis.client_id || null,
+    client_name: clientName,
+    cashier_name: 'Devis Pro',
+    notes: `Devis ${devis.numero || devisId}`,
+    status: 'completed',
+  };
+  if (avoirUsed > 0) receiptInsert.store_credit_used = avoirUsed;
+
   const { data: receipt, error: receiptErr } = await supabase
     .from('receipts')
-    .insert({
-      ticket_number: ticketNumber,
-      items: receiptItems,
-      items_count: receiptItems.length,
-      subtotal_ht: totalHT,
-      total_tva: totalTVA,
-      total_amount: totalAmount,
-      discount_amount: discountAmount,
-      payment_method: paymentMethod,
-      payment_type: 'sale',
-      client_id: devis.client_id || null,
-      client_name: clientName,
-      cashier_name: 'Devis Pro',
-      notes: `Devis ${devis.numero || devisId}`,
-      status: 'completed',
-    })
+    .insert(receiptInsert)
     .select('id, ticket_number')
     .single();
 
@@ -101,10 +120,9 @@ async function createReceiptFromDevis(supabase: ReturnType<typeof createAdminCli
 
   console.log('[devis-pro receipt] created', receipt.ticket_number, 'for devis', devis.numero);
 
-  // Try to save receipt_id on devis (column may not exist yet — ignore error)
   await supabase.from('devis_pro').update({ receipt_id: receipt.id }).eq('id', devisId).then(() => {});
 
-  // Decrement stock for real products
+  // Decrement stock for all real products (including bonus items — they're physically given)
   for (const item of items) {
     const isCustom = String(item.id || '').startsWith('custom-');
     if (isCustom) continue;
@@ -140,11 +158,18 @@ async function createReceiptFromDevis(supabase: ReturnType<typeof createAdminCli
     });
   }
 
-  // Update client last_purchase_at
+  // Update client stats: last_purchase_at, total_spent, store_credit (if avoir used)
   if (devis.client_id) {
-    await supabase.from('clients')
-      .update({ last_purchase_at: new Date().toISOString() })
-      .eq('id', devis.client_id);
+    const currentCredit = parseFloat(String(devis.client?.store_credit ?? 0));
+    const currentSpent = parseFloat(String(devis.client?.total_spent ?? 0));
+    const clientUpdates: any = {
+      last_purchase_at: new Date().toISOString(),
+      total_spent: Math.round((currentSpent + totalAmount) * 100) / 100,
+    };
+    if (avoirUsed > 0) {
+      clientUpdates.store_credit = Math.max(0, Math.round((currentCredit - avoirUsed) * 100) / 100);
+    }
+    await supabase.from('clients').update(clientUpdates).eq('id', devis.client_id);
   }
 }
 

@@ -976,6 +976,16 @@ export default function DevisProPage() {
                 {STATUT_NEXT[selected.statut]!.label}
               </button>
             )}
+            {/* Shortcut: mark as delivered directly from any active state (skip pipeline steps) */}
+            {selected.statut !== 'livre' && selected.statut !== 'annule' && selected.statut !== 'pret' && (
+              <button
+                onClick={() => updateStatut(selected, 'livre')}
+                disabled={statusUpdating}
+                className="w-full mt-2 py-2 text-xs font-600 text-emerald-600 hover:text-emerald-700 border border-emerald-200 hover:bg-emerald-50 rounded-xl transition-colors disabled:opacity-50"
+              >
+                ⚡ Livrer directement (court-circuit)
+              </button>
+            )}
             {selected.statut === 'livre' && (
               <button
                 onClick={() => sendWhatsAppFacture(selected)}

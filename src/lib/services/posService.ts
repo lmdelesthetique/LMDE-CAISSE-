@@ -310,11 +310,12 @@ export async function computeDaySummary(date: string): Promise<DaySummaryData> {
   function normalizePM(raw: string): string {
     if (!raw) return 'Autre';
     if (raw.startsWith('Mixte|') || raw === 'mixed') return 'Mixte';
-    if (raw === 'cash') return 'Espèces';
-    if (raw === 'card' || raw === 'CB') return 'SumUp (CB)';
-    if (raw === 'transfer') return 'Virement';
+    if (raw === 'cash' || raw === 'especes' || raw === 'espèces') return 'Espèces';
+    if (raw === 'card' || raw === 'CB' || raw === 'carte') return 'SumUp (CB)';
+    if (raw === 'transfer' || raw === 'virement') return 'Virement';
     if (raw.startsWith('Alma') || raw === 'alma') return 'Alma (3x/4x)';
-    if (raw === 'store_credit') return 'Avoir';
+    if (raw === 'store_credit' || raw === 'avoir') return 'Avoir';
+    if (raw === 'sumup') return 'SumUp (CB)';
     return raw;
   }
   const paymentBreakdown: Record<string, { count: number; total: number }> = {};
