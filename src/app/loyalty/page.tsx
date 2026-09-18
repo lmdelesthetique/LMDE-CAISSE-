@@ -612,6 +612,7 @@ export default function LoyaltyPage() {
   const [recalcPoints, setRecalcPoints] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
   const [extendingTiers, setExtendingTiers] = useState(false);
+  const [cleaningDuplicates, setCleaningDuplicates] = useState(false);
   const [productCategoryFilter, setProductCategoryFilter] = useState<ProductCategoryFilter>('all');
 
   const handleSyncAll = async () => {
@@ -680,6 +681,22 @@ export default function LoyaltyPage() {
       toast.error(`Erreur : ${e?.message ?? 'Recalcul impossible'}`);
     } finally {
       setRecalculating(false);
+    }
+  };
+
+  const handleCleanupDuplicates = async () => {
+    if (!confirm('Supprimer les récompenses en double et annuler celles pour lesquelles la cliente n\'a plus assez de points ? Cette action est irréversible.')) return;
+    setCleaningDuplicates(true);
+    try {
+      const res = await fetch('/api/admin/cleanup-loyalty-duplicates', { method: 'POST' });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+      toast.success(`✓ Nettoyage — ${json.duplicatesRemoved} doublon(s) supprimé(s), ${json.invalidCancelled} récompense(s) invalide(s) annulée(s)`, { duration: 6000 });
+      await loadData();
+    } catch (e: any) {
+      toast.error(`Erreur nettoyage : ${e?.message ?? 'Impossible'}`);
+    } finally {
+      setCleaningDuplicates(false);
     }
   };
 
@@ -816,11 +833,19 @@ export default function LoyaltyPage() {
                     : <><Icon name="CalculatorIcon" size={15} />Recalc. points (tickets)</>
                   }
                 </button>
-                <button onClick={handleRecalculatePaliers} disabled={recalculating || syncingAll}
+                <button onClick={handleRecalculatePaliers} disabled={recalculating || syncingAll || cleaningDuplicates}
                   className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-lg text-sm font-600 hover:opacity-90 transition-opacity disabled:opacity-40">
                   {recalculating
                     ? <><Icon name="ArrowPathIcon" size={15} className="animate-spin" />Calcul…</>
                     : <><Icon name="SparklesIcon" size={15} />Recalculer paliers</>
+                  }
+                </button>
+                <button onClick={handleCleanupDuplicates} disabled={cleaningDuplicates || syncingAll}
+                  className="flex items-center gap-2 px-4 py-2 bg-rose-600 text-white rounded-lg text-sm font-600 hover:opacity-90 transition-opacity disabled:opacity-40"
+                  title="Supprime les doublons et annule les récompenses invalides">
+                  {cleaningDuplicates
+                    ? <><Icon name="ArrowPathIcon" size={15} className="animate-spin" />Nettoyage…</>
+                    : <><Icon name="TrashIcon" size={15} />Nettoyer doublons</>
                   }
                 </button>
               </>

@@ -52,14 +52,15 @@ export async function GET(req: NextRequest) {
       if (seeded && seeded.length > 0) tiers = seeded;
     }
 
-    // Determine which tiers the client qualifies for but has no AVAILABLE reward yet.
-    // We allow re-unlocking a tier if the previous reward was used (points were spent
-    // and re-accumulated above the threshold).
-    const existingAvailableTierIds = new Set(
-      existing.filter((r: any) => r.status === 'available').map((r: any) => r.tier_id).filter(Boolean)
+    // Only unlock a tier if the client qualifies AND has NO row at all for that tier
+    // (any status — available, used, cancelled). A used reward must not be auto-recreated;
+    // re-earning requires the client's points to dip below the threshold and come back up,
+    // which is handled by the POS detectUnlockedTiers flow during an actual purchase.
+    const existingTierIds = new Set(
+      existing.map((r: any) => r.tier_id).filter(Boolean)
     );
     const tiersToUnlock = tiers.filter(
-      (t: any) => points >= t.points_required && !existingAvailableTierIds.has(t.id)
+      (t: any) => points >= t.points_required && !existingTierIds.has(t.id)
     );
 
     // Insert missing reward rows
@@ -115,6 +116,20 @@ export async function POST(req: NextRequest) {
 
   try {
     const supabase = createAdminClient();
+
+    // Idempotency: if a row already exists for this tier+client (any status), return it
+    if (tierId) {
+      const { data: existing } = await supabase
+        .from('client_loyalty_rewards')
+        .select('*')
+        .eq('client_id', clientId)
+        .eq('tier_id', tierId)
+        .order('unlocked_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (existing) return NextResponse.json(existing, { status: 200 });
+    }
+
     const expiryDate = expiryDays
       ? new Date(Date.now() + Number(expiryDays) * 24 * 60 * 60 * 1000).toISOString()
       : null;
