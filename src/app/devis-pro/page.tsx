@@ -166,6 +166,7 @@ export default function DevisProPage() {
   const [paymentMethod, setPaymentMethod] = useState<string>('especes');
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentNote, setPaymentNote] = useState('');
+  const [cashGiven, setCashGiven] = useState('');
   const [notesPrepa, setNotesPrepa] = useState('');
   const [savingNotes, setSavingNotes] = useState(false);
   const [typeExpedition, setTypeExpedition] = useState<'livraison' | 'retrait'>('retrait');
@@ -322,13 +323,28 @@ export default function DevisProPage() {
   // ── Add payment ──────────────────────────────────────────────────────────────
   const addPayment = async () => {
     if (!selected) return;
-    const amount = parseFloat(paymentAmount);
+    const remaining = Math.max(0, selected.client_pays - (selected.paye_total ?? 0));
+
+    // For espèces: record actual amount owed (not what was physically given)
+    let amount: number;
+    let noteAuto = paymentNote.trim();
+    if (paymentMethod === 'especes' && cashGiven) {
+      const given = parseFloat(cashGiven);
+      amount = Math.min(given, remaining > 0 ? remaining : given);
+      const change = given - amount;
+      if (change > 0.005) {
+        noteAuto = noteAuto ? `${noteAuto} — Donné: ${fmtMoney(given)}, Monnaie: ${fmtMoney(change)}` : `Donné: ${fmtMoney(given)}, Monnaie: ${fmtMoney(change)}`;
+      }
+    } else {
+      amount = parseFloat(paymentAmount);
+    }
+
     if (!amount || amount <= 0) { toast.error('Montant invalide'); return; }
 
     const newPaiement: Paiement = {
       method: paymentMethod as any,
       amount,
-      note: paymentNote.trim() || undefined,
+      note: noteAuto || undefined,
       date: new Date().toISOString(),
     };
     const paiements = [...(selected.paiements ?? []), newPaiement];
@@ -343,7 +359,7 @@ export default function DevisProPage() {
 
     setSelected((prev) => prev ? { ...prev, paiements, paye_total: payeTotal } : prev);
     setDevisList((prev) => prev.map((d) => d.id === selected.id ? { ...d, paiements, paye_total: payeTotal } : d));
-    setPaymentAmount(''); setPaymentNote(''); setShowPaymentForm(false);
+    setPaymentAmount(''); setPaymentNote(''); setCashGiven(''); setShowPaymentForm(false);
     toast.success('Paiement enregistré');
   };
 
@@ -418,6 +434,19 @@ export default function DevisProPage() {
       `Bonjour ${devis.client?.firstName} 🌸\n\nJe vous contacte au sujet de votre devis ${devis.numero ?? ''} d'un montant de ${fmtMoney(devis.client_pays)}.\n\nN'hésitez pas à me contacter pour toute question 😊`
     );
     window.open(`https://wa.me/${intl}?text=${msg}`, '_blank');
+  };
+
+  // ── WhatsApp facture ──────────────────────────────────────────────────────────
+  const sendWhatsAppFacture = (devis: DevisPro) => {
+    const phone = devis.client?.whatsapp ?? devis.client?.phone;
+    if (!phone) { toast.error('Pas de numéro WhatsApp'); return; }
+    const clean = phone.replace(/\s/g, '');
+    const intl = clean.startsWith('0') ? '+596' + clean.slice(1) : clean.startsWith('+') ? clean : '+596' + clean;
+    const itemLines = devis.items.map((i) => `• ${i.name} x${i.qty}`).join('\n');
+    let msg = `Bonjour ${devis.client?.firstName} 🌸\n\nVoici votre facture pour votre commande ${devis.numero ?? ''} :\n\n${itemLines}\n\n*Total : ${fmtMoney(devis.client_pays)}*`;
+    if (devis.pdf_url) msg += `\n\n📄 Votre facture PDF : ${devis.pdf_url}`;
+    msg += '\n\nMerci pour votre commande ! 🙏';
+    window.open(`https://wa.me/${intl}?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
   // ─── Render ────────────────────────────────────────────────────────────────
@@ -822,7 +851,13 @@ export default function DevisProPage() {
             <div className="px-5 py-4 border-b border-border">
               <div className="flex items-center justify-between mb-3">
                 <p className="text-[11px] font-700 uppercase tracking-widest text-muted-foreground">Paiements</p>
-                <button onClick={() => setShowPaymentForm(!showPaymentForm)}
+                <button onClick={() => {
+                  const rem = Math.max(0, selected.client_pays - (selected.paye_total ?? 0));
+                  setPaymentAmount(rem > 0 ? rem.toFixed(2) : '');
+                  setCashGiven('');
+                  setPaymentNote('');
+                  setShowPaymentForm(!showPaymentForm);
+                }}
                   className="text-xs font-600 text-primary hover:underline flex items-center gap-1">
                   <Icon name="PlusIcon" size={12} />
                   Ajouter
@@ -853,24 +888,56 @@ export default function DevisProPage() {
                 </div>
               )}
 
-              {showPaymentForm && (
+              {showPaymentForm && (() => {
+                const remaining = Math.max(0, selected.client_pays - (selected.paye_total ?? 0));
+                const given = parseFloat(cashGiven) || 0;
+                const change = paymentMethod === 'especes' && given > 0 ? given - Math.min(given, remaining > 0 ? remaining : given) : 0;
+                return (
                 <div className="mt-3 p-3 bg-muted/30 rounded-xl border border-border space-y-2">
-                  <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}
+                  <select value={paymentMethod} onChange={(e) => { setPaymentMethod(e.target.value); setCashGiven(''); }}
                     className="w-full px-3 py-2 text-sm border border-border rounded-xl bg-white focus:outline-none">
                     {PAYMENT_METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
                   </select>
-                  <input type="number" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)}
-                    placeholder="Montant (€)" step="0.01" min="0"
-                    className="w-full px-3 py-2 text-sm border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30" />
+
+                  {paymentMethod === 'especes' ? (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1">
+                          <p className="text-[10px] font-600 text-muted-foreground mb-1">Montant donné par le client</p>
+                          <input type="number" value={cashGiven} onChange={(e) => setCashGiven(e.target.value)}
+                            placeholder={`ex: ${(Math.ceil((remaining || 0) / 5) * 5).toFixed(2)}`} step="0.01" min="0"
+                            className="w-full px-3 py-2 text-sm border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                        </div>
+                        {given > 0 && (
+                          <div className="shrink-0 text-right mt-4">
+                            <p className="text-[10px] text-muted-foreground">À encaisser</p>
+                            <p className="text-sm font-800 text-primary">{fmtMoney(Math.min(given, remaining > 0 ? remaining : given))}</p>
+                          </div>
+                        )}
+                      </div>
+                      {change > 0.005 && (
+                        <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                          <span className="text-xs font-700 text-amber-700">💵 Monnaie à rendre</span>
+                          <span className="text-sm font-800 text-amber-700">{fmtMoney(change)}</span>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <input type="number" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)}
+                      placeholder="Montant (€)" step="0.01" min="0"
+                      className="w-full px-3 py-2 text-sm border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                  )}
+
                   <input value={paymentNote} onChange={(e) => setPaymentNote(e.target.value)}
                     placeholder="Note (optionnel)"
                     className="w-full px-3 py-2 text-sm border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30" />
                   <div className="flex gap-2">
-                    <button onClick={() => setShowPaymentForm(false)} className="flex-1 py-2 text-xs font-600 border border-border rounded-xl hover:bg-muted">Annuler</button>
+                    <button onClick={() => { setShowPaymentForm(false); setCashGiven(''); }} className="flex-1 py-2 text-xs font-600 border border-border rounded-xl hover:bg-muted">Annuler</button>
                     <button onClick={addPayment} className="flex-1 py-2 text-xs font-700 bg-primary text-primary-foreground rounded-xl hover:opacity-90">Enregistrer</button>
                   </div>
                 </div>
-              )}
+                );
+              })()}
             </div>
 
             {/* Client info */}
@@ -907,6 +974,15 @@ export default function DevisProPage() {
               >
                 {statusUpdating ? <Icon name="ArrowPathIcon" size={16} className="animate-spin" /> : <Icon name="ArrowRightCircleIcon" size={16} />}
                 {STATUT_NEXT[selected.statut]!.label}
+              </button>
+            )}
+            {selected.statut === 'livre' && (
+              <button
+                onClick={() => sendWhatsAppFacture(selected)}
+                className="w-full mt-2 py-3 bg-[#25D366] text-white rounded-2xl text-sm font-700 hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+              >
+                <Icon name="ChatBubbleLeftRightIcon" size={16} />
+                Envoyer la facture WhatsApp
               </button>
             )}
             {selected.statut !== 'annule' && selected.statut !== 'livre' && (
