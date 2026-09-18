@@ -1004,12 +1004,28 @@ export default function ClientDetailPanel({
                             </div>
                           ))}
                         </div>
-                        <div className="px-4 py-2 border-t border-border flex items-center justify-between">
-                          {p.discountAmount > 0 && (
-                            <span className="text-[11px] text-rose-600 font-500">Remise: -{p.discountAmount.toFixed(2)} €</span>
+                        <div className="px-4 py-2 border-t border-border flex flex-col gap-1">
+                          {p.loyaltyRewardUsed && (
+                            <div className="flex items-center gap-1.5">
+                              <Icon name="GiftIcon" size={11} className="text-violet-500" />
+                              <span className="text-[11px] text-violet-700 font-500">Récompense utilisée — {p.loyaltyRewardUsed}</span>
+                            </div>
                           )}
-                          {p.loyaltyPointsEarned > 0 && (
-                            <div className="flex items-center gap-1.5 ml-auto">
+                          {p.discountAmount > 0 && (
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] text-rose-600 font-500">
+                                {p.loyaltyRewardUsed ? 'dont remise totale' : 'Remise'}: -{p.discountAmount.toFixed(2)} €
+                              </span>
+                              {p.loyaltyPointsEarned > 0 && (
+                                <div className="flex items-center gap-1.5">
+                                  <Icon name="StarIcon" size={12} className="text-amber-500" />
+                                  <span className="text-[11px] text-amber-700 font-500">+{p.loyaltyPointsEarned} pts</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {p.discountAmount === 0 && p.loyaltyPointsEarned > 0 && (
+                            <div className="flex items-center gap-1.5 self-end">
                               <Icon name="StarIcon" size={12} className="text-amber-500" />
                               <span className="text-[11px] text-amber-700 font-500">+{p.loyaltyPointsEarned} pts</span>
                             </div>

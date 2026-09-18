@@ -77,6 +77,7 @@ export interface ClientPurchase {
   cashierName: string | null;
   notes: string | null;
   purchasedAt: string;
+  loyaltyRewardUsed?: string | null;
 }
 
 export interface PurchaseItem {
@@ -222,6 +223,7 @@ function mapReceiptToPurchase(row: any): ClientPurchase {
     cashierName: row.cashier_name ?? null,
     notes: row.notes ?? null,
     purchasedAt: row.created_at ?? '',
+    loyaltyRewardUsed: row.loyalty_reward_used ?? null,
   };
 }
 
@@ -485,12 +487,12 @@ export const clientService = {
     } catch (e: any) { console.log('clientService.getLoyaltyTransactions exception:', e.message); return []; }
   },
 
-  async adjustLoyaltyPoints(clientId: string, pointsChange: number, reason: string): Promise<{ ok: boolean; error?: string; newBalance?: number }> {
+  async adjustLoyaltyPoints(clientId: string, pointsChange: number, reason: string, totalSpentDelta?: number): Promise<{ ok: boolean; error?: string; newBalance?: number }> {
     try {
       const res = await fetch('/api/loyalty/adjust-points', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, pointsChange, reason }),
+        body: JSON.stringify({ clientId, pointsChange, reason, totalSpentDelta, incrementVisits: totalSpentDelta !== undefined && totalSpentDelta > 0 }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {

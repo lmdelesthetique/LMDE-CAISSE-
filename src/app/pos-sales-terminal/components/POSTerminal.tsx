@@ -1313,11 +1313,12 @@ export default function POSTerminal() {
       const previousPoints = client.points;
       let newPoints = previousPoints + loyaltyPointsEarned;
 
-      // Persist points to DB
+      // Persist points to DB and increment total_spent / total_visits on the client record
       const { ok: ptsOk, error: ptsErr } = await clientService.adjustLoyaltyPoints(
         client.id,
         loyaltyPointsEarned,
-        `Achat en caisse — ${total.toFixed(2)} € — ${new Date().toLocaleDateString('fr-FR')}`
+        `Achat en caisse — ${total.toFixed(2)} € — ${new Date().toLocaleDateString('fr-FR')}`,
+        total
       );
       if (!ptsOk) console.error('[handleCompleteSale] adjustLoyaltyPoints failed:', ptsErr);
 

@@ -7,7 +7,7 @@ export async function POST(req: NextRequest) {
   let body: any;
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
 
-  const { clientId, pointsChange, reason } = body ?? {};
+  const { clientId, pointsChange, reason, totalSpentDelta, incrementVisits } = body ?? {};
   if (!clientId || pointsChange === undefined || pointsChange === null) {
     return NextResponse.json({ error: 'clientId and pointsChange are required' }, { status: 400 });
   }
@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
     // Use maybeSingle to avoid error when 0 rows (returns null instead of error)
     const { data: clientRow, error: clientError } = await supabase
       .from('clients')
-      .select('id, loyalty_points')
+      .select('id, loyalty_points, total_spent, total_visits')
       .eq('id', clientId)
       .maybeSingle();
 
@@ -38,10 +38,20 @@ export async function POST(req: NextRequest) {
     const currentPoints = clientRow.loyalty_points ?? 0;
     const newBalance = Math.max(0, currentPoints + delta);
 
+    const clientUpdates: Record<string, unknown> = { loyalty_points: newBalance };
+    if (totalSpentDelta && Number(totalSpentDelta) > 0) {
+      const currentSpent = (clientRow as any).total_spent ?? 0;
+      clientUpdates.total_spent = Math.round((Number(currentSpent) + Number(totalSpentDelta)) * 100) / 100;
+    }
+    if (incrementVisits) {
+      const currentVisits = (clientRow as any).total_visits ?? 0;
+      clientUpdates.total_visits = Number(currentVisits) + 1;
+    }
+
     // Don't include updated_at — the trigger handles it automatically
     const { error: updateError } = await supabase
       .from('clients')
-      .update({ loyalty_points: newBalance })
+      .update(clientUpdates)
       .eq('id', clientId);
 
     if (updateError) {

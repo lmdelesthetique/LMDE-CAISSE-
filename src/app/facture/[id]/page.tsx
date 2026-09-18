@@ -1,11 +1,5 @@
-import { createClient } from '@supabase/supabase-js';
 import { notFound } from 'next/navigation';
-
-function makeClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
-}
+import { createAdminClient } from '@/lib/supabase/admin';
 
 const ROSE = '#e91e8c';
 const ROSE_LIGHT = '#fce4ec';
@@ -43,7 +37,7 @@ function esc(s: string) {
 
 export default async function FacturePublicPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const supabase = makeClient();
+  const supabase = createAdminClient();
   const { data, error } = await supabase.from('factures').select('*').eq('id', id).maybeSingle();
   if (error || !data) notFound();
 

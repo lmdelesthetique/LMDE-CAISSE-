@@ -613,6 +613,7 @@ export default function LoyaltyPage() {
   const [syncingAll, setSyncingAll] = useState(false);
   const [extendingTiers, setExtendingTiers] = useState(false);
   const [cleaningDuplicates, setCleaningDuplicates] = useState(false);
+  const [fixingTotals, setFixingTotals] = useState(false);
   const [productCategoryFilter, setProductCategoryFilter] = useState<ProductCategoryFilter>('all');
 
   const handleSyncAll = async () => {
@@ -681,6 +682,20 @@ export default function LoyaltyPage() {
       toast.error(`Erreur : ${e?.message ?? 'Recalcul impossible'}`);
     } finally {
       setRecalculating(false);
+    }
+  };
+
+  const handleFixClientTotals = async () => {
+    setFixingTotals(true);
+    try {
+      const res = await fetch('/api/admin/fix-client-totals', { method: 'POST' });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+      toast.success(`✓ ${json.message}`, { duration: 6000 });
+    } catch (e: any) {
+      toast.error(`Erreur : ${e?.message ?? 'Impossible de corriger les totaux'}`);
+    } finally {
+      setFixingTotals(false);
     }
   };
 
@@ -846,6 +861,14 @@ export default function LoyaltyPage() {
                   {cleaningDuplicates
                     ? <><Icon name="ArrowPathIcon" size={15} className="animate-spin" />Nettoyage…</>
                     : <><Icon name="TrashIcon" size={15} />Nettoyer doublons</>
+                  }
+                </button>
+                <button onClick={handleFixClientTotals} disabled={fixingTotals || syncingAll}
+                  className="flex items-center gap-2 px-4 py-2 bg-sky-600 text-white rounded-lg text-sm font-600 hover:opacity-90 transition-opacity disabled:opacity-40"
+                  title="Relie les tickets sans client_id et recalcule total dépensé + visites pour toutes les clientes">
+                  {fixingTotals
+                    ? <><Icon name="ArrowPathIcon" size={15} className="animate-spin" />Correction…</>
+                    : <><Icon name="WrenchScrewdriverIcon" size={15} />Corriger totaux clients</>
                   }
                 </button>
               </>
