@@ -38,11 +38,12 @@ export async function POST(req: NextRequest) {
 
   const supabase = createAdminClient();
 
-  // Generate numero
-  const { count } = await supabase.from('devis_pro').select('*', { count: 'exact', head: true });
-  const year = new Date().getFullYear();
-  const num = String((count ?? 0) + 1).padStart(3, '0');
-  const numero = `DEV-${year}-${num}`;
+  // Numero: YYMM-RAND4 avoids race conditions from count-based approach
+  const _now = new Date();
+  const _yy = _now.getFullYear().toString().slice(-2);
+  const _mm = String(_now.getMonth() + 1).padStart(2, '0');
+  const _rand = Math.floor(Math.random() * 9000) + 1000;
+  const numero = `DEV-${_yy}${_mm}-${_rand}`;
 
   const payload = {
     client_id: body.client_id,

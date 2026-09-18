@@ -185,7 +185,12 @@ export default function DevisProPage() {
   const [newDevisClient, setNewDevisClient] = useState<any | null>(null);
   const clientSearchRef = useRef<HTMLInputElement>(null);
   const [editingDevisId, setEditingDevisId] = useState<string | null>(null);
+  const [editingDiscountPct, setEditingDiscountPct] = useState(0);
+  const [editingStatut, setEditingStatut] = useState<Statut>('brouillon');
   const [restoringItems, setRestoringItems] = useState(false);
+  const [confirmAnnuler, setConfirmAnnuler] = useState(false);
+  const [notesDevis, setNotesDevis] = useState('');
+  const [savingNotesDevis, setSavingNotesDevis] = useState(false);
 
   // ── Fetch list ──────────────────────────────────────────────────────────────
   const fetchDevis = useCallback(async () => {
@@ -226,8 +231,10 @@ export default function DevisProPage() {
   useEffect(() => {
     if (!selected) return;
     setNotesPrepa(selected.notes_preparation ?? '');
+    setNotesDevis(selected.notes ?? '');
     setTypeExpedition(selected.type_expedition ?? 'retrait');
     setAdresseLivraison(selected.adresse_livraison ?? '');
+    setConfirmAnnuler(false);
     setToCommander(new Set());
 
     // In ProDevisPanel, item.id IS the product UUID for non-custom items
@@ -316,7 +323,15 @@ export default function DevisProPage() {
       const updated = json.devis;
       setDevisList((prev) => prev.map((d) => d.id === devis.id ? { ...d, ...updated } : d));
       setSelected((prev) => prev?.id === devis.id ? { ...prev, ...updated } : prev);
-      toast.success('Statut mis à jour');
+      if (newStatut === 'livre') {
+        if (updated?.receipt_id) {
+          toast.success('Livré ✅ — Ticket de caisse créé');
+        } else {
+          toast.warning('Livré, mais ticket de caisse non généré — vérifier les logs');
+        }
+      } else {
+        toast.success('Statut mis à jour');
+      }
     } catch (e: any) {
       toast.error(e.message);
     } finally {
@@ -428,6 +443,26 @@ export default function DevisProPage() {
     }
   };
 
+  // ── Save devis notes ─────────────────────────────────────────────────────────
+  const saveNotesDevis = async () => {
+    if (!selected) return;
+    setSavingNotesDevis(true);
+    try {
+      const res = await fetch(`/api/devis-pro/${selected.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes: notesDevis }),
+      });
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      setSelected((prev) => prev ? { ...prev, notes: notesDevis } : prev);
+      toast.success('Notes enregistrées');
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setSavingNotesDevis(false);
+    }
+  };
+
   // ── Migrate ──────────────────────────────────────────────────────────────────
   const runMigration = async () => {
     setMigrating(true);
@@ -449,13 +484,14 @@ export default function DevisProPage() {
     if (!devis.client) return;
     setRestoringItems(true);
     try {
-      // Restore items into client's produits_reassort so ProDevisPanel loads them
       await fetch(`/api/clients/${devis.client_id}/pro-profile`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ produits_reassort: devis.items }),
       });
       setEditingDevisId(devis.id);
+      setEditingDiscountPct(devis.discount_pct ?? 0);
+      setEditingStatut(devis.statut);
       setNewDevisClient(devis.client);
       setShowNewDevis(true);
     } catch {
@@ -471,8 +507,17 @@ export default function DevisProPage() {
     if (!phone) { toast.error('Pas de numéro WhatsApp'); return; }
     const clean = phone.replace(/\s/g, '');
     const intl = clean.startsWith('0') ? '+596' + clean.slice(1) : clean.startsWith('+') ? clean : '+596' + clean;
+    const restant = Math.max(0, devis.client_pays - (devis.paye_total ?? 0));
+    const paymentLine = devis.paye_total > 0
+      ? restant > 0.005
+        ? `💳 Acompte reçu : ${fmtMoney(devis.paye_total)} — Reste : *${fmtMoney(restant)}*`
+        : `✅ Paiement complet reçu (${fmtMoney(devis.paye_total)})`
+      : `💳 Montant à régler : *${fmtMoney(devis.client_pays)}*`;
+    const expeditionLine = devis.type_expedition === 'livraison'
+      ? `🚚 Mode : Livraison${devis.adresse_livraison ? ` à ${devis.adresse_livraison}` : ''}`
+      : `🏪 Mode : Retrait en boutique`;
     const msg = encodeURIComponent(
-      `Bonjour ${devis.client?.firstName} 🌸\n\nJe vous contacte au sujet de votre devis ${devis.numero ?? ''} d'un montant de ${fmtMoney(devis.client_pays)}.\n\nN'hésitez pas à me contacter pour toute question 😊`
+      `Bonjour ${devis.client?.firstName} 🌸\n\nJe reviens vers vous au sujet de votre devis *${devis.numero ?? ''}* (${fmtMoney(devis.client_pays)}).\n\n${paymentLine}\n${expeditionLine}\n\nN'hésitez pas à me contacter pour toute question 😊\n— Le Monde de l'Esthétique`
     );
     window.open(`https://wa.me/${intl}?text=${msg}`, '_blank');
   };
@@ -670,10 +715,15 @@ export default function DevisProPage() {
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
                       {devis.paye_total > 0 && (
                         <span className="text-[10px] text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">
                           Payé {fmtMoney(devis.paye_total)}
+                        </span>
+                      )}
+                      {devis.paye_total > 0 && devis.paye_total < devis.client_pays && (
+                        <span className="text-[10px] text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded-full font-700">
+                          Reste {fmtMoney(devis.client_pays - devis.paye_total)}
                         </span>
                       )}
                       {isUrgent && (
@@ -682,6 +732,15 @@ export default function DevisProPage() {
                         </span>
                       )}
                       <span className="text-[10px] text-muted-foreground">{fmtDate(devis.created_at)}</span>
+                      {(devis.client?.phone || devis.client?.whatsapp) && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); sendWhatsApp(devis); }}
+                          className="p-1 rounded-lg text-green-500 hover:bg-green-50 transition-colors"
+                          title="Relance WhatsApp"
+                        >
+                          <Icon name="ChatBubbleLeftEllipsisIcon" size={13} />
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -858,10 +917,25 @@ export default function DevisProPage() {
               </div>
               {toCommander.size > 0 && (
                 <div className="mt-3 p-3 bg-red-50 border border-red-100 rounded-xl">
-                  <p className="text-xs font-600 text-red-700">
-                    <Icon name="ExclamationTriangleIcon" size={12} className="inline mr-1" />
-                    {toCommander.size} article{toCommander.size > 1 ? 's' : ''} à commander fournisseur
-                  </p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-600 text-red-700">
+                      <Icon name="ExclamationTriangleIcon" size={12} className="inline mr-1" />
+                      {toCommander.size} article{toCommander.size > 1 ? 's' : ''} à commander
+                    </p>
+                    <button
+                      onClick={() => {
+                        const list = selected!.items
+                          .filter((i) => toCommander.has(i.id))
+                          .map((i) => `• ${i.name} x${i.qty}`)
+                          .join('\n');
+                        navigator.clipboard.writeText(`Commande fournisseur — ${selected!.client?.firstName} ${selected!.client?.lastName}\n${list}`);
+                        toast.success('Liste copiée');
+                      }}
+                      className="flex items-center gap-0.5 text-[10px] font-600 text-red-600 hover:underline"
+                    >
+                      <Icon name="ClipboardIcon" size={11} /> Copier
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -1040,13 +1114,20 @@ export default function DevisProPage() {
               </div>
             )}
 
-            {/* Notes */}
-            {selected.notes && (
-              <div className="px-5 py-4 border-b border-border">
-                <p className="text-[11px] font-700 uppercase tracking-widest text-muted-foreground mb-1">Notes devis</p>
-                <p className="text-xs text-foreground whitespace-pre-wrap">{selected.notes}</p>
-              </div>
-            )}
+            {/* Notes devis — editable */}
+            <div className="px-5 py-4 border-b border-border">
+              <p className="text-[11px] font-700 uppercase tracking-widest text-muted-foreground mb-2">Notes devis</p>
+              <textarea
+                value={notesDevis}
+                onChange={(e) => setNotesDevis(e.target.value)}
+                rows={2}
+                placeholder="Notes internes / commentaires client..."
+                className="w-full px-3 py-2 text-sm border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none"
+              />
+              <button onClick={saveNotesDevis} disabled={savingNotesDevis} className="mt-1 text-xs font-600 text-primary hover:underline disabled:opacity-50">
+                {savingNotesDevis ? 'Enregistrement…' : 'Enregistrer'}
+              </button>
+            </div>
           </div>
 
           {/* Panel footer: status action */}
@@ -1061,7 +1142,17 @@ export default function DevisProPage() {
                 {STATUT_NEXT[selected.statut]!.label}
               </button>
             )}
-            {/* Shortcut: mark as delivered directly from any active state (skip pipeline steps) */}
+            {/* En discussion — secondary action from envoye */}
+            {selected.statut === 'envoye' && (
+              <button
+                onClick={() => updateStatut(selected, 'en_discussion')}
+                disabled={statusUpdating}
+                className="w-full mt-2 py-2 text-xs font-600 text-orange-600 border border-orange-200 hover:bg-orange-50 rounded-xl transition-colors disabled:opacity-50"
+              >
+                💬 Marquer en discussion
+              </button>
+            )}
+            {/* Shortcut: mark as delivered directly from any active state */}
             {selected.statut !== 'livre' && selected.statut !== 'annule' && selected.statut !== 'pret' && (
               <button
                 onClick={() => updateStatut(selected, 'livre')}
@@ -1081,12 +1172,26 @@ export default function DevisProPage() {
               </button>
             )}
             {selected.statut !== 'annule' && selected.statut !== 'livre' && (
-              <button
-                onClick={() => updateStatut(selected, 'annule')}
-                className="w-full mt-2 py-2 text-xs font-600 text-red-400 hover:text-red-600 transition-colors"
-              >
-                Annuler ce devis
-              </button>
+              confirmAnnuler ? (
+                <div className="mt-2 flex gap-2">
+                  <button onClick={() => setConfirmAnnuler(false)} className="flex-1 py-2 text-xs font-600 border border-border rounded-xl hover:bg-muted transition-colors">
+                    Garder le devis
+                  </button>
+                  <button
+                    onClick={() => { updateStatut(selected, 'annule'); setConfirmAnnuler(false); }}
+                    className="flex-1 py-2 text-xs font-700 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-colors"
+                  >
+                    Confirmer l'annulation
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setConfirmAnnuler(true)}
+                  className="w-full mt-2 py-2 text-xs font-600 text-red-400 hover:text-red-600 transition-colors"
+                >
+                  Annuler ce devis
+                </button>
+              )
             )}
           </div>
         </div>
@@ -1166,8 +1271,9 @@ export default function DevisProPage() {
               <div className="flex-1 overflow-y-auto">
                 <ProDevisPanel
                   client={newDevisClient}
+                  initialDiscountPct={editingDevisId ? editingDiscountPct : undefined}
+                  initialStatut={editingDevisId ? editingStatut : undefined}
                   onHistoryChanged={async () => {
-                    // If editing an existing devis, mark it as replaced
                     if (editingDevisId) {
                       await fetch(`/api/devis-pro/${editingDevisId}`, {
                         method: 'PATCH',

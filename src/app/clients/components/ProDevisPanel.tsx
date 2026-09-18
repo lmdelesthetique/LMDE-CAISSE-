@@ -577,7 +577,17 @@ function ItemList({ items, onQtyChange, onRemove, variant = 'gold' }: {
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export default function ProDevisPanel({ client, onHistoryChanged }: { client: Client; onHistoryChanged?: (history: any[]) => void }) {
+export default function ProDevisPanel({
+  client,
+  onHistoryChanged,
+  initialDiscountPct,
+  initialStatut,
+}: {
+  client: Client;
+  onHistoryChanged?: (history: any[]) => void;
+  initialDiscountPct?: number;
+  initialStatut?: string;
+}) {
   const [items, setItems] = useState<ReassortItem[]>([]);
   const [devisHistory, setDevisHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -602,7 +612,7 @@ export default function ProDevisPanel({ client, onHistoryChanged }: { client: Cl
   const [showCustomBonus, setShowCustomBonus] = useState(false);
   const [customBonusName, setCustomBonusName] = useState('');
   const [customBonusPrice, setCustomBonusPrice] = useState('');
-  const [discountPct, setDiscountPct] = useState(0);
+  const [discountPct, setDiscountPct] = useState(initialDiscountPct ?? 0);
   const [customDiscountInput, setCustomDiscountInput] = useState('');
   const [showCustomDiscount, setShowCustomDiscount] = useState(false);
   const [showDecouverteModal, setShowDecouverteModal] = useState(false);
@@ -641,16 +651,35 @@ export default function ProDevisPanel({ client, onHistoryChanged }: { client: Cl
       .finally(() => setLoading(false));
   }, [client.id]);
 
-  // Load templates from localStorage (once, client-side only)
+  // Load templates from DB (with localStorage fallback)
   useEffect(() => {
-    const stored = loadTemplates();
-    // First-time: pre-populate with default starter templates
-    if (stored.length === 0) {
-      persistTemplates(DEFAULT_TEMPLATES);
-      setTemplates(DEFAULT_TEMPLATES);
-    } else {
-      setTemplates(stored);
-    }
+    fetch('/api/devis-pro/templates')
+      .then((r) => r.json())
+      .then(({ templates: dbTpls }) => {
+        if (Array.isArray(dbTpls) && dbTpls.length > 0) {
+          setTemplates(dbTpls.map((t: any) => ({
+            id: t.id,
+            name: t.name,
+            emoji: t.emoji ?? '💅',
+            color: t.color ?? '#B8960C',
+            discountPct: t.discount_pct ?? 0,
+            items: t.items ?? [],
+          })));
+        } else {
+          // First run — seed defaults into DB
+          setTemplates(DEFAULT_TEMPLATES);
+          DEFAULT_TEMPLATES.forEach((t) => {
+            fetch('/api/devis-pro/templates', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: t.name, emoji: t.emoji, color: t.color, discount_pct: t.discountPct, items: t.items }),
+            }).catch(() => {});
+          });
+        }
+      })
+      .catch(() => {
+        const stored = loadTemplates();
+        setTemplates(stored.length > 0 ? stored : DEFAULT_TEMPLATES);
+      });
   }, []);
 
   // ── Derived state ──────────────────────────────────────────────────────────
@@ -752,7 +781,7 @@ export default function ProDevisPanel({ client, onHistoryChanged }: { client: Cl
           total_ttc: totalValue,
           client_pays: clientPays,
           free_shipping: freeShipping,
-          statut: 'envoye',
+          statut: initialStatut ?? 'envoye',
           sent_at: new Date().toISOString(),
           pdf_url: null,
         }),
@@ -848,36 +877,29 @@ export default function ProDevisPanel({ client, onHistoryChanged }: { client: Cl
     setShowTemplateEditor(true);
   };
 
-  const handleSaveTemplate = () => {
+  const handleSaveTemplate = async () => {
     if (!tplName.trim()) return;
     if (editingTemplate) {
-      const updated = templates.map((t) =>
-        t.id === editingTemplate.id
-          ? { ...t, name: tplName.trim(), emoji: tplEmoji, color: tplColor, discountPct: tplDiscountPct, items: tplItems }
-          : t
-      );
-      persistTemplates(updated);
-      setTemplates(updated);
+      const res = await fetch(`/api/devis-pro/templates/${editingTemplate.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: tplName.trim(), emoji: tplEmoji, color: tplColor, discount_pct: tplDiscountPct, items: tplItems }),
+      });
+      const { template: t } = await res.json();
+      if (t) setTemplates((prev) => prev.map((x) => x.id === editingTemplate.id ? { ...x, name: t.name, emoji: t.emoji, color: t.color, discountPct: t.discount_pct, items: t.items ?? [] } : x));
     } else {
-      const newTpl: DevisTemplate = {
-        id: `tpl-${Date.now()}`,
-        name: tplName.trim(),
-        emoji: tplEmoji,
-        color: tplColor,
-        discountPct: tplDiscountPct,
-        items: tplItems,
-      };
-      const updated = [...templates, newTpl];
-      persistTemplates(updated);
-      setTemplates(updated);
+      const res = await fetch('/api/devis-pro/templates', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: tplName.trim(), emoji: tplEmoji, color: tplColor, discount_pct: tplDiscountPct, items: tplItems }),
+      });
+      const { template: t } = await res.json();
+      if (t) setTemplates((prev) => [...prev, { id: t.id, name: t.name, emoji: t.emoji ?? '💅', color: t.color ?? '#B8960C', discountPct: t.discount_pct ?? 0, items: t.items ?? [] }]);
     }
     setShowTemplateEditor(false);
   };
 
-  const handleDeleteTemplate = (id: string) => {
-    const updated = templates.filter((t) => t.id !== id);
-    persistTemplates(updated);
-    setTemplates(updated);
+  const handleDeleteTemplate = async (id: string) => {
+    await fetch(`/api/devis-pro/templates/${id}`, { method: 'DELETE' });
+    setTemplates((prev) => prev.filter((t) => t.id !== id));
     if (editingTemplate?.id === id) setShowTemplateEditor(false);
   };
 

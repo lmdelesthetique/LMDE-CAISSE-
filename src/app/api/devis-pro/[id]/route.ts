@@ -29,10 +29,9 @@ async function createReceiptFromDevis(supabase: ReturnType<typeof createAdminCli
   const paiements: any[] = Array.isArray(devis.paiements) ? devis.paiements : [];
 
   const clientPays = Number(devis.client_pays) || Number(devis.total_ttc) || 0;
-  // Use what was actually paid, capped at what's owed — never inflate CA with unpaid amounts
   const payeTotal = Number(devis.paye_total) || 0;
   const totalAmount = payeTotal > 0 ? Math.min(payeTotal, clientPays) : clientPays;
-  if (totalAmount <= 0) return;
+  const hasAmount = totalAmount > 0;
 
   // Avoir (store credit) used — must be deducted from client balance
   const avoirUsed = paiements
@@ -107,22 +106,25 @@ async function createReceiptFromDevis(supabase: ReturnType<typeof createAdminCli
   };
   if (avoirUsed > 0) receiptInsert.store_credit_used = avoirUsed;
 
-  const { data: receipt, error: receiptErr } = await supabase
-    .from('receipts')
-    .insert(receiptInsert)
-    .select('id, ticket_number')
-    .single();
+  // Only create receipt when there's money involved
+  let receipt: { id: string; ticket_number: string } | null = null;
+  if (hasAmount) {
+    const { data: receiptData, error: receiptErr } = await supabase
+      .from('receipts')
+      .insert(receiptInsert)
+      .select('id, ticket_number')
+      .single();
 
-  if (receiptErr) {
-    console.error('[devis-pro receipt] insert error:', receiptErr.message);
-    return;
+    if (receiptErr) {
+      console.error('[devis-pro receipt] insert error:', receiptErr.message);
+    } else {
+      receipt = receiptData;
+      console.log('[devis-pro receipt] created', receipt.ticket_number, 'for devis', devis.numero);
+      await supabase.from('devis_pro').update({ receipt_id: receipt.id }).eq('id', devisId).then(() => {});
+    }
   }
 
-  console.log('[devis-pro receipt] created', receipt.ticket_number, 'for devis', devis.numero);
-
-  await supabase.from('devis_pro').update({ receipt_id: receipt.id }).eq('id', devisId).then(() => {});
-
-  // Decrement stock for all real products (including bonus items — they're physically given)
+  // Decrement stock for all real products — always, even for 0€ devis (items are physically given)
   for (const item of items) {
     const isCustom = String(item.id || '').startsWith('custom-');
     if (isCustom) continue;
@@ -158,17 +160,12 @@ async function createReceiptFromDevis(supabase: ReturnType<typeof createAdminCli
     });
   }
 
-  // Update client stats: last_purchase_at, total_spent, store_credit (if avoir used)
   if (devis.client_id) {
     const currentCredit = parseFloat(String(devis.client?.store_credit ?? 0));
     const currentSpent = parseFloat(String(devis.client?.total_spent ?? 0));
-    const clientUpdates: any = {
-      last_purchase_at: new Date().toISOString(),
-      total_spent: Math.round((currentSpent + totalAmount) * 100) / 100,
-    };
-    if (avoirUsed > 0) {
-      clientUpdates.store_credit = Math.max(0, Math.round((currentCredit - avoirUsed) * 100) / 100);
-    }
+    const clientUpdates: any = { last_purchase_at: new Date().toISOString() };
+    if (hasAmount) clientUpdates.total_spent = Math.round((currentSpent + totalAmount) * 100) / 100;
+    if (avoirUsed > 0) clientUpdates.store_credit = Math.max(0, Math.round((currentCredit - avoirUsed) * 100) / 100);
     await supabase.from('clients').update(clientUpdates).eq('id', devis.client_id);
   }
 
@@ -262,7 +259,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
 
   const { data: current } = await supabase
     .from('devis_pro')
-    .select('statut, type_expedition, adresse_livraison, delivery_id')
+    .select('statut, type_expedition, adresse_livraison, delivery_id, client_id, paiements')
     .eq('id', id)
     .single();
 
@@ -278,15 +275,40 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     if (key in body) patch[key] = body[key];
   }
 
+  // Re-credit avoir to client balance if an avoir payment was removed or reduced
+  if ('paiements' in body && current?.client_id) {
+    const oldPaiements: any[] = Array.isArray(current.paiements) ? current.paiements : [];
+    const newPaiements: any[] = Array.isArray(body.paiements) ? body.paiements : [];
+    const oldAvoir = oldPaiements.filter((p: any) => p.method === 'avoir').reduce((s: number, p: any) => s + Number(p.amount || 0), 0);
+    const newAvoir = newPaiements.filter((p: any) => p.method === 'avoir').reduce((s: number, p: any) => s + Number(p.amount || 0), 0);
+    const toReCredit = oldAvoir - newAvoir;
+    if (toReCredit > 0.005) {
+      const { data: cl } = await supabase.from('clients').select('store_credit').eq('id', current.client_id).maybeSingle();
+      if (cl) {
+        const newCredit = Math.round((Number(cl.store_credit) + toReCredit) * 100) / 100;
+        await supabase.from('clients').update({ store_credit: newCredit }).eq('id', current.client_id);
+      }
+    }
+  }
+
   const { data, error } = await supabase.from('devis_pro').update(patch).eq('id', id).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const wasAlreadyLivre = current?.statut === 'livre';
   const becomesLivre = body.statut === 'livre';
   if (!wasAlreadyLivre && becomesLivre) {
-    createReceiptFromDevis(supabase, id).catch((e) =>
-      console.error('[devis-pro receipt] unexpected error:', e)
-    );
+    try {
+      await createReceiptFromDevis(supabase, id);
+    } catch (e) {
+      console.error('[devis-pro receipt] unexpected error:', e);
+    }
+    // Refetch to include receipt_id written by createReceiptFromDevis
+    const { data: refreshed } = await supabase
+      .from('devis_pro')
+      .select(`*, client:clients(id, firstName:first_name, lastName:last_name, phone, whatsapp, clientType:client_type, address, city, country)`)
+      .eq('id', id)
+      .single();
+    return NextResponse.json({ devis: refreshed ?? data });
   }
 
   const wasAlreadyPret = current?.statut === 'pret';
