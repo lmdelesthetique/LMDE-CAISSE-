@@ -85,22 +85,66 @@ export async function GET(req: NextRequest) {
       existing.splice(0, existing.length, ...(refreshed.data ?? []));
     }
 
-    // Build a map of current tier thresholds to detect retroactively raised thresholds
+    // Build a map of current tier thresholds
     const tierThresholdMap = new Map(tiers.map((t: any) => [t.id, t.points_required]));
-
-    // Return only available (non-expired) rewards WHERE the client still meets the threshold.
-    // If an admin raised a tier's threshold after the reward was unlocked, hide the reward
-    // until the client reaches the new threshold (prevents showing "-5%" for 100-pt clients
-    // when Palier 1 was moved from 100 pts to 350 pts).
     const now = new Date().toISOString();
+
+    // Auto-cancel 'available' rewards where client no longer meets the threshold,
+    // and delete extra duplicate 'available' rows per tier (keep only the most recent).
+    const toCancel: string[] = [];
+    const toDelete: string[] = [];
+    const seenAvailableTier = new Map<string, string>(); // tier_id → reward id (most recent kept)
+
+    for (const r of existing) {
+      if (r.status !== 'available') continue;
+      if (r.expiry_date && r.expiry_date <= now) continue; // let expiry handle itself
+
+      if (r.tier_id) {
+        const threshold = tierThresholdMap.get(r.tier_id);
+        if (threshold !== undefined && points < threshold) {
+          // Client no longer qualifies for this tier
+          toCancel.push(r.id);
+          continue;
+        }
+        // Deduplicate: if we already have an available row for this tier, delete the extra
+        if (seenAvailableTier.has(r.tier_id)) {
+          toDelete.push(r.id);
+        } else {
+          seenAvailableTier.set(r.tier_id, r.id);
+        }
+      }
+    }
+
+    // Apply inline cleanup (fire-and-forget, don't block response on errors)
+    if (toCancel.length > 0) {
+      supabase.from('client_loyalty_rewards')
+        .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+        .in('id', toCancel)
+        .then(() => {});
+    }
+    if (toDelete.length > 0) {
+      supabase.from('client_loyalty_rewards')
+        .delete()
+        .in('id', toDelete)
+        .then(() => {});
+    }
+
+    // Build final available list: exclude cancelled/deleted rows
+    const cancelledOrDeleted = new Set([...toCancel, ...toDelete]);
     const available = existing.filter((r: any) => {
+      if (cancelledOrDeleted.has(r.id)) return false;
       if (r.status !== 'available') return false;
       if (r.expiry_date && r.expiry_date <= now) return false;
       if (r.tier_id && tierThresholdMap.has(r.tier_id) && points < tierThresholdMap.get(r.tier_id)) return false;
       return true;
     });
 
-    return NextResponse.json({ available, all: existing });
+    // Build corrected 'all' (exclude inline-deleted rows, update cancelled ones)
+    const all = existing
+      .filter((r: any) => !toDelete.includes(r.id))
+      .map((r: any) => toCancel.includes(r.id) ? { ...r, status: 'cancelled' } : r);
+
+    return NextResponse.json({ available, all });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }

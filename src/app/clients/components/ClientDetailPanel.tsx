@@ -355,6 +355,7 @@ export default function ClientDetailPanel({
   const [loyaltyTiers, setLoyaltyTiers] = useState<LoyaltyTier[]>([]);
   const [clientRedemptions, setClientRedemptions] = useState<LoyaltyRedemption[]>([]);
   const [clientRewards, setClientRewards] = useState<ClientLoyaltyReward[]>([]);
+  const [clientAvailableRewards, setClientAvailableRewards] = useState<ClientLoyaltyReward[]>([]);
   const [loadingLoyalty, setLoadingLoyalty] = useState(false);
 
   // Fiche Pro
@@ -443,11 +444,23 @@ export default function ClientDetailPanel({
       Promise.all([
         loyaltyService.getTiers(),
         loyaltyService.getClientRedemptions(client.id),
-        loyaltyService.getClientRewards(client.id),
-      ]).then(([tiers, redemptions, rewards]) => {
+        fetch(`/api/loyalty/client-rewards?clientId=${client.id}`).then(r => r.ok ? r.json() : { available: [], all: [] }),
+      ]).then(([tiers, redemptions, rewardsJson]) => {
         setLoyaltyTiers(tiers);
         setClientRedemptions(redemptions);
-        setClientRewards(rewards);
+        // 'available' is threshold-filtered and deduplicated by the API
+        // 'all' is the full history for showing used/cancelled entries
+        const mapRow = (r: any): ClientLoyaltyReward => ({
+          id: r.id, clientId: r.client_id, tierId: r.tier_id ?? null,
+          rewardType: r.reward_type, rewardDescription: r.reward_description,
+          rewardValue: parseFloat(r.reward_value ?? 0), rewardProductId: r.reward_product_id ?? null,
+          status: r.status, unlockedAt: r.unlocked_at, pointsAtUnlock: r.points_at_unlock ?? 0,
+          expiryDate: r.expiry_date ?? null, usedAt: r.used_at ?? null,
+          ticketRef: r.ticket_ref ?? null, cashierName: r.cashier_name ?? null,
+          notes: r.notes ?? null, createdAt: r.created_at, updatedAt: r.updated_at,
+        });
+        setClientAvailableRewards((rewardsJson.available ?? []).map(mapRow));
+        setClientRewards((rewardsJson.all ?? []).map(mapRow));
         setLoadingLoyalty(false);
       });
     }
@@ -1141,12 +1154,13 @@ export default function ClientDetailPanel({
                     </div>
                   )}
 
-                  {/* ── EARNED REWARDS (DB rows or computed from tiers) ── */}
+                  {/* ── EARNED REWARDS ── */}
                   {(() => {
-                    // Computed fallback: when no DB rows, derive from tiers vs points
-                    const computedRewards: ClientLoyaltyReward[] = clientRewards.length === 0 && loyaltyTiers.length > 0
+                    // 'clientAvailableRewards' is already threshold-filtered and deduplicated by the API
+                    // Fallback to computed list for clients with no DB rows yet
+                    const computedAvailable: ClientLoyaltyReward[] = clientRewards.length === 0 && loyaltyTiers.length > 0
                       ? loyaltyTiers
-                          .filter((t) => t.isActive !== false && client.loyaltyPoints >= t.pointsRequired)
+                          .filter((t) => t.isActive !== false && (client.loyaltyPoints ?? 0) >= t.pointsRequired)
                           .map((t) => ({
                             id: `computed-${t.id}`,
                             clientId: client.id,
@@ -1158,17 +1172,18 @@ export default function ClientDetailPanel({
                             status: 'available' as const,
                             unlockedAt: new Date().toISOString(),
                             pointsAtUnlock: t.pointsRequired,
-                            expiryDate: null,
-                            usedAt: null,
-                            ticketRef: null,
-                            cashierName: null,
-                            notes: null,
+                            expiryDate: null, usedAt: null, ticketRef: null,
+                            cashierName: null, notes: null,
                             createdAt: new Date().toISOString(),
                             updatedAt: new Date().toISOString(),
                           }))
                       : [];
-                    const effectiveRewards = clientRewards.length > 0 ? clientRewards : computedRewards;
-                    if (effectiveRewards.length === 0) {
+                    const available = clientAvailableRewards.length > 0
+                      ? clientAvailableRewards
+                      : computedAvailable;
+                    const used = clientRewards.filter((r) => r.status === 'used');
+                    const expired = clientRewards.filter((r) => r.status === 'expired' || r.status === 'cancelled');
+                    if (available.length === 0 && used.length === 0 && expired.length === 0) {
                       return (
                         <div>
                           <h3 className="text-xs font-600 uppercase tracking-wide text-muted-foreground mb-3">Récompenses disponibles</h3>
@@ -1176,9 +1191,6 @@ export default function ClientDetailPanel({
                         </div>
                       );
                     }
-                    const available = effectiveRewards.filter((r) => r.status === 'available');
-                    const used = effectiveRewards.filter((r) => r.status === 'used');
-                    const expired = effectiveRewards.filter((r) => r.status === 'expired' || r.status === 'cancelled');
                     return (
                       <div className="space-y-4">
                         {/* Summary KPIs */}
