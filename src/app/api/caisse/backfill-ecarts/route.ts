@@ -16,6 +16,34 @@ function cashPortionOfReceipt(paymentMethod: string, totalAmount: number): numbe
   return 0;
 }
 
+// Fetches all rows from receipts by paginating to bypass Supabase max_rows cap (default 1000).
+async function fetchAllReceipts(
+  supabase: ReturnType<typeof createAdminClient>,
+  oldest: string,
+  newest: string,
+): Promise<any[]> {
+  const PAGE = 1000;
+  const all: any[] = [];
+  let start = 0;
+  while (true) {
+    const { data: page, error } = await supabase
+      .from('receipts')
+      .select('created_at, total_amount, payment_method, client_name')
+      .eq('status', 'completed')
+      .neq('is_demo', true)
+      .gte('created_at', dayStart(oldest))
+      .lte('created_at', dayEnd(newest))
+      .order('created_at', { ascending: true })
+      .range(start, start + PAGE - 1);
+
+    if (error || !page || page.length === 0) break;
+    all.push(...page);
+    if (page.length < PAGE) break;
+    start += PAGE;
+  }
+  return all;
+}
+
 // POST /api/caisse/backfill-ecarts
 // Recomputes fond_theorique and ecart for all closed sessions that have fond_compte set.
 export async function POST() {
@@ -40,17 +68,8 @@ export async function POST() {
   const oldest = sessions[0].date;
   const newest = sessions[sessions.length - 1].date;
 
-  // Fetch all real receipts in range (Martinique timezone bounds, no demo)
-  // Must set a high limit — Supabase default is 1000 rows which silently drops recent receipts.
-  const { data: allReceipts } = await supabase
-    .from('receipts')
-    .select('created_at, total_amount, payment_method, client_name')
-    .eq('status', 'completed')
-    .neq('is_demo', true)
-    .gte('created_at', dayStart(oldest))
-    .lte('created_at', dayEnd(newest))
-    .order('created_at', { ascending: true })
-    .limit(50000);
+  // Paginated fetch — bypasses Supabase default max_rows cap of 1000 rows per request
+  const allReceipts = await fetchAllReceipts(supabase, oldest, newest);
 
   // Fetch all cash expenses in range
   const { data: allExpenses } = await supabase
@@ -62,7 +81,7 @@ export async function POST() {
 
   // Group receipts by Martinique local date
   const cashInByDate: Record<string, number> = {};
-  for (const r of allReceipts ?? []) {
+  for (const r of allReceipts) {
     const cn = (r.client_name ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
     if (cn === 'CHRISTY LHOMME') continue;
     // Convert UTC created_at to local Martinique date
@@ -80,7 +99,7 @@ export async function POST() {
 
   // Recalculate and update each session
   let updated = 0;
-  const results: { date: string; old_ecart: number | null; new_ecart: number; fond_theorique: number }[] = [];
+  const results: { date: string; cash_in: number; old_ecart: number | null; new_ecart: number; fond_theorique: number }[] = [];
 
   for (const session of sessions) {
     const cashIn = cashInByDate[session.date] ?? 0;
@@ -107,6 +126,7 @@ export async function POST() {
       updated++;
       results.push({
         date: session.date,
+        cash_in: cashIn,
         old_ecart: current?.ecart ?? null,
         new_ecart: newEcart,
         fond_theorique: fondTheorique,
@@ -116,5 +136,10 @@ export async function POST() {
     }
   }
 
-  return NextResponse.json({ updated, total: sessions.length, results });
+  return NextResponse.json({
+    updated,
+    total: sessions.length,
+    receipts_fetched: allReceipts.length,
+    results,
+  });
 }
