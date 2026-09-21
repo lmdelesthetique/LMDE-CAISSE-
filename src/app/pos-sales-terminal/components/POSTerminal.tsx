@@ -1637,6 +1637,11 @@ export default function POSTerminal() {
       setShowDocChoice(true);
       toast.success(`Paiement encaissé — ${total.toFixed(2)} € via ${method}`);
     }
+    // Refresh session cash totals so tiroir display stays current
+    fetch('/api/caisse/sessions')
+      .then(r => r.json())
+      .then(d => { if (d?.fond_ouverture !== undefined) setCaisseSession(d); })
+      .catch(() => {});
     setPaying(false);
   }, [cart, client, paymentMode, totalTTC, subtotalHT, totalTVA, globalDiscountAmount, rewardDiscountAmount, finalTTC, loyaltyTiers, logAction, employee, appliedReward, paying]);
 
