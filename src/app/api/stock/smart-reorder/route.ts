@@ -42,6 +42,7 @@ export async function GET() {
         .select('items')
         .eq('status', 'completed')
         .gte('created_at', since)
+        .order('created_at', { ascending: true })
         .range(from, to)
     );
 

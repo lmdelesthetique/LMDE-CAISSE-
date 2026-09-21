@@ -48,7 +48,7 @@ export async function GET() {
       .limit(10);
 
     const allPointsRows = await fetchAll<{ loyalty_points: number }>((from, to) =>
-      supabase.from('clients').select('loyalty_points').eq('is_active', true).range(from, to)
+      supabase.from('clients').select('loyalty_points').eq('is_active', true).order('id', { ascending: true }).range(from, to)
     );
     const totalPointsIssued = allPointsRows.reduce((s, c) => s + (c.loyalty_points ?? 0), 0);
 
@@ -57,6 +57,7 @@ export async function GET() {
         .from('loyalty_transactions')
         .select('points_change')
         .lt('points_change', 0)
+        .order('id', { ascending: true })
         .range(from, to)
     );
     const totalPointsUsed = negTx.reduce((s, t) => s + Math.abs(t.points_change ?? 0), 0);
@@ -74,6 +75,7 @@ export async function GET() {
         .select('total_amount')
         .eq('payment_type', 'sale')
         .gt('total_amount', 0)
+        .order('created_at', { ascending: true })
         .range(from, to)
     );
     const avgBasket = receiptTotals.length > 0

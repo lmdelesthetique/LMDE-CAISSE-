@@ -23,6 +23,7 @@ export async function GET() {
         .from('clients')
         .select('id, first_name, last_name, email, phone, whatsapp, city, country, client_type, loyalty_points, loyalty_tier, balance_due, created_at, is_active')
         .neq('is_active', false)
+        .order('id', { ascending: true })
         .range(from, to)
     );
 
@@ -33,6 +34,7 @@ export async function GET() {
         .select('client_id, total_amount, created_at')
         .not('client_id', 'is', null)
         .eq('status', 'completed')
+        .order('created_at', { ascending: true })
         .range(from, to)
     );
 
@@ -55,6 +57,7 @@ export async function GET() {
         .not('client_id', 'is', null)
         .eq('status', 'completed')
         .gte('created_at', since)
+        .order('created_at', { ascending: true })
         .range(from, to)
     );
 
