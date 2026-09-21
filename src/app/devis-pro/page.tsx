@@ -47,6 +47,7 @@ interface DevisPro {
   notes_preparation?: string;
   pdf_url?: string;
   receipt_id?: string;
+  delivery_id?: string;
   paiements: Paiement[];
   paye_total: number;
   sent_at?: string;
@@ -177,6 +178,12 @@ export default function DevisProPage() {
   const [adresseLivraison, setAdresseLivraison] = useState('');
   const [migrating, setMigrating] = useState(false);
   const [sendingToDelivery, setSendingToDelivery] = useState(false);
+  const [showLivraisonModal, setShowLivraisonModal] = useState(false);
+  const [livreurs, setLivreurs] = useState<{ id: string; first_name: string; last_name: string }[]>([]);
+  const [selectedLivreurId, setSelectedLivreurId] = useState('');
+  const [creatingLivraison, setCreatingLivraison] = useState(false);
+  const [modalAddress, setModalAddress] = useState('');
+  const [modalNotes, setModalNotes] = useState('');
 
   // ── Nouveau devis: client picker + ProDevisPanel overlay ────────────────────
   const [showNewDevis, setShowNewDevis] = useState(false);
@@ -420,35 +427,88 @@ export default function DevisProPage() {
     toast.success('Paiement modifié');
   };
 
-  // ── Envoyer en livraison (crée une livraison en attente dans le module Livraisons) ──
+  // ── Ouvrir modal livraison ────────────────────────────────────────────────────
   const handleSendToDelivery = async () => {
     if (!selected) return;
+    setModalAddress(adresseLivraison || selected.client?.address || '');
+    setModalNotes(notesPrepa || '');
+    setSelectedLivreurId('');
+    setShowLivraisonModal(true);
     setSendingToDelivery(true);
     try {
-      // Save expedition info + address, then move to 'pret' — backend creates the delivery
+      const res = await fetch('/api/livreurs');
+      const json = await res.json();
+      setLivreurs(json.drivers ?? []);
+    } catch {
+      setLivreurs([]);
+    } finally {
+      setSendingToDelivery(false);
+    }
+  };
+
+  // ── Confirmer la création de la livraison réelle ─────────────────────────────
+  const confirmLivraison = async () => {
+    if (!selected) return;
+    if (!modalAddress.trim()) { toast.error('L\'adresse de livraison est requise'); return; }
+
+    setCreatingLivraison(true);
+    try {
+      const clientName = selected.client
+        ? `${selected.client.firstName} ${selected.client.lastName}`.trim()
+        : 'Client';
+      const clientPhone = selected.client?.whatsapp ?? selected.client?.phone ?? null;
+      const products = selected.items
+        .filter((i) => !i.isCustom && !i.id.startsWith('custom-'))
+        .map((i) => ({ name: i.name, qty: i.qty, sku: i.ref || '' }));
+
+      // 1. Create the real delivery via /api/livraisons
+      const livraisonRes = await fetch('/api/livraisons', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_name: clientName,
+          client_phone: clientPhone,
+          delivery_address: modalAddress.trim(),
+          delivery_notes: modalNotes.trim() || null,
+          products,
+          total_amount: selected.client_pays,
+          receipt_id: selected.receipt_id || null,
+          assigned_to_driver: selectedLivreurId || undefined,
+        }),
+      });
+      const livraisonJson = await livraisonRes.json();
+      if (livraisonJson.error) throw new Error(livraisonJson.error);
+      const delivery = livraisonJson.delivery;
+
+      // 2. Save expedition info + delivery_id back to devis
       const patch: any = {
         type_expedition: 'livraison',
-        adresse_livraison: adresseLivraison || null,
-        notes_preparation: notesPrepa || null,
+        adresse_livraison: modalAddress.trim(),
+        notes_preparation: modalNotes.trim() || null,
+        delivery_id: delivery.id,
       };
-      // Only change to 'pret' if not already at or past that stage
-      if (!['pret', 'livre'].includes(selected.statut)) {
-        patch.statut = 'pret';
-        patch.ready_at = new Date().toISOString();
-      }
-      const res = await fetch(`/api/devis-pro/${selected.id}`, {
+      const patchRes = await fetch(`/api/devis-pro/${selected.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
       });
-      const json = await res.json();
-      if (json.error) throw new Error(json.error);
-      const updated = json.devis;
+      const patchJson = await patchRes.json();
+
+      // Non-fatal: delivery was created successfully even if delivery_id save fails
+      const updated = patchJson.devis
+        ? { ...patchJson.devis, delivery_id: delivery.id }
+        : { ...selected, delivery_id: delivery.id, type_expedition: 'livraison' as const, adresse_livraison: modalAddress.trim() };
       setDevisList((prev) => prev.map((d) => d.id === selected.id ? { ...d, ...updated } : d));
       setSelected((prev) => prev ? { ...prev, ...updated } : prev);
-      toast.success('🚚 Envoyé en livraison — visible dans le suivi Livraisons');
+      setAdresseLivraison(modalAddress.trim());
+      setShowLivraisonModal(false);
+
+      const driverLabel = selectedLivreurId
+        ? ` — ${livreurs.find((l) => l.id === selectedLivreurId)?.first_name ?? 'livreur assigné'}`
+        : '';
+      toast.success(`🚚 Livraison créée${driverLabel} — visible dans le tableau de bord`);
     } catch (e: any) {
       toast.error(`Erreur : ${e instanceof Error ? e.message : 'Impossible'}`);
     } finally {
-      setSendingToDelivery(false);
+      setCreatingLivraison(false);
     }
   };
 
@@ -1005,6 +1065,16 @@ export default function DevisProPage() {
               <button onClick={savePrepaInfo} disabled={savingNotes} className="mt-2 text-xs font-600 text-primary hover:underline disabled:opacity-50">
                 {savingNotes ? 'Enregistrement…' : 'Enregistrer'}
               </button>
+              {selected.delivery_id && (
+                <a
+                  href="/livraisons"
+                  className="mt-3 flex items-center gap-2 px-3 py-2 bg-sky-50 border border-sky-200 rounded-xl text-xs font-700 text-sky-700 hover:bg-sky-100 transition-colors"
+                >
+                  <Icon name="TruckIcon" size={13} />
+                  Livraison créée — Voir dans le tableau de bord
+                  <Icon name="ArrowTopRightOnSquareIcon" size={11} className="ml-auto" />
+                </a>
+              )}
             </div>
 
             {/* Payments */}
@@ -1205,14 +1275,14 @@ export default function DevisProPage() {
                 Envoyer la facture WhatsApp
               </button>
             )}
-            {selected.type_expedition === 'livraison' && !['livre', 'annule'].includes(selected.statut) && (
+            {selected.type_expedition === 'livraison' && !['livre', 'annule'].includes(selected.statut) && !selected.delivery_id && (
               <button
                 onClick={handleSendToDelivery}
                 disabled={sendingToDelivery || statusUpdating}
                 className="w-full mt-2 py-3 bg-sky-600 text-white rounded-2xl text-sm font-700 hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {sendingToDelivery
-                  ? <><Icon name="ArrowPathIcon" size={16} className="animate-spin" />Envoi en cours…</>
+                  ? <><Icon name="ArrowPathIcon" size={16} className="animate-spin" />Chargement…</>
                   : <><Icon name="TruckIcon" size={16} />🚚 Envoyer en livraison</>
                 }
               </button>
@@ -1239,6 +1309,117 @@ export default function DevisProPage() {
                 </button>
               )
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: créer une livraison ── */}
+      {showLivraisonModal && selected && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => !creatingLivraison && setShowLivraisonModal(false)} />
+          <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+              <div className="flex items-center gap-2">
+                <Icon name="TruckIcon" size={18} className="text-sky-600" />
+                <div>
+                  <h2 className="text-base font-800 text-foreground">Créer une livraison</h2>
+                  <p className="text-[11px] text-muted-foreground">{selected.client?.firstName} {selected.client?.lastName} · {selected.numero}</p>
+                </div>
+              </div>
+              <button onClick={() => setShowLivraisonModal(false)} disabled={creatingLivraison} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground disabled:opacity-50">
+                <Icon name="XMarkIcon" size={18} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="px-5 py-4 space-y-4">
+              {/* Address */}
+              <div>
+                <label className="block text-[11px] font-700 uppercase tracking-widest text-muted-foreground mb-1.5">
+                  Adresse de livraison <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={modalAddress}
+                  onChange={(e) => setModalAddress(e.target.value)}
+                  rows={2}
+                  placeholder="Numéro, rue, ville..."
+                  className={`w-full px-3 py-2.5 text-sm border rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-400/40 resize-none ${!modalAddress.trim() ? 'border-red-200 bg-red-50' : 'border-border'}`}
+                />
+              </div>
+
+              {/* Driver selection */}
+              <div>
+                <label className="block text-[11px] font-700 uppercase tracking-widest text-muted-foreground mb-1.5">Livreur</label>
+                {sendingToDelivery ? (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+                    <Icon name="ArrowPathIcon" size={13} className="animate-spin" /> Chargement des livreurs…
+                  </div>
+                ) : (
+                  <select
+                    value={selectedLivreurId}
+                    onChange={(e) => setSelectedLivreurId(e.target.value)}
+                    className="w-full px-3 py-2.5 text-sm border border-border rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-sky-400/40"
+                  >
+                    <option value="">Sans livreur (en attente)</option>
+                    {livreurs.map((l) => (
+                      <option key={l.id} value={l.id}>{l.first_name} {l.last_name}</option>
+                    ))}
+                  </select>
+                )}
+                {selectedLivreurId && (
+                  <p className="text-[10px] text-sky-600 mt-1 flex items-center gap-1">
+                    <Icon name="BellIcon" size={10} />
+                    Une notification push sera envoyée au livreur
+                  </p>
+                )}
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="block text-[11px] font-700 uppercase tracking-widest text-muted-foreground mb-1.5">Notes pour le livreur</label>
+                <textarea
+                  value={modalNotes}
+                  onChange={(e) => setModalNotes(e.target.value)}
+                  rows={2}
+                  placeholder="Instructions, code d'accès, sonnette..."
+                  className="w-full px-3 py-2.5 text-sm border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-400/40 resize-none"
+                />
+              </div>
+
+              {/* Summary */}
+              <div className="bg-sky-50 border border-sky-100 rounded-xl px-3 py-2.5 text-xs text-sky-800 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-600">Montant</span>
+                  <span className="font-800">{fmtMoney(selected.client_pays)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="font-600">Articles</span>
+                  <span>{selected.items.length} article{selected.items.length > 1 ? 's' : ''}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 pb-5 flex gap-3">
+              <button
+                onClick={() => setShowLivraisonModal(false)}
+                disabled={creatingLivraison}
+                className="flex-1 py-3 text-sm font-600 border border-border rounded-2xl hover:bg-muted transition-colors disabled:opacity-50"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={confirmLivraison}
+                disabled={creatingLivraison || !modalAddress.trim()}
+                className="flex-1 py-3 text-sm font-700 bg-sky-600 text-white rounded-2xl hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {creatingLivraison
+                  ? <><Icon name="ArrowPathIcon" size={15} className="animate-spin" />Création…</>
+                  : <><Icon name="TruckIcon" size={15} />Créer la livraison</>
+                }
+              </button>
+            </div>
           </div>
         </div>
       )}
