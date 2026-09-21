@@ -30,13 +30,16 @@ export async function GET(req: NextRequest) {
   const newest = sessions[0].date;
 
   // Fetch real (non-demo, non-test-client) completed receipts in range
+  // High limit required — Supabase default 1000 rows silently truncates older receipts.
   const { data: receipts } = await supabase
     .from('receipts')
     .select('created_at, total_amount, client_name')
     .eq('status', 'completed')
     .neq('is_demo', true)
     .gte('created_at', dayStart(oldest))
-    .lte('created_at', dayEnd(newest));
+    .lte('created_at', dayEnd(newest))
+    .order('created_at', { ascending: true })
+    .limit(50000);
 
   // Group by Martinique date — convert UTC timestamp to local date
   const byDate: Record<string, { ca: number; count: number }> = {};

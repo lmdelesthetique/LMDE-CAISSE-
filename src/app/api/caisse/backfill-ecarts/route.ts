@@ -41,13 +41,16 @@ export async function POST() {
   const newest = sessions[sessions.length - 1].date;
 
   // Fetch all real receipts in range (Martinique timezone bounds, no demo)
+  // Must set a high limit — Supabase default is 1000 rows which silently drops recent receipts.
   const { data: allReceipts } = await supabase
     .from('receipts')
     .select('created_at, total_amount, payment_method, client_name')
     .eq('status', 'completed')
     .neq('is_demo', true)
     .gte('created_at', dayStart(oldest))
-    .lte('created_at', dayEnd(newest));
+    .lte('created_at', dayEnd(newest))
+    .order('created_at', { ascending: true })
+    .limit(50000);
 
   // Fetch all cash expenses in range
   const { data: allExpenses } = await supabase
