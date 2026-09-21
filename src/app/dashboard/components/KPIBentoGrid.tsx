@@ -102,9 +102,9 @@ export default function KPIBentoGrid({ filters }: KPIBentoGridProps) {
       <div className="md:col-span-2 lg:col-span-2">
         <KPICard
           label={`CA — ${monthLabel}`}
-          value={kpis ? fmt(kpis.caCurrentMonthCaisse + kpis.reservationCurrentMonth + kpis.caShopifyCurrentMonth) : '—'}
-          sub={kpis ? `Caisse ${fmt(kpis.caCurrentMonthCaisse)} · Shopify ${fmt(kpis.caShopifyCurrentMonth)}${kpis.reservationCurrentMonth > 0 ? ` · Résa ${fmt(kpis.reservationCurrentMonth)}` : ''} · Précédent : ${fmt(kpis.caCurrentMonthPrev)}` : undefined}
-          trend={kpis ? pct(kpis.caCurrentMonthCaisse + kpis.reservationCurrentMonth + kpis.caShopifyCurrentMonth, kpis.caCurrentMonthPrev) : undefined}
+          value={kpis ? fmt(kpis.caCurrentMonthCaisse + kpis.caShopifyCurrentMonth) : '—'}
+          sub={kpis ? `Caisse ${fmt(kpis.caCurrentMonthCaisse)} · Shopify ${fmt(kpis.caShopifyCurrentMonth)} · Précédent : ${fmt(kpis.caCurrentMonthPrev)}` : undefined}
+          trend={kpis ? pct(kpis.caCurrentMonthCaisse + kpis.caShopifyCurrentMonth, kpis.caCurrentMonthPrev) : undefined}
           icon="BanknotesIcon"
           hero
           loading={loading}

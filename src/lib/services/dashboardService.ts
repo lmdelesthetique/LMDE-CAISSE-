@@ -325,13 +325,14 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
   const reservationCurrentMonth = resCurrentMonthDeposits + resCurrentMonthBalances;
 
   const caCurrentMonthPrevCaisse = sum(prevMonthReceipts);
-  const resPrevMonthDeposits = (resDepositsPrevMonthResult.data ?? []).reduce((s, r) => s + (Number(r.deposit_paid) || 0), 0);
-  const resPrevMonthBalances = (resBalancesPrevMonthResult.data ?? []).reduce((s, r) => s + (Number(r.balance_paid) || 0), 0);
-  const caCurrentMonthPrev = caCurrentMonthPrevCaisse + resPrevMonthDeposits + resPrevMonthBalances;
+  // prev-month comparison uses caisse-only (no reservation addition) for consistency
+  const caCurrentMonthPrev = caCurrentMonthPrevCaisse;
 
   return {
-    caMonth: caMain + reservationDeposits + reservationBalances,
-    caWeek: caMain + reservationDeposits + reservationBalances,
+    // caMain = sum of real completed receipts for the selected period (no reservation addition —
+    // POS acomptes already create a receipt, so adding reservations would double-count)
+    caMonth: caMain,
+    caWeek: caMain,
     caDay,
     salesDay,
     avgBasket,
