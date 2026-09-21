@@ -1442,7 +1442,11 @@ export default function CaisseHistoriquePage() {
   const displayTickets = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
 
-  const realFiltered = filtered.filter(t => !t.is_demo);
+  const realFiltered = filtered.filter(t => {
+    if (t.is_demo === true) return false;
+    const cn = (t.client_name ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
+    return cn !== 'CHRISTY LHOMME';
+  });
   const totalCA = realFiltered.reduce((sum, t) => sum + (t.status !== 'cancelled' ? (t.total_amount ?? 0) : 0), 0);
   const totalTickets = realFiltered.filter(t => t.status !== 'cancelled').length;
   const avgBasket = totalTickets > 0 ? totalCA / totalTickets : 0;

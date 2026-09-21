@@ -189,12 +189,12 @@ export default function GeneralDashboardPage() {
       const avgBasket = totalTickets > 0 ? totalRevenue / totalTickets : 0;
       const totalDiscounts = validReceipts.reduce((sum, r) => sum + (r.discount_amount ?? 0), 0);
 
-      // Normalise raw payment_method value (handles Mixte|cb|cash, aliases, etc.)
+      // Normalise raw payment_method value (handles Mixte|cb|cash, Espèces|given|change, aliases, etc.)
       const normalizeMethod = (raw: string): string => {
         if (!raw) return 'Autre';
         if (raw.startsWith('Mixte')) return 'Mixte';
+        if (raw.startsWith('Espèces|') || raw.startsWith('especes|') || raw === 'Espèces' || raw === 'especes' || raw === 'espèces' || raw === 'cash') return 'Espèces';
         if (raw === 'CB' || raw === 'card') return 'SumUp (CB)';
-        if (raw === 'cash') return 'Espèces';
         if (raw === 'transfer') return 'Virement';
         if (raw.startsWith('Alma') || raw === 'alma') return 'Alma (3x/4x)';
         return raw;
