@@ -74,16 +74,13 @@ function fmt(n: number) {
 
 const PAYMENT_COLORS: Record<string, string> = {
   'SumUp (CB)': '#2563eb',
-  'CB': '#2563eb',
-  'card': '#2563eb',
   'Espèces': '#16a34a',
-  'cash': '#16a34a',
-  'Alma': '#db2777',
   'Alma (3x/4x)': '#db2777',
   'Virement': '#0891b2',
-  'transfer': '#0891b2',
   'Mixte': '#7c3aed',
-  'mixed': '#7c3aed',
+  'PayPal': '#009cde',
+  'Avoir': '#f59e0b',
+  'Autre': '#6b7280',
 };
 
 const CHART_COLORS = ['#c0726a', '#2563eb', '#16a34a', '#f59e0b', '#7c3aed', '#0891b2', '#db2777'];
@@ -189,14 +186,17 @@ export default function GeneralDashboardPage() {
       const avgBasket = totalTickets > 0 ? totalRevenue / totalTickets : 0;
       const totalDiscounts = validReceipts.reduce((sum, r) => sum + (r.discount_amount ?? 0), 0);
 
-      // Normalise raw payment_method value (handles Mixte|cb|cash, Espèces|given|change, aliases, etc.)
+      // Normalise raw payment_method — case-insensitive, handles all stored formats
       const normalizeMethod = (raw: string): string => {
         if (!raw) return 'Autre';
-        if (raw.startsWith('Mixte')) return 'Mixte';
-        if (raw.startsWith('Espèces|') || raw.startsWith('especes|') || raw === 'Espèces' || raw === 'especes' || raw === 'espèces' || raw === 'cash') return 'Espèces';
-        if (raw === 'CB' || raw === 'card') return 'SumUp (CB)';
-        if (raw === 'transfer') return 'Virement';
-        if (raw.startsWith('Alma') || raw === 'alma') return 'Alma (3x/4x)';
+        const lower = raw.toLowerCase();
+        if (lower.startsWith('mixte')) return 'Mixte';
+        if (lower.startsWith('espèces|') || lower.startsWith('especes|') || lower === 'espèces' || lower === 'especes' || lower === 'cash') return 'Espèces';
+        if (lower === 'sumup (cb)' || lower === 'cb' || lower === 'card' || lower === 'sumup') return 'SumUp (CB)';
+        if (lower === 'transfer' || lower === 'virement') return 'Virement';
+        if (lower.startsWith('alma')) return 'Alma (3x/4x)';
+        if (lower === 'paypal') return 'PayPal';
+        if (lower === 'store_credit' || lower === 'avoir') return 'Avoir';
         return raw;
       };
 
