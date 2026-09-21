@@ -77,12 +77,14 @@ const PAYMENT_LABELS: Record<string, string> = {
 // Normalise les valeurs DB : "Mixte|150|50" → "Mixte", alias → libellé canonique
 function normalizePM(raw: string): string {
   if (!raw) return 'Autre';
-  if (raw.startsWith('Mixte|') || raw === 'mixed') return 'Mixte';
-  if (raw === 'cash') return 'Espèces';
-  if (raw === 'card' || raw === 'CB') return 'SumUp (CB)';
-  if (raw === 'transfer') return 'Virement';
-  if (raw.startsWith('Alma') || raw === 'alma') return 'Alma (3x/4x)';
-  if (raw === 'store_credit') return 'Avoir';
+  const lower = raw.toLowerCase();
+  if (lower.startsWith('mixte')) return 'Mixte';
+  if (lower.startsWith('espèces|') || lower.startsWith('especes|') || lower === 'espèces' || lower === 'especes' || lower === 'cash') return 'Espèces';
+  if (lower === 'sumup (cb)' || lower === 'cb' || lower === 'card' || lower === 'sumup') return 'SumUp (CB)';
+  if (lower === 'transfer' || lower === 'virement') return 'Virement';
+  if (lower.startsWith('alma')) return 'Alma (3x/4x)';
+  if (lower === 'store_credit' || lower === 'avoir') return 'Avoir';
+  if (lower === 'paypal') return 'PayPal';
   return raw;
 }
 

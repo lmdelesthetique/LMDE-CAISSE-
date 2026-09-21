@@ -53,17 +53,34 @@ interface CashDenomination {
   count: number;
 }
 
+function normalizePaymentMethod(raw: string): string {
+  if (!raw) return 'other';
+  const lower = raw.toLowerCase();
+  if (lower.startsWith('mixte')) return 'Mixte';
+  if (lower.startsWith('espèces|') || lower.startsWith('especes|') || lower === 'espèces' || lower === 'especes' || lower === 'cash') return 'Espèces';
+  if (lower === 'sumup (cb)' || lower === 'cb' || lower === 'card' || lower === 'sumup') return 'CB';
+  if (lower === 'transfer' || lower === 'virement') return 'Virement';
+  if (lower.startsWith('alma')) return 'Alma (3x/4x)';
+  if (lower === 'store_credit' || lower === 'avoir') return 'store_credit';
+  if (lower === 'paypal') return 'PayPal';
+  return raw;
+}
+
 const METHOD_LABELS: Record<string, string> = {
   cash: 'Espèces',
+  Espèces: 'Espèces',
   card: 'Carte bancaire',
   CB: 'Carte bancaire',
-  Espèces: 'Espèces',
+  'SumUp (CB)': 'Carte bancaire',
   Virement: 'Virement',
+  transfer: 'Virement',
   Mixte: 'Paiement mixte',
   mixed: 'Paiement mixte',
+  'Alma (3x/4x)': 'Alma (3x/4x)',
+  PayPal: 'PayPal',
   check: 'Chèque',
-  transfer: 'Virement',
   store_credit: 'Avoir',
+  Avoir: 'Avoir',
   other: 'Autre',
 };
 
@@ -467,7 +484,7 @@ function ReceiptJournal({
             </thead>
             <tbody className="divide-y divide-border">
               {filtered.map((r) => {
-                const methodLabel = METHOD_LABELS[r.payment_method] ?? r.payment_method;
+                const methodLabel = METHOD_LABELS[normalizePaymentMethod(r.payment_method ?? '')] ?? r.payment_method;
                 const methodColor = METHOD_COLORS[methodLabel] ?? '#6b7280';
                 const methodIcon = METHOD_ICONS[methodLabel] ?? 'EllipsisHorizontalCircleIcon';
                 return (
@@ -571,7 +588,8 @@ export default function ShiftReconciliationPage() {
   // Payment method breakdown
   const methodMap: Record<string, { count: number; total: number }> = {};
   completedReceipts.forEach((r) => {
-    const label = METHOD_LABELS[r.payment_method] ?? r.payment_method;
+    const normalized = normalizePaymentMethod(r.payment_method ?? '');
+    const label = METHOD_LABELS[normalized] ?? normalized;
     if (!methodMap[label]) methodMap[label] = { count: 0, total: 0 };
     methodMap[label].count += 1;
     methodMap[label].total += r.total_amount;
