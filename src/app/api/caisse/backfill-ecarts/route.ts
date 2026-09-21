@@ -7,7 +7,7 @@ const dayEnd   = (d: string) => `${d}T23:59:59${MTQ_OFFSET}`;
 
 function cashPortionOfReceipt(paymentMethod: string, totalAmount: number): number {
   const pm = String(paymentMethod ?? '').trim().toLowerCase();
-  if (pm === 'espèces' || pm === 'especes' || pm === 'cash') return totalAmount;
+  if (pm === 'espèces' || pm === 'especes' || pm === 'cash' || pm.startsWith('espèces|') || pm.startsWith('especes|')) return totalAmount;
   if (pm === 'mixte' || pm === 'mixed') return totalAmount;
   if (pm.startsWith('mixte|')) {
     const parts = String(paymentMethod ?? '').trim().split('|');

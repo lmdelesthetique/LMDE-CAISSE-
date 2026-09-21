@@ -24,8 +24,8 @@ function dayEnd(date: string): string { return `${date}T23:59:59${MTQ_OFFSET}`; 
  */
 function cashPortionOfReceipt(paymentMethod: string, totalAmount: number): number {
   const pm = String(paymentMethod ?? '').trim().toLowerCase();
-  // Pure cash — case-insensitive
-  if (pm === 'espèces' || pm === 'especes' || pm === 'cash') return totalAmount;
+  // Pure cash or Espèces|given|change format — case-insensitive
+  if (pm === 'espèces' || pm === 'especes' || pm === 'cash' || pm.startsWith('espèces|') || pm.startsWith('especes|')) return totalAmount;
   // Full mixed (all cash) — case-insensitive
   if (pm === 'mixte' || pm === 'mixed') return totalAmount;
   // Split mixed: Mixte|<montant_cb>|<montant_cash> (original stored as mixed case)
