@@ -43,13 +43,16 @@ export async function GET(req: NextRequest) {
         .from('receipts')
         .select('items, is_demo, client_name, total_amount')
         .eq('status', 'completed')
+        .neq('is_demo', true)
         .gte('created_at', startDate)
+        .order('created_at', { ascending: true })
         .range(from, to)
     ),
     fetchAll<any>((from, to) =>
       supabase
         .from('products')
         .select('id, name, category')
+        .order('id', { ascending: true })
         .range(from, to)
     ),
   ]);
