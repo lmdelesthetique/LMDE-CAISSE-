@@ -27,15 +27,25 @@ function fmt(v: number) {
   return v.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
 }
 
-export default function CACategoryBreakdown() {
+function mapGlobalPeriod(p?: string): string {
+  if (p === 'year') return 'year';
+  return 'month';
+}
+
+export default function CACategoryBreakdown({ filters }: { filters?: { period?: string } }) {
   const [data, setData] = useState<{ categories: CategoryRow[]; total: number } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [period, setPeriod] = useState('month');
+  const [period, setPeriod] = useState(() => mapGlobalPeriod(filters?.period));
   const [expanded, setExpanded] = useState(false);
 
   const [selectedCategory, setSelectedCategory] = useState<{ name: string; color: string } | null>(null);
   const [drillData, setDrillData] = useState<{ products: ProductRow[]; total: number } | null>(null);
   const [drillLoading, setDrillLoading] = useState(false);
+
+  // Sync period when global filter changes (today/week/month → 'month', year → 'year')
+  useEffect(() => {
+    setPeriod(mapGlobalPeriod(filters?.period));
+  }, [filters?.period]);
 
   useEffect(() => {
     const load = async () => {
