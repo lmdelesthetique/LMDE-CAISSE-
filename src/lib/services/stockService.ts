@@ -89,7 +89,7 @@ function computeStockStatus(p: {
   stockTransitAvion: number;
   productStatus?: string;
 }): 'ok' | 'faible' | 'rupture' | 'commande' | 'suspendu' | 'inactif' {
-  if (p.productStatus === 'inactive') return 'inactif';
+  if (p.productStatus === 'inactive' || p.productStatus === 'archived') return 'inactif';
   if (p.isSuspended) return 'suspendu';
   if (p.stock <= 0) return 'rupture';
   if (p.stockTransitContainer > 0 || p.stockTransitAvion > 0) return 'commande';
@@ -190,7 +190,7 @@ export async function fetchStockProducts(search?: string): Promise<StockProduct[
   const since7d  = new Date(Date.now() -  7 * 24 * 60 * 60 * 1000).toISOString();
 
   // Parallel: products + POS receipts (true sales source) + Shopify log
-  const [data, { data: receiptRows }, { data: shopifyMoves }] = await Promise.all([
+  const [data, receiptRows, shopifyMoves] = await Promise.all([
     fetchAll<Record<string, unknown>>((from, to) => {
       if (search && search.trim()) {
         return supabase
@@ -206,21 +206,27 @@ export async function fetchStockProducts(search?: string): Promise<StockProduct[
         .order('name')
         .range(from, to);
     }),
-    // POS receipts — items JSONB has { product_id, qty }
-    supabase
-      .from('receipts')
-      .select('items, created_at, is_demo, payment_type')
-      .gte('created_at', since90d)
-      .neq('is_demo', true)
-      .neq('payment_type', 'avoir')
-      .limit(200000),
-    // Shopify sales recorded in movements log
-    supabase
-      .from('stock_movements_log')
-      .select('product_id, quantity_change, created_at')
-      .eq('movement_type', 'sale')
-      .gte('created_at', since90d)
-      .limit(100000),
+    // POS receipts — paginated to bypass server max_rows cap
+    fetchAll<{ items: unknown; created_at: string; is_demo: boolean; payment_type: string }>((from, to) =>
+      supabase
+        .from('receipts')
+        .select('items, created_at, is_demo, payment_type')
+        .gte('created_at', since90d)
+        .neq('is_demo', true)
+        .neq('payment_type', 'avoir')
+        .order('created_at', { ascending: true })
+        .range(from, to)
+    ),
+    // Shopify sales recorded in movements log — paginated
+    fetchAll<{ product_id: string; quantity_change: number; created_at: string }>((from, to) =>
+      supabase
+        .from('stock_movements_log')
+        .select('product_id, quantity_change, created_at')
+        .eq('movement_type', 'sale')
+        .gte('created_at', since90d)
+        .order('created_at', { ascending: true })
+        .range(from, to)
+    ),
   ]);
 
   // Aggregate sales per product over 7 / 30 / 90 day windows
@@ -326,7 +332,7 @@ export async function fetchStockKPIs(products: StockProduct[]): Promise<StockKPI
     transitCount,
     reservedCount,
     globalMargin,
-    totalProducts: products.length,
+    totalProducts: products.filter(p => p.productStatus !== 'inactive' && p.productStatus !== 'archived').length,
   };
 }
 

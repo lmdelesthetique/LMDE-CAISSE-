@@ -834,12 +834,16 @@ export default function StockPage() {
   );
 
   const topSellers = useMemo(() =>
-    [...products].sort((a, b) => b.sales90d - a.sales90d).slice(0, 6),
+    [...products]
+      .filter(p => p.productStatus !== 'inactive' && p.productStatus !== 'archived')
+      .sort((a, b) => b.sales90d - a.sales90d).slice(0, 6),
     [products]
   );
 
   const dormantProducts = useMemo(() =>
-    products.filter(p => p.sales90d === 0 && p.stock > 0).slice(0, 6),
+    products
+      .filter(p => p.sales90d === 0 && p.stock > 0 && p.productStatus !== 'inactive' && p.productStatus !== 'archived')
+      .slice(0, 6),
     [products]
   );
 

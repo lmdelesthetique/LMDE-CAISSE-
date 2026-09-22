@@ -62,6 +62,16 @@ export async function GET(req: NextRequest) {
     ),
   ]);
 
+  // Fetch current stock + min_stock for these products
+  const { data: productRows } = await supabase
+    .from('products')
+    .select('id, stock, min_stock')
+    .in('id', ids);
+  const stockMap: Record<string, { stock: number; minStock: number }> = {};
+  for (const p of productRows ?? []) {
+    stockMap[p.id] = { stock: Number(p.stock) || 0, minStock: Number(p.min_stock) || 0 };
+  }
+
   const idSet = new Set(ids);
   const salesMap: Record<string, { s7: number; s30: number; s90: number }> = {};
 
@@ -92,5 +102,13 @@ export async function GET(req: NextRequest) {
     if (createdAt >= since7d)  salesMap[id].s7  += qty;
   }
 
-  return NextResponse.json(salesMap);
+  // Merge sales + stock into one response
+  const result: Record<string, { s7: number; s30: number; s90: number; stock: number; minStock: number }> = {};
+  for (const id of ids) {
+    const s = salesMap[id] ?? { s7: 0, s30: 0, s90: 0 };
+    const st = stockMap[id] ?? { stock: 0, minStock: 0 };
+    result[id] = { ...s, stock: st.stock, minStock: st.minStock };
+  }
+
+  return NextResponse.json(result);
 }

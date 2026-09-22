@@ -20,6 +20,7 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   paid: { label: 'Payé', color: '#388e3c' },
   overdue: { label: 'En retard', color: '#f57c00' },
   cancelled: { label: 'Annulé', color: '#757575' },
+  completed: { label: 'Payé', color: '#388e3c' },
 };
 
 function fmt(n: number) {
@@ -35,52 +36,36 @@ function esc(s: string) {
   return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-export default async function FacturePublicPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const supabase = createAdminClient();
-  const { data, error } = await supabase.from('factures').select('*').eq('id', id).maybeSingle();
-  if (error || !data) notFound();
-
-  const items = (data.items as Record<string, unknown>) || {};
-  const isB2B = Boolean(items._b2b);
-  const lines: Array<Record<string, unknown>> = Array.isArray(items.lines) ? items.lines as Array<Record<string, unknown>> : [];
-  const hasImages = lines.some((l) => l.imageUrl);
-
-  const doc = {
-    id: data.id as string,
-    type: (data.doc_type as string) || 'invoice',
-    number: (data.numero as string) || (data.id as string),
-    status: (data.status as string) || 'draft',
-    clientName: (data.client_name as string) || (items.clientId as string) || '',
-    clientEmail: (data.client_email as string) || '',
-    clientPhone: (items.clientPhone as string) || '',
-    clientAddress: (items.clientAddress as string) || '',
-    clientSiret: (items.clientSiret as string) || '',
-    clientTva: (items.clientTva as string) || '',
-    sellerName: (items.sellerName as string) || 'Le Monde de l\'Esthétique',
-    sellerAddress: (items.sellerAddress as string) || '',
-    sellerSiret: (items.sellerSiret as string) || '',
-    sellerTva: (items.sellerTva as string) || '',
-    issueDate: (items.issueDate as string) || (data.created_at as string) || '',
-    dueDate: (items.dueDate as string) || '',
-    notes: (items.notes as string) || '',
-    paymentTerms: (items.paymentTerms as string) || '',
-    totalHt: Number(data.total_ht) || 0,
-    totalTva: Number(data.total_tva) || 0,
-    totalTtc: Number(data.total_ttc) || 0,
-    lines,
-  };
-
-  const typeLabel = TYPE_LABELS[doc.type] || doc.type;
-  const statusCfg = STATUS_LABELS[doc.status] || { label: doc.status, color: '#888' };
-  const isDevis = doc.type === 'estimate' || doc.type === 'proforma';
-
-  const html = `<!DOCTYPE html>
+function renderPage(doc: {
+  number: string;
+  typeLabel: string;
+  statusLabel: string;
+  clientName: string;
+  clientAddress: string;
+  clientEmail: string;
+  clientSiret: string;
+  clientTva: string;
+  sellerName: string;
+  sellerAddress: string;
+  sellerSiret: string;
+  sellerTva: string;
+  issueDate: string;
+  dueDate: string;
+  notes: string;
+  paymentTerms: string;
+  totalHt: number;
+  totalTva: number;
+  totalTtc: number;
+  isDevis: boolean;
+  hasImages: boolean;
+  linesHtml: string;
+}) {
+  return `<!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${typeLabel} ${doc.number} — Le Monde de l'Esthétique</title>
+  <title>${esc(doc.typeLabel)} ${esc(doc.number)} — Le Monde de l'Esthétique</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: Arial, Helvetica, sans-serif; background: #f5f5f5; color: #222; }
@@ -124,9 +109,9 @@ export default async function FacturePublicPage({ params }: { params: Promise<{ 
       <div class="header-sub">${esc(doc.sellerAddress || '')}</div>
     </div>
     <div class="header-right">
-      <div class="header-number">${esc(typeLabel)} n° ${esc(doc.number)}</div>
+      <div class="header-number">${esc(doc.typeLabel)} n° ${esc(doc.number)}</div>
       <div class="header-date">Date : ${fmtDate(doc.issueDate)}${doc.dueDate ? ' · Échéance : ' + fmtDate(doc.dueDate) : ''}</div>
-      <div class="status-badge">${esc(statusCfg.label)}</div>
+      <div class="status-badge">${esc(doc.statusLabel)}</div>
     </div>
   </div>
 
@@ -147,31 +132,16 @@ export default async function FacturePublicPage({ params }: { params: Promise<{ 
     <table>
       <thead>
         <tr>
-          ${hasImages ? '<th style="width:52px"></th>' : ''}
+          ${doc.hasImages ? '<th style="width:52px"></th>' : ''}
           <th style="width:38%">Description</th>
           <th style="width:9%;text-align:center">Qté</th>
-          <th style="width:14%;text-align:right">P.U. HT</th>
+          <th style="width:14%;text-align:right">Prix unit.</th>
           <th style="width:9%;text-align:center">TVA</th>
           <th style="width:9%;text-align:center">Remise</th>
           <th style="width:14%;text-align:right">Total TTC</th>
         </tr>
       </thead>
-      <tbody>
-        ${lines.map(l => {
-          const qty = Number(l.quantity) || 0;
-          const pu = Number(l.unitPrice) || 0;
-          const tva = Number(l.tvaRate) || 0;
-          const disc = Number(l.discount) || 0;
-          const lineHt = qty * pu * (1 - disc / 100);
-          const lineTtc = lineHt * (1 + tva / 100);
-          const imgCell = hasImages
-            ? (l.imageUrl
-                ? `<td style="padding:4px 6px;text-align:center"><img src="${esc(l.imageUrl as string)}" class="prod-img" onerror="this.style.display='none'" /></td>`
-                : `<td style="padding:4px 6px;text-align:center"><div class="prod-img-placeholder"></div></td>`)
-            : '';
-          return `<tr>${imgCell}<td>${esc(l.description as string || '')}</td><td style="text-align:center">${qty}</td><td style="text-align:right">${pu.toFixed(2)} €</td><td style="text-align:center">${tva}%</td><td style="text-align:center">${disc > 0 ? disc + '%' : '—'}</td><td style="text-align:right;font-weight:600">${lineTtc.toFixed(2)} €</td></tr>`;
-        }).join('')}
-      </tbody>
+      <tbody>${doc.linesHtml}</tbody>
     </table>
 
     <div class="totals">
@@ -184,7 +154,7 @@ export default async function FacturePublicPage({ params }: { params: Promise<{ 
 
     ${doc.paymentTerms ? `<div class="notes"><strong style="color:${ROSE}">Conditions de paiement :</strong> ${esc(doc.paymentTerms)}</div>` : ''}
     ${doc.notes ? `<div class="notes"><strong>Notes :</strong> ${esc(doc.notes)}</div>` : ''}
-    ${isDevis ? `<div class="devis-notice">Devis valable 30 jours à compter du ${fmtDate(doc.issueDate)}. Sans engagement de votre part.</div>` : ''}
+    ${doc.isDevis ? `<div class="devis-notice">Devis valable 30 jours à compter du ${fmtDate(doc.issueDate)}. Sans engagement de votre part.</div>` : ''}
 
     <div class="footer">
       ${doc.sellerSiret ? `SIRET : ${esc(doc.sellerSiret)} &nbsp;|&nbsp; ` : ''}
@@ -201,6 +171,130 @@ export default async function FacturePublicPage({ params }: { params: Promise<{ 
 </div>
 </body>
 </html>`;
+}
+
+export default async function FacturePublicPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const supabase = createAdminClient();
+
+  // ── 1. Try factures table first ─────────────────────────────────────────────
+  const { data: factureData } = await supabase.from('factures').select('*').eq('id', id).maybeSingle();
+
+  if (factureData) {
+    const items = (factureData.items as Record<string, unknown>) || {};
+    const lines: Array<Record<string, unknown>> = Array.isArray(items.lines) ? items.lines as Array<Record<string, unknown>> : [];
+    const hasImages = lines.some((l) => l.imageUrl);
+    const docType = (factureData.doc_type as string) || 'invoice';
+    const typeLabel = TYPE_LABELS[docType] || docType;
+    const status = (factureData.status as string) || 'draft';
+    const statusCfg = STATUS_LABELS[status] || { label: status, color: '#888' };
+
+    const linesHtml = lines.map(l => {
+      const qty = Number(l.quantity) || 0;
+      const pu = Number(l.unitPrice) || 0;
+      const tva = Number(l.tvaRate) || 0;
+      const disc = Number(l.discount) || 0;
+      const lineHt = qty * pu * (1 - disc / 100);
+      const lineTtc = lineHt * (1 + tva / 100);
+      const imgCell = hasImages
+        ? (l.imageUrl
+            ? `<td style="padding:4px 6px;text-align:center"><img src="${esc(l.imageUrl as string)}" class="prod-img" onerror="this.style.display='none'" /></td>`
+            : `<td style="padding:4px 6px;text-align:center"><div class="prod-img-placeholder"></div></td>`)
+        : '';
+      return `<tr>${imgCell}<td>${esc(l.description as string || '')}</td><td style="text-align:center">${qty}</td><td style="text-align:right">${pu.toFixed(2)} €</td><td style="text-align:center">${tva}%</td><td style="text-align:center">${disc > 0 ? disc + '%' : '—'}</td><td style="text-align:right;font-weight:600">${lineTtc.toFixed(2)} €</td></tr>`;
+    }).join('');
+
+    const html = renderPage({
+      number: (factureData.numero as string) || (factureData.id as string),
+      typeLabel,
+      statusLabel: statusCfg.label,
+      clientName: (factureData.client_name as string) || (items.clientId as string) || '',
+      clientAddress: (items.clientAddress as string) || '',
+      clientEmail: (factureData.client_email as string) || '',
+      clientSiret: (items.clientSiret as string) || '',
+      clientTva: (items.clientTva as string) || '',
+      sellerName: (items.sellerName as string) || "Le Monde de l'Esthétique",
+      sellerAddress: (items.sellerAddress as string) || '',
+      sellerSiret: (items.sellerSiret as string) || '',
+      sellerTva: (items.sellerTva as string) || '',
+      issueDate: (items.issueDate as string) || (factureData.created_at as string) || '',
+      dueDate: (items.dueDate as string) || '',
+      notes: (items.notes as string) || '',
+      paymentTerms: (items.paymentTerms as string) || '',
+      totalHt: Number(factureData.total_ht) || 0,
+      totalTva: Number(factureData.total_tva) || 0,
+      totalTtc: Number(factureData.total_ttc) || 0,
+      isDevis: docType === 'estimate' || docType === 'proforma',
+      hasImages,
+      linesHtml,
+    });
+
+    return (
+      <html lang="fr" suppressHydrationWarning>
+        <head />
+        <body dangerouslySetInnerHTML={{ __html: html }} />
+      </html>
+    );
+  }
+
+  // ── 2. Fallback: try receipts table (used by devis-pro WhatsApp links) ───────
+  const { data: receiptData } = await supabase.from('receipts').select('*').eq('id', id).maybeSingle();
+
+  if (!receiptData) notFound();
+
+  const receiptItems: Array<Record<string, unknown>> = Array.isArray(receiptData.items) ? receiptData.items : [];
+  const hasImages = receiptItems.some((i) => i.image_url);
+
+  // Compute totals from receipt
+  const totalTtc = Number(receiptData.total_amount) || 0;
+  const totalHt = Number(receiptData.subtotal_ht) || (totalTtc / 1.085);
+  const totalTva = Number(receiptData.total_tva) || (totalTtc - totalHt);
+
+  const linesHtml = receiptItems.map(l => {
+    const qty = Number(l.qty ?? l.quantity) || 1;
+    const price = Number(l.price) || 0;
+    const tva = Number(l.tva) || 8.5;
+    const disc = Number(l.discount) || 0;
+    const discType = (l.discount_type as string) || 'percent';
+    const discAmt = discType === 'percent' ? price * qty * (disc / 100) : disc;
+    const lineTtc = Math.max(0, price * qty - discAmt);
+    const imgCell = hasImages
+      ? (l.image_url
+          ? `<td style="padding:4px 6px;text-align:center"><img src="${esc(l.image_url as string)}" class="prod-img" onerror="this.style.display='none'" /></td>`
+          : `<td style="padding:4px 6px;text-align:center"><div class="prod-img-placeholder"></div></td>`)
+      : '';
+    const discStr = disc > 0 ? (discType === 'percent' ? disc + '%' : fmt(disc)) : '—';
+    return `<tr>${imgCell}<td>${esc(l.name as string || '')}</td><td style="text-align:center">${qty}</td><td style="text-align:right">${price.toFixed(2)} €</td><td style="text-align:center">${tva}%</td><td style="text-align:center">${discStr}</td><td style="text-align:right;font-weight:600">${lineTtc.toFixed(2)} €</td></tr>`;
+  }).join('');
+
+  const ticketNum = (receiptData.ticket_number as string) || id.slice(0, 8).toUpperCase();
+  const status = (receiptData.status as string) || 'completed';
+  const statusCfg = STATUS_LABELS[status] || { label: 'Payé', color: '#388e3c' };
+
+  const html = renderPage({
+    number: `FAC-${ticketNum}`,
+    typeLabel: 'Facture',
+    statusLabel: statusCfg.label,
+    clientName: (receiptData.client_name as string) || '',
+    clientAddress: '',
+    clientEmail: '',
+    clientSiret: '',
+    clientTva: '',
+    sellerName: "Le Monde de l'Esthétique",
+    sellerAddress: '',
+    sellerSiret: '',
+    sellerTva: '',
+    issueDate: (receiptData.created_at as string) || '',
+    dueDate: '',
+    notes: (receiptData.notes as string) || '',
+    paymentTerms: '',
+    totalHt,
+    totalTva,
+    totalTtc,
+    isDevis: false,
+    hasImages,
+    linesHtml,
+  });
 
   return (
     <html lang="fr" suppressHydrationWarning>

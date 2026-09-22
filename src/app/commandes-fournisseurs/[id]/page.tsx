@@ -83,6 +83,42 @@ interface SupplierPaymentIncludes {
 
 type Tab = 'overview' | 'lines' | 'reception' | 'costs' | 'margins' | 'history' | 'payment' | 'messaging';
 
+// ── Purchase analysis badge ────────────────────────────────────────────────────
+function getPurchaseAnalysis(s: { s90: number; stock: number; minStock: number } | undefined, qtyOrdered: number): {
+  color: string; bg: string; dot: string; label: string; sublabel: string;
+} | null {
+  if (!s) return null;
+  const { s90, stock, minStock } = s;
+  const velocity30 = s90 / 3; // avg units per month
+  const coverageMonths = velocity30 > 0 ? stock / velocity30 : (stock > 0 ? 99 : 0);
+  const coverageAfter = velocity30 > 0 ? (stock + qtyOrdered) / velocity30 : 0;
+
+  // Dormant: no sales in 90d but has stock → risky
+  if (s90 === 0 && stock > 0) {
+    return { color: 'text-red-700', bg: 'bg-red-50 border-red-200', dot: 'bg-red-500',
+      label: 'Dormant', sublabel: `Stock: ${stock} — 0 vendu/90j` };
+  }
+  // No sales, no stock — unknown
+  if (s90 === 0 && stock === 0) {
+    return { color: 'text-gray-500', bg: 'bg-gray-50 border-gray-200', dot: 'bg-gray-400',
+      label: 'Inconnu', sublabel: `Stock: 0 — 0 vendu/90j` };
+  }
+  // Well-stocked already (coverage >= 4 months) — be careful
+  if (coverageMonths >= 4) {
+    return { color: 'text-orange-700', bg: 'bg-orange-50 border-orange-200', dot: 'bg-orange-500',
+      label: 'Sur-stocké', sublabel: `Stock: ${stock} (~${coverageMonths.toFixed(1)}m)` };
+  }
+  // Moderate coverage 2-4 months
+  if (coverageMonths >= 2) {
+    return { color: 'text-amber-700', bg: 'bg-amber-50 border-amber-200', dot: 'bg-amber-500',
+      label: 'Bien stocké', sublabel: `Stock: ${stock} (~${coverageMonths.toFixed(1)}m)` };
+  }
+  // Good purchase: low stock relative to sales
+  return { color: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200', dot: 'bg-emerald-500',
+    label: coverageMonths < 0.5 ? 'Urgent' : 'Judicieux',
+    sublabel: `Stock: ${stock}${velocity30 > 0 ? ` (~${coverageAfter.toFixed(1)}m après)` : ''}` };
+}
+
 function getFileExt(url: string): string {
   try {
     const path = new URL(url).pathname;
@@ -302,8 +338,8 @@ export default function OrderDetailPage() {
   const [addModalUsdRate, setAddModalUsdRate] = useState<number | null>(null);
   const [addModalFetchingRate, setAddModalFetchingRate] = useState(false);
 
-  // Sales stats (7j/30j/90j) for products in this order — keyed by productId
-  const [productSales, setProductSales] = useState<Record<string, { s7: number; s30: number; s90: number }>>({});
+  // Sales stats (7j/30j/90j) + current stock — keyed by productId
+  const [productSales, setProductSales] = useState<Record<string, { s7: number; s30: number; s90: number; stock: number; minStock: number }>>({});
 
   // Restock drawer
   const [showRestockDrawer, setShowRestockDrawer] = useState(false);
@@ -2458,6 +2494,39 @@ export default function OrderDetailPage() {
               </div>
             )}
 
+            {/* Purchase analysis summary banner */}
+            {!editMode && Object.keys(productSales).length > 0 && (() => {
+              const dormant = lines.filter(l => l.productId && productSales[l.productId] && productSales[l.productId].s90 === 0 && productSales[l.productId].stock > 0);
+              const overstock = lines.filter(l => {
+                if (!l.productId || !productSales[l.productId]) return false;
+                const s = productSales[l.productId];
+                if (s.s90 === 0) return false;
+                const v30 = s.s90 / 3;
+                return v30 > 0 && s.stock / v30 >= 4;
+              });
+              if (dormant.length === 0 && overstock.length === 0) return null;
+              return (
+                <div className="flex items-start gap-3 px-4 py-3 bg-orange-50 border border-orange-200 rounded-xl text-sm">
+                  <Icon name="ExclamationTriangleIcon" size={16} className="text-orange-500 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-orange-800 font-600 text-xs">Attention — optimiser cette commande</p>
+                    <div className="flex flex-wrap gap-3 mt-1">
+                      {dormant.length > 0 && (
+                        <span className="text-xs text-red-700">
+                          <strong>{dormant.length} produit{dormant.length > 1 ? 's' : ''} dormant{dormant.length > 1 ? 's' : ''}</strong> (0 vente/90j mais stock existant)
+                        </span>
+                      )}
+                      {overstock.length > 0 && (
+                        <span className="text-xs text-orange-700">
+                          <strong>{overstock.length} produit{overstock.length > 1 ? 's' : ''} sur-stocké{overstock.length > 1 ? 's' : ''}</strong> (couverture ≥ 4 mois)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Lines table */}
             <div className="bg-white border border-border rounded-xl shadow-card overflow-hidden">
               {(!editMode ? lines : editedLines).length === 0 ? (
@@ -2493,6 +2562,7 @@ export default function OrderDetailPage() {
                         <th className="text-center px-4 py-3 font-600 text-muted-foreground text-xs uppercase">Qté</th>
                         <th className="text-right px-4 py-3 font-600 text-muted-foreground text-xs uppercase">Prix achat</th>
                         <th className="text-right px-4 py-3 font-600 text-muted-foreground text-xs uppercase">Total ligne</th>
+                        {!editMode && <th className="text-left px-4 py-3 font-600 text-muted-foreground text-xs uppercase">Analyse stock</th>}
                         {!editMode && <th className="text-right px-4 py-3 font-600 text-muted-foreground text-xs uppercase">Coût réel unit.</th>}
                         {!editMode && <th className="text-right px-4 py-3 font-600 text-muted-foreground text-xs uppercase">Marge %</th>}
                         {editMode && <th className="w-10 px-4 py-3" />}
@@ -2554,6 +2624,24 @@ export default function OrderDetailPage() {
                           <td className="px-4 py-3 text-right font-600">
                             {(line.qtyOrdered * line.unitPrice).toFixed(2)} {order.currency}
                           </td>
+                          {!editMode && (() => {
+                            const sa = line.productId ? getPurchaseAnalysis(productSales[line.productId], line.qtyOrdered) : null;
+                            return (
+                              <td className="px-4 py-3">
+                                {sa ? (
+                                  <div className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border text-xs font-600 ${sa.bg} ${sa.color}`}>
+                                    <span className={`w-2 h-2 rounded-full shrink-0 ${sa.dot}`} />
+                                    <div>
+                                      <div>{sa.label}</div>
+                                      <div className="text-[10px] font-400 opacity-80">{sa.sublabel}</div>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">—</span>
+                                )}
+                              </td>
+                            );
+                          })()}
                           {!editMode && (
                             <td className="px-4 py-3 text-right">{line.unitRealCost > 0 ? `${line.unitRealCost.toFixed(2)} ${order.currency}` : '—'}</td>
                           )}
