@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 
 const FIELD_MAP: Record<string, string> = {
   orderStatus: 'order_status',
+  supplierId: 'supplier_id',
   notes: 'notes',
   internalNotes: 'internal_notes',
   trackingNumber: 'tracking_number',

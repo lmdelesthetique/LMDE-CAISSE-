@@ -312,6 +312,12 @@ export default function OrderDetailPage() {
   const [restockProdQty, setRestockProdQty] = useState<Record<string, number>>({});
   const [addingToOrderId, setAddingToOrderId] = useState<string | null>(null);
 
+  // Supplier picker
+  const [showSupplierPicker, setShowSupplierPicker] = useState(false);
+  const [supplierList, setSupplierList] = useState<{ id: string; company_name: string }[]>([]);
+  const [supplierSearch, setSupplierSearch] = useState('');
+  const [savingSupplier, setSavingSupplier] = useState(false);
+
   const loadRestockForSupplier = useCallback(async (supplierId: string) => {
     setRestockLoading(true);
     try {
@@ -326,6 +332,32 @@ export default function OrderDetailPage() {
       setRestockLoading(false);
     }
   }, []);
+
+  const openSupplierPicker = useCallback(async () => {
+    setSupplierSearch('');
+    setShowSupplierPicker(true);
+    if (supplierList.length === 0) {
+      const supabase = createClient();
+      const { data } = await supabase.from('suppliers').select('id, company_name').order('company_name');
+      setSupplierList(data ?? []);
+    }
+  }, [supplierList.length]);
+
+  const handleSaveSupplier = useCallback(async (supplierId: string, companyName: string) => {
+    if (!order) return;
+    setSavingSupplier(true);
+    try {
+      await fetch(`/api/fo-orders/${order.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ supplierId }),
+      });
+      setShowSupplierPicker(false);
+      setOrder(prev => prev ? { ...prev, supplierId, supplierName: companyName } : prev);
+    } finally {
+      setSavingSupplier(false);
+    }
+  }, [order]);
 
   // Load default structure % from localStorage (set in admin-config)
   useEffect(() => {
@@ -2081,13 +2113,82 @@ export default function OrderDetailPage() {
               </div>
             )}
 
+            {/* Supplier picker modal */}
+            {showSupplierPicker && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowSupplierPicker(false)}>
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-5" onClick={e => e.stopPropagation()}>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-700 text-foreground text-base">Rattacher un fournisseur</h3>
+                    <button onClick={() => setShowSupplierPicker(false)} className="p-1.5 rounded-lg hover:bg-muted transition-colors">
+                      <Icon name="XMarkIcon" size={18} />
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Rechercher un fournisseur…"
+                    value={supplierSearch}
+                    onChange={e => setSupplierSearch(e.target.value)}
+                    className="w-full px-3 py-2.5 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 mb-3"
+                    autoFocus
+                  />
+                  <div className="max-h-64 overflow-y-auto space-y-1">
+                    {supplierList
+                      .filter(s => s.company_name.toLowerCase().includes(supplierSearch.toLowerCase()))
+                      .map(s => (
+                        <button
+                          key={s.id}
+                          onClick={() => handleSaveSupplier(s.id, s.company_name)}
+                          disabled={savingSupplier}
+                          className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-primary/5 text-sm font-500 text-foreground transition-colors disabled:opacity-50"
+                        >
+                          {s.company_name}
+                        </button>
+                      ))
+                    }
+                    {supplierList.filter(s => s.company_name.toLowerCase().includes(supplierSearch.toLowerCase())).length === 0 && (
+                      <p className="text-sm text-muted-foreground text-center py-4">Aucun fournisseur trouvé</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Alert banner: no supplier */}
+            {!order.supplierId && (
+              <div className="flex items-center justify-between gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                <div className="flex items-center gap-2.5">
+                  <Icon name="ExclamationTriangleIcon" size={18} className="text-amber-500 shrink-0" />
+                  <p className="text-sm font-500 text-amber-800">Aucun fournisseur associé à cette commande</p>
+                </div>
+                <button
+                  onClick={openSupplierPicker}
+                  className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 text-white rounded-lg text-xs font-600 hover:bg-amber-600 transition-colors"
+                >
+                  <Icon name="LinkIcon" size={13} />
+                  Rattacher un fournisseur
+                </button>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
             <div className="lg:col-span-2 space-y-5">
               <div className="bg-white border border-border rounded-xl p-5 shadow-card">
                 <h3 className="font-600 text-foreground mb-4">Informations commande</h3>
                 <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Fournisseur</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <p className="font-500 text-foreground">{order.supplierName || '—'}</p>
+                      <button
+                        onClick={openSupplierPicker}
+                        className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                        title="Changer de fournisseur"
+                      >
+                        <Icon name="PencilIcon" size={12} />
+                      </button>
+                    </div>
+                  </div>
                   {[
-                    { label: 'Fournisseur', value: order.supplierName || '—' },
                     { label: 'Livraison prévue', value: order.expectedDeliveryAt ? new Date(order.expectedDeliveryAt).toLocaleDateString('fr-FR') : '—' },
                     { label: 'Tracking', value: order.trackingNumber || '—' },
                     { label: 'Méthode coût', value: costMethod === 'by_value' ? 'Par valeur' : costMethod === 'by_quantity' ? 'Par quantité' : 'Autre' },
