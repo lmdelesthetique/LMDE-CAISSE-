@@ -400,18 +400,19 @@ export async function fetchPaymentMethods(filters?: DashboardFiltersState): Prom
   const period = filters?.period ?? 'month';
   const { start, end } = getDateRangeForPeriod(period, filters?.customStart, filters?.customEnd);
 
-  let query = supabase
-    .from('receipts')
-    .select('payment_method, total_amount, is_demo, client_name')
-    .eq('status', 'completed')
-    .gte('created_at', start)
-    .lte('created_at', end)
-    .limit(10000);
-
-  if (filters?.employeeId) query = query.eq('employee_id', filters.employeeId);
-
-  const { data: rawPayData } = await query;
-  const data = (rawPayData ?? []).filter((r: any) => {
+  const rawPayData = await fetchAll<any>((from, to) => {
+    let q = supabase
+      .from('receipts')
+      .select('payment_method, total_amount, is_demo, client_name')
+      .eq('status', 'completed')
+      .gte('created_at', start)
+      .lte('created_at', end)
+      .order('created_at', { ascending: true })
+      .range(from, to);
+    if (filters?.employeeId) q = q.eq('employee_id', filters.employeeId);
+    return q;
+  });
+  const data = rawPayData.filter((r: any) => {
     if (r.is_demo === true) return false;
     const cn = (r.client_name ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
     return cn !== 'CHRISTY LHOMME';
@@ -420,24 +421,28 @@ export async function fetchPaymentMethods(filters?: DashboardFiltersState): Prom
   if (!data || data.length === 0) return [];
 
   const colors: Record<string, string> = {
-    'SumUp': '#C4837A',
-    'CB': '#C4837A',
+    'SumUp (CB)': '#C4837A',
     'Espèces': '#D4A0A0',
     'Virement': '#8B6F6A',
     'Acompte': '#E8C4BE',
     'Mixte': '#BFA09C',
-    'Alma': '#A8C4D4',
+    'Alma (3x/4x)': '#A8C4D4',
+    'PayPal': '#7B9EBF',
+    'Avoir': '#B8CFA0',
+    'Autre': '#C4A0A0',
   };
 
   // Normalize payment method: Mixte|CB|cash → "Mixte", aliases → canonical
   const normalizePM = (raw: string): string => {
     if (!raw) return 'Autre';
-    if (raw.startsWith('Mixte|') || raw === 'mixed') return 'Mixte';
-    if (raw === 'cash') return 'Espèces';
-    if (raw === 'card' || raw === 'CB') return 'SumUp (CB)';
-    if (raw === 'transfer') return 'Virement';
-    if (raw.startsWith('Alma') || raw === 'alma') return 'Alma (3x/4x)';
-    if (raw === 'store_credit') return 'Avoir';
+    const lower = raw.toLowerCase();
+    if (lower.startsWith('mixte') || lower === 'mixed') return 'Mixte';
+    if (lower.startsWith('espèces|') || lower.startsWith('especes|') || lower === 'espèces' || lower === 'especes' || lower === 'cash') return 'Espèces';
+    if (lower === 'sumup (cb)' || lower === 'cb' || lower === 'card' || lower === 'sumup') return 'SumUp (CB)';
+    if (lower === 'transfer' || lower === 'virement') return 'Virement';
+    if (lower.startsWith('alma')) return 'Alma (3x/4x)';
+    if (lower === 'paypal') return 'PayPal';
+    if (lower === 'store_credit' || lower === 'avoir') return 'Avoir';
     return raw;
   };
 
@@ -478,6 +483,7 @@ export async function fetchTopProducts(filters?: DashboardFiltersState): Promise
       let q = supabase
         .from('products')
         .select('id, name, category, stock, sell_price_ttc, cost_price, buy_price')
+        .order('id', { ascending: true })
         .range(from, to);
       if (filters?.categoryId) q = q.eq('category_id', filters.categoryId);
       return q;

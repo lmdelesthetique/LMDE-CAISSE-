@@ -72,6 +72,7 @@ export default function ClientReminders() {
           .from('clients')
           .select('id, first_name, last_name, phone, email, date_of_birth')
           .not('date_of_birth', 'is', null)
+          .order('id', { ascending: true })
           .range(from, to)
       );
 

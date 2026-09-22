@@ -59,6 +59,7 @@ export default function MarginsReport({ dateRange }: MarginsReportProps) {
         supabase
           .from('products')
           .select('id, name, category, buy_price, purchase_price_supplier, transport, customs, other_fees, structure_pct')
+          .order('id', { ascending: true })
           .range(from, to)
       );
 

@@ -144,7 +144,7 @@ async function imgToBase64(url: string): Promise<string | null> {
 
 async function uploadPdf(pdfBytes: Uint8Array, filename: string): Promise<string | null> {
   try {
-    const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+    const blob = new Blob([pdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' });
     const form = new FormData();
     form.append('file', blob, filename);
     form.append('filename', filename);
@@ -158,7 +158,7 @@ async function uploadPdf(pdfBytes: Uint8Array, filename: string): Promise<string
 // ── Download PDF from bytes ─────────────────────────────────────────────────────
 
 function downloadPdf(pdfBytes: Uint8Array, filename: string) {
-  const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+  const blob = new Blob([pdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = filename; a.click();

@@ -88,7 +88,7 @@ export async function getSegmentClients(segment: SegmentKey): Promise<ClientForS
   async function allClientsWithPhone(): Promise<any[]> {
     return fetchAll((from, to) =>
       supabase.from('clients').select(BASE_SELECT)
-        .not('phone', 'is', null).neq('phone', '').range(from, to)
+        .not('phone', 'is', null).neq('phone', '').order('id', { ascending: true }).range(from, to)
     );
   }
 
@@ -97,7 +97,8 @@ export async function getSegmentClients(segment: SegmentKey): Promise<ClientForS
       let q = supabase.from('receipts').select('client_id')
         .gte('created_at', since.toISOString())
         .not('client_id', 'is', null)
-        .neq('status', 'cancelled');
+        .neq('status', 'cancelled')
+        .order('created_at', { ascending: true });
       if (until) q = q.lt('created_at', until.toISOString());
       return q.range(from, to);
     });
@@ -112,7 +113,7 @@ export async function getSegmentClients(segment: SegmentKey): Promise<ClientForS
       const chunk = ids.slice(i, i + 500);
       const rows = await fetchAll((from, to) =>
         supabase.from('clients').select(BASE_SELECT)
-          .in('id', chunk).not('phone', 'is', null).neq('phone', '').range(from, to)
+          .in('id', chunk).not('phone', 'is', null).neq('phone', '').order('id', { ascending: true }).range(from, to)
       );
       results.push(...rows);
     }
@@ -150,7 +151,7 @@ export async function getSegmentClients(segment: SegmentKey): Promise<ClientForS
     case 'vip': {
       const receipts = await fetchAll((from, to) =>
         supabase.from('receipts').select('client_id, total_amount')
-          .not('client_id', 'is', null).neq('status', 'cancelled').range(from, to)
+          .not('client_id', 'is', null).neq('status', 'cancelled').order('created_at', { ascending: true }).range(from, to)
       );
       const totals: Record<string, number> = {};
       for (const r of receipts) {
@@ -162,7 +163,7 @@ export async function getSegmentClients(segment: SegmentKey): Promise<ClientForS
 
     case 'abonnees': {
       const subs = await fetchAll((from, to) =>
-        supabase.from('client_subscriptions').select('client_id').eq('status', 'active').range(from, to)
+        supabase.from('client_subscriptions').select('client_id').eq('status', 'active').order('id', { ascending: true }).range(from, to)
       );
       const ids = [...new Set(subs.map((s: any) => s.client_id).filter(Boolean))];
       return (await clientsByIds(ids)).map(cleanClient);
@@ -170,7 +171,7 @@ export async function getSegmentClients(segment: SegmentKey): Promise<ClientForS
 
     case 'sans_abonnement': {
       const subs = await fetchAll((from, to) =>
-        supabase.from('client_subscriptions').select('client_id').eq('status', 'active').range(from, to)
+        supabase.from('client_subscriptions').select('client_id').eq('status', 'active').order('id', { ascending: true }).range(from, to)
       );
       const subIds = new Set(subs.map((s: any) => s.client_id));
       const all = await allClientsWithPhone();
@@ -180,7 +181,7 @@ export async function getSegmentClients(segment: SegmentKey): Promise<ClientForS
     case 'points_eleves': {
       const rows = await fetchAll((from, to) =>
         supabase.from('clients').select(BASE_SELECT)
-          .gte('loyalty_points', 200).not('phone', 'is', null).neq('phone', '').range(from, to)
+          .gte('loyalty_points', 200).not('phone', 'is', null).neq('phone', '').order('id', { ascending: true }).range(from, to)
       );
       return rows.map(cleanClient);
     }
@@ -188,7 +189,7 @@ export async function getSegmentClients(segment: SegmentKey): Promise<ClientForS
     case 'nouvelles': {
       const rows = await fetchAll((from, to) =>
         supabase.from('clients').select(BASE_SELECT)
-          .gte('created_at', d30.toISOString()).not('phone', 'is', null).neq('phone', '').range(from, to)
+          .gte('created_at', d30.toISOString()).not('phone', 'is', null).neq('phone', '').order('created_at', { ascending: true }).range(from, to)
       );
       return rows.map(cleanClient);
     }

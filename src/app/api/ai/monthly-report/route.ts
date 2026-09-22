@@ -69,13 +69,14 @@ async function fetchPeriodData(supabase: any, startDate: string, endDate: string
 
   const normalizePM = (raw: string): string => {
     if (!raw) return 'autre';
-    if (raw.startsWith('Mixte|') || raw === 'mixed') return 'Mixte';
-    if (raw === 'cash' || raw === 'especes' || raw === 'espèces') return 'Espèces';
-    if (raw === 'card' || raw === 'CB' || raw === 'carte') return 'SumUp (CB)';
-    if (raw === 'transfer' || raw === 'virement') return 'Virement';
-    if (raw.startsWith('Alma') || raw === 'alma') return 'Alma (3x/4x)';
-    if (raw === 'store_credit' || raw === 'avoir') return 'Avoir';
-    if (raw === 'sumup') return 'SumUp (CB)';
+    const lower = raw.toLowerCase();
+    if (lower.startsWith('mixte') || lower === 'mixed') return 'Mixte';
+    if (lower.startsWith('espèces|') || lower.startsWith('especes|') || lower === 'espèces' || lower === 'especes' || lower === 'cash') return 'Espèces';
+    if (lower === 'sumup (cb)' || lower === 'cb' || lower === 'card' || lower === 'carte' || lower === 'sumup') return 'SumUp (CB)';
+    if (lower === 'transfer' || lower === 'virement') return 'Virement';
+    if (lower.startsWith('alma')) return 'Alma (3x/4x)';
+    if (lower === 'store_credit' || lower === 'avoir') return 'Avoir';
+    if (lower === 'paypal') return 'PayPal';
     return raw;
   };
   const paymentBreakdown: Record<string, number> = {};
