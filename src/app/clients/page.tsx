@@ -95,15 +95,23 @@ export default function ClientsPage() {
 
   useEffect(() => { loadClients(); }, [loadClients]);
 
+  useEffect(() => {
+    if (search.trim().length >= 2) {
+      clientService.search(search.trim(), filterType !== 'all' ? filterType : undefined).then(setClients);
+    } else {
+      loadClients();
+    }
+  }, [filterType]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleSearch = useCallback(async (val: string) => {
     setSearch(val);
     if (val.trim().length >= 2) {
-      const results = await clientService.search(val.trim());
+      const results = await clientService.search(val.trim(), filterType !== 'all' ? filterType : undefined);
       setClients(results);
     } else if (val.trim().length === 0) {
       loadClients();
     }
-  }, [loadClients]);
+  }, [loadClients, filterType]);
 
   const openDetail = async (client: Client) => {
     setSelectedClient(client);

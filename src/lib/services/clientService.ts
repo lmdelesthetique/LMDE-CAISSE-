@@ -294,17 +294,19 @@ export const clientService = {
     } catch (e: any) { console.log('clientService.getAll exception:', e.message); return []; }
   },
 
-  async search(query: string): Promise<Client[]> {
+  async search(query: string, clientType?: string): Promise<Client[]> {
     const supabase = createClient();
     try {
       const q = query.trim().toLowerCase();
-      const { data, error } = await supabase
+      let req = supabase
         .from('clients')
         .select('*')
         .eq('is_active', true)
         .or(`phone.ilike.%${q}%,email.ilike.%${q}%,first_name.ilike.%${q}%,last_name.ilike.%${q}%`)
         .order('last_name', { ascending: true })
-        .limit(10);
+        .limit(200);
+      if (clientType && clientType !== 'all') req = req.eq('client_type', clientType);
+      const { data, error } = await req;
       if (error) { console.log('clientService.search error:', error.message); return []; }
       return (data ?? []).map(mapClient);
     } catch (e: any) { console.log('clientService.search exception:', e.message); return []; }

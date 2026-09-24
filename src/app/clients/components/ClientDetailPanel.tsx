@@ -374,6 +374,8 @@ export default function ClientDetailPanel({
     nb_clientes_semaine: p.nb_clientes_semaine ? parseInt(p.nb_clientes_semaine) : null,
     nb_employes: p.nb_employes ? parseInt(p.nb_employes) : null,
     budget_mensuel: p.budget_mensuel ? parseFloat(p.budget_mensuel) : null,
+    date_premier_contact: p.date_premier_contact || null,
+    prochain_suivi: p.prochain_suivi || null,
   }), []);
 
   useEffect(() => {
