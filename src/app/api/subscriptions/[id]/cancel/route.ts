@@ -20,11 +20,16 @@ export async function POST(
   // Fetch subscription to verify it exists
   const { data: sub, error: fetchErr } = await supabase
     .from('client_subscriptions')
-    .select('id, client_id, status, stripe_subscription_id')
+    .select('id, client_id, status')
     .eq('id', id)
     .maybeSingle();
 
-  if (fetchErr || !sub) {
+  if (fetchErr) {
+    console.error('[cancel subscription] fetch error:', fetchErr.message, 'id:', id);
+    return NextResponse.json({ error: fetchErr.message }, { status: 500 });
+  }
+  if (!sub) {
+    console.error('[cancel subscription] not found — id:', id);
     return NextResponse.json({ error: 'Subscription not found' }, { status: 404 });
   }
 
@@ -50,18 +55,24 @@ export async function POST(
     if (retryErr) return NextResponse.json({ error: retryErr.message }, { status: 500 });
   }
 
-  // Cancel Stripe subscription if ID is stored
-  if (sub.stripe_subscription_id) {
-    try {
+  // Cancel Stripe subscription if ID is stored (fetched separately to avoid schema issues)
+  try {
+    const { data: stripeData } = await supabase
+      .from('client_subscriptions')
+      .select('stripe_subscription_id')
+      .eq('id', id)
+      .maybeSingle();
+    const stripeSubId = (stripeData as any)?.stripe_subscription_id;
+    if (stripeSubId) {
       const stripeKey = process.env.STRIPE_SECRET_KEY;
       if (stripeKey) {
         const Stripe = (await import('stripe')).default;
         const stripe = new Stripe(stripeKey);
-        await stripe.subscriptions.cancel(sub.stripe_subscription_id);
+        await stripe.subscriptions.cancel(stripeSubId);
       }
-    } catch (err: any) {
-      console.warn('[cancel subscription] Stripe cancel failed (non-blocking):', err.message);
     }
+  } catch (err: any) {
+    console.warn('[cancel subscription] Stripe cancel failed (non-blocking):', err.message);
   }
 
   // Notify admin via portal notification if client-initiated
