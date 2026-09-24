@@ -646,6 +646,8 @@ export default function StockPage() {
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [bulkLoading, setBulkLoading] = useState(false);
   const [recalcLoading, setRecalcLoading] = useState(false);
+  const [syncImagesLoading, setSyncImagesLoading] = useState(false);
+  const [syncImagesResult, setSyncImagesResult] = useState<{ productsUpdated: number; linesUpdated: number } | null>(null);
   const [dedupLoading, setDedupLoading] = useState(false);
   const [dedupResult, setDedupResult] = useState<{ fixed: number; log: { name: string; removed: number; before: number; after: number; details?: string }[] } | null>(null);
   const [dedupPreview, setDedupPreview] = useState<{ total_duplicates: number; total_extra_units: number; groups: any[] } | null>(null);
@@ -706,6 +708,21 @@ export default function StockPage() {
       console.error('recalculate-sales', e);
     } finally {
       setRecalcLoading(false);
+    }
+  };
+
+  const handleSyncImages = async () => {
+    setSyncImagesLoading(true);
+    setSyncImagesResult(null);
+    try {
+      const res = await fetch('/api/admin/sync-product-images', { method: 'POST' });
+      const data = await res.json();
+      setSyncImagesResult(data);
+      if (data.productsUpdated > 0) await loadData();
+    } catch (e) {
+      console.error('sync-product-images', e);
+    } finally {
+      setSyncImagesLoading(false);
     }
   };
 
@@ -907,6 +924,15 @@ export default function StockPage() {
               >
                 <Icon name="ChartBarIcon" size={15} className={recalcLoading ? 'text-primary animate-pulse' : 'text-muted-foreground'} />
                 <span className="hidden sm:inline">Sync ventes</span>
+              </button>
+              <button
+                onClick={handleSyncImages}
+                disabled={syncImagesLoading}
+                title="Synchroniser les images depuis Shopify pour tous les produits liés"
+                className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border text-sm font-500 hover:bg-muted transition-colors disabled:opacity-50"
+              >
+                <Icon name="PhotoIcon" size={15} className={syncImagesLoading ? 'text-primary animate-pulse' : 'text-muted-foreground'} />
+                <span className="hidden sm:inline">{syncImagesResult ? `Images: ${syncImagesResult.productsUpdated} produits` : 'Sync images'}</span>
               </button>
               <button
                 onClick={handleDedupPreview}

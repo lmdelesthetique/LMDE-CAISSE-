@@ -46,7 +46,6 @@ export async function GET(req: NextRequest) {
         .select('items, created_at')
         .gte('created_at', since90d)
         .neq('is_demo', true)
-        .neq('payment_type', 'avoir')
         .order('created_at', { ascending: true })
         .range(from, to)
     ),

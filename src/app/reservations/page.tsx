@@ -947,8 +947,11 @@ export default function ReservationsPage() {
         const country = detectCountry(res.deliveryAddress ?? '');
         const relayAddress = "Immeuble Kappa Voie Verte à Jarry, en face de Autour de Bébé Jarry, Chez les Tisanes d'Agatha";
         const relayPhone = "0590259970";
+        const boutiqueAddress = "Le Monde de l'Esthétique, Martinique";
         const msgShipped = `Bonjour ${firstName},\n\nVotre colis est bien parti et sera disponible en ${country} à l'adresse suivante :\n${relayAddress}.\n\nPour récupérer votre colis, appelez le : ${relayPhone}\n\nMerci pour votre confiance ! 🌸\n— Le Monde de l'Esthétique`;
         const msgAvailable = `Bonjour ${firstName},\n\nVotre colis est arrivé et disponible en ${country} à l'adresse suivante :\n${relayAddress}.\n\nPour récupérer votre colis, appelez le : ${relayPhone}\n\nMerci pour votre confiance ! 🌸\n— Le Monde de l'Esthétique`;
+        const msgPickup = `Bonjour ${firstName} 🌸\n\nBonne nouvelle ! Votre colis est arrivé et disponible en boutique :\n📍 ${boutiqueAddress}\n\nVenez le récupérer quand vous le souhaitez.\n\nMerci pour votre confiance ! 💕\n— Le Monde de l'Esthétique`;
+        const msgReview = `Bonjour ${firstName} 🌸\n\nNous espérons que vous êtes satisfaite de votre commande ! 💕\n\nSi vous avez quelques secondes, votre avis compte beaucoup pour nous :\n⭐ Laissez-nous un avis Google ici :\nhttps://g.page/r/CdTmD6g8r8sREBM/review\n\nMerci infiniment ! 🌸\n— Le Monde de l'Esthétique`;
         const siteUrl = typeof window !== 'undefined' ? window.location.origin : process.env.NEXT_PUBLIC_SITE_URL || 'https://lmdecaisse.com';
         const ticketLink = `${siteUrl}/reservation/${res.id}`;
         const itemsList = res.items.map((it: any) => {
@@ -964,7 +967,7 @@ export default function ReservationsPage() {
         const msgTicket = `Bonjour ${firstName} 🌸\n\nVoici votre ticket de réservation n° *${res.reservationNumber}* :\n\n${itemsList}\n\n💰 Total : *${res.totalAmount.toFixed(2)} €*\n✅ Acompte versé : ${res.depositPaid.toFixed(2)} €\n💳 Solde à régler : *${res.balanceDue.toFixed(2)} €*\n\n📸 Voir votre ticket avec les photos :\n${ticketLink}\n\nMerci de votre confiance ! 💕\n— Le Monde de l'Esthétique`;
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
               <div className="flex items-center gap-3 mb-5">
                 <div className="w-10 h-10 rounded-xl bg-green-100 flex items-center justify-center shrink-0">
                   <svg viewBox="0 0 24 24" fill="currentColor" width={22} height={22} className="text-green-600">
@@ -1014,8 +1017,32 @@ export default function ReservationsPage() {
                 >
                   <span className="text-2xl shrink-0">✅</span>
                   <div>
-                    <p className="text-sm font-700 text-emerald-800 mb-1">Colis disponible</p>
+                    <p className="text-sm font-700 text-emerald-800 mb-1">Colis disponible (point relais)</p>
                     <p className="text-xs text-emerald-700 leading-relaxed">Votre colis est arrivé et disponible en {country}…</p>
+                  </div>
+                </a>
+                <a
+                  href={`https://wa.me/${phone}?text=${encodeURIComponent(msgPickup)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-start gap-3 w-full p-4 bg-blue-50 border-2 border-blue-300 rounded-xl hover:bg-blue-100 transition-colors text-left"
+                >
+                  <span className="text-2xl shrink-0">🏪</span>
+                  <div>
+                    <p className="text-sm font-700 text-blue-800 mb-1">Colis disponible en boutique</p>
+                    <p className="text-xs text-blue-700 leading-relaxed">Colis à récupérer directement en boutique en Martinique</p>
+                  </div>
+                </a>
+                <a
+                  href={`https://wa.me/${phone}?text=${encodeURIComponent(msgReview)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-start gap-3 w-full p-4 bg-amber-50 border-2 border-amber-300 rounded-xl hover:bg-amber-100 transition-colors text-left"
+                >
+                  <span className="text-2xl shrink-0">⭐</span>
+                  <div>
+                    <p className="text-sm font-700 text-amber-800 mb-1">Confirmation réception + avis Google</p>
+                    <p className="text-xs text-amber-700 leading-relaxed">Demander confirmation de réception et avis Google</p>
                   </div>
                 </a>
               </div>

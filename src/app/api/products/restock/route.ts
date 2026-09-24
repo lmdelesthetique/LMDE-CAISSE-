@@ -43,7 +43,6 @@ export async function GET(req: NextRequest) {
       .select('items, created_at')
       .gte('created_at', since90d)
       .neq('is_demo', true)
-      .neq('payment_type', 'avoir')
       .limit(200000),
     supabase
       .from('stock_movements_log')

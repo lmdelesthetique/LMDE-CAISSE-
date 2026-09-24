@@ -213,7 +213,6 @@ export async function fetchStockProducts(search?: string): Promise<StockProduct[
         .select('items, created_at, is_demo, payment_type')
         .gte('created_at', since90d)
         .neq('is_demo', true)
-        .neq('payment_type', 'avoir')
         .order('created_at', { ascending: true })
         .range(from, to)
     ),
@@ -839,7 +838,6 @@ export async function recalculateSalesCounters(productIds: string[]): Promise<vo
       .select('items, created_at')
       .gte('created_at', since90d)
       .neq('is_demo', true)
-      .neq('payment_type', 'avoir')
       .limit(200000),
     supabase
       .from('stock_movements_log')

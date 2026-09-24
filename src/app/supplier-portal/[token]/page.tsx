@@ -55,15 +55,61 @@ interface Order {
 // ─── Status helpers ───────────────────────────────────────────────────────────
 
 const STATUS_LABEL: Record<string, string> = {
-  draft: 'Brouillon', sent: 'Envoyée', awaiting_validation: 'En attente validation',
-  modification_requested: 'Modif. demandée', validated: 'Validée',
-  payment_pending: 'Paiement en attente', payment_in_progress: 'Paiement en cours',
-  paid: 'Payée ✅', payment_received_by_supplier: 'Paiement reçu ✅',
-  in_preparation: 'En préparation', in_production: 'En production',
-  ready_to_ship: 'Prête à expédier', shipped: 'Expédiée',
-  partially_received: 'Reçue partiellement', fully_received: 'Reçue',
-  closed: 'Clôturée', cancelled: 'Annulée',
+  draft: 'Draft', sent: 'Sent', awaiting_validation: 'Awaiting Validation',
+  modification_requested: 'Modification Requested', validated: 'Validated',
+  payment_pending: 'Payment Pending', payment_in_progress: 'Payment In Progress',
+  paid: 'Paid ✅', payment_received_by_supplier: 'Payment Received ✅',
+  in_preparation: 'In Preparation', in_production: 'In Production',
+  ready_to_ship: 'Ready to Ship', shipped: 'Shipped',
+  partially_received: 'Partially Received', fully_received: 'Received',
+  closed: 'Closed', cancelled: 'Cancelled',
 };
+
+function printOrderPDF(o: Order, lines: OrderLine[]) {
+  const win = window.open('', '_blank', 'width=900,height=1200,scrollbars=yes');
+  if (!win) { alert('Please allow popups to download the PDF.'); return; }
+  const date = new Date(o.created_at).toLocaleDateString('en-US', { day: '2-digit', month: 'long', year: 'numeric' });
+  const total = (o.total_real_cost ?? o.subtotal ?? 0).toFixed(2);
+  const currency = o.currency ?? 'EUR';
+  const linesHtml = lines.map(line => `
+    <tr>
+      <td style="padding:10px 8px;border-bottom:1px solid #e5e7eb;vertical-align:middle;">
+        ${line.product_image_url
+          ? `<img src="${line.product_image_url}" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:6px;border:1px solid #e5e7eb;display:block;" />`
+          : `<div style="width:64px;height:64px;background:#f3f4f6;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:26px;">📦</div>`}
+      </td>
+      <td style="padding:10px 8px;border-bottom:1px solid #e5e7eb;vertical-align:middle;">
+        <div style="font-weight:700;font-size:14px;color:#111;line-height:1.4;">${line.product_name ?? '—'}</div>
+        ${line.product_ref ? `<div style="font-size:11px;color:#9ca3af;margin-top:3px;">Ref: ${line.product_ref}</div>` : ''}
+      </td>
+      <td style="padding:10px 8px;text-align:center;border-bottom:1px solid #e5e7eb;font-weight:700;font-size:15px;vertical-align:middle;">${line.qty_ordered}</td>
+      <td style="padding:10px 8px;text-align:right;border-bottom:1px solid #e5e7eb;vertical-align:middle;">${Number(line.unit_price).toFixed(2)} ${currency}</td>
+      <td style="padding:10px 8px;text-align:right;border-bottom:1px solid #e5e7eb;font-weight:700;color:#6366f1;vertical-align:middle;">${Number(line.line_total).toFixed(2)} ${currency}</td>
+    </tr>`).join('');
+  win.document.write(`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><title>Purchase Order — ${o.order_number}</title>
+<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#111;background:#fff}.page{max-width:860px;margin:0 auto;padding:40px 32px}@media print{.no-print{display:none!important}}</style></head>
+<body><div class="page">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #6366f1;padding-bottom:20px;margin-bottom:28px;">
+    <div><div style="font-size:24px;font-weight:800;color:#6366f1;">Le Monde de l'Esthétique</div><div style="font-size:12px;color:#6b7280;font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-top:3px;">Purchase Order</div></div>
+    <div style="text-align:right;"><div style="font-size:17px;font-weight:800;">${o.order_number}</div><div style="font-size:13px;color:#6b7280;margin-top:2px;">${date}</div></div>
+  </div>
+  <table style="width:100%;border-collapse:collapse;margin-bottom:24px;">
+    <thead><tr style="background:#f9fafb;">
+      <th style="padding:10px 8px;text-align:left;font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:.08em;border-bottom:2px solid #e5e7eb;width:80px;">Photo</th>
+      <th style="padding:10px 8px;text-align:left;font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:.08em;border-bottom:2px solid #e5e7eb;">Product / Reference</th>
+      <th style="padding:10px 8px;text-align:center;font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:.08em;border-bottom:2px solid #e5e7eb;">Qty</th>
+      <th style="padding:10px 8px;text-align:right;font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:.08em;border-bottom:2px solid #e5e7eb;">Unit Price</th>
+      <th style="padding:10px 8px;text-align:right;font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:.08em;border-bottom:2px solid #e5e7eb;">Subtotal</th>
+    </tr></thead>
+    <tbody>${linesHtml}</tbody>
+  </table>
+  <div style="display:flex;justify-content:flex-end;border-top:2px solid #e5e7eb;padding-top:16px;margin-bottom:32px;">
+    <div style="text-align:right;"><div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.08em;">Total Amount</div><div style="font-size:30px;font-weight:800;margin-top:4px;">${total} ${currency}</div></div>
+  </div>
+  <div class="no-print" style="text-align:center;"><button onclick="window.print()" style="background:#6366f1;color:#fff;border:none;padding:14px 48px;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;">🖨️ Print / Save as PDF</button></div>
+</div></body></html>`);
+  win.document.close();
+}
 
 const STATUS_COLOR: Record<string, string> = {
   draft: '#9ca3af', sent: '#3b82f6', awaiting_validation: '#f59e0b',
@@ -488,7 +534,7 @@ export default function SupplierTokenPortal() {
             borderBottom: tab === t ? '2px solid #075e54' : '2px solid transparent',
             position: 'relative',
           }}>
-            {t === 'chat' ? '💬 Messages' : '📦 Commandes'}
+            {t === 'chat' ? '💬 Messages' : '📦 Orders'}
             {t === 'chat' && unread > 0 && (
               <span style={{ position: 'absolute', top: 8, right: 24, background: '#25d366', color: '#fff', borderRadius: '50%', width: 18, height: 18, fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 {unread}
@@ -581,7 +627,7 @@ export default function SupplierTokenPortal() {
           ) : orders.length === 0 ? (
             <div style={{ textAlign: 'center', paddingTop: 60, color: '#9ca3af' }}>
               <p style={{ fontSize: 32, marginBottom: 8 }}>📦</p>
-              <p>Aucune commande</p>
+              <p>No orders yet</p>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -607,7 +653,7 @@ export default function SupplierTokenPortal() {
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>
-                          {new Date(o.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })}
+                          {new Date(o.created_at).toLocaleDateString('en-US', { day: '2-digit', month: 'long', year: 'numeric' })}
                         </p>
                         {(o.total_real_cost ?? o.subtotal) != null && (
                           <p style={{ fontWeight: 700, fontSize: 15, margin: 0, color: '#111' }}>
@@ -624,12 +670,12 @@ export default function SupplierTokenPortal() {
                         {['sent', 'in_preparation', 'in_production', 'ready_to_ship'].includes(o.order_status) && (
                           shippedConfirmed.has(o.id) ? (
                             <div style={{ width: '100%', marginBottom: 14, padding: '11px 0', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 10, fontSize: 13, fontWeight: 700, color: '#16a34a', textAlign: 'center' }}>
-                              ✅ Expédition confirmée — merci !
+                              ✅ Shipment confirmed — thank you!
                             </div>
                           ) : (
                             <button
                               onClick={async () => {
-                                if (!confirm(`Confirmer l'expédition de la commande ${o.order_number} ?`)) return;
+                                if (!confirm(`Confirm shipment for order ${o.order_number}?`)) return;
                                 setConfirmingShipped(o.id);
                                 try {
                                   const res = await fetch(`/api/supplier-portal/${token}/confirm-shipped`, {
@@ -654,9 +700,9 @@ export default function SupplierTokenPortal() {
                               style={{ width: '100%', marginBottom: 10, padding: '12px 0', background: confirmingShipped === o.id ? '#e5e7eb' : '#6366f1', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 700, color: '#fff', cursor: confirmingShipped === o.id ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
                             >
                               {confirmingShipped === o.id ? (
-                                <><SmallSpinner /> Confirmation en cours…</>
+                                <><SmallSpinner /> Confirming…</>
                               ) : (
-                                '🚢 Confirmer l\'expédition'
+                                '🚢 Confirm Shipment'
                               )}
                             </button>
                           )
@@ -664,15 +710,22 @@ export default function SupplierTokenPortal() {
                         {/* Bouton voir dans la conversation */}
                         <button
                           onClick={() => setTab('chat')}
-                          style={{ width: '100%', marginBottom: 14, padding: '9px 0', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 10, fontSize: 13, fontWeight: 600, color: '#0369a1', cursor: 'pointer' }}
+                          style={{ width: '100%', marginBottom: 10, padding: '9px 0', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 10, fontSize: 13, fontWeight: 600, color: '#0369a1', cursor: 'pointer' }}
                         >
-                          💬 Voir dans la conversation
+                          💬 View in Chat
+                        </button>
+                        {/* PDF download button */}
+                        <button
+                          onClick={() => printOrderPDF(o, orderLines[o.id] ?? [])}
+                          style={{ width: '100%', marginBottom: 14, padding: '9px 0', background: '#f5f3ff', border: '1px solid #c4b5fd', borderRadius: 10, fontSize: 13, fontWeight: 600, color: '#6d28d9', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                        >
+                          📄 Download PDF / View Order
                         </button>
 
                         {isLoadingThis ? (
                           <div style={{ display: 'flex', justifyContent: 'center', padding: '20px 0' }}><Spinner /></div>
                         ) : lines.length === 0 ? (
-                          <p style={{ fontSize: 13, color: '#9ca3af', textAlign: 'center', padding: '12px 0' }}>Aucun produit trouvé</p>
+                          <p style={{ fontSize: 13, color: '#9ca3af', textAlign: 'center', padding: '12px 0' }}>No products found</p>
                         ) : (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                             {lines.map(line => (
@@ -693,10 +746,10 @@ export default function SupplierTokenPortal() {
                                 {/* Infos */}
                                 <div style={{ flex: 1, minWidth: 0 }}>
                                   <p style={{ fontWeight: 700, fontSize: 14, margin: '0 0 3px', lineHeight: 1.3 }}>{line.product_name ?? '—'}</p>
-                                  {line.product_ref && <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 6px' }}>Réf : {line.product_ref}</p>}
+                                  {line.product_ref && <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 6px' }}>Ref: {line.product_ref}</p>}
                                   <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                                     <span style={{ fontSize: 12, background: '#e0f2fe', color: '#0369a1', borderRadius: 8, padding: '2px 8px', fontWeight: 600 }}>
-                                      Qté : {line.qty_ordered}
+                                      Qty: {line.qty_ordered}
                                     </span>
                                     <span style={{ fontSize: 12, background: '#f0fdf4', color: '#15803d', borderRadius: 8, padding: '2px 8px', fontWeight: 600 }}>
                                       {line.unit_price.toFixed(2)} € / u
@@ -712,7 +765,7 @@ export default function SupplierTokenPortal() {
                             {(o.total_real_cost ?? o.subtotal) != null && (
                               <div style={{ display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #e5e7eb', paddingTop: 10, marginTop: 2 }}>
                                 <span style={{ fontWeight: 700, fontSize: 16, color: '#111' }}>
-                                  Total : {(o.total_real_cost ?? o.subtotal ?? 0).toFixed(2)} {o.currency ?? 'EUR'}
+                                  Total: {(o.total_real_cost ?? o.subtotal ?? 0).toFixed(2)} {o.currency ?? 'EUR'}
                                 </span>
                               </div>
                             )}
