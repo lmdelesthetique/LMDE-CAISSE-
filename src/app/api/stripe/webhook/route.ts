@@ -39,62 +39,75 @@ export async function POST(req: NextRequest) {
 
       // ── Surplus box payment — discriminated by metadata.type ──────────────
       if (session.metadata?.type === 'surplus') {
-        const m = session.metadata;
-        const orderId: string = m.order_id;
-        const productId: string = m.product_id;
-        const colorVariant: string | null = m.color_variant || null;
-        const qty = parseInt(m.quantity) || 1;
-        const unitSellPrice = parseFloat(m.unit_sell_price) || 0;
-        const unitBuyPrice = parseFloat(m.unit_buy_price) || 0;
+        try {
+          const m = session.metadata;
+          const orderId: string = m.order_id;
+          const productId: string = m.product_id;
+          const colorVariant: string | null = m.color_variant || null;
+          const qty = parseInt(m.quantity) || 1;
+          const unitSellPrice = parseFloat(m.unit_sell_price) || 0;
+          const unitBuyPrice = parseFloat(m.unit_buy_price) || 0;
 
-        console.log('[stripe/webhook] Surplus reçu — order:', orderId, 'product:', productId, 'variant:', colorVariant, 'qty:', qty, 'price:', unitSellPrice);
+          console.log('[stripe/webhook] Surplus reçu — order:', orderId, 'product:', productId);
 
-        // Idempotency: check if already inserted (correct null comparison)
-        let existingQuery = supabase
-          .from('subscription_order_items')
-          .select('id, quantity, total_sell_price')
-          .eq('order_id', orderId)
-          .eq('product_id', productId);
-        existingQuery = colorVariant
-          ? existingQuery.eq('color_variant', colorVariant)
-          : existingQuery.is('color_variant', null);
-        const { data: existing } = await existingQuery.maybeSingle();
+          // Idempotency check (avoid reassigning typed query builder)
+          let existingId: string | null = null;
+          let existingQty = 0;
+          if (colorVariant) {
+            const { data } = await supabase
+              .from('subscription_order_items')
+              .select('id, quantity')
+              .eq('order_id', orderId)
+              .eq('product_id', productId)
+              .eq('color_variant', colorVariant)
+              .maybeSingle();
+            if (data) { existingId = (data as any).id; existingQty = (data as any).quantity; }
+          } else {
+            const { data } = await supabase
+              .from('subscription_order_items')
+              .select('id, quantity')
+              .eq('order_id', orderId)
+              .eq('product_id', productId)
+              .is('color_variant', null)
+              .maybeSingle();
+            if (data) { existingId = (data as any).id; existingQty = (data as any).quantity; }
+          }
 
-        if (existing) {
-          const newQty = existing.quantity + qty;
-          const { error: updErr } = await supabase
+          if (existingId) {
+            const newQty = existingQty + qty;
+            await supabase
+              .from('subscription_order_items')
+              .update({ quantity: newQty, total_sell_price: unitSellPrice * newQty })
+              .eq('id', existingId);
+          } else {
+            await supabase.from('subscription_order_items').insert({
+              order_id: orderId,
+              product_id: productId,
+              quantity: qty,
+              unit_buy_price: unitBuyPrice,
+              unit_sell_price: unitSellPrice,
+              total_sell_price: unitSellPrice * qty,
+              color_variant: colorVariant,
+            });
+          }
+
+          // Recalculate order total
+          const { data: allItems } = await supabase
             .from('subscription_order_items')
-            .update({ quantity: newQty, total_sell_price: unitSellPrice * newQty })
-            .eq('id', existing.id);
-          if (updErr) console.error('[stripe/webhook] Surplus update error:', updErr.message);
-        } else {
-          const { error: insErr } = await supabase.from('subscription_order_items').insert({
-            order_id: orderId,
-            product_id: productId,
-            quantity: qty,
-            unit_buy_price: unitBuyPrice,
-            unit_sell_price: unitSellPrice,
-            total_sell_price: unitSellPrice * qty,
-            color_variant: colorVariant,
-          });
-          if (insErr) console.error('[stripe/webhook] Surplus insert error:', insErr.message);
+            .select('unit_sell_price, quantity')
+            .eq('order_id', orderId);
+          const newTotal = (allItems ?? []).reduce(
+            (s: number, i: any) => s + i.unit_sell_price * i.quantity, 0
+          );
+          await supabase
+            .from('subscription_orders')
+            .update({ total_sell_price: newTotal })
+            .eq('id', orderId);
+
+          console.log('[stripe/webhook] Surplus OK — total:', newTotal.toFixed(2), '€');
+        } catch (surplusErr: any) {
+          console.error('[stripe/webhook] Surplus error:', surplusErr.message);
         }
-
-        // Recalculate order total_sell_price
-        const { data: allItems } = await supabase
-          .from('subscription_order_items')
-          .select('unit_sell_price, quantity')
-          .eq('order_id', orderId);
-        const newTotal = (allItems ?? []).reduce(
-          (s: number, i: any) => s + i.unit_sell_price * i.quantity, 0
-        );
-        const { error: totErr } = await supabase
-          .from('subscription_orders')
-          .update({ total_sell_price: newTotal })
-          .eq('id', orderId);
-        if (totErr) console.error('[stripe/webhook] Surplus total update error:', totErr.message);
-
-        console.log('[stripe/webhook] Surplus OK — total order:', newTotal.toFixed(2), '€');
         break;
       }
       // ─────────────────────────────────────────────────────────────────────
