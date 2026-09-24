@@ -28,7 +28,7 @@ interface Paiement {
   date: string;
 }
 
-type Statut = 'brouillon' | 'en_discussion' | 'envoye' | 'valide' | 'en_preparation' | 'pret' | 'livre' | 'annule';
+type Statut = 'brouillon' | 'en_discussion' | 'envoye' | 'client_valide' | 'client_modifie' | 'valide' | 'en_preparation' | 'pret' | 'livre' | 'annule';
 
 interface DevisPro {
   id: string;
@@ -56,6 +56,9 @@ interface DevisPro {
   delivered_at?: string;
   created_at: string;
   updated_at: string;
+  client_token?: string;
+  client_response?: string;
+  client_responded_at?: string;
   client?: {
     id: string;
     firstName: string;
@@ -81,6 +84,8 @@ const STATUTS: { key: Statut | 'tous'; label: string; color: string; bg: string 
   { key: 'brouillon', label: 'Brouillon', color: 'text-gray-500', bg: 'bg-gray-100' },
   { key: 'envoye', label: 'Envoyé', color: 'text-blue-600', bg: 'bg-blue-50' },
   { key: 'en_discussion', label: 'En discussion', color: 'text-orange-600', bg: 'bg-orange-50' },
+  { key: 'client_valide', label: '✅ Accepté', color: 'text-emerald-700', bg: 'bg-emerald-100' },
+  { key: 'client_modifie', label: '✏️ Modifié', color: 'text-amber-700', bg: 'bg-amber-100' },
   { key: 'valide', label: 'Validé', color: 'text-emerald-600', bg: 'bg-emerald-50' },
   { key: 'en_preparation', label: 'En prépa', color: 'text-violet-600', bg: 'bg-violet-50' },
   { key: 'pret', label: 'Prêt', color: 'text-indigo-600', bg: 'bg-indigo-50' },
@@ -92,6 +97,8 @@ const STATUT_NEXT: Partial<Record<Statut, { label: string; next: Statut }>> = {
   brouillon: { label: 'Marquer comme envoyé', next: 'envoye' },
   envoye: { label: 'Valider le devis', next: 'valide' },
   en_discussion: { label: 'Valider le devis', next: 'valide' },
+  client_valide: { label: '✅ Confirmer et préparer', next: 'valide' },
+  client_modifie: { label: '✏️ Confirmer les modifications', next: 'valide' },
   valide: { label: 'Démarrer la préparation', next: 'en_preparation' },
   en_preparation: { label: 'Marquer comme prêt', next: 'pret' },
   pret: { label: 'Marquer comme livré', next: 'livre' },
@@ -199,6 +206,8 @@ export default function DevisProPage() {
   const [confirmAnnuler, setConfirmAnnuler] = useState(false);
   const [notesDevis, setNotesDevis] = useState('');
   const [savingNotesDevis, setSavingNotesDevis] = useState(false);
+  const [generatingLink, setGeneratingLink] = useState(false);
+  const [clientLink, setClientLink] = useState<string | null>(null);
 
   // ── Fetch list ──────────────────────────────────────────────────────────────
   const fetchDevis = useCallback(async () => {
@@ -269,7 +278,8 @@ export default function DevisProPage() {
     const aValider = devisList.filter((d) => d.statut === 'envoye' || d.statut === 'en_discussion').length;
     const aPrepa = devisList.filter((d) => d.statut === 'valide').length;
     const prets = devisList.filter((d) => d.statut === 'pret').length;
-    return { pipeline, aValider, aPrepa, prets };
+    const reponsesRecues = devisList.filter((d) => d.statut === 'client_valide' || d.statut === 'client_modifie').length;
+    return { pipeline, aValider, aPrepa, prets, reponsesRecues };
   }, [devisList]);
 
   // ── Top products ────────────────────────────────────────────────────────────
@@ -639,6 +649,34 @@ export default function DevisProPage() {
     window.open(`https://wa.me/${intl}?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
+  // ── Generate & copy client link ───────────────────────────────────────────
+  const generateClientLink = async (devis: DevisPro) => {
+    setGeneratingLink(true);
+    try {
+      const res = await fetch(`/api/devis-pro/${devis.id}/generate-token`, { method: 'POST' });
+      if (!res.ok) { toast.error('Erreur génération lien'); return; }
+      const { token } = await res.json();
+      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
+      const link = `${siteUrl}/devis/${token}`;
+      setClientLink(link);
+      await navigator.clipboard.writeText(link).catch(() => {});
+      // Update local state
+      setSelected((prev) => prev ? { ...prev, client_token: token } : prev);
+      setDevisList((prev) => prev.map((d) => d.id === devis.id ? { ...d, client_token: token } : d));
+      toast.success('Lien copié dans le presse-papier !');
+    } catch { toast.error('Erreur réseau'); }
+    finally { setGeneratingLink(false); }
+  };
+
+  const sendWhatsAppWithLink = (devis: DevisPro, link: string) => {
+    const phone = devis.client?.whatsapp ?? devis.client?.phone;
+    if (!phone) { toast.error('Pas de numéro WhatsApp'); return; }
+    const clean = phone.replace(/\s/g, '');
+    const intl = clean.startsWith('0') ? '+596' + clean.slice(1) : clean.startsWith('+') ? clean : '+596' + clean;
+    const msg = `Bonjour ${devis.client?.firstName} 🌸\n\nVotre devis *${devis.numero ?? ''}* est prêt — *${fmtMoney(devis.client_pays)}*\n\n👆 Consultez-le, modifiez-le ou acceptez-le directement depuis votre téléphone :\n${link}\n\nPour toute question, n'hésitez pas à nous contacter 😊\n— Le Monde de l'Esthétique 💅`;
+    window.open(`https://wa.me/${intl}?text=${encodeURIComponent(msg)}`, '_blank');
+  };
+
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="flex h-screen bg-background overflow-hidden">
@@ -671,6 +709,20 @@ export default function DevisProPage() {
             </div>
           </div>
 
+          {/* Réponses reçues alert */}
+          {stats.reponsesRecues > 0 && (
+            <div className="bg-amber-50 border border-amber-300 rounded-xl px-4 py-3 mb-3 flex items-center gap-3">
+              <span className="text-2xl">📬</span>
+              <div>
+                <p className="text-sm font-bold text-amber-800">
+                  {stats.reponsesRecues} réponse{stats.reponsesRecues > 1 ? 's' : ''} reçue{stats.reponsesRecues > 1 ? 's' : ''} — action requise
+                </p>
+                <p className="text-xs text-amber-600">Cliquez sur un devis ✅ ou ✏️ pour confirmer et lancer la préparation.</p>
+              </div>
+              <button onClick={() => setActiveTab('client_valide')} className="ml-auto text-xs underline text-amber-700 hover:text-amber-900 flex-shrink-0">Voir</button>
+            </div>
+          )}
+
           {/* Dashboard stats */}
           <div className="grid grid-cols-4 gap-3 mb-4">
             <div className="bg-gradient-to-br from-indigo-50 to-white border border-indigo-100 rounded-xl p-3">
@@ -685,9 +737,12 @@ export default function DevisProPage() {
               <p className="text-[10px] font-700 uppercase tracking-widest text-violet-400 mb-0.5">À préparer</p>
               <p className="text-lg font-800 text-violet-700">{stats.aPrepa}</p>
             </div>
-            <div className="bg-gradient-to-br from-emerald-50 to-white border border-emerald-100 rounded-xl p-3">
+            <div className="bg-gradient-to-br from-emerald-50 to-white border border-emerald-100 rounded-xl p-3 relative">
               <p className="text-[10px] font-700 uppercase tracking-widest text-emerald-400 mb-0.5">Prêts</p>
               <p className="text-lg font-800 text-emerald-700">{stats.prets}</p>
+              {stats.reponsesRecues > 0 && (
+                <span className="absolute -top-1 -right-1 w-5 h-5 bg-amber-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">{stats.reponsesRecues}</span>
+              )}
             </div>
           </div>
 
@@ -891,6 +946,28 @@ export default function DevisProPage() {
                     Modifier
                   </button>
                 )}
+                {/* Lien client interactif */}
+                {!['livre', 'annule'].includes(selected.statut) && (
+                  <button
+                    onClick={async () => {
+                      if (selected.client_token) {
+                        const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
+                        const link = `${siteUrl}/devis/${selected.client_token}`;
+                        setClientLink(link);
+                        await navigator.clipboard.writeText(link).catch(() => {});
+                        toast.success('Lien copié !');
+                      } else {
+                        await generateClientLink(selected);
+                      }
+                    }}
+                    disabled={generatingLink}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-700 text-[11px] font-700 transition-colors disabled:opacity-50"
+                    title="Générer et copier le lien client"
+                  >
+                    {generatingLink ? <Icon name="ArrowPathIcon" size={13} className="animate-spin" /> : <Icon name="LinkIcon" size={13} />}
+                    Lien client
+                  </button>
+                )}
                 <button
                   onClick={() => sendWhatsApp(selected)}
                   className="p-2 rounded-xl border border-border hover:bg-green-50 hover:border-green-200 text-green-600 transition-colors"
@@ -932,6 +1009,56 @@ export default function DevisProPage() {
 
           {/* Panel body */}
           <div className="flex-1 overflow-y-auto">
+            {/* Client response banner */}
+            {(selected.statut === 'client_valide' || selected.statut === 'client_modifie') && (
+              <div className={`px-5 py-3 border-b ${selected.statut === 'client_valide' ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className={`text-sm font-bold ${selected.statut === 'client_valide' ? 'text-emerald-800' : 'text-amber-800'}`}>
+                      {selected.statut === 'client_valide' ? '✅ Devis accepté par la cliente' : '✏️ Devis modifié par la cliente'}
+                    </p>
+                    {selected.client_responded_at && (
+                      <p className={`text-xs mt-0.5 ${selected.statut === 'client_valide' ? 'text-emerald-600' : 'text-amber-600'}`}>
+                        Le {new Date(selected.client_responded_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                    )}
+                  </div>
+                  {selected.client_token && (
+                    <button
+                      onClick={() => {
+                        const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
+                        window.open(`${siteUrl}/devis/${selected.client_token}`, '_blank');
+                      }}
+                      className="text-xs underline text-gray-500 hover:text-gray-700 flex-shrink-0"
+                    >
+                      Voir page cliente
+                    </button>
+                  )}
+                </div>
+                {selected.statut === 'client_modifie' && (
+                  <p className="text-xs text-amber-700 mt-1">Les produits ci-dessous ont été mis à jour par la cliente.</p>
+                )}
+              </div>
+            )}
+
+            {/* Lien client panel (shown after link generated) */}
+            {clientLink && selected.client_token && clientLink.includes(selected.client_token) && (
+              <div className="mx-5 mt-4 p-3 bg-blue-50 border border-blue-200 rounded-xl">
+                <p className="text-xs font-semibold text-blue-700 mb-2">🔗 Lien client généré</p>
+                <div className="flex gap-2">
+                  <input readOnly value={clientLink} className="flex-1 text-xs bg-white border border-blue-200 rounded-lg px-2 py-1.5 text-gray-700 truncate" />
+                  <button
+                    onClick={() => sendWhatsAppWithLink(selected, clientLink)}
+                    className="px-3 py-1.5 rounded-lg bg-green-500 text-white text-xs font-bold hover:bg-green-600 transition-colors flex items-center gap-1"
+                  >
+                    <Icon name="ChatBubbleLeftEllipsisIcon" size={13} />
+                    WA
+                  </button>
+                </div>
+                <button onClick={() => setClientLink(null)} className="text-xs text-blue-400 hover:text-blue-600 mt-1">Masquer</button>
+              </div>
+            )}
+
             {/* Amounts summary */}
             <div className="px-5 py-4 border-b border-border bg-muted/20">
               <div className="grid grid-cols-3 gap-3">
