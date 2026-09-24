@@ -20,7 +20,7 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
 
   if (error || !devis) return NextResponse.json({ error: 'Devis introuvable' }, { status: 404 });
 
-  // Catalog for browsing — active products in stock
+  // Catalog: all products in stock, ordered by name
   const { data: products } = await supabase
     .from('products')
     .select('id, name, ref, sell_price_ttc, image_url, stock')
@@ -40,13 +40,18 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
 
   const { data: devis } = await supabase
     .from('devis_pro')
-    .select('id, statut, discount_pct, credit')
+    .select('id, numero, statut, discount_pct, credit, client_pays, client:clients(first_name, last_name)')
     .eq('client_token', token)
     .maybeSingle();
 
   if (!devis) return NextResponse.json({ error: 'Devis introuvable' }, { status: 404 });
+
+  // Already responded — idempotent, return OK
+  if ((devis as any).client_response) return NextResponse.json({ ok: true });
+
+  // Devis closed — friendly message
   if (['livre', 'annule'].includes(devis.statut)) {
-    return NextResponse.json({ error: 'Ce devis ne peut plus être modifié' }, { status: 400 });
+    return NextResponse.json({ error: 'Ce devis a déjà été traité. Contactez-nous si vous avez une question.' }, { status: 400 });
   }
 
   const response: 'accepted' | 'modified' = body.response;
@@ -62,8 +67,8 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   if (response === 'modified' && Array.isArray(body.items)) {
     const items = body.items;
     patch.items = items;
-    const discountPct = Number(devis.discount_pct) || 0;
-    const credit = Number(devis.credit) || 0;
+    const discountPct = Number((devis as any).discount_pct) || 0;
+    const credit = Number((devis as any).credit) || 0;
     const rawTotal = items.reduce((s: number, i: any) => {
       if (i.isBonus) return s;
       return s + (Number(i.price) || 0) * (Number(i.qty) || 1);
@@ -76,6 +81,54 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
 
   const { error } = await supabase.from('devis_pro').update(patch).eq('id', devis.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // ── Push notification to admin ─────────────────────────────────────────────
+  try {
+    if (process.env.VAPID_PRIVATE_KEY && process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY && process.env.VAPID_SUBJECT) {
+      const webpush = (await import('web-push')).default;
+      webpush.setVapidDetails(
+        process.env.VAPID_SUBJECT,
+        process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
+        process.env.VAPID_PRIVATE_KEY
+      );
+
+      const { data: adminSubs } = await supabase
+        .from('push_subscriptions')
+        .select('endpoint, p256dh, auth')
+        .eq('is_admin', true);
+
+      const clientName = (() => {
+        const c = (devis as any).client;
+        if (!c) return 'Une cliente';
+        const obj = Array.isArray(c) ? c[0] : c;
+        return `${obj?.first_name || ''} ${obj?.last_name || ''}`.trim() || 'Une cliente';
+      })();
+
+      const responseLabel = response === 'accepted' ? 'a accepté' : 'a modifié';
+      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://lmdecaisse.com';
+
+      const payload = JSON.stringify({
+        title: `📬 ${clientName} ${responseLabel} son devis`,
+        body: `Devis ${(devis as any).numero ?? ''} — ${(patch.client_pays ?? (devis as any).client_pays ?? 0).toFixed(2)} €`,
+        url: `${siteUrl}/devis-pro`,
+        icon: '/icons/icon-192.png',
+        badge: '/icons/icon-192.png',
+      });
+
+      for (const sub of adminSubs ?? []) {
+        try {
+          await webpush.sendNotification(
+            { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+            payload
+          );
+        } catch {
+          await supabase.from('push_subscriptions').delete().eq('endpoint', sub.endpoint);
+        }
+      }
+    }
+  } catch (pushErr: any) {
+    console.warn('[devis/by-token] push notification failed (non-blocking):', pushErr.message);
+  }
 
   return NextResponse.json({ ok: true });
 }

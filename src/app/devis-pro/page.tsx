@@ -1010,36 +1010,62 @@ export default function DevisProPage() {
           {/* Panel body */}
           <div className="flex-1 overflow-y-auto">
             {/* Client response banner */}
-            {(selected.statut === 'client_valide' || selected.statut === 'client_modifie') && (
-              <div className={`px-5 py-3 border-b ${selected.statut === 'client_valide' ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className={`text-sm font-bold ${selected.statut === 'client_valide' ? 'text-emerald-800' : 'text-amber-800'}`}>
-                      {selected.statut === 'client_valide' ? '✅ Devis accepté par la cliente' : '✏️ Devis modifié par la cliente'}
-                    </p>
-                    {selected.client_responded_at && (
-                      <p className={`text-xs mt-0.5 ${selected.statut === 'client_valide' ? 'text-emerald-600' : 'text-amber-600'}`}>
-                        Le {new Date(selected.client_responded_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}
+            {(selected.statut === 'client_valide' || selected.statut === 'client_modifie') && (() => {
+              // Check stock for all non-bonus, non-custom items in devis
+              const outOfStock = selected.items.filter((i: any) => {
+                if (i.isBonus || i.isCustom || String(i.id || '').startsWith('custom-')) return false;
+                const productId = i.productId ?? i.id;
+                const currentStock = stockMap[productId];
+                return currentStock !== undefined && currentStock < (Number(i.qty) || 1);
+              });
+              return (
+                <div className={`px-5 py-3 border-b ${selected.statut === 'client_valide' ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className={`text-sm font-bold ${selected.statut === 'client_valide' ? 'text-emerald-800' : 'text-amber-800'}`}>
+                        {selected.statut === 'client_valide' ? '✅ Devis accepté par la cliente' : '✏️ Devis modifié par la cliente'}
                       </p>
+                      {selected.client_responded_at && (
+                        <p className={`text-xs mt-0.5 ${selected.statut === 'client_valide' ? 'text-emerald-600' : 'text-amber-600'}`}>
+                          Le {new Date(selected.client_responded_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      )}
+                    </div>
+                    {selected.client_token && (
+                      <button
+                        onClick={() => {
+                          const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
+                          window.open(`${siteUrl}/devis/${selected.client_token}`, '_blank');
+                        }}
+                        className="text-xs underline text-gray-500 hover:text-gray-700 flex-shrink-0"
+                      >
+                        Voir page cliente
+                      </button>
                     )}
                   </div>
-                  {selected.client_token && (
-                    <button
-                      onClick={() => {
-                        const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
-                        window.open(`${siteUrl}/devis/${selected.client_token}`, '_blank');
-                      }}
-                      className="text-xs underline text-gray-500 hover:text-gray-700 flex-shrink-0"
-                    >
-                      Voir page cliente
-                    </button>
+                  {selected.statut === 'client_modifie' && (
+                    <p className="text-xs text-amber-700 mt-1">Les produits ci-dessous ont été mis à jour par la cliente.</p>
+                  )}
+                  {/* Stock warning for items added by client */}
+                  {outOfStock.length > 0 && (
+                    <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-lg">
+                      <p className="text-xs font-bold text-red-700">⚠️ Stock insuffisant pour :</p>
+                      <ul className="mt-1 space-y-0.5">
+                        {outOfStock.map((i: any, idx: number) => {
+                          const productId = i.productId ?? i.id;
+                          return (
+                            <li key={idx} className="text-xs text-red-600">
+                              • {i.name} — demandé : {i.qty}, en stock : {stockMap[productId] ?? 0}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                      <p className="text-xs text-red-500 mt-1">Ajustez les quantités avant de confirmer.</p>
+                    </div>
                   )}
                 </div>
-                {selected.statut === 'client_modifie' && (
-                  <p className="text-xs text-amber-700 mt-1">Les produits ci-dessous ont été mis à jour par la cliente.</p>
-                )}
-              </div>
-            )}
+              );
+            })()}
 
             {/* Lien client panel (shown after link generated) */}
             {clientLink && selected.client_token && clientLink.includes(selected.client_token) && (
