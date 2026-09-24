@@ -170,7 +170,7 @@ export default function DevisClientPage() {
   const filteredCatalog = searchQ.length >= 2
     ? catalog.filter(p =>
         p.name.toLowerCase().includes(searchQ.toLowerCase()) ||
-        p.ref.toLowerCase().includes(searchQ.toLowerCase())
+        (p.ref || '').toLowerCase().includes(searchQ.toLowerCase())
       )
     : catalog.slice(0, 20);
 
@@ -351,7 +351,7 @@ export default function DevisClientPage() {
                     )}
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-gray-800 truncate">{p.name}</p>
-                      <p className="text-xs text-gray-400">{p.ref} · {p.stock} en stock</p>
+                      <p className="text-xs text-gray-400">{p.ref || '—'} · {p.stock} en stock</p>
                     </div>
                     <div className="flex-shrink-0 flex flex-col items-end gap-1">
                       <span className="text-sm font-bold text-[#B8960C]">{p.sell_price_ttc.toFixed(2)} €</span>

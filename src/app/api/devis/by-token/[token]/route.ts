@@ -40,7 +40,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
 
   const { data: devis } = await supabase
     .from('devis_pro')
-    .select('id, numero, statut, discount_pct, credit, client_pays, client:clients(first_name, last_name)')
+    .select('id, numero, statut, discount_pct, credit, client_pays, client_response, client:clients(first_name, last_name)')
     .eq('client_token', token)
     .maybeSingle();
 
