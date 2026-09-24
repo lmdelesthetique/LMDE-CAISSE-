@@ -319,6 +319,7 @@ export default function ClientDashboardPage() {
   // Surplus payment
   const [pendingSurplus, setPendingSurplus] = useState<{ product: PortalProduct; colorVariant: string | null } | null>(null);
   const [surplusLoading, setSurplusLoading] = useState(false);
+  const [surplusSuccess, setSurplusSuccess] = useState(false);
 
   // Variant picker
   const [variantPickerProduct, setVariantPickerProduct] = useState<PortalProduct | null>(null);
@@ -460,11 +461,22 @@ export default function ClientDashboardPage() {
     if (surplus === 'success') {
       showToast('✅ Paiement reçu ! Votre produit a été ajouté à votre box.', 'success');
       window.history.replaceState({}, '', window.location.pathname);
+      setSurplusSuccess(true);
     } else if (surplus === 'cancelled') {
       showToast('Paiement annulé.', 'error');
       window.history.replaceState({}, '', window.location.pathname);
     }
   }, [showToast]);
+
+  // Reload order after surplus success (webhook may take 1-3s to fire)
+  useEffect(() => {
+    if (!surplusSuccess || !clientUser) return;
+    const timer = setTimeout(() => {
+      loadCurrentOrder();
+      setSurplusSuccess(false);
+    }, 2500);
+    return () => clearTimeout(timer);
+  }, [surplusSuccess, clientUser, loadCurrentOrder]);
 
   // ── Load plan data + refresh subscription from DB (anti-stale-session) ──────
   useEffect(() => {

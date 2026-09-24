@@ -47,23 +47,28 @@ export async function POST(req: NextRequest) {
         const unitSellPrice = parseFloat(m.unit_sell_price) || 0;
         const unitBuyPrice = parseFloat(m.unit_buy_price) || 0;
 
-        // Check if already in order (idempotency)
-        const { data: existing } = await supabase
+        console.log('[stripe/webhook] Surplus reçu — order:', orderId, 'product:', productId, 'variant:', colorVariant, 'qty:', qty, 'price:', unitSellPrice);
+
+        // Idempotency: check if already inserted (correct null comparison)
+        let existingQuery = supabase
           .from('subscription_order_items')
           .select('id, quantity, total_sell_price')
           .eq('order_id', orderId)
-          .eq('product_id', productId)
-          .eq('color_variant', colorVariant ?? null)
-          .maybeSingle();
+          .eq('product_id', productId);
+        existingQuery = colorVariant
+          ? existingQuery.eq('color_variant', colorVariant)
+          : existingQuery.is('color_variant', null);
+        const { data: existing } = await existingQuery.maybeSingle();
 
         if (existing) {
           const newQty = existing.quantity + qty;
-          await supabase
+          const { error: updErr } = await supabase
             .from('subscription_order_items')
             .update({ quantity: newQty, total_sell_price: unitSellPrice * newQty })
             .eq('id', existing.id);
+          if (updErr) console.error('[stripe/webhook] Surplus update error:', updErr.message);
         } else {
-          await supabase.from('subscription_order_items').insert({
+          const { error: insErr } = await supabase.from('subscription_order_items').insert({
             order_id: orderId,
             product_id: productId,
             quantity: qty,
@@ -72,6 +77,7 @@ export async function POST(req: NextRequest) {
             total_sell_price: unitSellPrice * qty,
             color_variant: colorVariant,
           });
+          if (insErr) console.error('[stripe/webhook] Surplus insert error:', insErr.message);
         }
 
         // Recalculate order total_sell_price
@@ -82,12 +88,13 @@ export async function POST(req: NextRequest) {
         const newTotal = (allItems ?? []).reduce(
           (s: number, i: any) => s + i.unit_sell_price * i.quantity, 0
         );
-        await supabase
+        const { error: totErr } = await supabase
           .from('subscription_orders')
           .update({ total_sell_price: newTotal })
           .eq('id', orderId);
+        if (totErr) console.error('[stripe/webhook] Surplus total update error:', totErr.message);
 
-        console.log('[stripe/webhook] Surplus produit ajouté à la commande:', orderId, productId);
+        console.log('[stripe/webhook] Surplus OK — total order:', newTotal.toFixed(2), '€');
         break;
       }
       // ─────────────────────────────────────────────────────────────────────
