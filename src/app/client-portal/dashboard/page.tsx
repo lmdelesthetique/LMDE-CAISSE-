@@ -468,16 +468,6 @@ export default function ClientDashboardPage() {
     }
   }, [showToast]);
 
-  // Reload order after surplus success (webhook may take 1-3s to fire)
-  useEffect(() => {
-    if (!surplusSuccess || !clientUser) return;
-    const timer = setTimeout(() => {
-      loadCurrentOrder();
-      setSurplusSuccess(false);
-    }, 2500);
-    return () => clearTimeout(timer);
-  }, [surplusSuccess, clientUser, loadCurrentOrder]);
-
   // ── Load plan data + refresh subscription from DB (anti-stale-session) ──────
   useEffect(() => {
     if (!clientUser) return;
@@ -549,6 +539,16 @@ export default function ClientDashboardPage() {
   useEffect(() => {
     if (clientUser) loadCurrentOrder();
   }, [clientUser, loadCurrentOrder]);
+
+  // Reload order after surplus success (webhook may take 1-3s to fire)
+  useEffect(() => {
+    if (!surplusSuccess || !clientUser) return;
+    const timer = setTimeout(() => {
+      loadCurrentOrder();
+      setSurplusSuccess(false);
+    }, 2500);
+    return () => clearTimeout(timer);
+  }, [surplusSuccess, clientUser, loadCurrentOrder]);
 
   // ── Load past orders + items ───────────────────────────────────────────────
   useEffect(() => {
