@@ -33,9 +33,65 @@ export async function POST(req: NextRequest) {
   const supabase = createAdminClient();
 
   switch (event.type) {
-    // ── 1. Paiement initial réussi → activer l'abonnement
+    // ── 1. Paiement initial réussi → activer l'abonnement OU ajouter produit surplus
     case 'checkout.session.completed': {
       const session = event.data.object;
+
+      // ── Surplus box payment — discriminated by metadata.type ──────────────
+      if (session.metadata?.type === 'surplus') {
+        const m = session.metadata;
+        const orderId: string = m.order_id;
+        const productId: string = m.product_id;
+        const colorVariant: string | null = m.color_variant || null;
+        const qty = parseInt(m.quantity) || 1;
+        const unitSellPrice = parseFloat(m.unit_sell_price) || 0;
+        const unitBuyPrice = parseFloat(m.unit_buy_price) || 0;
+
+        // Check if already in order (idempotency)
+        const { data: existing } = await supabase
+          .from('subscription_order_items')
+          .select('id, quantity, total_sell_price')
+          .eq('order_id', orderId)
+          .eq('product_id', productId)
+          .eq('color_variant', colorVariant ?? null)
+          .maybeSingle();
+
+        if (existing) {
+          const newQty = existing.quantity + qty;
+          await supabase
+            .from('subscription_order_items')
+            .update({ quantity: newQty, total_sell_price: unitSellPrice * newQty })
+            .eq('id', existing.id);
+        } else {
+          await supabase.from('subscription_order_items').insert({
+            order_id: orderId,
+            product_id: productId,
+            quantity: qty,
+            unit_buy_price: unitBuyPrice,
+            unit_sell_price: unitSellPrice,
+            total_sell_price: unitSellPrice * qty,
+            color_variant: colorVariant,
+          });
+        }
+
+        // Recalculate order total_sell_price
+        const { data: allItems } = await supabase
+          .from('subscription_order_items')
+          .select('unit_sell_price, quantity')
+          .eq('order_id', orderId);
+        const newTotal = (allItems ?? []).reduce(
+          (s: number, i: any) => s + i.unit_sell_price * i.quantity, 0
+        );
+        await supabase
+          .from('subscription_orders')
+          .update({ total_sell_price: newTotal })
+          .eq('id', orderId);
+
+        console.log('[stripe/webhook] Surplus produit ajouté à la commande:', orderId, productId);
+        break;
+      }
+      // ─────────────────────────────────────────────────────────────────────
+
       const email: string | undefined = session.customer_details?.email ?? session.customer_email ?? undefined;
       const stripeSubscriptionId: string | undefined = session.subscription;
       const stripeCustomerId: string | undefined = typeof session.customer === 'string' ? session.customer : session.customer?.id;

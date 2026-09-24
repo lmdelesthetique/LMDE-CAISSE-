@@ -316,6 +316,10 @@ export default function ClientDashboardPage() {
   // Product detail modal
   const [detailProduct, setDetailProduct] = useState<PortalProduct | null>(null);
 
+  // Surplus payment
+  const [pendingSurplus, setPendingSurplus] = useState<{ product: PortalProduct; colorVariant: string | null } | null>(null);
+  const [surplusLoading, setSurplusLoading] = useState(false);
+
   // Variant picker
   const [variantPickerProduct, setVariantPickerProduct] = useState<PortalProduct | null>(null);
   const [variantPickerVariants, setVariantPickerVariants] = useState<ColorVariant[]>([]);
@@ -447,6 +451,20 @@ export default function ClientDashboardPage() {
   useEffect(() => {
     if (!authLoading && !clientUser) router.replace('/client-portal/login');
   }, [authLoading, clientUser, router]);
+
+  // ── Surplus success / cancel feedback ─────────────────────────────────────
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const surplus = params.get('surplus');
+    if (surplus === 'success') {
+      showToast('✅ Paiement reçu ! Votre produit a été ajouté à votre box.', 'success');
+      window.history.replaceState({}, '', window.location.pathname);
+    } else if (surplus === 'cancelled') {
+      showToast('Paiement annulé.', 'error');
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, [showToast]);
 
   // ── Load plan data + refresh subscription from DB (anti-stale-session) ──────
   useEffect(() => {
@@ -649,7 +667,7 @@ export default function ClientDashboardPage() {
     }
 
     if (product.sell_price_ttc > quotaRemaining) {
-      showToast(`Quota insuffisant (reste ${quotaRemaining.toFixed(2)} €, produit ${product.sell_price_ttc.toFixed(2)} €).`, 'error');
+      setPendingSurplus({ product, colorVariant: colorVariant ?? null });
       return;
     }
 
@@ -702,6 +720,56 @@ export default function ClientDashboardPage() {
     }
     showToast('✓ Produit ajouté');
   }, [clientUser, currentOrder, orderItems, quotaRemaining, quotaAmount, isPastDeadline, currentMonth, shippingFree, shippingCost, sessionHeaders]);
+
+  // ── Surplus payment ────────────────────────────────────────────────────────
+  const handleConfirmSurplus = useCallback(async () => {
+    if (!pendingSurplus || !clientUser) return;
+    setSurplusLoading(true);
+    try {
+      // Create order if needed
+      let orderId = currentOrder?.id;
+      if (!orderId) {
+        const res = await fetch('/api/client-portal/subscription-order', {
+          method: 'POST',
+          headers: sessionHeaders(),
+          body: JSON.stringify({
+            subscriptionId: clientUser.subscriptionId,
+            month: currentMonth,
+            shippingCost,
+            deadlineDate: new Date(new Date().getFullYear(), new Date().getMonth(), 28).toISOString().slice(0, 10),
+          }),
+        });
+        const json = await res.json();
+        if (!res.ok || !json.order) throw new Error(json.error ?? 'Erreur création commande');
+        setCurrentOrder(json.order);
+        orderId = json.order.id;
+      }
+
+      const { product, colorVariant } = pendingSurplus;
+      const surplusAmount = Math.max(0.5, product.sell_price_ttc - Math.max(0, quotaRemaining));
+
+      const res = await fetch('/api/stripe/create-surplus-session', {
+        method: 'POST',
+        headers: sessionHeaders(),
+        body: JSON.stringify({
+          orderId,
+          productId: product.id,
+          productName: product.name,
+          colorVariant: colorVariant ?? null,
+          quantity: 1,
+          unitSellPrice: product.sell_price_ttc,
+          unitBuyPrice: product.buy_price ?? 0,
+          surplusAmount,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.url) throw new Error(json.error ?? 'Erreur Stripe');
+      window.location.href = json.url;
+    } catch (err: any) {
+      showToast(`Erreur paiement surplus : ${err.message}`, 'error');
+      setSurplusLoading(false);
+    }
+  }, [pendingSurplus, clientUser, currentOrder, currentMonth, shippingCost, quotaRemaining, sessionHeaders, showToast]);
 
   // ── Remove product ─────────────────────────────────────────────────────────
   const removeProduct = useCallback(async (itemId: string) => {
@@ -1226,10 +1294,11 @@ export default function ClientDashboardPage() {
                         setDetailProduct(null);
                       }
                     }}
-                    disabled={detailProduct.sell_price_ttc > quotaRemaining}
-                    className="flex-1 py-2.5 bg-rose-500 text-white rounded-xl text-sm font-semibold hover:bg-rose-600 disabled:opacity-30"
+                    className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${detailProduct.sell_price_ttc > quotaRemaining ? 'bg-violet-600 hover:bg-violet-700 text-white' : 'bg-rose-500 hover:bg-rose-600 text-white'}`}
                   >
-                    {detailProduct.sell_price_ttc > quotaRemaining ? 'Quota insuffisant' : detailProduct.has_color_variants ? 'Choisir une couleur' : 'Ajouter à la box'}
+                    {detailProduct.sell_price_ttc > quotaRemaining
+                      ? `Payer le surplus (${(detailProduct.sell_price_ttc - Math.max(0, quotaRemaining)).toFixed(2)} €)`
+                      : detailProduct.has_color_variants ? 'Choisir une couleur' : 'Ajouter à la box'}
                   </button>
                 )}
               </div>
@@ -1237,6 +1306,52 @@ export default function ClientDashboardPage() {
           </div>
         </div>
       )}
+
+      {/* ── Surplus payment confirmation modal ────────────────────────────────── */}
+      {pendingSurplus && (() => {
+        const { product, colorVariant } = pendingSurplus;
+        const surplus = Math.max(0.5, product.sell_price_ttc - Math.max(0, quotaRemaining));
+        return (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden" onClick={(e) => e.stopPropagation()}>
+              <div className="bg-gradient-to-r from-violet-600 to-purple-600 px-5 pt-5 pb-4">
+                <p className="text-white/80 text-xs font-semibold uppercase tracking-wider mb-0.5">Quota dépassé</p>
+                <h2 className="text-white text-lg font-bold">{product.name}{colorVariant ? ` — ${colorVariant}` : ''}</h2>
+              </div>
+              <div className="p-5">
+                <div className="flex justify-between items-center bg-violet-50 border border-violet-200 rounded-xl px-4 py-3 mb-4">
+                  <div>
+                    <p className="text-xs text-violet-600 font-semibold">Crédit restant</p>
+                    <p className="text-base font-bold text-violet-800">{Math.max(0, quotaRemaining).toFixed(2)} €</p>
+                  </div>
+                  <div className="text-violet-400 text-lg font-bold">→</div>
+                  <div className="text-right">
+                    <p className="text-xs text-violet-600 font-semibold">Surplus à payer</p>
+                    <p className="text-base font-bold text-violet-800">{surplus.toFixed(2)} €</p>
+                  </div>
+                </div>
+                <p className="text-sm text-gray-500 mb-5 text-center leading-relaxed">
+                  Ce produit coûte <strong>{product.sell_price_ttc.toFixed(2)} €</strong> et dépasse votre quota mensuel. Réglez le surplus de <strong>{surplus.toFixed(2)} €</strong> via Stripe pour l'ajouter à votre box.
+                </p>
+                <button
+                  onClick={handleConfirmSurplus}
+                  disabled={surplusLoading}
+                  className="w-full py-3 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2 mb-2"
+                >
+                  {surplusLoading ? '⏳ Redirection Stripe…' : `💳 Payer ${surplus.toFixed(2)} € et ajouter à ma box`}
+                </button>
+                <button
+                  onClick={() => setPendingSurplus(null)}
+                  disabled={surplusLoading}
+                  className="w-full py-2.5 border border-gray-200 rounded-xl text-sm text-gray-500 hover:bg-gray-50 transition-colors"
+                >
+                  Annuler
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Variant picker modal */}
       {variantPickerProduct && (
@@ -1891,7 +2006,7 @@ export default function ClientDashboardPage() {
                             key={p.id}
                             product={p}
                             inCart={orderItems.find((i) => i.product_id === p.id)}
-                            canAdd={canEdit && p.sell_price_ttc <= quotaRemaining && p.stock > 0}
+                            canAdd={canEdit && p.stock > 0}
                             canEdit={canEdit}
                             onAdd={() => p.has_color_variants ? handleAddProductClick(p) : addProduct(p)}
                             onRemove={(id) => removeProduct(id)}
@@ -1934,7 +2049,7 @@ export default function ClientDashboardPage() {
                         key={p.id}
                         product={p}
                         inCart={orderItems.find((i) => i.product_id === p.id)}
-                        canAdd={canEdit && p.sell_price_ttc <= quotaRemaining && p.stock > 0}
+                        canAdd={canEdit && p.stock > 0}
                         canEdit={canEdit}
                         onAdd={() => p.has_color_variants ? handleAddProductClick(p) : addProduct(p)}
                         onRemove={(id) => removeProduct(id)}
