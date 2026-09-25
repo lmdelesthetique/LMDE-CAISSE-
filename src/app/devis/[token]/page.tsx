@@ -70,7 +70,9 @@ export default function DevisClientPage() {
   const token = params?.token as string;
 
   const [devis, setDevis] = useState<DevisData | null>(null);
-  const [catalog, setCatalog] = useState<CatalogProduct[]>([]);
+  const [initialProducts, setInitialProducts] = useState<CatalogProduct[]>([]);
+  const [searchResults, setSearchResults] = useState<CatalogProduct[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
   const [items, setItems] = useState<Item[]>([]);
   const [originalItems, setOriginalItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
@@ -87,7 +89,8 @@ export default function DevisClientPage() {
       .then(data => {
         if (data.error) { setErr(data.error); return; }
         setDevis(data.devis);
-        setCatalog(data.products ?? []);
+        setInitialProducts(data.products ?? []);
+        setSearchResults(data.products ?? []);
         const mapped = mapItems(data.devis.items ?? []);
         setItems(mapped);
         setOriginalItems(mapped);
@@ -97,13 +100,34 @@ export default function DevisClientPage() {
       .finally(() => setLoading(false));
   }, [token]);
 
+  // Debounced server-side catalog search (supports 5000+ products)
+  useEffect(() => {
+    if (!token || searchQ.length < 2) {
+      setSearchResults(initialProducts);
+      return;
+    }
+    setSearchLoading(true);
+    const timer = setTimeout(() => {
+      fetch(`/api/devis/by-token/${token}?q=${encodeURIComponent(searchQ)}`)
+        .then(r => r.json())
+        .then(data => setSearchResults(data.products ?? []))
+        .catch(() => {})
+        .finally(() => setSearchLoading(false));
+    }, 300);
+    return () => {
+      clearTimeout(timer);
+      setSearchLoading(false);
+    };
+  }, [token, searchQ, initialProducts]);
+
   // ── Calculations ──────────────────────────────────────────────────────────
   const discountPct = devis?.discount_pct ?? 0;
   const credit = devis?.credit ?? 0;
   const payableItems = items.filter(i => !i.isBonus);
   const rawTotal = payableItems.reduce((s, i) => s + i.price * i.qty, 0);
   const totalAfterDiscount = rawTotal * (1 - discountPct / 100);
-  const clientPays = Math.max(0, totalAfterDiscount - credit);
+  // Bonus items (isBonus) are already excluded from rawTotal — never deduct credit again
+  const clientPays = Math.max(0, totalAfterDiscount);
   const nextTier = getNextTier(rawTotal);
   const gapToNextTier = nextTier ? nextTier.min - rawTotal : 0;
 
@@ -167,12 +191,7 @@ export default function DevisClientPage() {
   const currentSig = items.map(i => `${i.id}:${i.qty}`).sort().join('|');
   const hasChanges = originalSig !== currentSig;
 
-  const filteredCatalog = searchQ.length >= 2
-    ? catalog.filter(p =>
-        p.name.toLowerCase().includes(searchQ.toLowerCase()) ||
-        (p.ref || '').toLowerCase().includes(searchQ.toLowerCase())
-      )
-    : catalog.slice(0, 20);
+  const displayProducts = searchResults;
 
   // ── States ────────────────────────────────────────────────────────────────
   if (loading) return (
@@ -320,7 +339,8 @@ export default function DevisClientPage() {
         {/* Catalog panel */}
         {showCatalog && (
           <div className="bg-white rounded-2xl border border-gray-100 p-4 mb-5">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Catalogue ({catalog.length} produits en stock)</p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Catalogue en stock</p>
+            <p className="text-[11px] text-gray-400 mb-3">Tapez un nom ou une référence pour rechercher parmi tous nos produits</p>
             <input
               type="text"
               placeholder="Rechercher par nom ou référence…"
@@ -332,9 +352,14 @@ export default function DevisClientPage() {
             <div className="space-y-2 max-h-80 overflow-y-auto">
               {searchQ.length > 0 && searchQ.length < 2 ? (
                 <p className="text-xs text-gray-400 text-center py-3">Tapez au moins 2 caractères…</p>
-              ) : filteredCatalog.length === 0 ? (
+              ) : searchLoading ? (
+                <p className="text-xs text-gray-400 text-center py-3 flex items-center justify-center gap-2">
+                  <span className="inline-block w-3 h-3 border-2 border-[#B8960C] border-t-transparent rounded-full animate-spin" />
+                  Recherche…
+                </p>
+              ) : displayProducts.length === 0 ? (
                 <p className="text-sm text-gray-400 text-center py-4">Aucun produit trouvé</p>
-              ) : filteredCatalog.map(p => {
+              ) : displayProducts.map(p => {
                 const alreadyInCart = items.find(i => i.id === p.id);
                 return (
                   <button
@@ -380,16 +405,10 @@ export default function DevisClientPage() {
                 <span>-{(rawTotal * discountPct / 100).toFixed(2)} €</span>
               </div>
             )}
-            {credit > 0 && (
-              <div className="flex justify-between text-emerald-600 font-medium">
-                <span>Budget Pro / Avoir</span>
-                <span>-{credit.toFixed(2)} €</span>
-              </div>
-            )}
             {items.filter(i => i.isBonus).length > 0 && (
               <div className="flex justify-between text-emerald-600 font-medium">
-                <span>Articles offerts</span>
-                <span>✨ {items.filter(i => i.isBonus).length} inclus</span>
+                <span>✨ Bonus Budget Pro</span>
+                <span>+{credit > 0 ? `${credit.toFixed(2)} €` : `${items.filter(i => i.isBonus).length} article${items.filter(i => i.isBonus).length > 1 ? 's' : ''}`} offert{items.filter(i => i.isBonus).length > 1 ? 's' : ''}</span>
               </div>
             )}
             <div className="flex justify-between text-gray-600">

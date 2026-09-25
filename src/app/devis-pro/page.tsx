@@ -253,6 +253,8 @@ export default function DevisProPage() {
     setAdresseLivraison(selected.adresse_livraison ?? '');
     setConfirmAnnuler(false);
     setToCommander(new Set());
+    setClientLink(null);
+    setGeneratingLink(false);
 
     // In ProDevisPanel, item.id IS the product UUID for non-custom items
     const productIds = selected.items

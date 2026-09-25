@@ -3,11 +3,36 @@ import { createAdminClient } from '@/lib/supabase/admin';
 
 type Ctx = { params: Promise<{ token: string }> };
 
-// GET /api/devis/by-token/[token] — public, token is the access control
-export async function GET(_req: NextRequest, { params }: Ctx) {
+// GET /api/devis/by-token/[token]
+// Initial load (no ?q): returns devis + top 50 in-stock products
+// With ?q=term (≥ 2 chars): validates token, returns up to 50 matching products only
+export async function GET(req: NextRequest, { params }: Ctx) {
   const { token } = await params;
+  const q = req.nextUrl.searchParams.get('q')?.trim() ?? '';
   const supabase = createAdminClient();
 
+  // Search-only mode — validate token then run server-side search
+  if (q.length >= 2) {
+    const { data: tokenCheck } = await supabase
+      .from('devis_pro')
+      .select('id')
+      .eq('client_token', token)
+      .maybeSingle();
+
+    if (!tokenCheck) return NextResponse.json({ error: 'Devis introuvable' }, { status: 404 });
+
+    const { data: products } = await supabase
+      .from('products')
+      .select('id, name, ref, sell_price_ttc, image_url, stock')
+      .gt('stock', 0)
+      .or(`name.ilike.%${q}%,ref.ilike.%${q}%`)
+      .order('name')
+      .limit(50);
+
+    return NextResponse.json({ products: products ?? [] });
+  }
+
+  // Initial load: full devis + first 50 products alphabetically
   const { data: devis, error } = await supabase
     .from('devis_pro')
     .select(`
@@ -20,12 +45,12 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
 
   if (error || !devis) return NextResponse.json({ error: 'Devis introuvable' }, { status: 404 });
 
-  // Catalog: all products in stock, ordered by name
   const { data: products } = await supabase
     .from('products')
     .select('id, name, ref, sell_price_ttc, image_url, stock')
     .gt('stock', 0)
-    .order('name');
+    .order('name')
+    .limit(50);
 
   return NextResponse.json({ devis, products: products ?? [] });
 }
@@ -68,13 +93,13 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     const items = body.items;
     patch.items = items;
     const discountPct = Number((devis as any).discount_pct) || 0;
-    const credit = Number((devis as any).credit) || 0;
     const rawTotal = items.reduce((s: number, i: any) => {
       if (i.isBonus) return s;
       return s + (Number(i.price) || 0) * (Number(i.qty) || 1);
     }, 0);
     const total = Math.round(rawTotal * (1 - discountPct / 100) * 100) / 100;
-    const clientPays = Math.max(0, Math.round((total - credit) * 100) / 100);
+    // isBonus items already excluded — do not subtract credit (Budget Pro bonus ≠ monetary avoir)
+    const clientPays = Math.max(0, Math.round(total * 100) / 100);
     patch.total_ttc = total;
     patch.client_pays = clientPays;
   }
