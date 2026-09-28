@@ -59,6 +59,8 @@ interface DevisPro {
   client_token?: string;
   client_response?: string;
   client_responded_at?: string;
+  date_reassort?: string | null;
+  relance_auto_sent_at?: string | null;
   client?: {
     id: string;
     firstName: string;
@@ -181,6 +183,9 @@ export default function DevisProPage() {
   const [editPaymentNote, setEditPaymentNote] = useState('');
   const [notesPrepa, setNotesPrepa] = useState('');
   const [savingNotes, setSavingNotes] = useState(false);
+  const [dateReassort, setDateReassort] = useState('');
+  const [savingReassort, setSavingReassort] = useState(false);
+  const [sendingAutoRelance, setSendingAutoRelance] = useState(false);
   const [typeExpedition, setTypeExpedition] = useState<'livraison' | 'retrait'>('retrait');
   const [adresseLivraison, setAdresseLivraison] = useState('');
   const [migrating, setMigrating] = useState(false);
@@ -251,6 +256,7 @@ export default function DevisProPage() {
     setNotesDevis(selected.notes ?? '');
     setTypeExpedition(selected.type_expedition ?? 'retrait');
     setAdresseLivraison(selected.adresse_livraison ?? '');
+    setDateReassort(selected.date_reassort ?? '');
     setConfirmAnnuler(false);
     setToCommander(new Set());
     setClientLink(null);
@@ -545,6 +551,45 @@ export default function DevisProPage() {
       toast.error(e.message);
     } finally {
       setSavingNotes(false);
+    }
+  };
+
+  // ── Save date_reassort ───────────────────────────────────────────────────────
+  const saveReassort = async () => {
+    if (!selected) return;
+    setSavingReassort(true);
+    try {
+      const res = await fetch(`/api/devis-pro/${selected.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date_reassort: dateReassort || null }),
+      });
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      setSelected((prev) => prev ? { ...prev, date_reassort: dateReassort || null } : prev);
+      toast.success('Date de réassort enregistrée');
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setSavingReassort(false);
+    }
+  };
+
+  // ── Send auto relance now (manual trigger) ────────────────────────────────────
+  const sendAutoRelanceNow = async (devis: DevisPro) => {
+    setSendingAutoRelance(true);
+    try {
+      const res = await fetch('/api/devis-pro/auto-relances', { method: 'POST' });
+      const json = await res.json();
+      if (json.sent > 0) {
+        toast.success(`Relance envoyée ✓`);
+        setSelected((prev) => prev ? { ...prev, relance_auto_sent_at: new Date().toISOString() } : prev);
+      } else {
+        toast.info('Aucune relance envoyée (date non encore atteinte ou déjà envoyée)');
+      }
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setSendingAutoRelance(false);
     }
   };
 
@@ -1229,6 +1274,38 @@ export default function DevisProPage() {
                   Livraison créée — Voir dans le tableau de bord
                   <Icon name="ArrowTopRightOnSquareIcon" size={11} className="ml-auto" />
                 </a>
+              )}
+            </div>
+
+            {/* Relance automatique réassort */}
+            <div className="px-5 py-4 border-b border-border">
+              <p className="text-[11px] font-700 uppercase tracking-widest text-muted-foreground mb-3">🔔 Relance réassort</p>
+              <p className="text-[11px] text-muted-foreground mb-2">Date à laquelle la cliente reçoit automatiquement un WhatsApp avec ce devis pour renouveler sa commande.</p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={dateReassort}
+                  onChange={(e) => setDateReassort(e.target.value)}
+                  className="flex-1 px-3 py-2 text-sm border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30"
+                />
+                <button onClick={saveReassort} disabled={savingReassort}
+                  className="px-3 py-2 text-xs font-600 bg-primary text-primary-foreground rounded-xl hover:opacity-90 disabled:opacity-50">
+                  {savingReassort ? '…' : 'Sauver'}
+                </button>
+              </div>
+              {selected.relance_auto_sent_at && (
+                <p className="mt-2 text-[11px] text-emerald-600">
+                  ✅ Relance envoyée le {new Date(selected.relance_auto_sent_at).toLocaleDateString('fr-FR')}
+                </p>
+              )}
+              {dateReassort && !selected.relance_auto_sent_at && (
+                <button
+                  onClick={() => sendAutoRelanceNow(selected)}
+                  disabled={sendingAutoRelance}
+                  className="mt-2 text-[11px] font-600 text-primary hover:underline disabled:opacity-50"
+                >
+                  {sendingAutoRelance ? 'Envoi…' : '📲 Envoyer la relance maintenant'}
+                </button>
               )}
             </div>
 

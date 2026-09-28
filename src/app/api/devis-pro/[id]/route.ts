@@ -268,6 +268,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     'statut', 'type_expedition', 'adresse_livraison', 'notes', 'notes_preparation',
     'pdf_url', 'paiements', 'paye_total', 'delivery_id',
     'sent_at', 'validated_at', 'ready_at', 'delivered_at',
+    'date_reassort', 'relance_auto_sent_at',
   ];
 
   const patch: Record<string, any> = { updated_at: new Date().toISOString() };
