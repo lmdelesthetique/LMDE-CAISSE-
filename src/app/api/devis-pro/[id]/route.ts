@@ -242,7 +242,7 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .from('devis_pro')
-    .select(`*, client:clients(id, firstName:first_name, lastName:last_name, phone, whatsapp, clientType:client_type, address, city, country)`)
+    .select(`*, client:clients(id, firstName:first_name, lastName:last_name, phone, whatsapp, clientType:client_type, address, city, country), created_by:employees(id, first_name, last_name, avatar_initials)`)
     .eq('id', id)
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -269,6 +269,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     'pdf_url', 'paiements', 'paye_total', 'delivery_id',
     'sent_at', 'validated_at', 'ready_at', 'delivered_at',
     'date_reassort', 'relance_auto_sent_at',
+    'created_by_employee_id',
   ];
 
   const patch: Record<string, any> = { updated_at: new Date().toISOString() };
@@ -306,7 +307,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     // Refetch to include receipt_id written by createReceiptFromDevis
     const { data: refreshed } = await supabase
       .from('devis_pro')
-      .select(`*, client:clients(id, firstName:first_name, lastName:last_name, phone, whatsapp, clientType:client_type, address, city, country)`)
+      .select(`*, client:clients(id, firstName:first_name, lastName:last_name, phone, whatsapp, clientType:client_type, address, city, country), created_by:employees(id, first_name, last_name, avatar_initials)`)
       .eq('id', id)
       .single();
     return NextResponse.json({ devis: refreshed ?? data });

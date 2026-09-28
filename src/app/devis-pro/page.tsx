@@ -61,6 +61,8 @@ interface DevisPro {
   client_responded_at?: string;
   date_reassort?: string | null;
   relance_auto_sent_at?: string | null;
+  created_by_employee_id?: string | null;
+  created_by?: { id: string; first_name: string; last_name: string; avatar_initials?: string } | null;
   client?: {
     id: string;
     firstName: string;
@@ -186,6 +188,9 @@ export default function DevisProPage() {
   const [dateReassort, setDateReassort] = useState('');
   const [savingReassort, setSavingReassort] = useState(false);
   const [sendingAutoRelance, setSendingAutoRelance] = useState(false);
+  const [employees, setEmployees] = useState<{ id: string; fullName: string; avatarInitials: string }[]>([]);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
+  const [savingEmployee, setSavingEmployee] = useState(false);
   const [typeExpedition, setTypeExpedition] = useState<'livraison' | 'retrait'>('retrait');
   const [adresseLivraison, setAdresseLivraison] = useState('');
   const [migrating, setMigrating] = useState(false);
@@ -230,6 +235,18 @@ export default function DevisProPage() {
 
   useEffect(() => { fetchDevis(); }, [fetchDevis]);
 
+  // ── Load employees once ─────────────────────────────────────────────────────
+  useEffect(() => {
+    fetch('/api/employees')
+      .then(r => r.json())
+      .then(j => setEmployees((j.employees ?? []).map((e: any) => ({
+        id: e.id,
+        fullName: e.fullName,
+        avatarInitials: e.avatarInitials,
+      }))))
+      .catch(() => {});
+  }, []);
+
   // ── Client search for new devis ─────────────────────────────────────────────
   useEffect(() => {
     if (!showNewDevis) { setClientSearch(''); setClientResults([]); setNewDevisClient(null); return; }
@@ -257,6 +274,7 @@ export default function DevisProPage() {
     setTypeExpedition(selected.type_expedition ?? 'retrait');
     setAdresseLivraison(selected.adresse_livraison ?? '');
     setDateReassort(selected.date_reassort ?? '');
+    setSelectedEmployeeId(selected.created_by_employee_id ?? '');
     setConfirmAnnuler(false);
     setToCommander(new Set());
     setClientLink(null);
@@ -571,6 +589,31 @@ export default function DevisProPage() {
       toast.error(e.message);
     } finally {
       setSavingReassort(false);
+    }
+  };
+
+  // ── Save employee on devis ───────────────────────────────────────────────────
+  const saveEmployee = async (empId: string) => {
+    if (!selected) return;
+    setSavingEmployee(true);
+    try {
+      const res = await fetch(`/api/devis-pro/${selected.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ created_by_employee_id: empId || null }),
+      });
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      const emp = employees.find(e => e.id === empId) ?? null;
+      setSelected((prev) => prev ? {
+        ...prev,
+        created_by_employee_id: empId || null,
+        created_by: emp ? { id: emp.id, first_name: emp.fullName.split(' ')[0], last_name: emp.fullName.split(' ').slice(1).join(' '), avatar_initials: emp.avatarInitials } : null,
+      } : prev);
+      toast.success(emp ? `Devis attribué à ${emp.fullName}` : 'Attribution retirée');
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setSavingEmployee(false);
     }
   };
 
@@ -892,7 +935,12 @@ export default function DevisProPage() {
                         <p className="text-sm font-700 text-foreground truncate">
                           {devis.client?.firstName} {devis.client?.lastName}
                         </p>
-                        <p className="text-[10px] text-muted-foreground">{devis.numero ?? '—'}</p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {devis.numero ?? '—'}
+                          {devis.created_by && (
+                            <span className="ml-1.5 text-violet-600">· {devis.created_by.first_name} {devis.created_by.last_name}</span>
+                          )}
+                        </p>
                       </div>
                     </div>
                     <span className={`shrink-0 text-[10px] font-700 px-2 py-1 rounded-full ${badge.bg} ${badge.color}`}>
@@ -978,7 +1026,14 @@ export default function DevisProPage() {
                   <h2 className="text-base font-800 text-foreground">
                     {selected.client?.firstName} {selected.client?.lastName}
                   </h2>
-                  <p className="text-[11px] text-muted-foreground">{selected.numero ?? '—'} · {fmtDate(selected.created_at)}</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {selected.numero ?? '—'} · {fmtDate(selected.created_at)}
+                    {selected.created_by && (
+                      <span className="ml-2 px-1.5 py-0.5 bg-violet-50 text-violet-700 rounded-full text-[10px] font-700">
+                        👤 {selected.created_by.first_name} {selected.created_by.last_name}
+                      </span>
+                    )}
+                  </p>
                 </div>
               </div>
               <div className="flex items-center gap-1.5">
@@ -1275,6 +1330,28 @@ export default function DevisProPage() {
                   <Icon name="ArrowTopRightOnSquareIcon" size={11} className="ml-auto" />
                 </a>
               )}
+            </div>
+
+            {/* Employée responsable */}
+            <div className="px-5 py-4 border-b border-border">
+              <p className="text-[11px] font-700 uppercase tracking-widest text-muted-foreground mb-2">👤 Devis réalisé par</p>
+              <div className="flex items-center gap-2">
+                <select
+                  value={selectedEmployeeId}
+                  onChange={(e) => {
+                    setSelectedEmployeeId(e.target.value);
+                    saveEmployee(e.target.value);
+                  }}
+                  disabled={savingEmployee}
+                  className="flex-1 px-3 py-2 text-sm border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white disabled:opacity-50"
+                >
+                  <option value="">— Non attribué —</option>
+                  {employees.map((e) => (
+                    <option key={e.id} value={e.id}>{e.fullName}</option>
+                  ))}
+                </select>
+                {savingEmployee && <span className="text-xs text-muted-foreground">…</span>}
+              </div>
             </div>
 
             {/* Relance automatique réassort */}

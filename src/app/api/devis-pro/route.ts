@@ -15,7 +15,8 @@ export async function GET(req: NextRequest) {
     .from('devis_pro')
     .select(`
       *,
-      client:clients(id, firstName:first_name, lastName:last_name, phone, clientType:client_type, whatsapp)
+      client:clients(id, firstName:first_name, lastName:last_name, phone, clientType:client_type, whatsapp),
+      created_by:employees(id, first_name, last_name, avatar_initials)
     `)
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1);
@@ -65,6 +66,7 @@ export async function POST(req: NextRequest) {
     sent_at: body.sent_at ?? null,
     validated_at: body.validated_at ?? null,
     created_at: body.created_at ?? new Date().toISOString(),
+    created_by_employee_id: body.created_by_employee_id ?? null,
   };
 
   const { data, error } = await supabase.from('devis_pro').insert(payload).select().single();
