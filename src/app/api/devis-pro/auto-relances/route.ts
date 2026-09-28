@@ -33,22 +33,38 @@ export async function GET() {
 }
 
 // POST — run relances (called by cron or manually)
+// Body (optional): { devisId: string } to send for a single devis regardless of date
 export async function POST(req: NextRequest) {
   const supabase = createAdminClient();
   const today = new Date().toISOString().split('T')[0];
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://lmdecaisse.com';
 
-  // Find devis with date_reassort due and not sent within last 25 days
-  const { data: dueDevis, error } = await supabase
+  let forceDevisId: string | null = null;
+  try {
+    const body = await req.json().catch(() => ({}));
+    forceDevisId = body?.devisId ?? null;
+  } catch { /* no body */ }
+
+  let query = supabase
     .from('devis_pro')
     .select(`
       id, numero, date_reassort, items, client_token, created_at,
       client:clients(id, first_name, last_name, phone, whatsapp, email)
     `)
-    .lte('date_reassort', today)
-    .not('date_reassort', 'is', null)
-    .not('statut', 'eq', 'annule')
-    .or(`relance_auto_sent_at.is.null,relance_auto_sent_at.lt.${new Date(Date.now() - 25 * 24 * 3600 * 1000).toISOString()}`);
+    .not('statut', 'eq', 'annule');
+
+  if (forceDevisId) {
+    // Force send for a specific devis (manual from dashboard)
+    query = query.eq('id', forceDevisId);
+  } else {
+    // Auto: only devis with date_reassort due and not sent in last 25 days
+    query = query
+      .lte('date_reassort', today)
+      .not('date_reassort', 'is', null)
+      .or(`relance_auto_sent_at.is.null,relance_auto_sent_at.lt.${new Date(Date.now() - 25 * 24 * 3600 * 1000).toISOString()}`);
+  }
+
+  const { data: dueDevis, error } = await query;
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!dueDevis?.length) return NextResponse.json({ ok: true, sent: 0, message: 'Aucune relance à envoyer' });

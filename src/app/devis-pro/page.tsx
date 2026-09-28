@@ -162,6 +162,62 @@ function StockBadge({ qty, stock }: { qty: number; stock: number | null }) {
   );
 }
 
+// ─── RelanceSection component ─────────────────────────────────────────────────
+function RelanceSection({
+  title, devis, rowColor, onSelect, onSend, sendingId,
+}: {
+  title: string;
+  devis: DevisPro[];
+  rowColor: string;
+  onSelect: (d: DevisPro) => void;
+  onSend: (d: DevisPro) => Promise<void>;
+  sendingId: string;
+}) {
+  const fmtD = (s: string) => new Date(s).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' });
+  return (
+    <div>
+      <p className="text-[11px] font-700 uppercase tracking-widest text-muted-foreground mb-2">{title}</p>
+      <div className="space-y-2">
+        {devis.map((d) => (
+          <div key={d.id} className={`border ${rowColor} rounded-2xl px-4 py-3 flex items-center gap-3`}>
+            <div className="flex-1 min-w-0 cursor-pointer" onClick={() => onSelect(d)}>
+              <p className="text-sm font-700 text-foreground truncate">
+                {d.client?.firstName} {d.client?.lastName}
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                {d.numero ?? '—'} · {d.items.length} art. · {(d as any).client_pays != null ? `${Number((d as any).client_pays).toFixed(2)} €` : ''}
+                {d.created_by && <span className="ml-1 text-violet-600">· {d.created_by.first_name}</span>}
+              </p>
+              <p className="text-[11px] font-600 mt-0.5">
+                📅 Réassort : {fmtD(d.date_reassort!)}
+                {d.relance_auto_sent_at && <span className="ml-2 text-emerald-600">✅ Envoyée le {fmtD(d.relance_auto_sent_at)}</span>}
+              </p>
+            </div>
+            {!d.relance_auto_sent_at && (
+              <button
+                onClick={() => onSend(d)}
+                disabled={sendingId === '__any__'}
+                className="shrink-0 flex items-center gap-1 px-3 py-1.5 text-[11px] font-700 bg-primary text-primary-foreground rounded-xl hover:opacity-90 disabled:opacity-50 transition-opacity"
+              >
+                📲 Envoyer
+              </button>
+            )}
+            {d.relance_auto_sent_at && (
+              <button
+                onClick={() => onSend(d)}
+                disabled={sendingId === '__any__'}
+                className="shrink-0 flex items-center gap-1 px-3 py-1.5 text-[11px] font-700 border border-border text-muted-foreground rounded-xl hover:bg-muted disabled:opacity-50 transition-opacity"
+              >
+                🔄 Renvoyer
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function DevisProPage() {
@@ -170,6 +226,7 @@ export default function DevisProPage() {
   const [activeTab, setActiveTab] = useState<Statut | 'tous'>('tous');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<DevisPro | null>(null);
+  const [showRelancesView, setShowRelancesView] = useState(false);
 
   // Panel state
   const [stockMap, setStockMap] = useState<Record<string, number>>({});
@@ -346,6 +403,27 @@ export default function DevisProPage() {
     const m: Record<string, number> = { tous: devisList.length };
     for (const d of devisList) m[d.statut] = (m[d.statut] ?? 0) + 1;
     return m;
+  }, [devisList]);
+
+  // ── Relance computed views ───────────────────────────────────────────────────
+  const relancesData = useMemo(() => {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const in7 = new Date(today); in7.setDate(today.getDate() + 7);
+    const withDate = devisList.filter((d) => d.date_reassort && d.statut !== 'annule');
+    const overdue = withDate.filter((d) => {
+      const dr = new Date(d.date_reassort!); dr.setHours(0, 0, 0, 0);
+      return dr <= today && !d.relance_auto_sent_at;
+    });
+    const upcoming = withDate.filter((d) => {
+      const dr = new Date(d.date_reassort!); dr.setHours(0, 0, 0, 0);
+      return dr > today && dr <= in7 && !d.relance_auto_sent_at;
+    });
+    const sent = withDate.filter((d) => !!d.relance_auto_sent_at);
+    const planned = withDate.filter((d) => {
+      const dr = new Date(d.date_reassort!); dr.setHours(0, 0, 0, 0);
+      return dr > in7 && !d.relance_auto_sent_at;
+    });
+    return { overdue, upcoming, sent, planned, total: withDate.length };
   }, [devisList]);
 
   // ── Status update ────────────────────────────────────────────────────────────
@@ -617,17 +695,23 @@ export default function DevisProPage() {
     }
   };
 
-  // ── Send auto relance now (manual trigger) ────────────────────────────────────
+  // ── Send auto relance now (manual trigger for a specific devis) ──────────────
   const sendAutoRelanceNow = async (devis: DevisPro) => {
     setSendingAutoRelance(true);
     try {
-      const res = await fetch('/api/devis-pro/auto-relances', { method: 'POST' });
+      const res = await fetch('/api/devis-pro/auto-relances', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ devisId: devis.id }),
+      });
       const json = await res.json();
       if (json.sent > 0) {
-        toast.success(`Relance envoyée ✓`);
-        setSelected((prev) => prev ? { ...prev, relance_auto_sent_at: new Date().toISOString() } : prev);
+        toast.success(`Relance envoyée à ${devis.client?.firstName} ✓`);
+        const now = new Date().toISOString();
+        setDevisList((prev) => prev.map((d) => d.id === devis.id ? { ...d, relance_auto_sent_at: now } : d));
+        setSelected((prev) => prev?.id === devis.id ? { ...prev, relance_auto_sent_at: now } : prev);
       } else {
-        toast.info('Aucune relance envoyée (date non encore atteinte ou déjà envoyée)');
+        toast.error(json.results?.[0]?.detail ?? 'Envoi échoué — vérifier le numéro WhatsApp');
       }
     } catch (e: any) {
       toast.error(e.message);
@@ -873,7 +957,7 @@ export default function DevisProPage() {
         {/* Tabs */}
         <div className="shrink-0 bg-white border-b border-border px-4">
           <div className="flex items-center gap-0.5 overflow-x-auto scrollbar-hide py-2">
-            {STATUTS.map((s) => (
+            {!showRelancesView && STATUTS.map((s) => (
               <button
                 key={s.key}
                 onClick={() => setActiveTab(s.key as Statut | 'tous')}
@@ -889,11 +973,76 @@ export default function DevisProPage() {
                 )}
               </button>
             ))}
+            <button
+              onClick={() => { setShowRelancesView(!showRelancesView); setSelected(null); }}
+              className={`ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-700 whitespace-nowrap transition-colors ${
+                showRelancesView ? 'bg-violet-100 text-violet-700' : 'text-muted-foreground hover:bg-muted'
+              }`}
+            >
+              🔔 Relances
+              {relancesData.overdue.length > 0 && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded-full font-800 bg-red-500 text-white">
+                  {relancesData.overdue.length}
+                </span>
+              )}
+            </button>
           </div>
         </div>
 
+        {/* ── Relances Dashboard ─────────────────────────────────────────────── */}
+        {showRelancesView && (
+          <div className="flex-1 overflow-y-auto p-4 space-y-6">
+            {/* Stats */}
+            <div className="grid grid-cols-4 gap-3">
+              {[
+                { label: 'En retard', value: relancesData.overdue.length, color: 'bg-red-50 border-red-200 text-red-700' },
+                { label: 'Cette semaine', value: relancesData.upcoming.length, color: 'bg-orange-50 border-orange-200 text-orange-700' },
+                { label: 'Planifiées', value: relancesData.planned.length, color: 'bg-blue-50 border-blue-200 text-blue-700' },
+                { label: 'Envoyées', value: relancesData.sent.length, color: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
+              ].map((s) => (
+                <div key={s.label} className={`${s.color} border rounded-2xl p-3 text-center`}>
+                  <p className="text-2xl font-800">{s.value}</p>
+                  <p className="text-[11px] font-600 mt-0.5">{s.label}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Overdue */}
+            {relancesData.overdue.length > 0 && (
+              <RelanceSection title="🔴 En retard — à envoyer maintenant" devis={relancesData.overdue} rowColor="border-red-200 bg-red-50/30"
+                onSelect={setSelected} onSend={sendAutoRelanceNow} sendingId={sendingAutoRelance ? '__any__' : ''} />
+            )}
+
+            {/* Upcoming */}
+            {relancesData.upcoming.length > 0 && (
+              <RelanceSection title="🟠 Cette semaine" devis={relancesData.upcoming} rowColor="border-orange-200 bg-orange-50/30"
+                onSelect={setSelected} onSend={sendAutoRelanceNow} sendingId={sendingAutoRelance ? '__any__' : ''} />
+            )}
+
+            {/* Sent */}
+            {relancesData.sent.length > 0 && (
+              <RelanceSection title="✅ Envoyées" devis={relancesData.sent} rowColor="border-emerald-200 bg-emerald-50/30"
+                onSelect={setSelected} onSend={sendAutoRelanceNow} sendingId={sendingAutoRelance ? '__any__' : ''} />
+            )}
+
+            {/* Planned */}
+            {relancesData.planned.length > 0 && (
+              <RelanceSection title="📅 Planifiées (au-delà de 7 jours)" devis={relancesData.planned} rowColor="border-blue-200 bg-blue-50/30"
+                onSelect={setSelected} onSend={sendAutoRelanceNow} sendingId={sendingAutoRelance ? '__any__' : ''} />
+            )}
+
+            {relancesData.total === 0 && (
+              <div className="flex flex-col items-center gap-3 py-16 text-center">
+                <p className="text-3xl">🔔</p>
+                <p className="text-sm font-600 text-foreground">Aucune relance configurée</p>
+                <p className="text-xs text-muted-foreground">Ouvrez un devis et définissez une "Date de réassort" pour activer les relances automatiques.</p>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* List */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-2">
+        {!showRelancesView && <div className="flex-1 overflow-y-auto p-4 space-y-2">
           {loading ? (
             <div className="flex items-center justify-center py-16">
               <Icon name="ArrowPathIcon" size={24} className="animate-spin text-muted-foreground" />
@@ -1008,7 +1157,7 @@ export default function DevisProPage() {
               );
             })
           )}
-        </div>
+        </div>}
       </div>
 
       {/* ── Right panel: detail ── */}
