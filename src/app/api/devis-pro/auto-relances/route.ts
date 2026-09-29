@@ -15,21 +15,29 @@ function normalizePhone(raw: string): string {
   return '+596' + clean;
 }
 
-// GET — preview: how many relances are due today
-export async function GET() {
+// GET — preview (default) or run relances (?send=1, called by Vercel cron)
+export async function GET(req: NextRequest) {
+  const send = req.nextUrl.searchParams.get('send') === '1';
   const supabase = createAdminClient();
   const today = new Date().toISOString().split('T')[0];
+  const cutoff = new Date(Date.now() - 25 * 24 * 3600 * 1000).toISOString();
 
-  const { data, error } = await supabase
-    .from('devis_pro')
-    .select('id, numero, date_reassort, relance_auto_sent_at, client:clients(first_name, last_name, phone, whatsapp)')
-    .lte('date_reassort', today)
-    .not('date_reassort', 'is', null)
-    .not('statut', 'eq', 'annule')
-    .or(`relance_auto_sent_at.is.null,relance_auto_sent_at.lt.${new Date(Date.now() - 25 * 24 * 3600 * 1000).toISOString()}`);
+  if (!send) {
+    // Preview only — count due relances
+    const { data, error } = await supabase
+      .from('devis_pro')
+      .select('id, numero, date_reassort, relance_auto_sent_at, client:clients(first_name, last_name, phone, whatsapp)')
+      .lte('date_reassort', today)
+      .not('date_reassort', 'is', null)
+      .not('statut', 'eq', 'annule')
+      .or(`relance_auto_sent_at.is.null,relance_auto_sent_at.lt.${cutoff}`);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ due: data?.length ?? 0, devis: data ?? [] });
+  }
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ due: data?.length ?? 0, devis: data ?? [] });
+  // ?send=1 — actually run (called by Vercel cron daily at 9h UTC)
+  const syntheticReq = new Request(req.url, { method: 'POST', headers: req.headers });
+  return POST(new NextRequest(syntheticReq));
 }
 
 // POST — run relances (called by cron or manually)

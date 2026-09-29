@@ -1,9 +1,8 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
-import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -93,9 +92,10 @@ function PromoFormModal({
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [searchQ, setSearchQ] = useState('');
   const [searchResults, setSearchResults] = useState<ProductRow[]>([]);
-  const [searching, setSearching] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const allProductsRef = useRef<ProductRow[]>([]);
+  const productsLoadedRef = useRef(false);
 
   useEffect(() => {
     if (promo) {
@@ -116,22 +116,32 @@ function PromoFormModal({
     }
   }, [promo]);
 
-  const searchProducts = useCallback(async (q: string) => {
+  // Preload products once on mount via admin API
+  useEffect(() => {
+    if (productsLoadedRef.current) return;
+    productsLoadedRef.current = true;
+    fetch('/api/products/list?status=active,actif,rupture')
+      .then(r => r.ok ? r.json() : [])
+      .then((data: any[]) => {
+        allProductsRef.current = data.map(p => ({
+          id: p.id, name: p.name, ref: p.ref ?? '', sell_price_ttc: p.sell_price_ttc,
+        }));
+      })
+      .catch(() => {});
+  }, []);
+
+  const searchProducts = useCallback((q: string) => {
     if (q.length < 2) { setSearchResults([]); return; }
-    setSearching(true);
-    const supabase = createClient();
-    const { data } = await supabase
-      .from('products')
-      .select('id, name, ref, sell_price_ttc')
-      .ilike('name', `%${q}%`)
-      .eq('is_active', true)
-      .limit(10);
-    setSearchResults((data ?? []) as ProductRow[]);
-    setSearching(false);
+    const lq = q.toLowerCase();
+    setSearchResults(
+      allProductsRef.current
+        .filter(p => p.name.toLowerCase().includes(lq) || p.ref.toLowerCase().includes(lq))
+        .slice(0, 10)
+    );
   }, []);
 
   useEffect(() => {
-    const t = setTimeout(() => searchProducts(searchQ), 300);
+    const t = setTimeout(() => searchProducts(searchQ), 200);
     return () => clearTimeout(t);
   }, [searchQ, searchProducts]);
 
@@ -181,17 +191,14 @@ function PromoFormModal({
       ends_at: form.ends_at || null,
     };
 
-    const supabase = createClient();
-    let err: any;
-    if (isEdit) {
-      ({ error: err } = await supabase.from('promotions').update(payload).eq('id', promo!.id));
-    } else {
-      ({ error: err } = await supabase.from('promotions').insert(payload));
-    }
+    const res = isEdit
+      ? await fetch(`/api/promotions/${promo!.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      : await fetch('/api/promotions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const json = await res.json().catch(() => ({}));
 
     setSaving(false);
-    if (err) {
-      setError(err.message);
+    if (!res.ok || json.error) {
+      setError(json.error ?? 'Erreur serveur');
     } else {
       toast.success(isEdit ? 'Promotion modifiée' : 'Promotion créée !');
       onSaved();
@@ -320,11 +327,9 @@ function PromoFormModal({
                 placeholder="Rechercher un produit à ajouter…"
                 className="w-full border border-border rounded-xl pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
               />
-              {(searchResults.length > 0 || searching) && (
+              {searchResults.length > 0 && (
                 <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-border rounded-xl shadow-lg z-10 max-h-48 overflow-y-auto">
-                  {searching ? (
-                    <div className="p-3 text-center text-sm text-muted-foreground">Recherche…</div>
-                  ) : searchResults.map((p) => (
+                  {searchResults.map((p) => (
                     <button
                       key={p.id}
                       type="button"
@@ -604,30 +609,32 @@ export default function PromotionsPage() {
 
   const loadPromotions = useCallback(async () => {
     setLoading(true);
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('promotions')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      if (error.code === '42P01') setTableError(true);
-      else toast.error('Erreur de chargement : ' + error.message);
+    try {
+      const res = await fetch('/api/promotions');
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        if (j.error?.includes('does not exist') || res.status === 500) setTableError(true);
+        else toast.error('Erreur de chargement : ' + (j.error ?? res.statusText));
+        setLoading(false);
+        return;
+      }
+      const data = await res.json();
+      setPromotions(data as Promotion[]);
+      setTableError(false);
+    } catch {
+      toast.error('Erreur de chargement');
+    } finally {
       setLoading(false);
-      return;
     }
-    setPromotions((data ?? []) as Promotion[]);
-    setTableError(false);
-    setLoading(false);
   }, []);
 
   useEffect(() => { loadPromotions(); }, [loadPromotions]);
 
   const handleDelete = async (id: string) => {
     setDeleting(id);
-    const supabase = createClient();
-    const { error } = await supabase.from('promotions').delete().eq('id', id);
-    if (error) toast.error('Erreur suppression : ' + error.message);
+    const res = await fetch(`/api/promotions/${id}`, { method: 'DELETE' });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) toast.error('Erreur suppression : ' + (json.error ?? res.statusText));
     else {
       toast.success('Promotion supprimée');
       setPromotions((p) => p.filter((x) => x.id !== id));
@@ -636,9 +643,13 @@ export default function PromotionsPage() {
   };
 
   const handleToggleActive = async (promo: Promotion) => {
-    const supabase = createClient();
-    const { error } = await supabase.from('promotions').update({ is_active: !promo.is_active }).eq('id', promo.id);
-    if (error) toast.error('Erreur : ' + error.message);
+    const res = await fetch(`/api/promotions/${promo.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_active: !promo.is_active }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) toast.error('Erreur : ' + (json.error ?? res.statusText));
     else {
       setPromotions((p) => p.map((x) => x.id === promo.id ? { ...x, is_active: !x.is_active } : x));
       toast.success(promo.is_active ? 'Promotion désactivée' : 'Promotion activée !');

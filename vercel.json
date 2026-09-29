@@ -1,7 +1,7 @@
 {
   "crons": [
     {
-      "path": "/api/devis-pro/auto-relances",
+      "path": "/api/devis-pro/auto-relances?send=1",
       "schedule": "0 9 * * *"
     }
   ]
