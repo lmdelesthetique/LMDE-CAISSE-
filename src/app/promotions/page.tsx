@@ -40,6 +40,7 @@ interface ProductRow {
   name: string;
   ref: string;
   sell_price_ttc: number;
+  image_url?: string | null;
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -124,7 +125,7 @@ function PromoFormModal({
       .then(r => r.ok ? r.json() : [])
       .then((data: any[]) => {
         allProductsRef.current = data.map(p => ({
-          id: p.id, name: p.name, ref: p.ref ?? '', sell_price_ttc: p.sell_price_ttc,
+          id: p.id, name: p.name, ref: p.ref ?? '', sell_price_ttc: p.sell_price_ttc, image_url: p.image_url ?? null,
         }));
       })
       .catch(() => {});
@@ -334,11 +335,18 @@ function PromoFormModal({
                       key={p.id}
                       type="button"
                       onClick={() => addProduct(p)}
-                      className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-muted/40 text-left text-sm"
+                      className="w-full flex items-center gap-3 px-3 py-2 hover:bg-muted/40 text-left text-sm"
                     >
-                      <div>
-                        <span className="font-500 text-foreground">{p.name}</span>
-                        <span className="ml-2 text-xs text-muted-foreground font-mono">{p.ref}</span>
+                      {p.image_url ? (
+                        <img src={p.image_url} alt="" className="w-8 h-8 rounded object-cover shrink-0 bg-muted" />
+                      ) : (
+                        <div className="w-8 h-8 rounded bg-muted shrink-0 flex items-center justify-center">
+                          <Icon name="PhotoIcon" size={14} className="text-muted-foreground" />
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <span className="font-500 text-foreground block truncate">{p.name}</span>
+                        <span className="text-xs text-muted-foreground font-mono">{p.ref}</span>
                       </div>
                       <span className="text-sm font-600 text-muted-foreground shrink-0">{fmt(Number(p.sell_price_ttc))} €</span>
                     </button>
