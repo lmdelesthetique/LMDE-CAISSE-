@@ -13,8 +13,8 @@ import BulkEditModal from './BulkEditModal';
 import { createClient } from '@/lib/supabase/client';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { categoryStore, supplierStore } from '@/lib/stores/dataStore';
-import { fetchAll } from '@/lib/utils/fetchAll';
 
+// Anon client — used only for realtime subscriptions
 const supabase = createClient();
 
 type SortField = 'name' | 'costPrice' | 'sellPriceTTC' | 'marginPct' | 'stock';
@@ -141,32 +141,24 @@ EXECUTE FUNCTION sync_product_status();`;
 
   const loadProducts = useCallback(async () => {
     setLoading(true);
-    const data = await fetchAll<any>((from, to) =>
-      supabase.from('products').select('*').order('name').range(from, to)
-    );
-    if (data.length >= 0) {
-      const mapped = data.map(mapDbProduct);
-      setProducts(mapped);
-      // Load categories and suppliers from centralized store
-      const [cats, sups] = await Promise.all([
-        categoryStore.load(),
-        supplierStore.load(),
-      ]);
-      const catNames = cats.map((c) => c.name).sort();
-      const supNames = sups.map((s) => s.companyName).sort();
-      // Categories: only from active products
-      const { data: activeCatRows } = await supabase
-        .from('products')
-        .select('category')
-        .eq('product_status', 'active')
-        .not('category', 'is', null);
-      const activeCats = Array.from(new Set((activeCatRows || []).map((r: any) => r.category).filter(Boolean))).sort() as string[];
-      const allCats = Array.from(new Set([...catNames, ...activeCats])).sort();
-      const prodSups = Array.from(new Set(mapped.map(p => p.supplier).filter(Boolean)));
-      const allSups = Array.from(new Set([...supNames, ...prodSups])).sort();
-      setCategoryOptions(['Tous', ...allCats]);
-      setSupplierOptions(['Tous', ...allSups]);
-    }
+    const [data, cats, sups] = await Promise.all([
+      fetch('/api/products/list?all=true').then(r => r.ok ? r.json() : []).catch(() => []),
+      categoryStore.load(),
+      supplierStore.load(),
+    ]);
+    const mapped = (data as any[]).map(mapDbProduct);
+    setProducts(mapped);
+    const catNames = cats.map((c) => c.name).sort();
+    const supNames = sups.map((s) => s.companyName).sort();
+    // Build category list from active products in loaded data
+    const activeCats = Array.from(new Set(
+      mapped.filter(p => p.status === 'active' || p.status === 'actif').map(p => p.category).filter(Boolean)
+    )).sort() as string[];
+    const allCats = Array.from(new Set([...catNames, ...activeCats])).sort();
+    const prodSups = Array.from(new Set(mapped.map(p => p.supplier).filter(Boolean)));
+    const allSups = Array.from(new Set([...supNames, ...prodSups])).sort();
+    setCategoryOptions(['Tous', ...allCats]);
+    setSupplierOptions(['Tous', ...allSups]);
     setLoading(false);
   }, []);
 
@@ -264,14 +256,21 @@ EXECUTE FUNCTION sync_product_status();`;
   };
 
   const toggleFavorite = async (id: string, current: boolean) => {
-    await supabase.from('products').update({ is_favorite: !current }).eq('id', id);
     setProducts(prev => prev.map(p => p.id === id ? { ...p, isFavorite: !current } : p));
+    fetch(`/api/products/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_favorite: !current }),
+    }).catch(() => {
+      setProducts(prev => prev.map(p => p.id === id ? { ...p, isFavorite: current } : p));
+    });
   };
 
   const handleDelete = async (id: string, name: string) => {
-    const { error } = await supabase.from('products').delete().eq('id', id);
-    if (error) {
-      showToast(`Erreur suppression : ${error.message}`, 'error');
+    const res = await fetch(`/api/products/${id}`, { method: 'DELETE' }).catch(() => null);
+    if (!res?.ok) {
+      const err = await res?.json().catch(() => ({}));
+      showToast(`Erreur suppression : ${err?.error || 'inconnue'}`, 'error');
     } else {
       showToast(`Produit "${name}" supprimé`);
       loadProducts();
@@ -280,9 +279,13 @@ EXECUTE FUNCTION sync_product_status();`;
 
   const handleBulkDelete = async () => {
     const ids = Array.from(selectedIds);
-    const { error } = await supabase.from('products').delete().in('id', ids);
-    if (error) {
-      showToast(`Erreur suppression : ${error.message}`, 'error');
+    const res = await fetch('/api/products/batch', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    }).catch(() => null);
+    if (!res?.ok) {
+      showToast('Erreur lors de la suppression groupée', 'error');
     } else {
       showToast(`${ids.length} produit${ids.length > 1 ? 's' : ''} supprimé${ids.length > 1 ? 's' : ''}`);
       setSelectedIds(new Set());

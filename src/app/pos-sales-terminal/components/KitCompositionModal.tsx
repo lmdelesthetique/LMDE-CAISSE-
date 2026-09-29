@@ -3,7 +3,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
-import { fetchAll } from '@/lib/utils/fetchAll';
 
 const supabase = createClient();
 
@@ -63,14 +62,10 @@ export default function KitCompositionModal({ kitId, kitName, kitPrice, onClose,
 
   const loadAllProducts = useCallback(async () => {
     if (allProducts.length > 0) return;
-    const rows = await fetchAll<ProductRow>((from, to) =>
-      supabase
-        .from('products')
-        .select('id, name, ref, stock, sell_price_ttc, is_kit')
-        .eq('is_kit', false)
-        .in('status', ['active', 'actif', 'rupture'])
-        .range(from, to)
-    );
+    const rows: ProductRow[] = await fetch('/api/products/list?status=active,actif,rupture')
+      .then(r => r.ok ? r.json() : [])
+      .then((data: any[]) => data.filter(p => !p.is_kit))
+      .catch(() => []);
     setAllProducts(rows);
   }, [allProducts.length]);
 

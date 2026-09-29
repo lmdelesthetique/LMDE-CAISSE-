@@ -6,10 +6,10 @@ import AppImage from '@/components/ui/AppImage';
 import POSFavouritesManager from './POSFavouritesManager';
 import { createClient } from '@/lib/supabase/client';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
-import { fetchAll } from '@/lib/utils/fetchAll';
 import { fetchActivePromotions, getProductPromo, promoDiscountLabel, type ActivePromo } from '@/lib/services/promotionService';
 import KitCompositionModal, { type KitComponent } from './KitCompositionModal';
 
+// Anon client — used only for realtime subscriptions and color variants (read-only, no RLS issue)
 const supabase = createClient();
 
 interface DBProduct {
@@ -102,21 +102,16 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
   const loadData = useCallback(async () => {
     setLoading(true);
     const [allProds, activePromos] = await Promise.all([
-      fetchAll<DBProduct>((from, to) =>
-        supabase
-          .from('products')
-          .select('id, name, ref, barcode, sell_price_ttc, sell_price_ht, buy_price, transport, customs, other_fees, structure_pct, stock, min_stock, category, image_url, status, product_status, is_kit, has_color_variants, is_favorite, is_demo')
-          .in('status', ['active', 'actif', 'rupture'])
-          .order('name')
-          .range(from, to)
-      ),
+      fetch('/api/products/list?status=active,actif,rupture')
+        .then(r => r.ok ? r.json() : [])
+        .catch(() => [] as DBProduct[]),
       fetchActivePromotions().catch(() => [] as ActivePromo[]),
     ]);
     setProducts(allProds);
     setPromos(activePromos);
     // Exclude demo products from normal category list
     const cats = Array.from(new Set(
-      allProds.filter(p => !p.is_demo).map((p) => p.category).filter(Boolean)
+      allProds.filter((p: DBProduct) => !p.is_demo).map((p: DBProduct) => p.category).filter(Boolean)
     )).sort() as string[];
     setRawCategories(cats);
     setLoading(false);
@@ -125,8 +120,16 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
   const toggleFavorite = useCallback(async (product: DBProduct, e: React.MouseEvent) => {
     e.stopPropagation();
     const newVal = !product.is_favorite;
-    await supabase.from('products').update({ is_favorite: newVal }).eq('id', product.id);
+    // Optimistic update
     setProducts(prev => prev.map(p => p.id === product.id ? { ...p, is_favorite: newVal } : p));
+    fetch(`/api/products/${product.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_favorite: newVal }),
+    }).catch(() => {
+      // Revert on error
+      setProducts(prev => prev.map(p => p.id === product.id ? { ...p, is_favorite: !newVal } : p));
+    });
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);

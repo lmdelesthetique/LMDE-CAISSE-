@@ -61,6 +61,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
 }
 
+export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await params;
+    if (!id) return NextResponse.json({ error: 'Product ID requis' }, { status: 400 });
+    const supabase = createAdminClient();
+    const { error } = await supabase.from('products').delete().eq('id', id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => null);
