@@ -137,7 +137,7 @@ function PromoFormModal({
     setSearchResults(
       allProductsRef.current
         .filter(p => p.name.toLowerCase().includes(lq) || p.ref.toLowerCase().includes(lq))
-        .slice(0, 10)
+        .slice(0, 50)
     );
   }, []);
 
