@@ -111,6 +111,7 @@ export default function ProductManagementContent() {
   const [fixingStatus, setFixingStatus] = useState(false);
   const [showTriggerSQL, setShowTriggerSQL] = useState(false);
   const [sqlCopied, setSqlCopied] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ ids: string[]; names: string[] } | null>(null);
 
   const TRIGGER_SQL = `CREATE OR REPLACE FUNCTION sync_product_status()
 RETURNS TRIGGER AS $$
@@ -266,30 +267,43 @@ EXECUTE FUNCTION sync_product_status();`;
     });
   };
 
-  const handleDelete = async (id: string, name: string) => {
-    const res = await fetch(`/api/products/${id}`, { method: 'DELETE' }).catch(() => null);
-    if (!res?.ok) {
-      const err = await res?.json().catch(() => ({}));
-      showToast(`Erreur suppression : ${err?.error || 'inconnue'}`, 'error');
-    } else {
-      showToast(`Produit "${name}" supprimé`);
-      loadProducts();
-    }
+  const handleDelete = (id: string, name: string) => {
+    setDeleteConfirm({ ids: [id], names: [name] });
   };
 
-  const handleBulkDelete = async () => {
+  const handleBulkDelete = () => {
     const ids = Array.from(selectedIds);
-    const res = await fetch('/api/products/batch', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids }),
-    }).catch(() => null);
-    if (!res?.ok) {
-      showToast('Erreur lors de la suppression groupée', 'error');
+    const names = ids.map(id => products.find(p => p.id === id)?.name ?? id);
+    setDeleteConfirm({ ids, names });
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteConfirm) return;
+    const { ids, names } = deleteConfirm;
+    setDeleteConfirm(null);
+
+    if (ids.length === 1) {
+      const res = await fetch(`/api/products/${ids[0]}`, { method: 'DELETE' }).catch(() => null);
+      if (!res?.ok) {
+        const err = await res?.json().catch(() => ({}));
+        showToast(`Erreur suppression : ${err?.error || 'inconnue'}`, 'error');
+      } else {
+        showToast(`Produit "${names[0]}" supprimé`);
+        loadProducts();
+      }
     } else {
-      showToast(`${ids.length} produit${ids.length > 1 ? 's' : ''} supprimé${ids.length > 1 ? 's' : ''}`);
-      setSelectedIds(new Set());
-      loadProducts();
+      const res = await fetch('/api/products/batch', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      }).catch(() => null);
+      if (!res?.ok) {
+        showToast('Erreur lors de la suppression groupée', 'error');
+      } else {
+        showToast(`${ids.length} produit${ids.length > 1 ? 's' : ''} supprimé${ids.length > 1 ? 's' : ''}`);
+        setSelectedIds(new Set());
+        loadProducts();
+      }
     }
   };
 
@@ -864,6 +878,54 @@ EXECUTE FUNCTION sync_product_status();`;
           onClose={() => setShowBulkEdit(false)}
           onDone={handleBulkEditDone}
         />
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+                <Icon name="TrashIcon" size={20} className="text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-700 text-foreground">
+                  Supprimer {deleteConfirm.ids.length === 1 ? 'ce produit' : `ces ${deleteConfirm.ids.length} produits`} ?
+                </h3>
+                <p className="text-xs text-muted-foreground mt-0.5">Cette action est irréversible.</p>
+              </div>
+            </div>
+
+            {deleteConfirm.names.length <= 8 ? (
+              <ul className="mb-5 space-y-1 max-h-48 overflow-y-auto">
+                {deleteConfirm.names.map((n, i) => (
+                  <li key={i} className="text-sm text-foreground bg-red-50 rounded-lg px-3 py-1.5 font-500 truncate">
+                    {n}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mb-5 text-sm text-muted-foreground">
+                {deleteConfirm.names.slice(0, 5).join(', ')}… et {deleteConfirm.names.length - 5} autres.
+              </p>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                className="flex-1 py-2.5 border border-border rounded-xl text-sm font-600 hover:bg-muted transition-colors"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="flex-1 py-2.5 bg-red-600 text-white rounded-xl text-sm font-700 hover:bg-red-700 transition-colors"
+              >
+                Supprimer définitivement
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
