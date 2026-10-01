@@ -1,6 +1,5 @@
 'use client';
 
-import { createClient } from '@/lib/supabase/client';
 import { generateTicketNumber } from './emailService';
 
 export interface POSSaleItem {
@@ -262,36 +261,28 @@ export interface DailyExpense {
 }
 
 export async function computeDaySummary(date: string): Promise<DaySummaryData> {
-  const supabase = createClient();
   // Martinique UTC-4 : les heures doivent être interprétées en heure locale, pas UTC
   const dayStart = new Date(date + 'T00:00:00-04:00').toISOString();
   const dayEnd   = new Date(date + 'T23:59:59-04:00').toISOString();
 
-  const [receiptsRes, expensesRes, productsRes] = await Promise.all([
-    supabase
-      .from('receipts')
-      .select('*')
-      .eq('status', 'completed')
-      .neq('is_demo', true)
-      .gte('created_at', dayStart)
-      .lte('created_at', dayEnd),
-    supabase
-      .from('daily_expenses')
-      .select('*')
-      .eq('expense_date', date),
-    supabase
-      .from('products')
-      .select('id, name, cost_price, buy_price, sell_price_ttc'),
+  const [receiptsRaw, expensesRaw, productsRaw] = await Promise.all([
+    fetch(`/api/receipts?from=${encodeURIComponent(dayStart)}&to=${encodeURIComponent(dayEnd)}&status=completed&all=true&detail=true`)
+      .then(r => r.ok ? r.json() : []).catch(() => []),
+    fetch(`/api/expenses/daily?date=${date}`)
+      .then(r => r.ok ? r.json() : []).catch(() => []),
+    fetch('/api/products/list?all=true')
+      .then(r => r.ok ? r.json() : []).catch(() => []),
   ]);
 
-  const allFetched = receiptsRes.data || [];
+  const allFetched: any[] = Array.isArray(receiptsRaw) ? receiptsRaw : [];
   // Exclude internal test client from all CA/ticket calculations
   const receipts = allFetched.filter((r: any) => {
+    if (r.is_demo === true) return false;
     const cn = (r.client_name ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
     return cn !== 'CHRISTY LHOMME';
   });
-  const expenses = expensesRes.data || [];
-  const products = productsRes.data || [];
+  const expenses: any[] = Array.isArray(expensesRaw) ? expensesRaw : [];
+  const products: any[] = Array.isArray(productsRaw) ? productsRaw : [];
 
   const productCostMap = new Map(products.map((p: any) => [
     p.id,
@@ -419,10 +410,10 @@ export async function computeDaySummary(date: string): Promise<DaySummaryData> {
 }
 
 export async function saveDaySummary(summary: DaySummaryData, cashierName: string, notes: string): Promise<boolean> {
-  const supabase = createClient();
-  const { error } = await supabase
-    .from('day_summaries')
-    .upsert({
+  const res = await fetch('/api/caisse/day-summary', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
       summary_date: summary.date,
       cashier_name: cashierName,
       total_ca: summary.totalCA,
@@ -445,59 +436,66 @@ export async function saveDaySummary(summary: DaySummaryData, cashierName: strin
       notes,
       closed_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-    }, { onConflict: 'summary_date' });
-
-  if (error) { console.error('saveDaySummary error:', error); return false; }
+    }),
+  }).catch(() => null);
+  if (!res?.ok) { console.error('saveDaySummary error: HTTP', res?.status); return false; }
   return true;
 }
 
 export async function addDailyExpense(expense: Omit<DailyExpense, 'id'>): Promise<boolean> {
-  const supabase = createClient();
-  const { error } = await supabase.from('daily_expenses').insert({
-    expense_date: expense.expenseDate,
-    amount: expense.amount,
-    category: expense.category,
-    payment_method: expense.paymentMethod,
-    note: expense.note,
-    performed_by: expense.performedBy,
-  });
-  if (error) { console.error('addDailyExpense error:', error); return false; }
+  const res = await fetch('/api/expenses/daily', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      expense_date: expense.expenseDate,
+      amount: expense.amount,
+      category: expense.category,
+      payment_method: expense.paymentMethod,
+      note: expense.note,
+      performed_by: expense.performedBy,
+    }),
+  }).catch(() => null);
+  if (!res?.ok) { console.error('addDailyExpense error: HTTP', res?.status); return false; }
   return true;
 }
 
 export async function updateDailyExpense(id: string, expense: Omit<DailyExpense, 'id'>): Promise<boolean> {
-  const supabase = createClient();
-  const { error } = await supabase.from('daily_expenses').update({
-    expense_date: expense.expenseDate,
-    amount: expense.amount,
-    category: expense.category,
-    payment_method: expense.paymentMethod,
-    note: expense.note,
-    performed_by: expense.performedBy,
-  }).eq('id', id);
-  if (error) { console.error('updateDailyExpense error:', error); return false; }
+  const res = await fetch(`/api/expenses/daily?id=${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      expense_date: expense.expenseDate,
+      amount: expense.amount,
+      category: expense.category,
+      payment_method: expense.paymentMethod,
+      note: expense.note,
+      performed_by: expense.performedBy,
+    }),
+  }).catch(() => null);
+  if (!res?.ok) { console.error('updateDailyExpense error: HTTP', res?.status); return false; }
   return true;
 }
 
 export async function deleteDailyExpense(id: string): Promise<boolean> {
-  const supabase = createClient();
-  const { error } = await supabase.from('daily_expenses').delete().eq('id', id);
-  if (error) { console.error('deleteDailyExpense error:', error); return false; }
+  const res = await fetch(`/api/expenses/daily?id=${id}`, { method: 'DELETE' }).catch(() => null);
+  if (!res?.ok) { console.error('deleteDailyExpense error: HTTP', res?.status); return false; }
   return true;
 }
 
 export async function syncExpenseToBusinessExpenses(expense: DailyExpense & { cashierName?: string }): Promise<void> {
-  const supabase = createClient();
-  const payload = {
-    category: 'daily' as const,
-    expense_type: expense.category || 'other',
-    label: expense.note || expense.category,
-    amount: expense.amount,
-    expense_date: expense.expenseDate,
-    payment_method: (expense.paymentMethod === 'cash' ? 'cash' : expense.paymentMethod === 'card' ? 'card' : expense.paymentMethod === 'transfer' ? 'transfer' : 'other') as any,
-    note: `[Caisse] ${expense.note || ''} — Caissier: ${expense.cashierName || expense.performedBy || ''}`.trim(),
-    is_recurring: false,
-  };
-  // Insert only (no upsert — let duplicates be; caller decides)
-  await supabase.from('business_expenses').insert(payload);
+  // Sync to business_expenses via admin API
+  await fetch('/api/expenses/business', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      category: 'daily',
+      expense_type: expense.category || 'other',
+      label: expense.note || expense.category,
+      amount: expense.amount,
+      expense_date: expense.expenseDate,
+      payment_method: expense.paymentMethod === 'cash' ? 'cash' : expense.paymentMethod === 'card' ? 'card' : expense.paymentMethod === 'transfer' ? 'transfer' : 'other',
+      note: `[Caisse] ${expense.note || ''} — Caissier: ${expense.cashierName || expense.performedBy || ''}`.trim(),
+      is_recurring: false,
+    }),
+  }).catch(() => {});
 }

@@ -3,7 +3,7 @@
 import { createClient } from '@/lib/supabase/client';
 import { fetchAll } from '@/lib/utils/fetchAll';
 
-const supabase = createClient();
+const supabase = createClient(); // read-only usage; writes go through admin API routes
 
 export interface StockProduct {
   id: string;
@@ -185,48 +185,27 @@ function mapProduct(r: Record<string, unknown>): StockProduct {
 }
 
 export async function fetchStockProducts(search?: string): Promise<StockProduct[]> {
-  const since90d = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
-  const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-  const since7d  = new Date(Date.now() -  7 * 24 * 60 * 60 * 1000).toISOString();
+  const now = Date.now();
+  const since30d = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const since7d  = new Date(now -  7 * 24 * 60 * 60 * 1000).toISOString();
 
-  // Parallel: products + POS receipts (true sales source) + Shopify log
-  const [data, receiptRows, shopifyMoves] = await Promise.all([
-    fetchAll<Record<string, unknown>>((from, to) => {
-      if (search && search.trim()) {
-        return supabase
-          .from('products')
-          .select('*')
-          .or(`name.ilike.%${search.trim()}%,ref.ilike.%${search.trim()}%,supplier.ilike.%${search.trim()}%,category.ilike.%${search.trim()}%`)
-          .order('name')
-          .range(from, to);
-      }
-      return supabase
-        .from('products')
-        .select('*')
-        .order('name')
-        .range(from, to);
-    }),
-    // POS receipts — paginated to bypass server max_rows cap
-    fetchAll<{ items: unknown; created_at: string; is_demo: boolean; payment_type: string }>((from, to) =>
-      supabase
-        .from('receipts')
-        .select('items, created_at, is_demo, payment_type')
-        .gte('created_at', since90d)
-        .neq('is_demo', true)
-        .order('created_at', { ascending: true })
-        .range(from, to)
-    ),
-    // Shopify sales recorded in movements log — paginated
-    fetchAll<{ product_id: string; quantity_change: number; created_at: string }>((from, to) =>
-      supabase
-        .from('stock_movements_log')
-        .select('product_id, quantity_change, created_at')
-        .eq('movement_type', 'sale')
-        .gte('created_at', since90d)
-        .order('created_at', { ascending: true })
-        .range(from, to)
-    ),
-  ]);
+  // Use admin API route to bypass RLS on all three tables
+  const res = await fetch('/api/stock/products').catch(() => null);
+  if (!res?.ok) return [];
+  const { products: data, receipts: receiptRows, movements: shopifyMoves, since90d } = await res.json();
+
+  // Client-side search filter
+  const filtered = search?.trim()
+    ? (data as Record<string, unknown>[]).filter(r => {
+        const q = search.toLowerCase();
+        return (
+          String(r.name || '').toLowerCase().includes(q) ||
+          String(r.ref || '').toLowerCase().includes(q) ||
+          String(r.supplier || '').toLowerCase().includes(q) ||
+          String(r.category || '').toLowerCase().includes(q)
+        );
+      })
+    : data as Record<string, unknown>[];
 
   // Aggregate sales per product over 7 / 30 / 90 day windows
   const salesMap: Record<string, { s7: number; s30: number; s90: number }> = {};
@@ -258,7 +237,7 @@ export async function fetchStockProducts(search?: string): Promise<StockProduct[
     if (createdAt >= since7d)  salesMap[id].s7  += qty;
   }
 
-  return data.map(r => {
+  return filtered.map((r: Record<string, unknown>) => {
     const p = mapProduct(r);
     const s = salesMap[p.id];
     if (s) {
@@ -286,26 +265,17 @@ export async function fetchStockProducts(search?: string): Promise<StockProduct[
  * Used for barcode scanner integration (USB scanner + camera).
  */
 export async function fetchProductByBarcode(barcode: string): Promise<StockProduct | null> {
-  // Try barcode column first
-  const { data: byBarcode } = await supabase
-    .from('products')
-    .select('*')
-    .eq('barcode', barcode)
-    .limit(1)
-    .maybeSingle();
-
-  if (byBarcode) return mapProduct(byBarcode as Record<string, unknown>);
-
-  // Fallback: try ref column (case-insensitive)
-  const { data: byRef, error } = await supabase
-    .from('products')
-    .select('*')
-    .ilike('ref', barcode)
-    .limit(1)
-    .maybeSingle();
-
-  if (error || !byRef) return null;
-  return mapProduct(byRef as Record<string, unknown>);
+  // Use admin search API (bypasses RLS), then fetch full product data by ID
+  const searchRes = await fetch(`/api/products/search?q=${encodeURIComponent(barcode)}&limit=5`).catch(() => null);
+  if (!searchRes?.ok) return null;
+  const { products } = await searchRes.json();
+  const exact = (products as any[]).find(
+    (p: any) => p.barcode?.toLowerCase() === barcode.toLowerCase() || p.ref?.toLowerCase() === barcode.toLowerCase()
+  );
+  if (!exact) return null;
+  const fullRes = await fetch(`/api/products/${exact.id}`).catch(() => null);
+  if (!fullRes?.ok) return mapProduct(exact as Record<string, unknown>);
+  return mapProduct(await fullRes.json());
 }
 
 export async function fetchStockKPIs(products: StockProduct[]): Promise<StockKPIs> {
@@ -336,20 +306,12 @@ export async function fetchStockKPIs(products: StockProduct[]): Promise<StockKPI
 }
 
 export async function fetchMovementHistory(productId?: string, limit = 50): Promise<StockMovement[]> {
-  let query = supabase
-    .from('stock_movements_log')
-    .select('*')
-    .order('created_at', { ascending: false })
-    .limit(limit);
-
-  if (productId) {
-    query = query.eq('product_id', productId);
-  }
-
-  const { data, error } = await query;
-  if (error) { console.error('fetchMovementHistory', error); return []; }
-
-  return (data || []).map((r: Record<string, unknown>) => ({
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (productId) params.set('productId', productId);
+  const res = await fetch(`/api/stock/movements?${params}`).catch(() => null);
+  if (!res?.ok) return [];
+  const data: Record<string, unknown>[] = await res.json();
+  return (data || []).map((r) => ({
     id: r.id as string,
     productId: r.product_id as string,
     productName: r.product_name as string,
@@ -400,134 +362,113 @@ export async function fetchTransitOrders(): Promise<TransitOrder[]> {
 }
 
 export async function addStock(productId: string, productName: string, currentStock: number, qty: number, reason: string, performedBy = 'Admin'): Promise<boolean> {
-  const newQty = currentStock + qty;
-  const { error: updateError } = await supabase
-    .from('products')
-    .update({ stock: newQty, updated_at: new Date().toISOString() })
-    .eq('id', productId);
-  // Restore active status only for non-inactive products
-  if (!updateError && newQty > 0 && currentStock <= 0) {
-    await supabase.from('products')
-      .update({ status: 'active', product_status: 'active' })
-      .eq('id', productId)
-      .neq('product_status', 'inactive');
-  }
-
-  if (updateError) { console.error('addStock', updateError); return false; }
-
-  await supabase.from('stock_movements_log').insert({
-    product_id: productId,
-    product_name: productName,
-    movement_type: 'entry',
-    quantity_before: currentStock,
-    quantity_after: newQty,
-    quantity_change: qty,
-    reason,
-    performed_by: performedBy,
-  });
-
-  // Non-blocking Shopify sync (absolute value)
-  if (typeof window !== 'undefined') {
-    fetch('/api/shopify/sync-stock', {
+  // Use admin API route (bypass RLS)
+  try {
+    const res = await fetch('/api/products/stock-entry', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items: [{ productId, delta: qty, newStock: newQty }] }),
-    }).catch((e) => console.error("[stockService] shopify sync failed:", e.message));
-  }
-
-  return true;
+      body: JSON.stringify({ productId, productName, currentStock, qty, reason, performedBy }),
+    });
+    const data = await res.json();
+    return data.ok === true;
+  } catch (e) { console.error('addStock', e); return false; }
 }
 
 export async function removeStock(productId: string, productName: string, currentStock: number, qty: number, reason: string, performedBy = 'Admin'): Promise<boolean> {
   const newQty = Math.max(0, currentStock - qty);
-  const { error: updateError } = await supabase
-    .from('products')
-    .update({ stock: newQty, updated_at: new Date().toISOString() })
-    .eq('id', productId);
-  // Set rupture only for non-inactive products
-  if (!updateError && newQty === 0) {
-    await supabase.from('products')
-      .update({ status: 'rupture', product_status: 'rupture' })
-      .eq('id', productId)
-      .neq('product_status', 'inactive');
-  }
-
-  if (updateError) { console.error('removeStock', updateError); return false; }
-
-  await supabase.from('stock_movements_log').insert({
-    product_id: productId,
-    product_name: productName,
-    movement_type: 'exit',
-    quantity_before: currentStock,
-    quantity_after: newQty,
-    quantity_change: -qty,
-    reason,
-    performed_by: performedBy,
-  });
-
-  // Non-blocking Shopify sync (absolute value)
-  if (typeof window !== 'undefined') {
+  const statusUpdate = newQty === 0 ? { status: 'rupture', product_status: 'rupture' } : {};
+  try {
+    const res = await fetch(`/api/products/${productId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        stock: newQty,
+        updated_at: new Date().toISOString(),
+        ...statusUpdate,
+        stockMovement: {
+          product_id: productId,
+          product_name: productName,
+          movement_type: 'exit',
+          quantity_before: currentStock,
+          quantity_after: newQty,
+          quantity_change: -qty,
+          reason,
+          performed_by: performedBy,
+        },
+      }),
+    });
+    const data = await res.json();
+    if (!data.ok) { console.error('removeStock', data.error); return false; }
     fetch('/api/shopify/sync-stock', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ items: [{ productId, delta: -qty, newStock: newQty }] }),
-    }).catch((e) => console.error("[stockService] shopify sync failed:", e.message));
-  }
-
-  return true;
+    }).catch(() => {});
+    return true;
+  } catch (e) { console.error('removeStock', e); return false; }
 }
 
 export async function adjustStock(productId: string, productName: string, currentStock: number, newQty: number, reason: string, performedBy = 'Admin'): Promise<boolean> {
-  const { error: updateError } = await supabase
-    .from('products')
-    .update({ stock: newQty, updated_at: new Date().toISOString() })
-    .eq('id', productId);
-
-  if (updateError) { console.error('adjustStock', updateError); return false; }
-
-  await supabase.from('stock_movements_log').insert({
-    product_id: productId,
-    product_name: productName,
-    movement_type: 'adjustment',
-    quantity_before: currentStock,
-    quantity_after: newQty,
-    quantity_change: newQty - currentStock,
-    reason,
-    performed_by: performedBy,
-  });
-
-  // Non-blocking Shopify sync with absolute value (adjustment must set exact qty, not delta)
-  if (typeof window !== 'undefined') {
+  const delta = newQty - currentStock;
+  const statusUpdate = newQty === 0
+    ? { status: 'rupture', product_status: 'rupture' }
+    : (currentStock <= 0 && newQty > 0 ? { status: 'active', product_status: 'active' } : {});
+  try {
+    const res = await fetch(`/api/products/${productId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        stock: newQty,
+        updated_at: new Date().toISOString(),
+        ...statusUpdate,
+        stockMovement: {
+          product_id: productId,
+          product_name: productName,
+          movement_type: 'adjustment',
+          quantity_before: currentStock,
+          quantity_after: newQty,
+          quantity_change: delta,
+          reason,
+          performed_by: performedBy,
+        },
+      }),
+    });
+    const data = await res.json();
+    if (!data.ok) { console.error('adjustStock', data.error); return false; }
     fetch('/api/shopify/sync-stock', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items: [{ productId, delta: newQty - currentStock, newStock: newQty }] }),
-    }).catch((e) => console.error("[stockService] shopify sync failed:", e.message));
-  }
-
-  return true;
+      body: JSON.stringify({ items: [{ productId, delta, newStock: newQty }] }),
+    }).catch(() => {});
+    return true;
+  } catch (e) { console.error('adjustStock', e); return false; }
 }
 
 export async function suspendProduct(productId: string, productName: string, currentStock: number, performedBy = 'Admin'): Promise<boolean> {
-  const { error } = await supabase
-    .from('products')
-    .update({ is_suspended: true, status: 'suspended', updated_at: new Date().toISOString() })
-    .eq('id', productId);
-
-  if (error) { console.error('suspendProduct', error); return false; }
-
-  await supabase.from('stock_movements_log').insert({
-    product_id: productId,
-    product_name: productName,
-    movement_type: 'suspended',
-    quantity_before: currentStock,
-    quantity_after: currentStock,
-    quantity_change: 0,
-    reason: 'Produit suspendu',
-    performed_by: performedBy,
-  });
-
-  return true;
+  try {
+    const res = await fetch(`/api/products/${productId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        is_suspended: true,
+        status: 'suspended',
+        updated_at: new Date().toISOString(),
+        stockMovement: {
+          product_id: productId,
+          product_name: productName,
+          movement_type: 'suspended',
+          quantity_before: currentStock,
+          quantity_after: currentStock,
+          quantity_change: 0,
+          reason: 'Produit suspendu',
+          performed_by: performedBy,
+        },
+      }),
+    });
+    const data = await res.json();
+    if (!data.ok) { console.error('suspendProduct', data.error); return false; }
+    return true;
+  } catch (e) { console.error('suspendProduct', e); return false; }
 }
 
 export async function markProductAsOrdered(
@@ -535,23 +476,28 @@ export async function markProductAsOrdered(
   productName: string,
   currentStock: number
 ): Promise<boolean> {
-  const { error } = await supabase
-    .from('products')
-    .update({ product_status: 'en_commande' })
-    .eq('id', productId);
-  if (error) { console.error('markProductAsOrdered', error); return false; }
-
-  await supabase.from('stock_movements_log').insert({
-    product_id: productId,
-    product_name: productName,
-    movement_type: 'adjustment',
-    quantity_before: currentStock,
-    quantity_after: currentStock,
-    quantity_change: 0,
-    reason: 'Produit mis en commande fournisseur',
-    performed_by: 'Admin',
-  });
-  return true;
+  try {
+    const res = await fetch(`/api/products/${productId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        product_status: 'en_commande',
+        stockMovement: {
+          product_id: productId,
+          product_name: productName,
+          movement_type: 'adjustment',
+          quantity_before: currentStock,
+          quantity_after: currentStock,
+          quantity_change: 0,
+          reason: 'Produit mis en commande fournisseur',
+          performed_by: 'Admin',
+        },
+      }),
+    });
+    const data = await res.json();
+    if (!data.ok) { console.error('markProductAsOrdered', data.error); return false; }
+    return true;
+  } catch (e) { console.error('markProductAsOrdered', e); return false; }
 }
 
 export async function fetchProductsBySupplier(supplierId: string, supplierName?: string): Promise<StockProduct[]> {
@@ -582,21 +528,26 @@ export async function updateProductSupplier(
   if (minOrderQty !== undefined) updateData.min_order_qty = minOrderQty;
   if (avgRestockDays !== undefined) updateData.avg_restock_days = avgRestockDays;
 
-  const { error } = await supabase.from('products').update(updateData).eq('id', productId);
-  if (error) { console.error('updateProductSupplier', error); return false; }
-  return true;
+  try {
+    const res = await fetch(`/api/products/${productId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updateData),
+    });
+    const data = await res.json();
+    if (!data.ok) { console.error('updateProductSupplier', data.error); return false; }
+    return true;
+  } catch (e) { console.error('updateProductSupplier', e); return false; }
 }
 
 /**
  * Fetch current stock for a single product (for real-time check before adding to cart)
  */
 export async function fetchProductStockById(productId: string): Promise<{ stock: number; name: string } | null> {
-  const { data, error } = await supabase
-    .from('products')
-    .select('id, name, stock')
-    .eq('id', productId)
-    .maybeSingle();
-  if (error || !data) return null;
+  const res = await fetch(`/api/products/${productId}`).catch(() => null);
+  if (!res?.ok) return null;
+  const data = await res.json();
+  if (!data?.id) return null;
   return { stock: Number(data.stock) || 0, name: data.name as string };
 }
 
@@ -610,19 +561,15 @@ export async function setProductInactive(productId: string, reactivate = false):
 }
 
 export async function fetchProductById(productId: string): Promise<StockProduct | null> {
-  const { data, error } = await supabase
-    .from('products')
-    .select('*')
-    .eq('id', productId)
-    .maybeSingle();
-  if (error || !data) return null;
+  const res = await fetch(`/api/products/${productId}`).catch(() => null);
+  if (!res?.ok) return null;
+  const data = await res.json();
   return mapProduct(data as Record<string, unknown>);
 }
 
 /**
  * Deduct stock for all items sold in a POS sale.
- * Records one stock_movements_log entry per product.
- * For kit products, deducts each kit component individually.
+ * Delegates to admin API route to bypass RLS.
  */
 export async function deductStockForSale(
   items: Array<{ productId: string; name: string; qty: number; isFreePrice?: boolean; kitComponents?: Array<{ componentId: string; name: string; quantity: number }> }>,
@@ -632,252 +579,36 @@ export async function deductStockForSale(
   ticketStatus?: string,
   ticketType?: string
 ): Promise<{ success: boolean; errors: string[] }> {
-  // Guard: only deduct stock for paid/completed sales or explicit vente type
-  if (
-    ticketStatus !== undefined &&
-    ticketStatus !== 'paid' &&
-    ticketStatus !== 'completed' &&
-    ticketType !== 'vente'
-  ) {
-    return { success: true, errors: [] };
-  }
-
-  const errors: string[] = [];
-  const shopifySyncItems: Array<{ productId: string; delta: number; newStock: number }> = [];
-
-  for (const item of items) {
-    // Skip free-price items (no product ID in DB)
-    if (item.isFreePrice || !item.productId || item.productId.startsWith('free-')) continue;
-
-    // Fetch current stock
-    const { data: productData, error: fetchError } = await supabase
-      .from('products')
-      .select('id, name, stock, is_kit')
-      .eq('id', item.productId)
-      .maybeSingle();
-
-    if (fetchError || !productData) {
-      errors.push(`Produit introuvable: ${item.name}`);
-      continue;
-    }
-
-    const currentStock = Number(productData.stock) || 0;
-    const isKit = Boolean(productData.is_kit);
-
-    if (isKit) {
-      // Use custom components from POS (if caissier modified the kit) or fetch from DB
-      let resolvedComponents: Array<{ component_id: string; name: string; quantity: number; currentStock: number }> = [];
-
-      if (item.kitComponents && item.kitComponents.length > 0) {
-        // Custom components from POS modal — fetch fresh stock for each
-        for (const kc of item.kitComponents) {
-          const { data: cp } = await supabase.from('products').select('stock').eq('id', kc.componentId).maybeSingle();
-          resolvedComponents.push({
-            component_id: kc.componentId,
-            name: kc.name,
-            quantity: kc.quantity,
-            currentStock: Number(cp?.stock) || 0,
-          });
-        }
-      } else {
-        // Default: fetch from product_kits table
-        const { data: kitComponents } = await supabase
-          .from('product_kits')
-          .select('component_id, quantity, products!product_kits_component_id_fkey(id, name, stock)')
-          .eq('product_id', item.productId);
-        for (const comp of (kitComponents ?? []) as any[]) {
-          if (!comp.products) continue;
-          resolvedComponents.push({
-            component_id: comp.component_id,
-            name: comp.products.name,
-            quantity: Number(comp.quantity) || 1,
-            currentStock: Number(comp.products.stock) || 0,
-          });
-        }
-      }
-
-      if (resolvedComponents.length > 0) {
-        for (const comp of resolvedComponents) {
-          const compCurrentStock = comp.currentStock;
-          const compQtyToDeduct = comp.quantity * item.qty;
-          const compNewStock = Math.max(0, compCurrentStock - compQtyToDeduct);
-
-          const { error: compUpdateError } = await supabase
-            .from('products')
-            .update({ stock: compNewStock, updated_at: new Date().toISOString() })
-            .eq('id', comp.component_id);
-
-          if (compUpdateError) {
-            errors.push(`Erreur décompte composant kit: ${comp.name}`);
-            continue;
-          }
-
-          shopifySyncItems.push({ productId: comp.component_id, delta: -compQtyToDeduct, newStock: compNewStock });
-
-          await supabase.from('stock_movements_log').insert({
-            product_id: comp.component_id,
-            product_name: comp.name,
-            movement_type: 'sale',
-            quantity_before: compCurrentStock,
-            quantity_after: compNewStock,
-            quantity_change: -compQtyToDeduct,
-            reason: `Vente caisse (kit: ${item.name}) — ${paymentMethod}`,
-            reference: ticketRef,
-            performed_by: cashierName,
-            source: 'pos_sale',
-          });
-
-          if (compNewStock === 0) {
-            await supabase.from('products').update({ status: 'rupture', product_status: 'rupture' }).eq('id', comp.component_id).neq('product_status', 'inactive');
-          }
-        }
-      }
-      // Also deduct the kit itself (if it tracks stock)
-      if (currentStock > 0) {
-        const newKitStock = Math.max(0, currentStock - item.qty);
-        await supabase.from('products').update({ stock: newKitStock, updated_at: new Date().toISOString() }).eq('id', item.productId);
-        shopifySyncItems.push({ productId: item.productId, delta: -item.qty, newStock: newKitStock });
-        await supabase.from('stock_movements_log').insert({
-          product_id: item.productId,
-          product_name: item.name,
-          movement_type: 'sale',
-          quantity_before: currentStock,
-          quantity_after: newKitStock,
-          quantity_change: -item.qty,
-          reason: `Vente caisse (kit) — ${paymentMethod}`,
-          reference: ticketRef,
-          performed_by: cashierName,
-          source: 'pos_sale',
-        });
-        if (newKitStock === 0) {
-          await supabase.from('products').update({ status: 'rupture', product_status: 'rupture' }).eq('id', item.productId).neq('product_status', 'inactive');
-        }
-      }
-    } else {
-      // Regular product — use optimistic locking: only update if stock hasn't changed since we read it
-      const newStock = Math.max(0, currentStock - item.qty);
-
-      const { data: updatedRows, error: updateError } = await supabase
-        .from('products')
-        .update({ stock: newStock, updated_at: new Date().toISOString() })
-        .eq('id', item.productId)
-        .eq('stock', currentStock) // optimistic lock: reject if stock changed concurrently
-        .select('stock');
-
-      if (updateError) {
-        errors.push(`Erreur décompte stock: ${item.name}`);
-        continue;
-      }
-
-      if (!updatedRows || updatedRows.length === 0) {
-        // Stock changed concurrently — re-read and retry once
-        const { data: fresh } = await supabase.from('products').select('stock').eq('id', item.productId).maybeSingle();
-        if (fresh !== null) {
-          const retryNew = Math.max(0, Number(fresh.stock) - item.qty);
-          await supabase.from('products').update({ stock: retryNew, updated_at: new Date().toISOString() }).eq('id', item.productId);
-          console.warn(`[stockService] optimistic lock retry for ${item.name}: ${fresh.stock} → ${retryNew}`);
-        }
-      }
-
-      shopifySyncItems.push({ productId: item.productId, delta: -item.qty, newStock });
-
-      // Record movement
-      await supabase.from('stock_movements_log').insert({
-        product_id: item.productId,
-        product_name: item.name,
-        movement_type: 'sale',
-        quantity_before: currentStock,
-        quantity_after: newStock,
-        quantity_change: -item.qty,
-        reason: `Vente caisse — ${paymentMethod}`,
-        reference: ticketRef,
-        performed_by: cashierName,
-        source: 'pos_sale',
-      });
-
-      if (newStock === 0) {
-        await supabase.from('products').update({ status: 'rupture', product_status: 'rupture' }).eq('id', item.productId).neq('product_status', 'inactive');
-      }
-    }
-  }
-
-  // Non-blocking Shopify inventory sync for products marked as shopify=true
-  if (shopifySyncItems.length > 0 && typeof window !== 'undefined') {
-    fetch('/api/shopify/sync-stock', {
+  try {
+    const res = await fetch('/api/products/deduct-sale', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items: shopifySyncItems }),
-    }).catch((e) => console.error("[stockService] shopify sync failed:", e.message));
+      body: JSON.stringify({ items, ticketRef, paymentMethod, cashierName, ticketStatus, ticketType }),
+    });
+    if (!res.ok) return { success: false, errors: [`Erreur serveur: ${res.status}`] };
+    const data = await res.json();
+    // Non-blocking: recalculate sales counters
+    const soldIds = [...new Set(
+      items.filter(i => !i.isFreePrice && i.productId && !i.productId.startsWith('free-')).map(i => i.productId)
+    )];
+    if (soldIds.length > 0) {
+      recalculateSalesCounters(soldIds).catch(() => {});
+    }
+    return data;
+  } catch (e: any) {
+    return { success: false, errors: [e.message] };
   }
-
-  // Non-blocking: recalculate sales_7d / sales_30d from movement history
-  const soldIds = [...new Set(
-    items.filter(i => !i.isFreePrice && i.productId && !i.productId.startsWith('free-')).map(i => i.productId)
-  )];
-  if (soldIds.length > 0) {
-    recalculateSalesCounters(soldIds).catch((e) => console.error("[stockService] recalculate failed:", e.message));
-  }
-
-  return { success: errors.length === 0, errors };
 }
 
 /**
- * Recompute sales_7d and sales_30d for one or more products from receipts (primary)
- * and stock_movements_log (Shopify sales). Called after each sale (non-blocking).
+ * Recompute sales_7d and sales_30d for one or more products.
+ * Delegates to admin API route to bypass RLS.
  */
 export async function recalculateSalesCounters(productIds: string[]): Promise<void> {
   if (productIds.length === 0) return;
-  const now = new Date();
-  const since7d  = new Date(now.getTime() -  7 * 24 * 60 * 60 * 1000).toISOString();
-  const since30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
-  const since90d = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString();
-
-  const [{ data: receiptRows }, { data: shopifyMoves }] = await Promise.all([
-    supabase
-      .from('receipts')
-      .select('items, created_at')
-      .gte('created_at', since90d)
-      .neq('is_demo', true)
-      .limit(200000),
-    supabase
-      .from('stock_movements_log')
-      .select('product_id, quantity_change, created_at')
-      .in('product_id', productIds)
-      .eq('movement_type', 'sale')
-      .gte('created_at', since90d),
-  ]);
-
-  const counters: Record<string, { s7: number; s30: number }> = {};
-  for (const id of productIds) counters[id] = { s7: 0, s30: 0 };
-
-  // Source 1: POS receipts
-  for (const receipt of receiptRows ?? []) {
-    const items = Array.isArray(receipt.items) ? receipt.items : [];
-    const createdAt = receipt.created_at as string;
-    for (const item of items) {
-      const id = item.product_id as string;
-      if (!id || !counters[id] || item.is_free_price) continue;
-      const qty = Number(item.qty) || Number(item.quantity) || 0;
-      if (createdAt >= since30d) counters[id].s30 += qty;
-      if (createdAt >= since7d)  counters[id].s7  += qty;
-    }
-  }
-
-  // Source 2: Shopify movements (already filtered by productIds)
-  for (const m of shopifyMoves ?? []) {
-    const id = m.product_id as string;
-    if (!counters[id]) continue;
-    const qty = Math.abs(Number(m.quantity_change) || 0);
-    const createdAt = m.created_at as string;
-    if (createdAt >= since30d) counters[id].s30 += qty;
-    if (createdAt >= since7d)  counters[id].s7  += qty;
-  }
-
-  await Promise.all(
-    productIds.map(id =>
-      supabase.from('products')
-        .update({ sales_7d: counters[id].s7, sales_30d: counters[id].s30 })
-        .eq('id', id)
-    )
-  );
+  await fetch('/api/products/recalculate-sales', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ productIds }),
+  }).catch(() => {});
 }

@@ -10,6 +10,18 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   return NextResponse.json(data);
 }
 
+const RESERVATION_ALLOWED_FIELDS = new Set([
+  'pos_sale_id', 'recovery_mode', 'reservation_status', 'delivery_address',
+  'delivery_phone', 'delivery_notes', 'delivery_contact', 'client_id', 'client_name',
+  'client_phone', 'client_email', 'notes', 'seller_comment', 'client_comment',
+  'pickup_date', 'estimated_arrival_date', 'deposit_amount', 'deposit_percent',
+  'reservation_type', 'items', 'total_amount', 'remise_type', 'remise_valeur',
+  'remise_montant', 'remise_motif', 'deposit_paid', 'deposit_payment_method',
+  'deposit_paid_at', 'deposit_accounting_date', 'balance_paid', 'balance_payment_method',
+  'balance_paid_at', 'balance_accounting_date', 'completed_at', 'ready_at',
+  'cancelled_at', 'cancellation_reason', 'cashier_name', 'deposits',
+]);
+
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
@@ -24,13 +36,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const supabase = createAdminClient();
 
   const payload: Record<string, unknown> = {};
-
-  if (body.pos_sale_id !== undefined) payload.pos_sale_id = body.pos_sale_id;
-  if (body.recovery_mode !== undefined) payload.recovery_mode = body.recovery_mode;
-  if (body.reservation_status !== undefined) payload.reservation_status = body.reservation_status;
-  if (body.delivery_address !== undefined) payload.delivery_address = body.delivery_address;
-  if (body.delivery_phone !== undefined) payload.delivery_phone = body.delivery_phone;
-  if (body.delivery_notes !== undefined) payload.delivery_notes = body.delivery_notes;
+  for (const [k, v] of Object.entries(body)) {
+    if (RESERVATION_ALLOWED_FIELDS.has(k)) payload[k] = v;
+  }
 
   if (Object.keys(payload).length === 0) {
     return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 });
@@ -40,7 +48,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     .from('reservations')
     .update({ ...payload, updated_at: new Date().toISOString() })
     .eq('id', id)
-    .select('id, recovery_mode, reservation_status, pos_sale_id')
+    .select()
     .single();
 
   if (error) {

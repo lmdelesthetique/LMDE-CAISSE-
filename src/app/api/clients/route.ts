@@ -7,23 +7,35 @@ function generateReferralCode(firstName: string): string {
   return clean + num;
 }
 
-// GET /api/clients?search=query&limit=20
+// GET /api/clients?search=query&limit=20&full=true&clientType=xxx&phone=xxx
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
   const search = searchParams.get('search') ?? '';
-  const limit = parseInt(searchParams.get('limit') ?? '20');
+  const phone = searchParams.get('phone') ?? '';
+  const limit = parseInt(searchParams.get('limit') ?? '200');
+  const full = searchParams.get('full') === 'true';
+  const clientType = searchParams.get('clientType') ?? '';
   const supabase = createAdminClient();
+  const selectCols = full ? '*' : 'id, first_name, last_name, phone, whatsapp, client_type, email';
   let query = supabase
     .from('clients')
-    .select('id, first_name, last_name, phone, whatsapp, client_type, email')
+    .select(selectCols)
+    .eq('is_active', true)
     .order('last_name', { ascending: true })
     .limit(limit);
   if (search.trim()) {
-    query = query.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,phone.ilike.%${search}%`);
+    query = query.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%`);
+  }
+  if (phone.trim()) {
+    query = query.eq('phone', phone.trim());
+  }
+  if (clientType && clientType !== 'all') {
+    query = query.eq('client_type', clientType);
   }
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  const clients = (data ?? []).map((r) => ({
+  if (full) return NextResponse.json(data ?? []);
+  const clients = (data ?? []).map((r: any) => ({
     id: r.id,
     firstName: r.first_name,
     lastName: r.last_name,

@@ -1,6 +1,5 @@
 'use client';
 
-import { createClient } from '@/lib/supabase/client';
 import { deductStockForSale } from './stockService';
 
 export type ReservationStatus = 'pending' | 'deposit_paid' | 'ready' | 'completed' | 'cancelled';
@@ -169,6 +168,8 @@ export interface UpdateDepositInput {
 export interface RecordBalanceInput {
   balancePaid: number;
   balancePaymentMethod: ReservationPaymentMethod;
+  cashierName?: string;
+  receiptId?: string;
 }
 
 export type StockStatus = 'in_stock' | 'low_stock' | 'out_of_stock';
@@ -268,76 +269,46 @@ function getStockStatus(stock: number, minStock: number): StockStatus {
   return 'in_stock';
 }
 
-function generateReservationNumber(): string {
-  const year = new Date().getFullYear();
-  const rand = Math.floor(Math.random() * 90000) + 10000;
-  return `RES-${year}-${rand}`;
-}
-
 export const reservationService = {
   async getAll(statusFilter?: ReservationStatus | 'all', typeFilter?: ReservationType | 'all', recoveryFilter?: RecoveryMode | 'all'): Promise<Reservation[]> {
-    const supabase = createClient();
     try {
-      let query = supabase
-        .from('reservations')
-        .select('*')
-        .order('created_at', { ascending: false });
-      if (statusFilter && statusFilter !== 'all') {
-        query = query.eq('reservation_status', statusFilter);
-      }
-      if (typeFilter && typeFilter !== 'all') {
-        query = query.eq('reservation_type', typeFilter);
-      }
-      if (recoveryFilter && recoveryFilter !== 'all') {
-        query = query.eq('recovery_mode', recoveryFilter);
-      }
-      const { data, error } = await query;
-      if (error) { console.log('reservationService.getAll error:', error.message); return []; }
-      return (data ?? []).map(mapReservation);
+      const params = new URLSearchParams();
+      if (statusFilter && statusFilter !== 'all') params.set('status', statusFilter);
+      if (typeFilter && typeFilter !== 'all') params.set('type', typeFilter);
+      if (recoveryFilter && recoveryFilter !== 'all') params.set('recovery', recoveryFilter);
+      const res = await fetch(`/api/reservations?${params}`).catch(() => null);
+      if (!res?.ok) return [];
+      const data = await res.json();
+      return (Array.isArray(data) ? data : []).map(mapReservation);
     } catch (e: any) { console.log('reservationService.getAll exception:', e.message); return []; }
   },
 
   async search(query: string): Promise<Reservation[]> {
-    const supabase = createClient();
     try {
-      const q = query.trim().toLowerCase();
-      const { data, error } = await supabase
-        .from('reservations')
-        .select('*')
-        .or(`client_name.ilike.%${q}%,client_phone.ilike.%${q}%,reservation_number.ilike.%${q}%`)
-        .order('created_at', { ascending: false })
-        .limit(20);
-      if (error) { console.log('reservationService.search error:', error.message); return []; }
-      return (data ?? []).map(mapReservation);
+      const res = await fetch(`/api/reservations?search=${encodeURIComponent(query.trim())}`).catch(() => null);
+      if (!res?.ok) return [];
+      const data = await res.json();
+      return (Array.isArray(data) ? data : []).map(mapReservation);
     } catch (e: any) { console.log('reservationService.search exception:', e.message); return []; }
   },
 
   async getById(id: string): Promise<Reservation | null> {
-    const supabase = createClient();
     try {
-      const { data, error } = await supabase
-        .from('reservations')
-        .select('*')
-        .eq('id', id)
-        .maybeSingle();
-      if (error) { console.log('reservationService.getById error:', error.message); return null; }
+      const res = await fetch(`/api/reservations/${id}`).catch(() => null);
+      if (!res?.ok) return null;
+      const data = await res.json();
       return data ? mapReservation(data) : null;
     } catch (e: any) { console.log('reservationService.getById exception:', e.message); return null; }
   },
 
   async searchProducts(query: string): Promise<ProductSearchResult[]> {
-    const supabase = createClient();
     try {
       const q = query.trim();
       if (!q) return [];
-      const { data, error } = await supabase
-        .from('products')
-        .select('id, name, ref, barcode, image_url, stock, min_stock, sell_price_ttc, category, status, is_kit')
-        .or(`name.ilike.%${q}%,ref.ilike.%${q}%,barcode.ilike.%${q}%,category.ilike.%${q}%`)
-        .order('name')
-        .limit(15);
-      if (error) { console.log('reservationService.searchProducts error:', error.message); return []; }
-      return (data ?? []).map((row: any): ProductSearchResult => ({
+      const res = await fetch(`/api/products/search?q=${encodeURIComponent(q)}&limit=15`).catch(() => null);
+      if (!res?.ok) return [];
+      const json = await res.json();
+      return (json.products ?? []).map((row: any): ProductSearchResult => ({
         id: row.id,
         name: row.name,
         ref: row.ref,
@@ -364,17 +335,19 @@ export const reservationService = {
   },
 
   async upsertClientByPhone(phone: string, name: string, email?: string): Promise<{ id: string; created: boolean; emailUpdated: boolean } | null> {
-    const supabase = createClient();
     try {
-      const { data: existing } = await supabase
-        .from('clients')
-        .select('id, email')
-        .eq('phone', phone.trim())
-        .maybeSingle();
+      // Search existing client by phone via admin API
+      const searchRes = await fetch(`/api/clients?phone=${encodeURIComponent(phone.trim())}`).catch(() => null);
+      const searchData = searchRes?.ok ? await searchRes.json() : null;
+      const existing = Array.isArray(searchData) ? searchData.find((c: any) => c.phone === phone.trim()) : null;
 
       if (existing) {
         if (!existing.email && email) {
-          await supabase.from('clients').update({ email }).eq('id', existing.id);
+          await fetch(`/api/clients/${existing.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email }),
+          }).catch(() => {});
           return { id: existing.id, created: false, emailUpdated: true };
         }
         return { id: existing.id, created: false, emailUpdated: false };
@@ -383,9 +356,10 @@ export const reservationService = {
       const parts = name.trim().split(' ');
       const firstName = parts[0] || name;
       const lastName = parts.slice(1).join(' ') || '';
-      const { data: newClient, error } = await supabase
-        .from('clients')
-        .insert({
+      const createRes = await fetch('/api/clients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           first_name: firstName,
           last_name: lastName,
           phone: phone.trim(),
@@ -394,20 +368,20 @@ export const reservationService = {
           gender: 'not_specified',
           country: 'France',
           is_active: true,
-        })
-        .select('id')
-        .single();
-      if (error || !newClient) return null;
-      return { id: newClient.id, created: true, emailUpdated: false };
+        }),
+      }).catch(() => null);
+      if (!createRes?.ok) return null;
+      const created = await createRes.json();
+      if (!created?.id) return null;
+      return { id: created.id, created: true, emailUpdated: false };
     } catch (e: any) { console.log('upsertClientByPhone error:', e.message); return null; }
   },
 
   async create(input: CreateReservationInput): Promise<Reservation> {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('reservations')
-      .insert({
-        reservation_number: generateReservationNumber(),
+    const res = await fetch('/api/reservations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
         client_id: input.clientId || null,
         client_name: input.clientName,
         client_phone: input.clientPhone || null,
@@ -435,20 +409,20 @@ export const reservationService = {
         remise_valeur: input.remiseValeur ?? null,
         remise_montant: input.remiseMontant ?? null,
         remise_motif: input.remiseMotif ?? null,
-      })
-      .select()
-      .single();
-    if (error) {
-      console.log('reservationService.create error:', error.message);
-      throw new Error(error.message);
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error ?? `HTTP ${res.status}`);
     }
+    const data = await res.json();
 
     for (const item of input.items) {
       if (item.productId) {
-        await supabase.rpc('deduct_stock_on_reservation', {
-          p_product_id: item.productId,
-          p_qty: item.qty,
-        });
+        fetch('/api/reservations/stock-rpc', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'deduct', productId: item.productId, qty: item.qty }),
+        }).catch(() => {});
       }
     }
 
@@ -457,7 +431,6 @@ export const reservationService = {
 
   /** Called from POS when a deposit is collected — creates reservation with deposit_paid status */
   async createFromPOS(input: CreateFromPOSInput): Promise<Reservation | null> {
-    const supabase = createClient();
     try {
       const now = new Date().toISOString();
       const today = now.split('T')[0];
@@ -469,10 +442,10 @@ export const reservationService = {
         accounting_date: today,
         cashier_name: input.cashierName || null,
       }] : [];
-      const { data, error } = await supabase
-        .from('reservations')
-        .insert({
-          reservation_number: generateReservationNumber(),
+      const res = await fetch('/api/reservations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           client_id: null,
           client_name: input.clientName,
           client_phone: input.clientPhone || null,
@@ -493,16 +466,17 @@ export const reservationService = {
           cashier_name: input.cashierName || null,
           pos_sale_id: input.posSaleId || null,
           deposits: posDepositEntry,
-        })
-        .select()
-        .single();
-      if (error) { console.log('reservationService.createFromPOS error:', error.message); return null; }
+        }),
+      }).catch(() => null);
+      if (!res?.ok) { console.log('reservationService.createFromPOS error: HTTP', res?.status); return null; }
+      const data = await res.json();
 
-      if (data) {
-        for (const item of input.items) {
-          if (item.productId) {
-            try { await supabase.rpc('deduct_stock_on_reservation', { p_product_id: item.productId, p_qty: item.qty }); } catch {}
-          }
+      for (const item of input.items) {
+        if (item.productId) {
+          fetch('/api/reservations/stock-rpc', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'deduct', productId: item.productId, qty: item.qty }),
+          }).catch(() => {});
         }
       }
 
@@ -515,22 +489,14 @@ export const reservationService = {
    * Sets deposit_accounting_date to today so it appears in daily revenue correctly.
    */
   async recordDeposit(id: string, input: UpdateDepositInput): Promise<Reservation | null> {
-    const supabase = createClient();
     try {
-      const today = new Date().toISOString().split('T')[0];
-      const { data, error } = await supabase
-        .from('reservations')
-        .update({
-          deposit_paid: input.depositPaid,
-          deposit_payment_method: input.depositPaymentMethod,
-          deposit_paid_at: new Date().toISOString(),
-          deposit_accounting_date: today,
-          reservation_status: 'deposit_paid',
-        })
-        .eq('id', id)
-        .select()
-        .single();
-      if (error) { console.log('reservationService.recordDeposit error:', error.message); return null; }
+      const res = await fetch(`/api/reservations/${id}/add-deposit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: input.depositPaid, method: input.depositPaymentMethod }),
+      }).catch(() => null);
+      if (!res?.ok) { console.log('reservationService.recordDeposit error: HTTP', res?.status); return null; }
+      const data = await res.json();
       return data ? mapReservation(data) : null;
     } catch (e: any) { console.log('reservationService.recordDeposit exception:', e.message); return null; }
   },
@@ -541,140 +507,83 @@ export const reservationService = {
    * Sets balance_accounting_date to today.
    */
   async recordBalance(id: string, input: RecordBalanceInput): Promise<Reservation | null> {
-    const supabase = createClient();
     try {
-      const today = new Date().toISOString().split('T')[0];
-
-      const { data: existing } = await supabase
-        .from('reservations')
-        .select('items, reservation_status')
-        .eq('id', id)
-        .maybeSingle();
-
-      const { data, error } = await supabase
-        .from('reservations')
-        .update({
-          balance_paid: input.balancePaid,
-          balance_payment_method: input.balancePaymentMethod,
-          balance_paid_at: new Date().toISOString(),
-          balance_accounting_date: today,
-          reservation_status: 'completed',
-          completed_at: new Date().toISOString(),
-        })
-        .eq('id', id)
-        .select()
-        .single();
-      if (error) { console.log('reservationService.recordBalance error:', error.message); return null; }
-
-      // Deduct stock for sold items (only if not already completed)
-      if (existing && existing.reservation_status !== 'completed' && Array.isArray(existing.items)) {
-        const stockItems = (existing.items as any[])
-          .filter((item) => item.productId || item.product_id)
-          .map((item) => ({
-            productId: item.productId || item.product_id,
-            name: item.name || item.productName || '',
-            qty: Number(item.qty || item.quantity) || 1,
-          }));
-        if (stockItems.length > 0) {
-          await deductStockForSale(stockItems, `RES-${id.slice(0, 8).toUpperCase()}`, 'reservation', 'Réservation', 'completed', 'reservation');
-        }
-      }
-
+      const res = await fetch(`/api/reservations/${id}/record-balance`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: input.balancePaid, method: input.balancePaymentMethod, cashierName: input.cashierName }),
+      }).catch(() => null);
+      if (!res?.ok) { console.log('reservationService.recordBalance error: HTTP', res?.status); return null; }
+      const data = await res.json();
       return data ? mapReservation(data) : null;
     } catch (e: any) { console.log('reservationService.recordBalance exception:', e.message); return null; }
   },
 
   async markReady(id: string): Promise<Reservation | null> {
-    const supabase = createClient();
     try {
-      const { data, error } = await supabase
-        .from('reservations')
-        .update({ reservation_status: 'ready', ready_at: new Date().toISOString() })
-        .eq('id', id)
-        .select()
-        .single();
-      if (error) { console.log('reservationService.markReady error:', error.message); return null; }
+      const res = await fetch(`/api/reservations/${id}/mark-ready`, { method: 'POST' }).catch(() => null);
+      if (!res?.ok) { console.log('reservationService.markReady error: HTTP', res?.status); return null; }
+      const data = await res.json();
       return data ? mapReservation(data) : null;
     } catch (e: any) { console.log('reservationService.markReady exception:', e.message); return null; }
   },
 
   async markCompleted(id: string): Promise<Reservation | null> {
-    const supabase = createClient();
     try {
-      const { data: existing } = await supabase
-        .from('reservations')
-        .select('items, reservation_status')
-        .eq('id', id)
-        .maybeSingle();
-
-      const { data, error } = await supabase
-        .from('reservations')
-        .update({ reservation_status: 'completed', completed_at: new Date().toISOString() })
-        .eq('id', id)
-        .select()
-        .single();
-      if (error) { console.log('reservationService.markCompleted error:', error.message); return null; }
+      const res = await fetch(`/api/reservations/${id}/mark-completed`, { method: 'POST' }).catch(() => null);
+      if (!res?.ok) { console.log('reservationService.markCompleted error: HTTP', res?.status); return null; }
+      const data = await res.json();
 
       // Deduct stock for sold items (only if not already completed)
-      if (existing && existing.reservation_status !== 'completed' && Array.isArray(existing.items)) {
-        const stockItems = (existing.items as any[])
-          .filter((item) => item.productId || item.product_id)
-          .map((item) => ({
+      if (data.previousStatus !== 'completed' && Array.isArray(data.items)) {
+        const stockItems = (data.items as any[])
+          .filter((item: any) => item.productId || item.product_id)
+          .map((item: any) => ({
             productId: item.productId || item.product_id,
             name: item.name || item.productName || '',
             qty: Number(item.qty || item.quantity) || 1,
           }));
         if (stockItems.length > 0) {
-          await deductStockForSale(stockItems, `RES-${id.slice(0, 8).toUpperCase()}`, 'reservation', 'Réservation', 'completed', 'reservation');
+          deductStockForSale(stockItems, `RES-${id.slice(0, 8).toUpperCase()}`, 'reservation', 'Réservation', 'completed', 'reservation').catch(() => {});
         }
       }
 
-      return data ? mapReservation(data) : null;
+      return mapReservation(data);
     } catch (e: any) { console.log('reservationService.markCompleted exception:', e.message); return null; }
   },
 
   async cancel(id: string, reason?: string): Promise<Reservation | null> {
-    const supabase = createClient();
     try {
-      const { data: existing } = await supabase
-        .from('reservations')
-        .select('items, reservation_status')
-        .eq('id', id)
-        .maybeSingle();
+      const res = await fetch(`/api/reservations/${id}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: reason || null }),
+      }).catch(() => null);
+      if (!res?.ok) { console.log('reservationService.cancel error: HTTP', res?.status); return null; }
+      const data = await res.json();
 
-      const { data, error } = await supabase
-        .from('reservations')
-        .update({
-          reservation_status: 'cancelled',
-          cancelled_at: new Date().toISOString(),
-          cancellation_reason: reason || null,
-        })
-        .eq('id', id)
-        .select()
-        .single();
-      if (error) { console.log('reservationService.cancel error:', error.message); return null; }
-
-      if (existing && existing.reservation_status !== 'cancelled') {
-        const items: ReservationItem[] = Array.isArray(existing.items) ? existing.items : [];
+      if (data.previousStatus !== 'cancelled' && Array.isArray(data.items)) {
+        const items: ReservationItem[] = data.items;
         for (const item of items) {
           if (item.productId) {
-            try { await supabase.rpc('reinject_stock_on_cancel', { p_product_id: item.productId, p_qty: item.qty }); } catch {}
+            fetch('/api/reservations/stock-rpc', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'reinject', productId: item.productId, qty: item.qty }),
+            }).catch(() => {});
           }
         }
       }
 
-      return data ? mapReservation(data) : null;
+      return mapReservation(data);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (e: any) { console.log('reservationService.cancel exception:', e.message); return null; }
   },
 
   async update(id: string, input: Partial<CreateReservationInput> & { items?: ReservationItem[] }): Promise<Reservation> {
-    const supabase = createClient();
     try {
-      const { data: existing } = await supabase
-        .from('reservations')
-        .select('items, total_amount')
-        .eq('id', id)
-        .maybeSingle();
+      // Get current items for stock comparison
+      const existingRes = await fetch(`/api/reservations/${id}`).catch(() => null);
+      const existing = existingRes?.ok ? await existingRes.json() : null;
 
       const updatePayload: Record<string, any> = {};
       if (input.clientId !== undefined) updatePayload.client_id = input.clientId || null;
@@ -712,16 +621,16 @@ export const reservationService = {
       if (input.remiseMontant !== undefined) updatePayload.remise_montant = input.remiseMontant ?? null;
       if (input.remiseMotif !== undefined) updatePayload.remise_motif = input.remiseMotif ?? null;
 
-      const { data, error } = await supabase
-        .from('reservations')
-        .update(updatePayload)
-        .eq('id', id)
-        .select()
-        .single();
-      if (error) {
-        console.log('reservationService.update error:', error.message);
-        throw new Error(error.message);
+      const patchRes = await fetch(`/api/reservations/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatePayload),
+      });
+      if (!patchRes.ok) {
+        const err = await patchRes.json().catch(() => ({}));
+        throw new Error(err.error ?? `HTTP ${patchRes.status}`);
       }
+      const data = await patchRes.json();
 
       if (existing && input.items) {
         const oldItems: ReservationItem[] = Array.isArray(existing.items) ? existing.items : [];
@@ -732,12 +641,18 @@ export const reservationService = {
         if (itemsKey(oldItems) !== itemsKey(newItems)) {
           for (const item of oldItems) {
             if (item.productId) {
-              try { await supabase.rpc('reinject_stock_on_cancel', { p_product_id: item.productId, p_qty: item.qty }); } catch {}
+              fetch('/api/reservations/stock-rpc', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'reinject', productId: item.productId, qty: item.qty }),
+            }).catch(() => {});
             }
           }
           for (const item of newItems) {
             if (item.productId) {
-              try { await supabase.rpc('deduct_stock_on_reservation', { p_product_id: item.productId, p_qty: item.qty }); } catch {}
+              fetch('/api/reservations/stock-rpc', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'deduct', productId: item.productId, qty: item.qty }),
+              }).catch(() => {});
             }
           }
         }
@@ -751,19 +666,16 @@ export const reservationService = {
   },
 
   async getStats(): Promise<ReservationStats> {
-    const supabase = createClient();
     const empty: ReservationStats = {
       total: 0, pending: 0, depositPaid: 0, ready: 0, completed: 0, cancelled: 0,
       totalDepositsCollected: 0, totalAmountPending: 0, totalBalancesCollected: 0,
       totalRealRevenue: 0, pendingBalanceCount: 0, byType: {}, byRecovery: {},
     };
     try {
-      const { data, error } = await supabase
-        .from('reservations')
-        .select('reservation_status, deposit_paid, balance_paid, total_amount, reservation_type, recovery_mode');
-      if (error) { return empty; }
-      const rows = data ?? [];
-      const activeRows = rows.filter((r) => r.reservation_status !== 'cancelled' && r.reservation_status !== 'completed');
+      const res = await fetch('/api/reservations/stats').catch(() => null);
+      if (!res?.ok) return empty;
+      const rows: any[] = (await res.json()) ?? [];
+      const activeRows = rows.filter((r: any) => r.reservation_status !== 'cancelled' && r.reservation_status !== 'completed');
 
       const byType: Partial<Record<ReservationType, number>> = {};
       const byRecovery: Partial<Record<RecoveryMode, number>> = {};
@@ -782,22 +694,22 @@ export const reservationService = {
         0
       );
 
-      const nonCancelledRows = rows.filter((r) => r.reservation_status !== 'cancelled');
-      const totalDepositsCollected = nonCancelledRows.reduce((sum, r) => sum + parseFloat(r.deposit_paid ?? 0), 0);
-      const totalBalancesCollected = nonCancelledRows.reduce((sum, r) => sum + parseFloat(r.balance_paid ?? 0), 0);
+      const nonCancelledRows = rows.filter((r: any) => r.reservation_status !== 'cancelled');
+      const totalDepositsCollected = nonCancelledRows.reduce((sum: number, r: any) => sum + parseFloat(r.deposit_paid ?? 0), 0);
+      const totalBalancesCollected = nonCancelledRows.reduce((sum: number, r: any) => sum + parseFloat(r.balance_paid ?? 0), 0);
       // Real revenue = deposits + balances (no double counting — each is recorded separately on different days)
       const totalRealRevenue = totalDepositsCollected + totalBalancesCollected;
-      const pendingBalanceCount = activeRows.filter((r) => rowBalanceDue(r) > 0).length;
+      const pendingBalanceCount = activeRows.filter((r: any) => rowBalanceDue(r) > 0).length;
 
       return {
         total: rows.length,
-        pending: rows.filter((r) => r.reservation_status === 'pending').length,
-        depositPaid: rows.filter((r) => r.reservation_status === 'deposit_paid').length,
-        ready: rows.filter((r) => r.reservation_status === 'ready').length,
-        completed: rows.filter((r) => r.reservation_status === 'completed').length,
-        cancelled: rows.filter((r) => r.reservation_status === 'cancelled').length,
+        pending: rows.filter((r: any) => r.reservation_status === 'pending').length,
+        depositPaid: rows.filter((r: any) => r.reservation_status === 'deposit_paid').length,
+        ready: rows.filter((r: any) => r.reservation_status === 'ready').length,
+        completed: rows.filter((r: any) => r.reservation_status === 'completed').length,
+        cancelled: rows.filter((r: any) => r.reservation_status === 'cancelled').length,
         totalDepositsCollected,
-        totalAmountPending: activeRows.reduce((sum, r) => sum + rowBalanceDue(r), 0),
+        totalAmountPending: activeRows.reduce((sum: number, r: any) => sum + rowBalanceDue(r), 0),
         totalBalancesCollected,
         totalRealRevenue,
         pendingBalanceCount,

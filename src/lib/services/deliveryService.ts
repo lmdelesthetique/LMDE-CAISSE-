@@ -1,7 +1,5 @@
 'use client';
 
-import { createClient } from '@/lib/supabase/client';
-
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type DeliveryStatus = 'pending' | 'assigned' | 'en_route' | 'arrived' | 'delivered' | 'cancelled' | 'problem';
@@ -97,221 +95,139 @@ function mapDelivery(row: any): Delivery {
 
 // ─── Service ──────────────────────────────────────────────────────────────────
 
+// ─── Admin API helpers ───────────────────────────────────────────────────────
+
+async function patchDelivery(id: string, patch: Record<string, any>): Promise<Delivery> {
+  const res = await fetch(`/api/deliveries/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw new Error(`deliveries PATCH ${id}: HTTP ${res.status}`);
+  const data = await res.json();
+  return mapDelivery(data.delivery);
+}
+
 export const deliveryService = {
-  // Admin: get all deliveries with driver info
   async getAll(status?: DeliveryStatus | 'all'): Promise<Delivery[]> {
-    const supabase = createClient();
-    let q = supabase
-      .from('deliveries')
-      .select('*, drivers(first_name, last_name, phone, driver_status)')
-      .order('created_at', { ascending: false });
-    if (status && status !== 'all') q = q.eq('status', status);
-    const { data, error } = await q;
-    if (error) throw error;
+    const params = status && status !== 'all' ? `?status=${status}` : '';
+    const res = await fetch(`/api/deliveries${params}`);
+    if (!res.ok) throw new Error(`deliveries GET: HTTP ${res.status}`);
+    const data = await res.json();
     return (data ?? []).map(mapDelivery);
   },
 
-  // Driver: get deliveries assigned to a driver
   async getForDriver(driverId: string): Promise<Delivery[]> {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('deliveries')
-      .select('*')
-      .eq('assigned_to_driver', driverId)
-      .not('status', 'eq', 'cancelled')
-      .order('created_at', { ascending: false });
-    if (error) throw error;
+    const res = await fetch(`/api/deliveries?driverId=${driverId}`);
+    if (!res.ok) throw new Error(`deliveries getForDriver: HTTP ${res.status}`);
+    const data = await res.json();
     return (data ?? []).map(mapDelivery);
   },
 
   async getById(id: string): Promise<Delivery | null> {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('deliveries')
-      .select('*, drivers(first_name, last_name, phone)')
-      .eq('id', id)
-      .single();
-    if (error) return null;
-    return mapDelivery(data);
+    const res = await fetch(`/api/deliveries/${id}`).catch(() => null);
+    if (!res?.ok) return null;
+    return mapDelivery(await res.json());
   },
 
   async create(input: CreateDeliveryInput): Promise<Delivery> {
-    const supabase = createClient();
-    const insertData: any = {
-      client_name: input.clientName,
-      client_phone: input.clientPhone ?? null,
-      delivery_address: input.deliveryAddress,
-      delivery_notes: input.deliveryNotes ?? null,
-      products: input.products ?? null,
-      total_amount: input.totalAmount ?? null,
-      estimated_time: input.estimatedTime ?? null,
-      shopify_order_id: input.shopifyOrderId ?? null,
-      shopify_order_number: input.shopifyOrderNumber ?? null,
-      status: input.assignedTo ? 'assigned' : 'pending',
-    };
-    if (input.assignedTo) {
-      insertData.assigned_to_driver = input.assignedTo;
-      insertData.assigned_at = new Date().toISOString();
-    }
-    const { data, error } = await supabase
-      .from('deliveries')
-      .insert(insertData)
-      .select()
-      .single();
-    if (error) throw error;
-    return mapDelivery(data);
+    const res = await fetch('/api/deliveries', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    if (!res.ok) throw new Error(`deliveries POST: HTTP ${res.status}`);
+    const data = await res.json();
+    return mapDelivery(data.delivery);
   },
 
   async assign(id: string, driverId: string): Promise<Delivery> {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('deliveries')
-      .update({
-        assigned_to_driver: driverId,
-        assigned_at: new Date().toISOString(),
-        status: 'assigned',
-      })
-      .eq('id', id)
-      .select()
-      .single();
-    if (error) throw error;
-    return mapDelivery(data);
+    return patchDelivery(id, {
+      assigned_to_driver: driverId,
+      assigned_at: new Date().toISOString(),
+      status: 'assigned',
+    });
   },
 
   async startRoute(id: string): Promise<Delivery> {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('deliveries')
-      .update({ status: 'en_route', en_route_at: new Date().toISOString() })
-      .eq('id', id)
-      .select()
-      .single();
-    if (error) throw error;
-    return mapDelivery(data);
+    return patchDelivery(id, { status: 'en_route', en_route_at: new Date().toISOString() });
   },
 
   async markArrived(id: string): Promise<Delivery> {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('deliveries')
-      .update({ status: 'arrived', arrived_at: new Date().toISOString() })
-      .eq('id', id)
-      .select()
-      .single();
-    if (error) throw error;
-    return mapDelivery(data);
+    return patchDelivery(id, { status: 'arrived', arrived_at: new Date().toISOString() });
   },
 
   async confirmDelivery(
     id: string,
     opts: { signatureUrl?: string; photoUrl?: string; driverNotes?: string }
   ): Promise<Delivery> {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('deliveries')
-      .update({
-        status: 'delivered',
-        delivered_at: new Date().toISOString(),
-        signature_url: opts.signatureUrl ?? null,
-        photo_url: opts.photoUrl ?? null,
-        driver_notes: opts.driverNotes ?? null,
-      })
-      .eq('id', id)
-      .select()
-      .single();
-    if (error) throw error;
-    return mapDelivery(data);
+    return patchDelivery(id, {
+      status: 'delivered',
+      delivered_at: new Date().toISOString(),
+      signature_url: opts.signatureUrl ?? null,
+      photo_url: opts.photoUrl ?? null,
+      driver_notes: opts.driverNotes ?? null,
+    });
   },
 
   async cancel(id: string): Promise<void> {
-    const supabase = createClient();
-    const { error } = await supabase
-      .from('deliveries')
-      .update({ status: 'cancelled' })
-      .eq('id', id);
-    if (error) throw error;
+    const res = await fetch(`/api/deliveries/${id}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(`deliveries DELETE ${id}: HTTP ${res.status}`);
   },
 
-  // Upload signature base64 to storage
+  // Storage uploads stay on anon client — public buckets, no RLS on storage
   async uploadSignature(deliveryId: string, base64: string): Promise<string> {
+    const { createClient } = await import('@/lib/supabase/client');
     const supabase = createClient();
     const blob = base64ToBlob(base64, 'image/png');
     const path = `${deliveryId}/signature.png`;
-    const { error } = await supabase.storage
-      .from('signatures')
-      .upload(path, blob, { upsert: true, contentType: 'image/png' });
+    const { error } = await supabase.storage.from('signatures').upload(path, blob, { upsert: true, contentType: 'image/png' });
     if (error) throw error;
-    const { data } = supabase.storage.from('signatures').getPublicUrl(path);
-    return data.publicUrl;
+    return supabase.storage.from('signatures').getPublicUrl(path).data.publicUrl;
   },
 
-  // Upload driver invoice (PDF or image) to storage
   async uploadDriverInvoice(deliveryId: string, file: File): Promise<string> {
+    const { createClient } = await import('@/lib/supabase/client');
     const supabase = createClient();
     const ext = file.name.split('.').pop() ?? 'pdf';
     const path = `${deliveryId}/invoice_${Date.now()}.${ext}`;
-    const { error } = await supabase.storage
-      .from('driver-invoices')
-      .upload(path, file, { upsert: true, contentType: file.type });
+    const { error } = await supabase.storage.from('driver-invoices').upload(path, file, { upsert: true, contentType: file.type });
     if (error) throw error;
-    const { data } = supabase.storage.from('driver-invoices').getPublicUrl(path);
-    return data.publicUrl;
+    return supabase.storage.from('driver-invoices').getPublicUrl(path).data.publicUrl;
   },
 
-  // Upload delivery photo to storage
   async uploadPhoto(deliveryId: string, file: File): Promise<string> {
+    const { createClient } = await import('@/lib/supabase/client');
     const supabase = createClient();
     const ext = file.name.split('.').pop() ?? 'jpg';
     const path = `${deliveryId}/photo.${ext}`;
-    const { error } = await supabase.storage
-      .from('delivery-photos')
-      .upload(path, file, { upsert: true, contentType: file.type });
+    const { error } = await supabase.storage.from('delivery-photos').upload(path, file, { upsert: true, contentType: file.type });
     if (error) throw error;
-    const { data } = supabase.storage.from('delivery-photos').getPublicUrl(path);
-    return data.publicUrl;
+    return supabase.storage.from('delivery-photos').getPublicUrl(path).data.publicUrl;
   },
 
-  // Driver auth: check phone + pin_code in drivers table
   async driverLogin(phone: string, pin: string): Promise<{ id: string; name: string } | null> {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('drivers')
-      .select('id, first_name, last_name')
-      .eq('phone', phone)
-      .eq('pin_code', pin)
-      .eq('status', 'active')
-      .maybeSingle();
-    if (error || !data) return null;
-    return {
-      id: data.id,
-      name: `${data.first_name ?? ''} ${data.last_name ?? ''}`.trim(),
-    };
+    const res = await fetch('/api/deliveries/driver-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, pin }),
+    }).catch(() => null);
+    if (!res?.ok) return null;
+    return await res.json();
   },
 
-  // Update driver online/offline status
   async setDriverStatus(driverId: string, status: 'on' | 'off'): Promise<void> {
-    const supabase = createClient();
-    const { error } = await supabase
-      .from('drivers')
-      .update({ driver_status: status })
-      .eq('id', driverId);
-    if (error) throw error;
+    await fetch(`/api/deliveries/drivers/${driverId}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ driver_status: status }),
+    }).catch(() => {});
   },
 
-  // Admin: get all active drivers
   async getActiveDrivers(): Promise<{ id: string; name: string; phone: string | null; driverStatus: string }[]> {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('drivers')
-      .select('id, first_name, last_name, phone, driver_status')
-      .eq('status', 'active');
-    if (error) throw error;
-    return (data ?? []).map((r: any) => ({
-      id: r.id,
-      name: `${r.first_name ?? ''} ${r.last_name ?? ''}`.trim(),
-      phone: r.phone ?? null,
-      driverStatus: r.driver_status ?? 'off',
-    }));
+    const res = await fetch('/api/deliveries/drivers').catch(() => null);
+    if (!res?.ok) return [];
+    return await res.json();
   },
 };
 

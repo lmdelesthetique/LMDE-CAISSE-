@@ -273,225 +273,145 @@ function mapMessage(row: any): SupplierMessage {
 
 export const supplierService = {
   async getAll(): Promise<Supplier[]> {
-    const supabase = createClient();
     try {
-      const { data, error } = await supabase
-        .from('suppliers')
-        .select('*')
-        .eq('is_active', true)
-        .order('company_name', { ascending: true });
-      if (error) { if (isSchemaError(error)) throw error; return []; }
+      const res = await fetch('/api/suppliers').catch(() => null);
+      if (!res?.ok) return [];
+      const data = await res.json();
       return (data || []).map(mapSupplier);
     } catch (e: any) { throw e; }
   },
 
   async getById(id: string): Promise<Supplier | null> {
-    const supabase = createClient();
     try {
-      const { data, error } = await supabase.from('suppliers').select('*').eq('id', id).maybeSingle();
-      if (error) { if (isSchemaError(error)) throw error; return null; }
+      const res = await fetch(`/api/suppliers/${id}`).catch(() => null);
+      if (!res?.ok) return null;
+      const data = await res.json();
       return data ? mapSupplier(data) : null;
     } catch (e: any) { throw e; }
   },
 
   async create(payload: Partial<Supplier>): Promise<Supplier | null> {
-    const supabase = createClient();
     try {
-      const pin = String(Math.floor(100000 + Math.random() * 900000));
-
-      const { data, error } = await supabase
-        .from('suppliers')
-        .insert({
-          company_name: payload.companyName,
-          contact_name: payload.contactName,
-          email: payload.email,
-          phone: payload.phone,
-          whatsapp: payload.whatsapp,
-          wechat: payload.wechat,
-          address: payload.address,
-          country: payload.country || 'Chine',
-          language: payload.language || 'Chinois',
-          website: payload.website,
-          alibaba_link: payload.alibabaLink,
-          categories: payload.categories || [],
-          bank_details: payload.bankDetails,
-          payment_conditions: payload.paymentConditions,
-          production_delay_days: payload.productionDelayDays || 14,
-          shipping_delay_days: payload.shippingDelayDays || 21,
-          minimum_order: payload.minimumOrder,
-          notes: payload.notes,
-          reliability: payload.reliability || 'unknown',
-          portal_login: pin,
-          portal_password_plain: null,
-        })
-        .select()
-        .single();
-      if (error) { if (isSchemaError(error)) throw error; return null; }
-
-      const supplier = data ? mapSupplier(data) : null;
-
-      if (supplier) {
-        // SECURITY DEFINER RPC bypasses RLS on supplier_portal_users
-        const { error: rpcError } = await supabase.rpc('upsert_supplier_portal_pin', {
-          p_supplier_id: supplier.id,
-          p_pin: pin,
-        });
-        if (rpcError) {
-          console.error('[supplierService.create] portal pin rpc error:', rpcError.message);
-        }
-      }
-
-      return supplier;
+      const res = await fetch('/api/suppliers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyName: payload.companyName, contactName: payload.contactName,
+          email: payload.email, phone: payload.phone, whatsapp: payload.whatsapp,
+          wechat: payload.wechat, address: payload.address, country: payload.country,
+          language: payload.language, website: payload.website, alibabaLink: payload.alibabaLink,
+          categories: payload.categories, bankDetails: payload.bankDetails,
+          paymentConditions: payload.paymentConditions, productionDelayDays: payload.productionDelayDays,
+          shippingDelayDays: payload.shippingDelayDays, minimumOrder: payload.minimumOrder,
+          notes: payload.notes, reliability: payload.reliability,
+        }),
+      }).catch(() => null);
+      if (!res?.ok) return null;
+      const data = await res.json();
+      return data.supplier ? mapSupplier(data.supplier) : null;
     } catch (e: any) { throw e; }
   },
 
   async update(id: string, payload: Partial<Supplier>): Promise<Supplier | null> {
-    const supabase = createClient();
     try {
-      const updateData: any = {};
-      if (payload.companyName !== undefined) updateData.company_name = payload.companyName;
-      if (payload.contactName !== undefined) updateData.contact_name = payload.contactName;
-      if (payload.email !== undefined) updateData.email = payload.email;
-      if (payload.phone !== undefined) updateData.phone = payload.phone;
-      if (payload.whatsapp !== undefined) updateData.whatsapp = payload.whatsapp;
-      if (payload.wechat !== undefined) updateData.wechat = payload.wechat;
-      if (payload.address !== undefined) updateData.address = payload.address;
-      if (payload.country !== undefined) updateData.country = payload.country;
-      if (payload.language !== undefined) updateData.language = payload.language;
-      if (payload.website !== undefined) updateData.website = payload.website;
-      if (payload.alibabaLink !== undefined) updateData.alibaba_link = payload.alibabaLink;
-      if (payload.categories !== undefined) updateData.categories = payload.categories;
-      if (payload.bankDetails !== undefined) updateData.bank_details = payload.bankDetails;
-      if (payload.paymentConditions !== undefined) updateData.payment_conditions = payload.paymentConditions;
-      if (payload.productionDelayDays !== undefined) updateData.production_delay_days = payload.productionDelayDays;
-      if (payload.shippingDelayDays !== undefined) updateData.shipping_delay_days = payload.shippingDelayDays;
-      if (payload.minimumOrder !== undefined) updateData.minimum_order = payload.minimumOrder;
-      if (payload.notes !== undefined) updateData.notes = payload.notes;
-      if (payload.reliability !== undefined) updateData.reliability = payload.reliability;
-      if (payload.isActive !== undefined) updateData.is_active = payload.isActive;
-
-      const { data, error } = await supabase.from('suppliers').update(updateData).eq('id', id).select().single();
-      if (error) { if (isSchemaError(error)) throw error; return null; }
-      return data ? mapSupplier(data) : null;
+      const res = await fetch(`/api/suppliers/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }).catch(() => null);
+      if (!res?.ok) return null;
+      const data = await res.json();
+      return data.supplier ? mapSupplier(data.supplier) : null;
     } catch (e: any) { throw e; }
   },
 
   async delete(id: string): Promise<boolean> {
-    const supabase = createClient();
     try {
-      const { error } = await supabase.from('suppliers').update({ is_active: false }).eq('id', id);
-      if (error) { if (isSchemaError(error)) throw error; return false; }
+      const res = await fetch(`/api/suppliers/${id}`, { method: 'DELETE' }).catch(() => null);
+      if (!res?.ok) return false;
       return true;
     } catch (e: any) { throw e; }
   },
 
   async getDeleteInfo(id: string): Promise<{ activeOrders: number; linkedProducts: number }> {
-    const supabase = createClient();
-    const ACTIVE_STATUSES = ['sent','awaiting_validation','validated','awaiting_payment','payment_sent','payment_confirmed','in_production','ready_to_ship','shipped','partially_received'];
-    const [ordersRes, productsRes] = await Promise.all([
-      supabase.from('fo_orders').select('*', { count: 'exact', head: true }).eq('supplier_id', id).in('status', ACTIVE_STATUSES),
-      supabase.from('products').select('*', { count: 'exact', head: true }).eq('supplier_id', id),
-    ]);
-    return { activeOrders: ordersRes.count ?? 0, linkedProducts: productsRes.count ?? 0 };
+    try {
+      const res = await fetch(`/api/suppliers/${id}/stats`).catch(() => null);
+      if (!res?.ok) return { activeOrders: 0, linkedProducts: 0 };
+      const data = await res.json();
+      return { activeOrders: data.activeOrders ?? 0, linkedProducts: 0 };
+    } catch { return { activeOrders: 0, linkedProducts: 0 }; }
   },
 
   async permanentDelete(id: string): Promise<boolean> {
-    const supabase = createClient();
     try {
-      // Delink products
-      await supabase.from('products').update({ supplier_id: null }).eq('supplier_id', id);
-      // Remove portal access
-      await supabase.from('supplier_portal_users').delete().eq('supplier_id', id);
-      // Hard delete
-      const { error } = await supabase.from('suppliers').delete().eq('id', id);
-      if (error) { if (isSchemaError(error)) throw error; return false; }
-      return true;
+      // Use PATCH to delink products, then DELETE supplier
+      await fetch(`/api/products/batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delink-supplier', supplierId: id }),
+      }).catch(() => {});
+      const res = await fetch(`/api/suppliers/${id}`, { method: 'DELETE' }).catch(() => null);
+      return !!res?.ok;
     } catch (e: any) { throw e; }
   },
 
   // ─── Orders ────────────────────────────────────────────────────────────────
 
   async getOrders(supplierId: string): Promise<SupplierOrder[]> {
-    const supabase = createClient();
     try {
-      const { data, error } = await supabase
-        .from('fo_orders')
-        .select('*, fo_order_lines(*)')
-        .eq('supplier_id', supplierId)
-        .order('created_at', { ascending: false });
-      if (error) { if (isSchemaError(error)) throw error; return []; }
+      const res = await fetch(`/api/fo-orders?supplierId=${supplierId}`).catch(() => null);
+      if (!res?.ok) return [];
+      const data = await res.json();
       return (data || []).map(mapOrder);
     } catch (e: any) { throw e; }
   },
 
   async getAllOrders(): Promise<(SupplierOrder & { supplierName: string })[]> {
-    const supabase = createClient();
     try {
-      const { data, error } = await supabase
-        .from('fo_orders')
-        .select('*, fo_order_lines(*), suppliers(company_name)')
-        .order('created_at', { ascending: false });
-      if (error) { if (isSchemaError(error)) throw error; return []; }
-      return (data || []).map((row) => ({ ...mapOrder(row), supplierName: row.suppliers?.company_name || '' }));
+      const res = await fetch('/api/fo-orders').catch(() => null);
+      if (!res?.ok) return [];
+      const data = await res.json();
+      return (data || []).map((row: any) => ({ ...mapOrder(row), supplierName: row.suppliers?.company_name || '' }));
     } catch (e: any) { throw e; }
   },
 
   async createOrder(payload: Partial<SupplierOrder>): Promise<SupplierOrder | null> {
-    const supabase = createClient();
     try {
-      const orderNum = payload.orderNumber || `CMD-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`;
-      const subtotal = Number(payload.subtotal) || 0;
-      const transportCost = Number(payload.shippingCost) || 0;
-      const customsCost = Number(payload.customsCost) || 0;
-      const totalRealCost = Number(payload.totalAmount) || subtotal + transportCost + customsCost;
-
-      const { data, error } = await supabase
-        .from('fo_orders')
-        .insert({
+      const res = await fetch('/api/fo-orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           supplier_id: payload.supplierId,
-          order_number: orderNum,
-          order_status: payload.orderStatus || 'draft',
-          notes: payload.notes || null,
-          subtotal,
-          transport_cost: transportCost,
-          customs_cost: customsCost,
-          total_real_cost: totalRealCost,
-        })
-        .select()
-        .single();
-      if (error) { if (isSchemaError(error)) throw error; return null; }
-
-      const items = payload.items || [];
-      if (items.length > 0) {
-        await supabase.from('fo_order_lines').insert(
-          items.map((item) => ({
-            order_id: data.id,
+          order_number: payload.orderNumber,
+          order_status: payload.orderStatus,
+          notes: payload.notes,
+          subtotal: payload.subtotal,
+          transport_cost: payload.shippingCost,
+          customs_cost: payload.customsCost,
+          total_real_cost: payload.totalAmount,
+          items: (payload.items || []).map(item => ({
             product_id: item.productId || null,
             product_name: item.name,
             qty_ordered: Number(item.qty),
             unit_price: Number(item.unit_price),
             line_total: Number(item.total),
-          }))
-        );
-      }
-
-      const { data: full } = await supabase
-        .from('fo_orders')
-        .select('*, fo_order_lines(*)')
-        .eq('id', data.id)
-        .single();
-      return full ? mapOrder(full) : null;
+          })),
+        }),
+      }).catch(() => null);
+      if (!res?.ok) return null;
+      const data = await res.json();
+      return data.order ? mapOrder(data.order) : null;
     } catch (e: any) { throw e; }
   },
 
   async updateOrderStatus(orderId: string, status: OrderStatus, _extra?: Partial<SupplierOrder>): Promise<boolean> {
-    const supabase = createClient();
     try {
-      const { error } = await supabase
-        .from('fo_orders')
-        .update({ order_status: status, updated_at: new Date().toISOString() })
-        .eq('id', orderId);
-      if (error) { if (isSchemaError(error)) throw error; return false; }
+      const res = await fetch(`/api/fo-orders/${orderId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderStatus: status }),
+      }).catch(() => null);
+      if (!res?.ok) return false;
       return true;
     } catch (e: any) { throw e; }
   },
@@ -499,49 +419,35 @@ export const supplierService = {
   // ─── Payments ──────────────────────────────────────────────────────────────
 
   async getPayments(supplierId: string): Promise<SupplierPayment[]> {
-    const supabase = createClient();
     try {
-      const { data, error } = await supabase
-        .from('supplier_payments')
-        .select('*')
-        .eq('supplier_id', supplierId)
-        .order('created_at', { ascending: false });
-      if (error) { if (isSchemaError(error)) throw error; return []; }
+      const res = await fetch(`/api/supplier-payments?supplierId=${supplierId}`).catch(() => null);
+      if (!res?.ok) return [];
+      const data = await res.json();
       return (data || []).map(mapPayment);
     } catch (e: any) { throw e; }
   },
 
   async createPayment(payload: Partial<SupplierPayment>): Promise<SupplierPayment | null> {
-    const supabase = createClient();
     try {
-      const { data, error } = await supabase
-        .from('supplier_payments')
-        .insert({
-          supplier_id: payload.supplierId,
-          order_id: payload.orderId,
-          amount: payload.amount,
-          currency: payload.currency || 'EUR',
-          exchange_rate: payload.exchangeRate || 1,
-          payment_method: payload.paymentMethod || 'wire_transfer',
-          payment_status: payload.paymentStatus || 'pending',
-          proof_url: payload.proofUrl,
-          paid_at: payload.paidAt,
-          notes: payload.notes,
-        })
-        .select()
-        .single();
-      if (error) { if (isSchemaError(error)) throw error; return null; }
-      return data ? mapPayment(data) : null;
+      const res = await fetch('/api/supplier-payments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }).catch(() => null);
+      if (!res?.ok) return null;
+      const data = await res.json();
+      return data.payment ? mapPayment(data.payment) : null;
     } catch (e: any) { throw e; }
   },
 
   async updatePaymentStatus(paymentId: string, status: PaymentStatus): Promise<boolean> {
-    const supabase = createClient();
     try {
-      const updateData: any = { payment_status: status };
-      if (status === 'confirmed') updateData.confirmed_at = new Date().toISOString();
-      const { error } = await supabase.from('supplier_payments').update(updateData).eq('id', paymentId);
-      if (error) { if (isSchemaError(error)) throw error; return false; }
+      const res = await fetch(`/api/supplier-payments?id=${paymentId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payment_status: status }),
+      }).catch(() => null);
+      if (!res?.ok) return false;
       return true;
     } catch (e: any) { throw e; }
   },
@@ -549,49 +455,35 @@ export const supplierService = {
   // ─── Claims ────────────────────────────────────────────────────────────────
 
   async getClaims(supplierId: string): Promise<SupplierClaim[]> {
-    const supabase = createClient();
     try {
-      const { data, error } = await supabase
-        .from('supplier_claims')
-        .select('*')
-        .eq('supplier_id', supplierId)
-        .order('created_at', { ascending: false });
-      if (error) { if (isSchemaError(error)) throw error; return []; }
+      const res = await fetch(`/api/supplier-claims?supplierId=${supplierId}`).catch(() => null);
+      if (!res?.ok) return [];
+      const data = await res.json();
       return (data || []).map(mapClaim);
     } catch (e: any) { throw e; }
   },
 
   async createClaim(payload: Partial<SupplierClaim>): Promise<SupplierClaim | null> {
-    const supabase = createClient();
     try {
-      const { data, error } = await supabase
-        .from('supplier_claims')
-        .insert({
-          supplier_id: payload.supplierId,
-          order_id: payload.orderId,
-          claim_type: payload.claimType || 'other',
-          claim_status: payload.claimStatus || 'draft',
-          requested_action: payload.requestedAction || 'refund',
-          product_name: payload.productName,
-          description: payload.description,
-          affected_quantity: payload.affectedQuantity || 1,
-          estimated_loss: payload.estimatedLoss || 0,
-          photo_urls: payload.photoUrls || [],
-        })
-        .select()
-        .single();
-      if (error) { if (isSchemaError(error)) throw error; return null; }
-      return data ? mapClaim(data) : null;
+      const res = await fetch('/api/supplier-claims', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }).catch(() => null);
+      if (!res?.ok) return null;
+      const data = await res.json();
+      return data.claim ? mapClaim(data.claim) : null;
     } catch (e: any) { throw e; }
   },
 
   async updateClaimStatus(claimId: string, status: ClaimStatus, notes?: string): Promise<boolean> {
-    const supabase = createClient();
     try {
-      const updateData: any = { claim_status: status };
-      if (notes) updateData.resolution_notes = notes;
-      const { error } = await supabase.from('supplier_claims').update(updateData).eq('id', claimId);
-      if (error) { if (isSchemaError(error)) throw error; return false; }
+      const res = await fetch(`/api/supplier-claims?id=${claimId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ claim_status: status, notes }),
+      }).catch(() => null);
+      if (!res?.ok) return false;
       return true;
     } catch (e: any) { throw e; }
   },
@@ -599,24 +491,20 @@ export const supplierService = {
   // ─── Messages ──────────────────────────────────────────────────────────────
 
   async getMessages(supplierId: string): Promise<SupplierMessage[]> {
-    const supabase = createClient();
     try {
-      const { data, error } = await supabase
-        .from('supplier_messages')
-        .select('*')
-        .eq('supplier_id', supplierId)
-        .order('created_at', { ascending: true });
-      if (error) { if (isSchemaError(error)) throw error; return []; }
+      const res = await fetch(`/api/supplier-messages?supplierId=${supplierId}`).catch(() => null);
+      if (!res?.ok) return [];
+      const data = await res.json();
       return (data || []).map(mapMessage);
     } catch (e: any) { throw e; }
   },
 
   async sendMessage(payload: Partial<SupplierMessage>): Promise<SupplierMessage | null> {
-    const supabase = createClient();
     try {
-      const { data, error } = await supabase
-        .from('supplier_messages')
-        .insert({
+      const res = await fetch('/api/supplier-messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           supplier_id: payload.supplierId,
           order_id: payload.orderId,
           claim_id: payload.claimId,
@@ -624,10 +512,10 @@ export const supplierService = {
           content: payload.content,
           attachment_url: payload.attachmentUrl,
           attachment_type: payload.attachmentType,
-        })
-        .select()
-        .single();
-      if (error) { if (isSchemaError(error)) throw error; return null; }
+        }),
+      }).catch(() => null);
+      if (!res?.ok) return null;
+      const data = await res.json();
       return data ? mapMessage(data) : null;
     } catch (e: any) { throw e; }
   },
@@ -635,26 +523,11 @@ export const supplierService = {
   // ─── Analytics ─────────────────────────────────────────────────────────────
 
   async getSupplierStats(supplierId: string) {
-    const supabase = createClient();
     try {
-      const [ordersRes, paymentsRes, claimsRes] = await Promise.all([
-        supabase.from('fo_orders').select('total_real_cost, order_status').eq('supplier_id', supplierId),
-        supabase.from('supplier_payments').select('amount, payment_status').eq('supplier_id', supplierId),
-        supabase.from('supplier_claims').select('estimated_loss, claim_status').eq('supplier_id', supplierId),
-      ]);
-
-      const orders = ordersRes.data || [];
-      const payments = paymentsRes.data || [];
-      const claims = claimsRes.data || [];
-
-      const totalOrders = orders.length;
-      const totalSpent = payments.filter((p) => p.payment_status === 'confirmed').reduce((s, p) => s + Number(p.amount), 0);
-      const totalClaims = claims.length;
-      const totalRefunded = claims.filter((c) => c.claim_status === 'refund_received').reduce((s, c) => s + Number(c.estimated_loss), 0);
-      const activeOrders = orders.filter((o) => !['fully_received', 'closed', 'cancelled'].includes(o.order_status)).length;
-
-      return { totalOrders, totalSpent, totalClaims, totalRefunded, activeOrders };
-    } catch (e: any) {
+      const res = await fetch(`/api/suppliers/${supplierId}/stats`).catch(() => null);
+      if (!res?.ok) return { totalOrders: 0, totalSpent: 0, totalClaims: 0, totalRefunded: 0, activeOrders: 0 };
+      return await res.json();
+    } catch {
       return { totalOrders: 0, totalSpent: 0, totalClaims: 0, totalRefunded: 0, activeOrders: 0 };
     }
   },

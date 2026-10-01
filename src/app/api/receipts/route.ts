@@ -23,13 +23,16 @@ export async function GET(req: NextRequest) {
   const status = searchParams.get('status') ?? 'all';
   // all=true bypasses pagination — used for KPI aggregations
   const allMode = searchParams.get('all') === 'true';
+  // detail=true adds items + subtotal_ht + total_tva — used by computeDaySummary
+  const detailMode = searchParams.get('detail') === 'true';
   const page = parseInt(searchParams.get('page') ?? '0', 10);
   const PAGE_SIZE = 2000; // high enough for any realistic period
 
   console.log('[api/receipts GET] querying from:', from, 'to:', to, 'allMode:', allMode);
 
-  const baseSelect = 'id, ticket_number, created_at, total_amount, payment_method, client_id, client_name, items_count, status, cashier_name, discount_amount, is_demo';
-  const fallbackSelect = 'id, ticket_number, created_at, total_amount, payment_method, client_id, client_name, items_count, status, cashier_name, discount_amount';
+  const detailCols = ', items, subtotal_ht, total_tva';
+  const baseSelect = `id, ticket_number, created_at, total_amount, payment_method, client_id, client_name, items_count, status, cashier_name, discount_amount, is_demo${detailMode ? detailCols : ''}`;
+  const fallbackSelect = `id, ticket_number, created_at, total_amount, payment_method, client_id, client_name, items_count, status, cashier_name, discount_amount${detailMode ? detailCols : ''}`;
 
   const buildQuery = (selectCols: string) => {
     let q = supabase

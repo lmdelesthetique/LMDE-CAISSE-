@@ -21,6 +21,8 @@ const CLIENT_ALLOWED_FIELDS = new Set([
   'first_name', 'last_name', 'phone', 'email', 'address', 'city', 'zip',
   'country', 'birth_date', 'notes', 'acquisition_source', 'client_type',
   'is_pro', 'is_vip', 'pro_profile', 'tags', 'updated_at',
+  'is_active', 'last_purchase_at', 'whatsapp', 'postal_code', 'date_of_birth',
+  'gender', 'loyalty_discount_type', 'loyalty_discount_value', 'balance_due',
 ]);
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

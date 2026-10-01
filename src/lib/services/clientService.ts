@@ -1,6 +1,5 @@
 'use client';
 
-import { createClient } from '@/lib/supabase/client';
 import { fetchAll } from '@/lib/utils/fetchAll';
 
 export interface Client {
@@ -285,42 +284,30 @@ export function getClientDiscount(client: Client, subscription: ClientSubscripti
 
 export const clientService = {
   async getAll(): Promise<Client[]> {
-    const supabase = createClient();
     try {
-      const data = await fetchAll<any>((from, to) =>
-        supabase.from('clients').select('*').neq('is_active', false).order('last_name', { ascending: true }).range(from, to)
-      );
-      return data.map(mapClient);
+      const res = await fetch('/api/clients').catch(() => null);
+      if (!res?.ok) return [];
+      const data = await res.json();
+      return (Array.isArray(data) ? data : data.clients ?? []).map(mapClient);
     } catch (e: any) { console.log('clientService.getAll exception:', e.message); return []; }
   },
 
   async search(query: string, clientType?: string): Promise<Client[]> {
-    const supabase = createClient();
     try {
-      const q = query.trim().toLowerCase();
-      let req = supabase
-        .from('clients')
-        .select('*')
-        .eq('is_active', true)
-        .or(`phone.ilike.%${q}%,email.ilike.%${q}%,first_name.ilike.%${q}%,last_name.ilike.%${q}%`)
-        .order('last_name', { ascending: true })
-        .limit(200);
-      if (clientType && clientType !== 'all') req = req.eq('client_type', clientType);
-      const { data, error } = await req;
-      if (error) { console.log('clientService.search error:', error.message); return []; }
-      return (data ?? []).map(mapClient);
+      const params = new URLSearchParams({ search: query.trim(), full: 'true', limit: '200' });
+      if (clientType && clientType !== 'all') params.set('clientType', clientType);
+      const res = await fetch(`/api/clients?${params}`).catch(() => null);
+      if (!res?.ok) return [];
+      const data = await res.json();
+      return (Array.isArray(data) ? data : []).map(mapClient);
     } catch (e: any) { console.log('clientService.search exception:', e.message); return []; }
   },
 
   async getById(id: string): Promise<Client | null> {
-    const supabase = createClient();
     try {
-      const { data, error } = await supabase
-        .from('clients')
-        .select('*')
-        .eq('id', id)
-        .maybeSingle();
-      if (error) { console.log('clientService.getById error:', error.message); return null; }
+      const res = await fetch(`/api/clients/${id}`).catch(() => null);
+      if (!res?.ok) return null;
+      const data = await res.json();
       return data ? mapClient(data) : null;
     } catch (e: any) { console.log('clientService.getById exception:', e.message); return null; }
   },
@@ -396,63 +383,35 @@ export const clientService = {
   },
 
   async delete(id: string): Promise<boolean> {
-    const supabase = createClient();
     try {
-      const { error } = await supabase
-        .from('clients')
-        .update({ is_active: false })
-        .eq('id', id);
-      if (error) { console.log('clientService.delete error:', error.message); return false; }
-      return true;
+      const res = await fetch(`/api/clients/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: false }),
+      }).catch(() => null);
+      return res?.ok ?? false;
     } catch (e: any) { console.log('clientService.delete exception:', e.message); return false; }
   },
 
   async getPurchases(clientId: string): Promise<ClientPurchase[]> {
-    const supabase = createClient();
     try {
-      const { data: cp } = await supabase
-        .from('client_purchases')
-        .select('*')
-        .eq('client_id', clientId)
-        .order('purchased_at', { ascending: false });
-      if (cp && cp.length > 0) return cp.map(mapPurchase);
-
-      // client_purchases is empty (recordPurchase was never wired up) —
-      // fall back to the receipts table which is always populated via API.
-      const { data: receipts } = await supabase
-        .from('receipts')
-        .select('*')
-        .eq('client_id', clientId)
-        .neq('status', 'cancelled')
-        .order('created_at', { ascending: false })
-        .limit(50);
-      if (receipts && receipts.length > 0) return receipts.map(mapReceiptToPurchase);
-
-      // Secondary fallback: some old receipts may only have client_name, not client_id.
-      // Load the client's name to do a name-based search.
-      const { data: clientRow } = await supabase.from('clients').select('first_name, last_name').eq('id', clientId).maybeSingle();
-      if (clientRow?.last_name) {
-        const { data: byName } = await supabase
-          .from('receipts')
-          .select('*')
-          .ilike('client_name', `%${clientRow.last_name}%`)
-          .neq('status', 'cancelled')
-          .order('created_at', { ascending: false })
-          .limit(50);
-        return (byName ?? []).map(mapReceiptToPurchase);
-      }
+      const res = await fetch(`/api/clients/${clientId}/purchases`).catch(() => null);
+      if (!res?.ok) return [];
+      const data = await res.json();
+      if (Array.isArray(data)) return data.map(mapPurchase);
+      // source === 'receipts' fallback from API
+      if (data.receipts) return (data.receipts as any[]).map(mapReceiptToPurchase);
       return [];
     } catch (e: any) { console.log('clientService.getPurchases exception:', e.message); return []; }
   },
 
   async recordPurchase(input: RecordPurchaseInput): Promise<ClientPurchase | null> {
-    const supabase = createClient();
     try {
       const pointsEarned = input.loyaltyPointsEarned ?? Math.floor(input.totalTtc);
-      const { data, error } = await supabase
-        .from('client_purchases')
-        .insert({
-          client_id: input.clientId,
+      const res = await fetch(`/api/clients/${input.clientId}/purchases`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           receipt_number: input.receiptNumber,
           items: input.items,
           subtotal_ht: input.subtotalHt,
@@ -465,27 +424,26 @@ export const clientService = {
           store_credit_used: input.storeCreditUsed ?? 0,
           cashier_name: input.cashierName ?? null,
           notes: input.notes ?? null,
-        })
-        .select()
-        .single();
-      if (error) { console.log('clientService.recordPurchase error:', error.message); return null; }
-      // Update last_purchase_at
-      await supabase.from('clients').update({ last_purchase_at: new Date().toISOString() }).eq('id', input.clientId);
+        }),
+      }).catch(() => null);
+      if (!res?.ok) { console.log('clientService.recordPurchase error: HTTP', res?.status); return null; }
+      // Update last_purchase_at via admin API (non-blocking)
+      fetch(`/api/clients/${input.clientId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ last_purchase_at: new Date().toISOString() }),
+      }).catch(() => {});
+      const data = await res.json();
       return data ? mapPurchase(data) : null;
     } catch (e: any) { console.log('clientService.recordPurchase exception:', e.message); return null; }
   },
 
   async getLoyaltyTransactions(clientId: string): Promise<LoyaltyTransaction[]> {
-    const supabase = createClient();
     try {
-      const { data, error } = await supabase
-        .from('loyalty_transactions')
-        .select('*')
-        .eq('client_id', clientId)
-        .order('created_at', { ascending: false })
-        .limit(50);
-      if (error) { console.log('clientService.getLoyaltyTransactions error:', error.message); return []; }
-      return (data ?? []).map(mapLoyaltyTransaction);
+      const res = await fetch(`/api/loyalty/transactions?clientId=${clientId}`).catch(() => null);
+      if (!res?.ok) return [];
+      const data = await res.json();
+      return (Array.isArray(data) ? data : []).map(mapLoyaltyTransaction);
     } catch (e: any) { console.log('clientService.getLoyaltyTransactions exception:', e.message); return []; }
   },
 
@@ -512,27 +470,20 @@ export const clientService = {
   // ── Subscriptions ──────────────────────────────────────────────────────────
 
   async getSubscription(clientId: string): Promise<ClientSubscription | null> {
-    const supabase = createClient();
     try {
-      const { data, error } = await supabase
-        .from('client_subscriptions')
-        .select('*')
-        .eq('client_id', clientId)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error) { console.log('getSubscription error:', error.message); return null; }
+      const res = await fetch(`/api/clients/${clientId}/subscription`).catch(() => null);
+      if (!res?.ok) return null;
+      const data = await res.json();
       return data ? mapSubscription(data) : null;
     } catch (e: any) { console.log('getSubscription exception:', e.message); return null; }
   },
 
   async createSubscription(input: CreateSubscriptionInput): Promise<ClientSubscription | null> {
-    const supabase = createClient();
     try {
-      const { data, error } = await supabase
-        .from('client_subscriptions')
-        .insert({
-          client_id: input.clientId,
+      const res = await fetch(`/api/clients/${input.clientId}/subscription`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           subscription_type: input.subscriptionType,
           discount_percent: input.discountPercent,
           status: input.status,
@@ -540,18 +491,21 @@ export const clientService = {
           end_date: input.endDate || null,
           auto_renew: input.autoRenew ?? false,
           notes: input.notes || null,
-        })
-        .select()
-        .single();
-      if (error) { console.log('createSubscription error:', error.message); return null; }
-      // Update client_type to 'abonne'
-      await supabase.from('clients').update({ client_type: 'abonne' }).eq('id', input.clientId);
+        }),
+      }).catch(() => null);
+      if (!res?.ok) { console.log('createSubscription error: HTTP', res?.status); return null; }
+      // Update client_type via admin API (non-blocking)
+      fetch(`/api/clients/${input.clientId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_type: 'abonne' }),
+      }).catch(() => {});
+      const data = await res.json();
       return data ? mapSubscription(data) : null;
     } catch (e: any) { console.log('createSubscription exception:', e.message); return null; }
   },
 
   async updateSubscription(id: string, updates: Partial<CreateSubscriptionInput>): Promise<ClientSubscription | null> {
-    const supabase = createClient();
     try {
       const updateData: any = {};
       if (updates.subscriptionType !== undefined) updateData.subscription_type = updates.subscriptionType;
@@ -561,15 +515,14 @@ export const clientService = {
       if (updates.endDate !== undefined) updateData.end_date = updates.endDate;
       if (updates.autoRenew !== undefined) updateData.auto_renew = updates.autoRenew;
       if (updates.notes !== undefined) updateData.notes = updates.notes;
-      updateData.updated_at = new Date().toISOString();
 
-      const { data, error } = await supabase
-        .from('client_subscriptions')
-        .update(updateData)
-        .eq('id', id)
-        .select()
-        .single();
-      if (error) { console.log('updateSubscription error:', error.message); return null; }
+      const res = await fetch(`/api/client-subscriptions/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updateData),
+      }).catch(() => null);
+      if (!res?.ok) { console.log('updateSubscription error: HTTP', res?.status); return null; }
+      const data = await res.json();
       return data ? mapSubscription(data) : null;
     } catch (e: any) { console.log('updateSubscription exception:', e.message); return null; }
   },
@@ -577,36 +530,31 @@ export const clientService = {
   // ── Internal Notes ─────────────────────────────────────────────────────────
 
   async getNotes(clientId: string): Promise<ClientInternalNote[]> {
-    const supabase = createClient();
     try {
-      const { data, error } = await supabase
-        .from('client_internal_notes')
-        .select('*')
-        .eq('client_id', clientId)
-        .order('created_at', { ascending: false });
-      if (error) { console.log('getNotes error:', error.message); return []; }
+      const res = await fetch(`/api/clients/${clientId}/notes`).catch(() => null);
+      if (!res?.ok) return [];
+      const data = await res.json();
       return (data ?? []).map(mapNote);
     } catch (e: any) { console.log('getNotes exception:', e.message); return []; }
   },
 
   async addNote(clientId: string, content: string, author?: string): Promise<ClientInternalNote | null> {
-    const supabase = createClient();
     try {
-      const { data, error } = await supabase
-        .from('client_internal_notes')
-        .insert({ client_id: clientId, content, author: author || 'Vendeur' })
-        .select()
-        .single();
-      if (error) { console.log('addNote error:', error.message); return null; }
-      return data ? mapNote(data) : null;
+      const res = await fetch(`/api/clients/${clientId}/notes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content, author: author || 'Vendeur' }),
+      }).catch(() => null);
+      if (!res?.ok) { console.log('addNote error: HTTP', res?.status); return null; }
+      const data = await res.json();
+      return data.note ? mapNote(data.note) : null;
     } catch (e: any) { console.log('addNote exception:', e.message); return null; }
   },
 
   async deleteNote(id: string): Promise<boolean> {
-    const supabase = createClient();
     try {
-      const { error } = await supabase.from('client_internal_notes').delete().eq('id', id);
-      if (error) { console.log('deleteNote error:', error.message); return false; }
+      const res = await fetch(`/api/clients/notes/${id}`, { method: 'DELETE' }).catch(() => null);
+      if (!res?.ok) { console.log('deleteNote error: HTTP', res?.status); return false; }
       return true;
     } catch (e: any) { console.log('deleteNote exception:', e.message); return false; }
   },
