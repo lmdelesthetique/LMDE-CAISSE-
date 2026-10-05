@@ -1,10 +1,5 @@
 'use client';
 
-import { createClient } from '@/lib/supabase/client';
-import { fetchAll } from '@/lib/utils/fetchAll';
-
-const supabase = createClient();
-
 export interface InventoryLocation {
   id: string;
   name: string;
@@ -84,165 +79,27 @@ function formatDate(iso: string): string {
 }
 
 export async function fetchLocations(): Promise<InventoryLocation[]> {
-  const { data, error } = await supabase
-    .from('inventory_locations')
-    .select('id, name, is_main, is_active')
-    .eq('is_active', true)
-    .order('is_main', { ascending: false });
-  if (error) { console.error('fetchLocations', error); return []; }
-  return (data || []).map((r: { id: string; name: string; is_main: boolean; is_active: boolean }) => ({
-    id: r.id,
-    name: r.name,
-    isMain: r.is_main,
-    isActive: r.is_active,
-  }));
+  const res = await fetch('/api/stock/locations').catch(() => null);
+  if (!res?.ok) return [];
+  return res.json();
 }
 
 export async function fetchStockLevels(locationId?: string): Promise<StockLevel[]> {
-  // Try inventory_stock_levels first — paginate to bypass Supabase 1000-row cap
-  const allRows = await fetchAll((from, to) => {
-    let q = supabase
-      .from('inventory_stock_levels')
-      .select(`
-        id,
-        quantity,
-        alert_level,
-        product_id,
-        location_id,
-        inventory_products!inner(product_name, sku, category, unit_cost, min_stock_level, reorder_point, supplier_id, suppliers(company_name)),
-        inventory_locations!inner(name)
-      `)
-      .order('alert_level', { ascending: false })
-      .range(from, to);
-    if (locationId && locationId !== 'all') q = q.eq('location_id', locationId);
-    return q;
-  });
-
-  const data = allRows.length > 0 ? allRows : null;
-  const error = null;
-
-  // If inventory_stock_levels has data, use it
-  if (!error && data && data.length > 0) {
-    return (data as any[]).map((r: {
-      id: string;
-      quantity: number;
-      alert_level: string;
-      product_id: string;
-      location_id: string;
-      inventory_products: {
-        product_name: string;
-        sku?: string;
-        category?: string;
-        unit_cost: number;
-        min_stock_level: number;
-        reorder_point: number;
-        supplier_id?: string;
-        suppliers?: { company_name: string } | null;
-      };
-      inventory_locations: { name: string };
-    }) => ({
-      id: r.id,
-      productId: r.product_id,
-      productName: r.inventory_products?.product_name || '',
-      sku: r.inventory_products?.sku,
-      category: r.inventory_products?.category,
-      supplierId: r.inventory_products?.supplier_id,
-      supplierName: r.inventory_products?.suppliers?.company_name,
-      locationId: r.location_id,
-      locationName: r.inventory_locations?.name || '',
-      quantity: r.quantity,
-      alertLevel: r.alert_level as StockLevel['alertLevel'],
-      unitCost: r.inventory_products?.unit_cost || 0,
-      minStockLevel: r.inventory_products?.min_stock_level || 0,
-      reorderPoint: r.inventory_products?.reorder_point || 0,
-    }));
-  }
-
-  // Fallback: use main products table (load all, bypass Supabase 1000-row default)
-  const products = await fetchAll((from, to) =>
-    supabase
-      .from('products')
-      .select('id, name, ref, category, buy_price, stock, min_stock, supplier')
-      .order('name')
-      .range(from, to)
-  );
-
-  if (!products.length) return [];
-
-  return products.map((p: {
-    id: string;
-    name: string;
-    ref?: string;
-    category?: string;
-    buy_price?: number;
-    stock?: number;
-    min_stock?: number;
-    supplier?: string;
-  }) => {
-    const qty = Number(p.stock) || 0;
-    const minStock = Number(p.min_stock) || 0;
-    let alertLevel: StockLevel['alertLevel'] = 'ok';
-    if (qty === 0) alertLevel = 'out_of_stock';
-    else if (minStock > 0 && qty <= minStock * 0.5) alertLevel = 'critical';
-    else if (minStock > 0 && qty <= minStock) alertLevel = 'warning';
-    return {
-      id: p.id,
-      productId: p.id,
-      productName: p.name,
-      sku: p.ref,
-      category: p.category,
-      supplierId: undefined,
-      supplierName: p.supplier,
-      locationId: 'main',
-      locationName: 'Stock principal',
-      quantity: qty,
-      alertLevel,
-      unitCost: Number(p.buy_price) || 0,
-      minStockLevel: minStock,
-      reorderPoint: minStock,
-    };
-  });
+  const params = locationId && locationId !== 'all' ? `?locationId=${encodeURIComponent(locationId)}` : '';
+  const res = await fetch(`/api/stock/levels${params}`).catch(() => null);
+  if (!res?.ok) return [];
+  return res.json();
 }
 
 export async function fetchMovements(locationId?: string, movementType?: string): Promise<StockMovement[]> {
-  let query = supabase
-    .from('stock_movements_log')
-    .select('id, product_id, product_name, movement_type, quantity_change, reason, reference, performed_by, source, created_at')
-    .order('created_at', { ascending: false })
-    .limit(500) as any;
+  const params = new URLSearchParams({ limit: '500' });
+  if (movementType) params.set('movementType', movementType);
 
-  // Map UI filter values to DB movement_type values
-  if (movementType) {
-    if (movementType === 'entry') {
-      query = query.eq('movement_type', 'entry');
-    } else if (movementType === 'exit') {
-      query = query.in('movement_type', ['exit', 'sale']);
-    } else if (movementType === 'sale') {
-      query = query.eq('movement_type', 'sale').eq('source', 'pos_sale');
-    } else if (movementType === 'b2b_sale') {
-      query = query.eq('movement_type', 'sale').eq('source', 'b2b_sale');
-    } else if (movementType === 'shopify') {
-      query = query.eq('source', 'shopify_sale');
-    } else {
-      query = query.eq('movement_type', movementType);
-    }
-  }
+  const res = await fetch(`/api/stock/movements?${params}`).catch(() => null);
+  if (!res?.ok) return [];
+  const data: any[] = await res.json();
 
-  const { data, error } = await query;
-  if (error) { console.error('fetchMovements (stock_movements_log)', error); return []; }
-
-  return ((data || []) as any[]).map((r: {
-    id: string;
-    product_id: string;
-    product_name: string;
-    movement_type: string;
-    quantity_change: number;
-    reason?: string;
-    reference?: string;
-    performed_by?: string;
-    source?: string;
-    created_at: string;
-  }) => {
+  return data.map((r) => {
     const source = r.source ?? '';
     let displayType: StockMovement['movementType'] = r.movement_type as StockMovement['movementType'];
     if (r.movement_type === 'sale' && source === 'b2b_sale') displayType = 'b2b_sale' as any;
@@ -275,18 +132,14 @@ export async function fetchInventoryStats(locationId?: string): Promise<Inventor
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-  const { data: movData } = await supabase
-    .from('stock_movements_log')
-    .select('movement_type')
-    .gte('created_at', startOfMonth);
+  const movRes = await fetch(`/api/stock/movements?since=${encodeURIComponent(startOfMonth)}&limit=1000`).catch(() => null);
+  const movData: any[] = movRes?.ok ? await movRes.json() : [];
 
   const totalValue = stockLevels.reduce((s, item) => s + item.quantity * item.unitCost, 0);
   const alertCount = stockLevels.filter((i) => i.alertLevel !== 'ok').length;
   const outOfStockCount = stockLevels.filter((i) => i.alertLevel === 'out_of_stock').length;
-
-  const entries = (movData || []).filter((m: { movement_type: string }) => m.movement_type === 'entry').length;
-  const exits = (movData || []).filter((m: { movement_type: string }) => m.movement_type === 'sale' || m.movement_type === 'exit').length;
-
+  const entries = movData.filter((m) => m.movement_type === 'entry').length;
+  const exits = movData.filter((m) => m.movement_type === 'sale' || m.movement_type === 'exit').length;
   const uniqueProducts = new Set(stockLevels.map((s) => s.productId)).size;
 
   return {
@@ -300,31 +153,9 @@ export async function fetchInventoryStats(locationId?: string): Promise<Inventor
 }
 
 export async function fetchSupplierCosts(): Promise<SupplierCostData[]> {
-  const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-
-  const { data, error } = await supabase
-    .from('fo_orders')
-    .select('total_real_cost, subtotal, supplier_id, suppliers(company_name)')
-    .in('order_status', ['fully_received', 'costs_recorded', 'stock_integrated', 'closed', 'paid'])
-    .gte('created_at', startOfMonth)
-    .not('supplier_id', 'is', null);
-
-  if (error) { console.error('fetchSupplierCosts', error); return []; }
-
-  const map: Record<string, { name: string; cost: number; count: number }> = {};
-  ((data || []) as any[]).forEach((r: { total_real_cost?: number; subtotal?: number; supplier_id?: string; suppliers?: { company_name: string } | null }) => {
-    const name = r.suppliers?.company_name || 'Inconnu';
-    if (!map[name]) map[name] = { name, cost: 0, count: 0 };
-    map[name].cost += Number(r.total_real_cost || r.subtotal || 0);
-    map[name].count += 1;
-  });
-
-  return Object.values(map).map((v) => ({
-    supplierName: v.name,
-    totalCost: Math.round(v.cost * 100) / 100,
-    orderCount: v.count,
-  })).sort((a, b) => b.totalCost - a.totalCost);
+  const res = await fetch('/api/stock/supplier-costs').catch(() => null);
+  if (!res?.ok) return [];
+  return res.json();
 }
 
 export async function fetchLocationStats(locations: InventoryLocation[]): Promise<{

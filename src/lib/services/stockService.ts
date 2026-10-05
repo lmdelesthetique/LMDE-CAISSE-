@@ -1,10 +1,5 @@
 'use client';
 
-import { createClient } from '@/lib/supabase/client';
-import { fetchAll } from '@/lib/utils/fetchAll';
-
-const supabase = createClient(); // read-only usage; writes go through admin API routes
-
 export interface StockProduct {
   id: string;
   ref: string;
@@ -327,38 +322,9 @@ export async function fetchMovementHistory(productId?: string, limit = 50): Prom
 }
 
 export async function fetchTransitOrders(): Promise<TransitOrder[]> {
-  const { data, error } = await supabase
-    .from('fo_orders')
-    .select(`
-      id, order_number, order_status, currency, total_real_cost,
-      expected_delivery_at, transport_cost,
-      suppliers(company_name)
-    `)
-    .in('order_status', ['shipped', 'partially_received', 'in_production', 'ready_to_ship', 'paid'])
-    .order('created_at', { ascending: false })
-    .limit(20);
-
-  if (error) { console.error('fetchTransitOrders', error); return []; }
-
-  return (data || []).map((r: Record<string, unknown>) => {
-    const supplier = r.suppliers as Record<string, unknown> | null;
-    const status = r.order_status as string;
-    let transportType: 'container' | 'avion' | 'standard' = 'standard';
-    if (r.transport_cost && Number(r.transport_cost) > 500) transportType = 'container';
-    else if (r.transport_cost && Number(r.transport_cost) > 100) transportType = 'avion';
-
-    return {
-      id: r.id as string,
-      orderNumber: r.order_number as string,
-      supplierName: supplier?.company_name as string || 'Fournisseur',
-      orderStatus: status,
-      transportType,
-      totalAmount: Number(r.total_real_cost) || 0,
-      expectedDeliveryAt: r.expected_delivery_at as string | null,
-      itemsCount: 0,
-      currency: (r.currency as string) || 'EUR',
-    };
-  });
+  const res = await fetch('/api/stock/transit').catch(() => null);
+  if (!res?.ok) return [];
+  return res.json();
 }
 
 export async function addStock(productId: string, productName: string, currentStock: number, qty: number, reason: string, performedBy = 'Admin'): Promise<boolean> {
@@ -501,19 +467,12 @@ export async function markProductAsOrdered(
 }
 
 export async function fetchProductsBySupplier(supplierId: string, supplierName?: string): Promise<StockProduct[]> {
-  // Match by UUID column OR by text name column (case-insensitive) — whichever has data
-  const orFilter = supplierName
-    ? `supplier_id.eq.${supplierId},supplier.ilike.${supplierName}`
-    : `supplier_id.eq.${supplierId}`;
-
-  return fetchAll<Record<string, unknown>>((from, to) =>
-    supabase
-      .from('products')
-      .select('*')
-      .or(orFilter)
-      .order('name')
-      .range(from, to)
-  ).then(data => data.map(mapProduct)).catch(e => { console.error('fetchProductsBySupplier', e); return []; });
+  const params = new URLSearchParams({ supplierId, all: 'true' });
+  if (supplierName) params.set('supplierName', supplierName);
+  const res = await fetch(`/api/products/list?${params}`).catch(() => null);
+  if (!res?.ok) return [];
+  const data: Record<string, unknown>[] = await res.json();
+  return data.map(mapProduct);
 }
 
 export async function updateProductSupplier(

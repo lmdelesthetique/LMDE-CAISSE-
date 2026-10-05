@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { setInventoryLevel } from '@/lib/services/shopifyService';
+import { syncColorStocksToTotal } from '@/lib/utils/syncColorStock';
 
 // POST — integrates stock for a received supplier order:
 // - Adds qty_received (delta) to products.stock
@@ -137,12 +138,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     if (line.color) {
+      // Specific color on order line — update only that color variant
       const { data: varRow } = await supabase
         .from('product_color_stock').select('id, quantity')
         .eq('product_id', productId).ilike('color_name', line.color).maybeSingle();
       if (varRow) {
         await supabase.from('product_color_stock').update({ quantity: Number(varRow.quantity || 0) + qty }).eq('id', varRow.id);
       }
+    } else {
+      // No color specified — proportionally redistribute to keep color totals in sync
+      await syncColorStocksToTotal(supabase, productId, newStock);
     }
 
     // Update fo_order_lines.qty_received (cumulative), missing, damaged

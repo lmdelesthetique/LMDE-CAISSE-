@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { syncColorStocksToTotal } from '@/lib/utils/syncColorStock';
 
 // POST /api/products/deduct-sale
 // Deducts stock for all items in a POS sale. Handles kits + optimistic locking.
@@ -101,6 +102,7 @@ export async function POST(req: NextRequest) {
 
         if (compUpdateError) { errors.push(`Erreur décompte composant kit: ${comp.name}`); continue; }
 
+        await syncColorStocksToTotal(supabase, comp.component_id, compNewStock);
         shopifySyncItems.push({ productId: comp.component_id, delta: -compQtyToDeduct, newStock: compNewStock });
 
         await supabase.from('stock_movements_log').insert({
@@ -167,6 +169,9 @@ export async function POST(req: NextRequest) {
       }
 
       shopifySyncItems.push({ productId: item.productId, delta: -item.qty, newStock });
+
+      // Keep color variant quantities in sync with the new product total
+      await syncColorStocksToTotal(supabase, item.productId, newStock);
 
       await supabase.from('stock_movements_log').insert({
         product_id: item.productId,

@@ -24,13 +24,14 @@ export async function POST(req: NextRequest) {
 
   await supabase.from('products').update({ stock: total, updated_at: new Date().toISOString() }).eq('id', body.productId);
 
+  // Log uses product total stock (not single variant qty) for consistency
   await supabase.from('stock_movements_log').insert({
     product_id: body.productId,
     product_name: body.productName ?? '',
     movement_type: 'adjustment',
     quantity_before: body.currentStock ?? 0,
-    quantity_after: body.countedQty,
-    quantity_change: body.countedQty - (body.currentStock ?? 0),
+    quantity_after: total,
+    quantity_change: total - (body.currentStock ?? 0),
     reason: body.reason ?? 'Inventaire par scan',
     performed_by: body.performedBy ?? 'Inventaire',
   });

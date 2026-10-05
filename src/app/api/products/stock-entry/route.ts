@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { syncColorStocksToTotal } from '@/lib/utils/syncColorStock';
 
 // POST — Add stock with idempotency guard by invoice reference.
 // If `reference` is provided and already exists for this product+movement_type,
@@ -59,6 +60,9 @@ export async function POST(req: NextRequest) {
       .update({ status: 'active', product_status: 'active' })
       .eq('id', productId);
   }
+
+  // Keep color variant quantities in sync with the new product total
+  await syncColorStocksToTotal(supabase, productId, newStock);
 
   await supabase.from('stock_movements_log').insert({
     product_id: productId,

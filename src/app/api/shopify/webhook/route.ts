@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { updateLastSyncAt } from '@/lib/services/shopifyService';
+import { syncColorStocksToTotal } from '@/lib/utils/syncColorStock';
 
 const CLIENT_SECRET = process.env.SHOPIFY_CLIENT_SECRET!;
 
@@ -176,6 +177,9 @@ export async function POST(req: NextRequest) {
       .from('products')
       .update({ stock: newStock, updated_at: new Date().toISOString() })
       .eq('id', product.id);
+
+    // Keep color variant quantities in sync with the new product total
+    await syncColorStocksToTotal(supabase, product.id, newStock);
 
     await supabase.from('stock_movements_log').insert({
       product_id: product.id,
