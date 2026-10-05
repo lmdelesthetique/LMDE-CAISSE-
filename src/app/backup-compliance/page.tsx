@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
-import { createClient } from '@/lib/supabase/client';
 import { exportToPDF, exportToExcel } from '@/app/reports/utils/exportUtils';
 import AdminAlerts, { createAdminAlert } from './components/AdminAlerts';
 
@@ -166,7 +165,6 @@ function RetentionTimeline({ records }: { records: ComplianceRecord[] }) {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function BackupCompliancePage() {
-  const supabase = createClient();
 
   const [backupLogs, setBackupLogs] = useState<BackupLog[]>([]);
   const [complianceRecords, setComplianceRecords] = useState<ComplianceRecord[]>([]);
@@ -186,18 +184,18 @@ export default function BackupCompliancePage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [logsRes, compRes] = await Promise.all([
-        supabase.from('backup_logs').select('*').order('backup_date', { ascending: false }).limit(50),
-        supabase.from('compliance_records').select('*').order('fiscal_year', { ascending: false }),
+      const [logs, comp] = await Promise.all([
+        fetch('/api/admin/backup-logs').then(r => r.ok ? r.json() : []).catch(() => []),
+        fetch('/api/admin/compliance-records').then(r => r.ok ? r.json() : []).catch(() => []),
       ]);
-      if (logsRes.data) setBackupLogs(logsRes.data);
-      if (compRes.data) setComplianceRecords(compRes.data);
+      setBackupLogs(logs);
+      setComplianceRecords(comp);
     } catch (err) {
       console.error('Load error:', err);
     } finally {
       setLoading(false);
     }
-  }, [supabase]);
+  }, []);
 
   useEffect(() => {
     loadData();
@@ -207,66 +205,47 @@ export default function BackupCompliancePage() {
   useEffect(() => {
     async function checkAndCreateAlerts() {
       try {
-        // Check for missed backup: no successful backup in last 7 days
         const sevenDaysAgo = new Date();
         sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
         const sevenDaysAgoStr = sevenDaysAgo.toISOString().slice(0, 10);
 
-        const { data: recentBackups } = await supabase
-          .from('backup_logs')
-          .select('id')
-          .eq('status', 'completed')
-          .gte('backup_date', sevenDaysAgoStr)
-          .limit(1);
+        const [allLogs, allAlerts, compRecords] = await Promise.all([
+          fetch('/api/admin/backup-logs').then(r => r.ok ? r.json() : []).catch(() => []),
+          fetch('/api/admin/alerts').then(r => r.ok ? r.json() : []).catch(() => []),
+          fetch('/api/admin/compliance-records').then(r => r.ok ? r.json() : []).catch(() => []),
+        ]);
 
-        if (!recentBackups || recentBackups.length === 0) {
-          // Check if we already have an unresolved missed_backup alert
-          const { data: existingAlert } = await supabase
-            .from('admin_alerts')
-            .select('id')
-            .eq('alert_type', 'missed_backup')
-            .eq('is_resolved', false)
-            .limit(1);
-
-          if (!existingAlert || existingAlert.length === 0) {
-            await createAdminAlert(supabase, {
+        const recentBackups = (allLogs as any[]).filter((l: any) => l.status === 'completed' && l.backup_date >= sevenDaysAgoStr);
+        if (recentBackups.length === 0) {
+          const existingAlert = (allAlerts as any[]).find((a: any) => a.alert_type === 'missed_backup' && !a.is_resolved);
+          if (!existingAlert) {
+            await createAdminAlert({
               alert_type: 'missed_backup',
               severity: 'warning',
               title: 'Aucune sauvegarde depuis 7 jours',
-              message: 'Aucune sauvegarde réussie n\'a été effectuée au cours des 7 derniers jours. Veuillez exporter vos données pour rester conforme.',
+              message: "Aucune sauvegarde réussie n'a été effectuée au cours des 7 derniers jours. Veuillez exporter vos données pour rester conforme.",
               details: { last_check: new Date().toISOString(), threshold_days: 7 },
             });
           }
         }
 
-        // Check for compliance violations: records with warning/expired status
-        const { data: violations } = await supabase
-          .from('compliance_records')
-          .select('fiscal_year, status, retention_until, record_type')
-          .in('status', ['warning', 'expired']);
-
-        if (violations && violations.length > 0) {
-          for (const v of violations) {
-            const { data: existingViolation } = await supabase
-              .from('admin_alerts')
-              .select('id')
-              .eq('alert_type', 'compliance_violation')
-              .eq('is_resolved', false)
-              .contains('details', { fiscal_year: v.fiscal_year, record_type: v.record_type })
-              .limit(1);
-
-            if (!existingViolation || existingViolation.length === 0) {
-              const isExpired = v.status === 'expired';
-              await createAdminAlert(supabase, {
-                alert_type: 'compliance_violation',
-                severity: isExpired ? 'critical' : 'warning',
-                title: `${isExpired ? 'Expiration' : 'Échéance approchante'} — Exercice ${v.fiscal_year}`,
-                message: isExpired
-                  ? `Les données de l'exercice ${v.fiscal_year} ont dépassé leur date de conservation légale (${v.retention_until ? new Date(v.retention_until).toLocaleDateString('fr-FR') : '—'}). Action requise immédiatement.`
-                  : `Les données de l'exercice ${v.fiscal_year} arrivent à échéance de conservation légale le ${v.retention_until ? new Date(v.retention_until).toLocaleDateString('fr-FR') : '—'}. Archivez ces données dès que possible.`,
-                details: { fiscal_year: v.fiscal_year, retention_until: v.retention_until, record_type: v.record_type, status: v.status },
-              });
-            }
+        const violations = (compRecords as any[]).filter((r: any) => r.status === 'warning' || r.status === 'expired');
+        for (const v of violations) {
+          const existingViolation = (allAlerts as any[]).find((a: any) =>
+            a.alert_type === 'compliance_violation' && !a.is_resolved &&
+            a.details?.fiscal_year === v.fiscal_year && a.details?.record_type === v.record_type
+          );
+          if (!existingViolation) {
+            const isExpired = v.status === 'expired';
+            await createAdminAlert({
+              alert_type: 'compliance_violation',
+              severity: isExpired ? 'critical' : 'warning',
+              title: `${isExpired ? 'Expiration' : 'Échéance approchante'} — Exercice ${v.fiscal_year}`,
+              message: isExpired
+                ? `Les données de l'exercice ${v.fiscal_year} ont dépassé leur date de conservation légale (${v.retention_until ? new Date(v.retention_until).toLocaleDateString('fr-FR') : '—'}). Action requise immédiatement.`
+                : `Les données de l'exercice ${v.fiscal_year} arrivent à échéance de conservation légale le ${v.retention_until ? new Date(v.retention_until).toLocaleDateString('fr-FR') : '—'}. Archivez ces données dès que possible.`,
+              details: { fiscal_year: v.fiscal_year, retention_until: v.retention_until, record_type: v.record_type, status: v.status },
+            });
           }
         }
       } catch (err) {
@@ -275,7 +254,7 @@ export default function BackupCompliancePage() {
     }
 
     checkAndCreateAlerts();
-  }, [supabase]);
+  }, []);
 
   // ── Export handler ──────────────────────────────────────────────────────────
 
@@ -286,14 +265,9 @@ export default function BackupCompliancePage() {
 
       try {
         // Fetch sales from client_purchases
-        const { data: salesData, error: salesErr } = await supabase
-          .from('client_purchases')
-          .select('id, created_at, total_amount, payment_method, clients(first_name, last_name)')
-          .gte('created_at', exportPeriodFrom)
-          .lte('created_at', exportPeriodTo + 'T23:59:59')
-          .order('created_at', { ascending: false });
-
-        if (salesErr) throw salesErr;
+        const exportRes = await fetch(`/api/admin/compliance-export?from=${encodeURIComponent(exportPeriodFrom)}&to=${encodeURIComponent(exportPeriodTo)}`);
+        if (!exportRes.ok) throw new Error('Erreur export ventes');
+        const salesData = await exportRes.json();
 
         const rows = (salesData || []).map((s: any) => ({
           date: formatDate(s.created_at),
@@ -335,17 +309,20 @@ export default function BackupCompliancePage() {
           });
         }
 
-        // Log the backup
-        await supabase.from('backup_logs').insert({
-          backup_date: new Date().toISOString().slice(0, 10),
-          backup_type: 'manual',
-          export_format: format,
-          status: 'completed',
-          records_count: rows.length,
-          file_size_kb: Math.round(rows.length * 0.4),
-          period_from: exportPeriodFrom,
-          period_to: exportPeriodTo,
-          notes: `Export manuel — ${rows.length} enregistrements`,
+        await fetch('/api/admin/backup-logs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            backup_date: new Date().toISOString().slice(0, 10),
+            backup_type: 'manual',
+            export_format: format,
+            status: 'completed',
+            records_count: rows.length,
+            file_size_kb: Math.round(rows.length * 0.4),
+            period_from: exportPeriodFrom,
+            period_to: exportPeriodTo,
+            notes: `Export manuel — ${rows.length} enregistrements`,
+          }),
         });
 
         setExportMsg(`✓ Export réussi — ${rows.length} vente(s) exportée(s)`);
@@ -353,19 +330,22 @@ export default function BackupCompliancePage() {
       } catch (err: any) {
         const errMsg = err?.message ?? "Échec de l'export";
         setExportMsg(`Erreur : ${errMsg}`);
-        // Log failed export alert
-        await supabase.from('backup_logs').insert({
-          backup_date: new Date().toISOString().slice(0, 10),
-          backup_type: 'manual',
-          export_format: format,
-          status: 'failed',
-          records_count: 0,
-          file_size_kb: 0,
-          period_from: exportPeriodFrom,
-          period_to: exportPeriodTo,
-          notes: `Échec export : ${errMsg}`,
+        await fetch('/api/admin/backup-logs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            backup_date: new Date().toISOString().slice(0, 10),
+            backup_type: 'manual',
+            export_format: format,
+            status: 'failed',
+            records_count: 0,
+            file_size_kb: 0,
+            period_from: exportPeriodFrom,
+            period_to: exportPeriodTo,
+            notes: `Échec export : ${errMsg}`,
+          }),
         });
-        await createAdminAlert(supabase, {
+        await createAdminAlert({
           alert_type: 'failed_export',
           severity: 'critical',
           title: `Export ${format.toUpperCase()} échoué`,
@@ -377,7 +357,7 @@ export default function BackupCompliancePage() {
         setTimeout(() => setExportMsg(''), 5000);
       }
     },
-    [supabase, exportPeriodFrom, exportPeriodTo, loadData]
+    [exportPeriodFrom, exportPeriodTo, loadData]
   );
 
   // ── Derived stats ───────────────────────────────────────────────────────────

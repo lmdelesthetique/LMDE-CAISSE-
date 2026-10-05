@@ -373,8 +373,7 @@ export default function OrderDetailPage() {
     setSupplierSearch('');
     setShowSupplierPicker(true);
     if (supplierList.length === 0) {
-      const supabase = createClient();
-      const { data } = await supabase.from('suppliers').select('id, company_name').order('company_name');
+      const data = await fetch('/api/suppliers').then(r => r.ok ? r.json() : []).catch(() => []);
       setSupplierList(data ?? []);
     }
   }, [supplierList.length]);
@@ -892,23 +891,21 @@ export default function OrderDetailPage() {
     });
     // Sync payment to fo_orders portal so supplier sees it
     try {
-      const { createClient } = await import('@/lib/supabase/client');
-      const supabase = createClient();
-      // Find matching fo_order by order number
-      const { data: foOrders } = await supabase
-        .from('fo_orders')
-        .select('id')
-        .eq('order_number', order.orderNumber)
-        .limit(1);
-      if (foOrders && foOrders.length > 0) {
-        await supabase.from('fo_orders').update({
-          payment_amount: amt,
-          payment_status: newStatus,
-          payment_method: paymentMethod,
-          payment_date: paymentDate || null,
-          order_status: newStatus === 'paid' ? 'paid' : undefined,
-          updated_at: new Date().toISOString(),
-        }).eq('id', foOrders[0].id);
+      const foOrdersRes = await fetch(`/api/fo-orders?order_number=${encodeURIComponent(order.orderNumber)}&limit=1`)
+        .then(r => r.ok ? r.json() : { orders: [] }).catch(() => ({ orders: [] }));
+      const foOrders = foOrdersRes.orders ?? foOrdersRes ?? [];
+      if (foOrders.length > 0) {
+        await fetch(`/api/fo-orders/${foOrders[0].id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            paymentAmount: amt,
+            paymentStatus: newStatus,
+            paymentMethod: paymentMethod,
+            paymentDate: paymentDate || null,
+            orderStatus: newStatus === 'paid' ? 'paid' : undefined,
+          }),
+        });
       }
     } catch (syncErr) {
       console.warn('Portal payment sync failed (non-blocking):', syncErr);
@@ -1167,16 +1164,9 @@ export default function OrderDetailPage() {
   const searchProducts = async (q: string) => {
     if (!q.trim()) { setProductResults([]); return; }
     setSearchingProducts(true);
-    const supabase = createClient();
-    const term = q.trim();
-    const { data } = await supabase
-      .from('products')
-      .select('id, name, ref, barcode, buy_price, purchase_price_supplier, sell_price_ttc, image_url, stock, min_stock, status')
-      .or(`name.ilike.%${term}%,ref.ilike.%${term}%,barcode.ilike.%${term}%`)
-      .neq('is_suspended', true)
-      .order('name')
-      .limit(50);
-    setProductResults(data || []);
+    const res = await fetch(`/api/products/search?q=${encodeURIComponent(q.trim())}&limit=50`)
+      .then(r => r.ok ? r.json() : { products: [] }).catch(() => ({ products: [] }));
+    setProductResults(res.products || []);
     setSearchingProducts(false);
   };
 
@@ -1500,13 +1490,9 @@ export default function OrderDetailPage() {
     if (!order?.lines?.length) return;
     setOrderLabelLoading(true);
     try {
-      const supabase = createClient();
-      // Batch-fetch barcodes for all distinct product refs in this order
       const uniqueRefs = [...new Set(order.lines.map(l => l.productRef).filter(Boolean))];
-      const { data: prodRows } = await supabase
-        .from('products')
-        .select('ref, barcode')
-        .in('ref', uniqueRefs);
+      const prodRows = await fetch(`/api/products/search?refs=${encodeURIComponent(uniqueRefs.join(','))}`)
+        .then(r => r.ok ? r.json() : []).catch(() => []);
       const barcodeByRef: Record<string, string> = {};
       (prodRows || []).forEach((r: any) => {
         if (r.barcode) barcodeByRef[r.ref] = r.barcode;

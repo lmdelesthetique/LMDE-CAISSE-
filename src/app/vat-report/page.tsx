@@ -6,7 +6,6 @@ import {
 } from 'recharts';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
-import { createClient } from '@/lib/supabase/client';
 import { exportToPDF, exportToExcel } from '@/app/reports/utils/exportUtils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -147,16 +146,12 @@ export default function VATReportPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const supabase = createClient();
     try {
-      const { data: tickets } = await supabase
-        .from('receipts')
-        .select('id, created_at, ticket_number, total_amount, payment_method, client_id, client_name')
-        .gte('created_at', dateRange.from)
-        .lte('created_at', dateRange.to + 'T23:59:59')
-        .order('created_at', { ascending: false });
+      const tickets = await fetch(
+        `/api/receipts?from=${encodeURIComponent(dateRange.from)}&to=${encodeURIComponent(dateRange.to + 'T23:59:59')}&all=true`
+      ).then(r => r.ok ? r.json() : []).catch(() => []);
 
-      if (!tickets || tickets.length === 0) {
+      if (!tickets?.length) {
         setRows([]);
         setLoading(false);
         return;

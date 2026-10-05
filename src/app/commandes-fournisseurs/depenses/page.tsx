@@ -4,7 +4,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import Link from 'next/link';
-import { createClient } from '@/lib/supabase/client';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -285,7 +284,6 @@ interface StructureFeePanelProps {
 }
 
 function StructureFeePanel({ expenses, selectedMonth }: StructureFeePanelProps) {
-  const supabase = createClient();
   const currentMonth = selectedMonth || new Date().toISOString().slice(0, 7);
   const [config, setConfig] = useState<StructureFeeConfig>({
     month_year: currentMonth,
@@ -298,15 +296,11 @@ function StructureFeePanel({ expenses, selectedMonth }: StructureFeePanelProps) 
   const [revenue, setRevenue] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // Reload existing config when selected month changes
   React.useEffect(() => {
     let cancelled = false;
-    supabase
-      .from('structure_fee_config')
-      .select('*')
-      .eq('month_year', currentMonth)
-      .maybeSingle()
-      .then(({ data }) => {
+    fetch(`/api/expenses/structure-fee?month=${currentMonth}`)
+      .then(r => r.ok ? r.json() : null)
+      .then((data) => {
         if (cancelled) return;
         if (data) {
           setConfig({ ...data });
@@ -341,10 +335,12 @@ function StructureFeePanel({ expenses, selectedMonth }: StructureFeePanelProps) 
         applied_pct: parseFloat(revenue) > 0 ? recommendedPct : config.applied_pct,
         notes: config.notes,
       };
-      const { error } = await supabase
-        .from('structure_fee_config')
-        .upsert(data, { onConflict: 'month_year' });
-      if (!error) {
+      const res = await fetch('/api/expenses/structure-fee', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (res.ok) {
         setConfig((prev) => ({ ...prev, ...data }));
       }
     } finally {
@@ -521,7 +517,6 @@ function parseCSV(text: string): CsvRow[] {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function DepensesFournisseursPage() {
-  const supabase = createClient();
   const [activeTab, setActiveTab] = useState<'supplier' | 'business'>('supplier');
   const [expenses, setExpenses] = useState<BusinessExpense[]>([]);
   const [loading, setLoading] = useState(false);
@@ -549,15 +544,12 @@ export default function DepensesFournisseursPage() {
   const loadExpenses = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await supabase
-        .from('business_expenses')
-        .select('*')
-        .order('expense_date', { ascending: false });
+      const data = await fetch('/api/expenses/business').then(r => r.ok ? r.json() : []);
       setExpenses(data ?? []);
     } finally {
       setLoading(false);
     }
-  }, [supabase]);
+  }, []);
 
   const loadOrders = useCallback(async () => {
     setLoadingOrders(true);
@@ -589,9 +581,17 @@ export default function DepensesFournisseursPage() {
 
   const handleSaveExpense = async (data: Partial<BusinessExpense>) => {
     if (editExpense) {
-      await supabase.from('business_expenses').update(data).eq('id', editExpense.id);
+      await fetch(`/api/expenses/business/${editExpense.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
     } else {
-      await supabase.from('business_expenses').insert(data);
+      await fetch('/api/expenses/business', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
     }
     setEditExpense(null);
     await loadExpenses();
@@ -599,7 +599,7 @@ export default function DepensesFournisseursPage() {
 
   const handleDeleteExpense = async (id: string) => {
     if (!confirm('Supprimer cette dépense ?')) return;
-    await supabase.from('business_expenses').delete().eq('id', id);
+    await fetch(`/api/expenses/business/${id}`, { method: 'DELETE' });
     await loadExpenses();
   };
 

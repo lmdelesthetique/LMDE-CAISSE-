@@ -4,12 +4,8 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import Icon from '@/components/ui/AppIcon';
 import AppLayout from '@/components/AppLayout';
-import { createClient } from '@/lib/supabase/client';
 import { categoryStore } from '@/lib/stores/dataStore';
-import { fetchAll } from '@/lib/utils/fetchAll';
 import * as XLSX from 'xlsx';
-
-const supabase = createClient();
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -254,78 +250,12 @@ function DemoCleanupModal({ onClose, onDone }: CleanupModalProps) {
 
   const runCleanup = async () => {
     setStep('running');
-    const results = { products: 0, clients: 0, tickets: 0, orders: 0 };
-
     try {
-      // Delete demo/seed products (those with ref starting with DEMO or seed data)
-      addLog('🔍 Recherche des produits de démonstration...');
-      const { data: demoProds, error: prodErr } = await supabase
-        .from('products')
-        .select('id, name, ref')
-        .or('ref.ilike.DEMO%,ref.ilike.TEST%,name.ilike.%demo%,name.ilike.%test%,name.ilike.%exemple%');
-
-      if (!prodErr && demoProds) {
-        results.products = demoProds.length;
-        if (demoProds.length > 0) {
-          const ids = demoProds.map((p: any) => p.id);
-          await supabase.from('products').delete().in('id', ids);
-          addLog(`✅ ${demoProds.length} produit(s) démo supprimé(s)`);
-        } else {
-          addLog('ℹ️ Aucun produit démo détecté');
-        }
-      }
-
-      // Delete demo clients
-      addLog('🔍 Recherche des clients de démonstration...');
-      const { data: demoClients } = await supabase
-        .from('clients')
-        .select('id')
-        .or('email.ilike.%demo%,email.ilike.%test%,email.ilike.%exemple%,first_name.ilike.%demo%,first_name.ilike.%test%');
-
-      if (demoClients && demoClients.length > 0) {
-        results.clients = demoClients.length;
-        const ids = demoClients.map((c: any) => c.id);
-        await supabase.from('clients').delete().in('id', ids);
-        addLog(`✅ ${demoClients.length} client(s) démo supprimé(s)`);
-      } else {
-        addLog('ℹ️ Aucun client démo détecté');
-      }
-
-      // Delete demo tickets/sales
-      addLog('🔍 Recherche des tickets de démonstration...');
-      const { data: demoTickets } = await supabase
-        .from('sales')
-        .select('id')
-        .ilike('notes', '%demo%');
-
-      if (demoTickets && demoTickets.length > 0) {
-        results.tickets = demoTickets.length;
-        const ids = demoTickets.map((t: any) => t.id);
-        await supabase.from('sales').delete().in('id', ids);
-        addLog(`✅ ${demoTickets.length} ticket(s) démo supprimé(s)`);
-      } else {
-        addLog('ℹ️ Aucun ticket démo détecté');
-      }
-
-      // Delete demo supplier orders
-      addLog('🔍 Recherche des commandes fictives...');
-      const { data: demoOrders } = await supabase
-        .from('supplier_orders')
-        .select('id')
-        .ilike('notes', '%demo%');
-
-      if (demoOrders && demoOrders.length > 0) {
-        results.orders = demoOrders.length;
-        const ids = demoOrders.map((o: any) => o.id);
-        await supabase.from('supplier_orders').delete().in('id', ids);
-        addLog(`✅ ${demoOrders.length} commande(s) fictive(s) supprimée(s)`);
-      } else {
-        addLog('ℹ️ Aucune commande fictive détectée');
-      }
-
-      setCounts(results);
-      addLog('');
-      addLog('✅ Nettoyage terminé. Les paramètres système sont intacts.');
+      const res = await fetch('/api/admin/cleanup-demo', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Cleanup failed');
+      setCounts(data.counts);
+      for (const msg of data.log) addLog(msg);
       setStep('done');
     } catch (err: any) {
       addLog(`❌ Erreur : ${err.message}`);
@@ -494,12 +424,10 @@ const EXPORT_COLUMNS = [
 ];
 
 async function exportProductsCSV() {
-  const client = createClient();
-  const { data, error } = await client
-    .from('products')
-    .select('barcode,ref,name,category,supplier,buy_price,sell_price_ttc,sell_price_ht,tva,transport,customs,other_fees,structure_pct,gross_margin,margin_rate,stock,min_stock,product_status,description,location,image_url')
-    .order('name');
-  if (error || !data) return;
+  const res = await fetch('/api/products/list?all=true');
+  if (!res.ok) return;
+  const data = await res.json();
+  if (!Array.isArray(data) || data.length === 0) return;
 
   const headers = EXPORT_COLUMNS.map((c) => c.label);
   const rows = data.map((row: any) =>
@@ -639,12 +567,8 @@ export default function ProductImportPage() {
   // Load history
   const loadHistory = useCallback(async () => {
     setLoadingHistory(true);
-    const { data } = await supabase
-      .from('product_import_history')
-      .select('*')
-      .order('imported_at', { ascending: false })
-      .limit(20);
-    if (data) setHistory(data);
+    const res = await fetch('/api/products/import-history');
+    if (res.ok) setHistory(await res.json());
     setLoadingHistory(false);
   }, []);
 
@@ -739,10 +663,9 @@ export default function ProductImportPage() {
       })
       .filter((p) => p.product_name.trim() !== '');
 
-    // Fetch ALL existing products for dedup check (bypass Supabase 1000-row default)
-    const existingProducts = await fetchAll<any>((from, to) =>
-      supabase.from('products').select('id, ref, barcode, name').range(from, to)
-    );
+    // Fetch ALL existing products for dedup check
+    const dedupRes = await fetch('/api/products/list?all=true');
+    const existingProducts: any[] = dedupRes.ok ? await dedupRes.json() : [];
 
     const existingByRef: Record<string, any> = {};
     const existingByBarcode: Record<string, any> = {};
@@ -868,12 +791,15 @@ export default function ProductImportPage() {
         return false;
       }
       let dbError: any = null;
-      if (mode === 'insert') {
-        const { error } = await supabase.from('products').insert([payload]);
-        dbError = error;
-      } else {
-        const { error } = await supabase.from('products').upsert([payload], { onConflict: 'id' });
-        dbError = error;
+      const method = mode === 'insert' ? 'POST' : 'PUT';
+      const batchRes = await fetch('/api/products/batch', {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ products: [payload] }),
+      });
+      if (!batchRes.ok) {
+        const errData = await batchRes.json().catch(() => ({}));
+        dbError = { message: errData.error || 'Unknown error', code: errData.code || '' };
       }
       if (dbError) {
         // Classify the error type
@@ -957,7 +883,13 @@ export default function ProductImportPage() {
     for (let i = 0; i < createPayloads.length; i += CHUNK) {
       const chunk = createPayloads.slice(i, i + CHUNK);
       const chunkItems = toCreate.slice(i, i + CHUNK);
-      const { error } = await supabase.from('products').insert(chunk);
+      const insertRes = await fetch('/api/products/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ products: chunk }),
+      });
+      const insertErr = insertRes.ok ? null : await insertRes.json().catch(() => ({}));
+      const error = insertErr ? { message: insertErr.error || 'Batch insert failed', code: insertErr.code || '' } : null;
       if (error) {
         // Batch failed — retry row by row to find exact culprit(s)
         addLog(`⚠️ Lot création ${Math.floor(i / CHUNK) + 1} échoué (${chunk.length} lignes) — analyse ligne par ligne...`);
@@ -984,7 +916,13 @@ export default function ProductImportPage() {
     for (let i = 0; i < updatePayloads.length; i += CHUNK) {
       const chunk = updatePayloads.slice(i, i + CHUNK);
       const chunkItems = updateItems.slice(i, i + CHUNK);
-      const { error } = await supabase.from('products').upsert(chunk, { onConflict: 'id' });
+      const upsertRes = await fetch('/api/products/batch', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ products: chunk }),
+      });
+      const upsertErr = upsertRes.ok ? null : await upsertRes.json().catch(() => ({}));
+      const error = upsertErr ? { message: upsertErr.error || 'Batch upsert failed', code: upsertErr.code || '' } : null;
       if (error) {
         // Batch failed — retry row by row
         addLog(`⚠️ Lot mise à jour ${Math.floor(i / CHUNK) + 1} échoué (${chunk.length} lignes) — analyse ligne par ligne...`);
@@ -1010,15 +948,19 @@ export default function ProductImportPage() {
     }
 
     // Save history
-    await supabase.from('product_import_history').insert({
-      file_name: fileName,
-      imported_by: 'admin',
-      total_detected: summary.totalDetected,
-      total_created: created,
-      total_updated: updated,
-      total_duplicates: summary.duplicates,
-      total_errors: errors,
-      total_barcodes_replaced: summary.barcodesReplaced,
+    await fetch('/api/products/import-history', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        file_name: fileName,
+        imported_by: 'admin',
+        total_detected: summary.totalDetected,
+        total_created: created,
+        total_updated: updated,
+        total_duplicates: summary.duplicates,
+        total_errors: errors,
+        total_barcodes_replaced: summary.barcodesReplaced,
+      }),
     });
 
     setImportResult({ created, updated, errors });
@@ -1042,26 +984,13 @@ export default function ProductImportPage() {
     ) as string[];
     if (detectedSuppliers.length > 0) {
       addLog(`🔗 Liaison fournisseurs (${detectedSuppliers.length} noms détectés)…`);
-      const { data: suppRows } = await supabase
-        .from('suppliers')
-        .select('id, company_name');
-      if (suppRows && suppRows.length > 0) {
-        let linked = 0;
-        for (const suppName of detectedSuppliers) {
-          const match = suppRows.find(
-            (s: any) => s.company_name?.toLowerCase().trim() === suppName.toLowerCase().trim()
-          );
-          if (match) {
-            await supabase
-              .from('products')
-              .update({ supplier_id: match.id })
-              .eq('supplier', suppName)
-              .is('supplier_id', null);
-            linked++;
-          }
-        }
-        if (linked > 0) addLog(`✅ ${linked} fournisseur(s) liés`);
-      }
+      const suppRes = await fetch('/api/products/link-suppliers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ supplierNames: detectedSuppliers }),
+      });
+      const suppData = suppRes.ok ? await suppRes.json() : null;
+      if (suppData?.linked > 0) addLog(`✅ ${suppData.linked} fournisseur(s) liés`);
     }
 
     // 3. Recalculate gross_margin + margin_rate for all imported products
@@ -1070,29 +999,11 @@ export default function ProductImportPage() {
       .map((i) => i.product.product_name);
     if (importedNames.length > 0) {
       addLog(`📊 Recalcul des marges (${importedNames.length} produits)…`);
-      const { error: recalcErr } = await supabase.rpc('recalc_margins_batch', {
-        product_names: importedNames,
-      }).maybeSingle();
-      // If RPC not available, do it client-side in a single UPDATE
-      if (recalcErr) {
-        await supabase
-          .from('products')
-          .select('id, sell_price_ht, sell_price_ttc, tva, buy_price')
-          .in('name', importedNames.slice(0, 200))
-          .then(async ({ data: prods }) => {
-            if (!prods) return;
-            for (const p of prods) {
-              const tva = Number(p.tva) > 0 ? Number(p.tva) : 8.5;
-              const ht = Number(p.sell_price_ht) > 0
-                ? Number(p.sell_price_ht)
-                : Number(p.sell_price_ttc) / (1 + tva / 100);
-              const bp = Number(p.buy_price) || 0;
-              const gm = +(ht - bp).toFixed(4);
-              const mr = bp > 0 ? +((gm / bp) * 100).toFixed(4) : 0;
-              await supabase.from('products').update({ gross_margin: gm, margin_rate: mr }).eq('id', p.id);
-            }
-          });
-      }
+      await fetch('/api/products/recalc-margins', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productNames: importedNames }),
+      });
     }
 
     addLog(`✅ Synchronisation terminée`);

@@ -4,7 +4,6 @@ import React, { useEffect, useState } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import Link from 'next/link';
-import { createClient } from '@/lib/supabase/client';
 
 interface PortalUser {
   id: string;
@@ -17,7 +16,6 @@ interface PortalUser {
 }
 
 export default function SupplierPortalAdminPage() {
-  const supabase = createClient();
   const [portalUsers, setPortalUsers] = useState<PortalUser[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -25,22 +23,27 @@ export default function SupplierPortalAdminPage() {
 
   async function loadData() {
     setLoading(true);
-    const { data } = await supabase
-      .from('supplier_portal_users')
-      .select('id, supplier_id, pin_code, portal_email, is_active, created_at, suppliers(company_name)')
-      .order('created_at', { ascending: false });
-    setPortalUsers((data ?? []) as PortalUser[]);
+    const data = await fetch('/api/admin/portal-users').then(r => r.ok ? r.json() : []).catch(() => []);
+    setPortalUsers(data as PortalUser[]);
     setLoading(false);
   }
 
   async function toggleActive(userId: string, current: boolean) {
-    await supabase.from('supplier_portal_users').update({ is_active: !current }).eq('id', userId);
+    await fetch(`/api/admin/portal-users/${userId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_active: !current }),
+    });
     await loadData();
   }
 
   async function revokeAccess(userId: string, supplierId: string) {
-    await supabase.from('supplier_portal_users').delete().eq('id', userId);
-    await supabase.from('suppliers').update({ portal_login: null, portal_password_plain: null }).eq('id', supplierId);
+    await fetch(`/api/admin/portal-users/${userId}`, { method: 'DELETE' });
+    await fetch(`/api/suppliers/${supplierId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ portal_login: null, portal_password_plain: null }),
+    });
     await loadData();
   }
 

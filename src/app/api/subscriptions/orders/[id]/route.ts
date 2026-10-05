@@ -10,7 +10,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const allowed = [
       'status', 'delivery_destination', 'delivery_address',
       'delivery_payment_sent', 'linked_expedition_id', 'linked_delivery_id', 'notified_at',
-      'statut_livraison', 'shipping_mode',
+      'statut_livraison', 'shipping_mode', 'delivery_id',
     ];
     const updateData: Record<string, any> = {};
     for (const key of allowed) {

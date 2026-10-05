@@ -183,15 +183,17 @@ export function POSAuthProvider({ children }: { children: React.ReactNode }) {
     const currentEmployee = employee;
     if (!currentEmployee || currentEmployee.id === 'default') return;
     try {
-      const { createClient } = await import('@/lib/supabase/client');
-      const supabase = createClient();
-      await supabase.from('pos_action_log').insert({
-        session_id: sessionRef.current?.id ?? null,
-        employee_id: currentEmployee.id,
-        action_type: type,
-        description,
-        amount: amount ?? null,
-        meta: meta ?? null,
+      await fetch('/api/pos-action-log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: sessionRef.current?.id ?? null,
+          employee_id: currentEmployee.id,
+          action_type: type,
+          description,
+          amount: amount ?? null,
+          meta: meta ?? null,
+        }),
       });
     } catch (e) {
       console.error('POS action log error:', e);

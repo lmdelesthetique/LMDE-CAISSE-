@@ -146,12 +146,9 @@ function PrepModal({
   const isPreparing = localStatus === 'preparing' || localStatus === 'shipped' || localStatus === 'en_livraison' || isRemis;
 
   useEffect(() => {
-    const supabase = createClient();
-    supabase
-      .from('subscription_order_items')
-      .select('*, product:products(id, name, image_url, ref)')
-      .eq('order_id', order.id)
-      .then(({ data }) => { setItems(data ?? []); setLoading(false); });
+    fetch(`/api/subscriptions/orders/${order.id}/items`)
+      .then((r) => r.json())
+      .then((data) => { setItems(Array.isArray(data) ? data : []); setLoading(false); });
   }, [order.id]);
 
   const handleNotifyReady = async () => {
@@ -579,14 +576,11 @@ function DeliveryModal({
       if (!deliveryId) { setError('Livraison créée mais ID introuvable — réessayez.'); setSubmitting(false); return; }
 
       // 2. Update subscription_order
-      const supabase = createClient();
-      await supabase
-        .from('subscription_orders')
-        .update({
-          statut_livraison: 'en_livraison',
-          delivery_id: deliveryId,
-        })
-        .eq('id', sub.currentOrder!.id);
+      await fetch(`/api/subscriptions/orders/${sub.currentOrder!.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ statut_livraison: 'en_livraison', delivery_id: deliveryId }),
+      });
 
       // 3. WhatsApp to driver (non-blocking — livraison route handles it when assigned_to_driver is set)
       // Driver notification is sent server-side by /api/livraisons/[id] PATCH
@@ -889,11 +883,12 @@ function SubscriptionSetupModal({
   const isLateMonth = billingDay >= 29;
 
   useEffect(() => {
-    const supabase = createClient();
-    supabase.from('subscription_plans').select('id, name, price, quota_amount, shipping_free, shipping_cost').order('price')
-      .then(({ data }) => {
-        setPlans(data ?? []);
-        if (data && data.length > 0) setPlanId(data[0].id);
+    fetch('/api/subscription-plans')
+      .then((r) => r.json())
+      .then((data: any[]) => {
+        const plans = Array.isArray(data) ? data : [];
+        setPlans(plans);
+        if (plans.length > 0) setPlanId(plans[0].id);
       });
   }, []);
 
@@ -1154,28 +1149,14 @@ export default function AbonnementsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const supabase = createClient();
-
-    const { data: subs } = await supabase
-      .from('client_subscriptions')
-      .select(`
-        id, status, portal_phone, pin_code, next_billing_date, launch_offer,
-        client:clients(id, first_name, last_name, email),
-        plan:subscription_plans(id, name, price, quota_amount, shipping_free, shipping_cost)
-      `)
-      .order('created_at', { ascending: false });
+    const res = await fetch(`/api/subscriptions?month=${currentMonth}`);
+    if (!res.ok) { setLoading(false); return; }
+    const { subscriptions: subs, orders } = await res.json();
 
     if (!subs) { setLoading(false); return; }
 
-    const subIds = subs.map((s: any) => s.id);
-    const { data: orders } = await supabase
-      .from('subscription_orders')
-      .select('id, subscription_id, status, total_products_cost, total_sell_price, benefit_amount, shipping_cost, statut_livraison, delivery_id, notified_at, delivery_destination, delivery_address, delivery_payment_sent, shipping_mode')
-      .in('subscription_id', subIds)
-      .eq('order_month', currentMonth);
-
     const orderMap = new Map<string, any>();
-    for (const o of orders ?? []) orderMap.set(o.subscription_id, o);
+    for (const o of (orders ?? [])) orderMap.set(o.subscription_id, o);
 
     const rows: SubscriptionRow[] = (subs as any[]).map((s) => ({
       id: s.id,
@@ -1250,16 +1231,23 @@ export default function AbonnementsPage() {
   const handleGenerateAuto = async () => {
     if (!isPastDeadline) { alert('La génération automatique n\'est disponible qu\'après le 28 du mois.'); return; }
     setGeneratingAuto(true);
-    const supabase = createClient();
     const toAuto = active.filter((s) => !s.currentOrder || s.currentOrder.status === 'open');
     for (const sub of toAuto) {
       if (!sub.currentOrder) {
-        await supabase.from('subscription_orders').insert({
-          subscription_id: sub.id, order_month: currentMonth, status: 'auto',
-          shipping_cost: sub.plan?.shipping_free ? 0 : (sub.plan?.shipping_cost ?? 0),
+        await fetch('/api/subscriptions/orders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            subscription_id: sub.id, order_month: currentMonth, status: 'auto',
+            shipping_cost: sub.plan?.shipping_free ? 0 : (sub.plan?.shipping_cost ?? 0),
+          }),
         });
       } else {
-        await supabase.from('subscription_orders').update({ status: 'auto' }).eq('id', sub.currentOrder.id);
+        await fetch(`/api/subscriptions/orders/${sub.currentOrder.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'auto' }),
+        });
       }
     }
     await load();
@@ -1374,12 +1362,9 @@ export default function AbonnementsPage() {
 
   const loadExpandedItems = async (orderId: string) => {
     if (expandedItems[orderId]) return;
-    const supabase = createClient();
-    const { data } = await supabase
-      .from('subscription_order_items')
-      .select('*, product:products(id, name, image_url, ref)')
-      .eq('order_id', orderId);
-    setExpandedItems((prev) => ({ ...prev, [orderId]: data ?? [] }));
+    const res = await fetch(`/api/subscriptions/orders/${orderId}/items`);
+    const data = res.ok ? await res.json() : [];
+    setExpandedItems((prev) => ({ ...prev, [orderId]: Array.isArray(data) ? data : [] }));
   };
 
   const handleExpand = (subId: string, orderId?: string) => {
@@ -1795,8 +1780,11 @@ export default function AbonnementsPage() {
                         </div>
                         <button
                           onClick={async () => {
-                            const supabase = createClient();
-                            await supabase.from('client_subscriptions').update({ launch_offer: !sub.launch_offer }).eq('id', sub.id);
+                            await fetch(`/api/client-subscriptions/${sub.id}`, {
+                              method: 'PATCH',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ launch_offer: !sub.launch_offer }),
+                            });
                             load();
                           }}
                           className={`ml-3 shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${sub.launch_offer ? 'bg-violet-600 text-white border-violet-600 hover:bg-violet-700' : 'bg-white text-violet-700 border-violet-300 hover:bg-violet-50'}`}

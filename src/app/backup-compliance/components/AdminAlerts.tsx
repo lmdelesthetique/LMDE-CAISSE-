@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Icon from '@/components/ui/AppIcon';
-import { createClient } from '@/lib/supabase/client';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -171,22 +170,16 @@ interface AdminAlertsProps {
 }
 
 export default function AdminAlerts({ compact = false, maxCompact = 5 }: AdminAlertsProps) {
-  const supabase = createClient();
-
   const [alerts, setAlerts] = useState<AdminAlert[]>([]);
   const [loading, setLoading] = useState(true);
   const [showPopover, setShowPopover] = useState(false);
   const [filter, setFilter] = useState<'all' | 'unread' | AdminAlert['alert_type']>('all');
 
   const loadAlerts = useCallback(async () => {
-    const { data } = await supabase
-      .from('admin_alerts')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(100);
-    if (data) setAlerts(data as AdminAlert[]);
+    const data = await fetch('/api/admin/alerts').then(r => r.ok ? r.json() : []).catch(() => []);
+    setAlerts(data as AdminAlert[]);
     setLoading(false);
-  }, [supabase]);
+  }, []);
 
   useEffect(() => {
     loadAlerts();
@@ -197,33 +190,36 @@ export default function AdminAlerts({ compact = false, maxCompact = 5 }: AdminAl
 
   const handleMarkRead = useCallback(
     async (id: string) => {
-      await supabase.from('admin_alerts').update({ is_read: true }).eq('id', id);
+      await fetch(`/api/admin/alerts/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ is_read: true }) });
       setAlerts((prev) => prev.map((a) => (a.id === id ? { ...a, is_read: true } : a)));
     },
-    [supabase]
+    []
   );
 
   const handleResolve = useCallback(
     async (id: string) => {
-      await supabase
-        .from('admin_alerts')
-        .update({ is_resolved: true, is_read: true, resolved_at: new Date().toISOString() })
-        .eq('id', id);
+      await fetch(`/api/admin/alerts/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_resolved: true, is_read: true, resolved_at: new Date().toISOString() }),
+      });
       setAlerts((prev) =>
         prev.map((a) =>
           a.id === id ? { ...a, is_resolved: true, is_read: true, resolved_at: new Date().toISOString() } : a
         )
       );
     },
-    [supabase]
+    []
   );
 
   const handleMarkAllRead = useCallback(async () => {
     const unreadIds = alerts.filter((a) => !a.is_read).map((a) => a.id);
     if (unreadIds.length === 0) return;
-    await supabase.from('admin_alerts').update({ is_read: true }).in('id', unreadIds);
+    await Promise.all(unreadIds.map(id =>
+      fetch(`/api/admin/alerts/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ is_read: true }) })
+    ));
     setAlerts((prev) => prev.map((a) => ({ ...a, is_read: true })));
-  }, [supabase, alerts]);
+  }, [alerts]);
 
   const unreadCount = alerts.filter((a) => !a.is_read && !a.is_resolved).length;
   const criticalCount = alerts.filter((a) => a.severity === 'critical' && !a.is_resolved).length;
@@ -502,23 +498,24 @@ export default function AdminAlerts({ compact = false, maxCompact = 5 }: AdminAl
 
 // ─── Helper to create alerts programmatically ─────────────────────────────────
 
-export async function createAdminAlert(
-  supabase: ReturnType<typeof createClient>,
-  params: {
-    alert_type: AdminAlert['alert_type'];
-    severity: AdminAlert['severity'];
-    title: string;
-    message: string;
-    details?: Record<string, any>;
-  }
-) {
-  return supabase.from('admin_alerts').insert({
-    alert_type: params.alert_type,
-    severity: params.severity,
-    title: params.title,
-    message: params.message,
-    details: params.details ?? {},
-    is_read: false,
-    is_resolved: false,
+export async function createAdminAlert(params: {
+  alert_type: AdminAlert['alert_type'];
+  severity: AdminAlert['severity'];
+  title: string;
+  message: string;
+  details?: Record<string, any>;
+}) {
+  return fetch('/api/admin/alerts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      alert_type: params.alert_type,
+      severity: params.severity,
+      title: params.title,
+      message: params.message,
+      details: params.details ?? {},
+      is_read: false,
+      is_resolved: false,
+    }),
   });
 }

@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect } from 'react';
 import Icon from '@/components/ui/AppIcon';
-import { createClient } from '@/lib/supabase/client';
 
 const MAX_ATTEMPTS = 3;
 const LOCK_SECONDS = 60;
@@ -87,15 +86,18 @@ export default function PriceEditModal({
     if (!p || p <= 0) return;
     setSaving(true);
     try {
-      const supabase = createClient();
-      await supabase.from('price_change_log').insert({
-        product_id: productId,
-        product_name: productName,
-        old_price: currentPrice,
-        new_price: p,
-        reason: reason.trim() || null,
-        cashier_name: cashierName,
-        changed_at: new Date().toISOString(),
+      await fetch('/api/price-change-log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          product_id: productId,
+          product_name: productName,
+          old_price: currentPrice,
+          new_price: p,
+          reason: reason.trim() || null,
+          cashier_name: cashierName,
+          changed_at: new Date().toISOString(),
+        }),
       });
     } catch (e) {
       // Non-blocking — log silently

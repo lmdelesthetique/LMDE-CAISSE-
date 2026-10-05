@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
-import { createClient } from '@/lib/supabase/client';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell,  } from 'recharts';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -149,42 +148,34 @@ export default function GeneralDashboardPage() {
 
   const loadData = useCallback(async () => {
     setLoading(true);
-    const supabase = createClient();
     const { from, to } = getPeriodDates(period, customFrom, customTo);
 
     try {
-      // Load employees & categories for filters
       const [empResult, catResult] = await Promise.all([
-        supabase.from('employees').select('id, first_name, last_name').eq('status', 'active'),
-        supabase.from('categories').select('id, name'),
+        fetch('/api/employees').then(r => r.ok ? r.json() : { employees: [] }).catch(() => ({ employees: [] })),
+        fetch('/api/categories').then(r => r.ok ? r.json() : []).catch(() => []),
       ]);
-      const emps = empResult.data;
-      const cats = catResult.data;
-      setEmployees((emps ?? []).map(e => ({ id: e.id, name: `${e.first_name} ${e.last_name}`.trim() })));
-      setCategories((cats ?? []).map(c => ({ id: c.id, name: c.name })));
+      const emps = empResult.employees ?? [];
+      const cats = catResult ?? [];
+      setEmployees(emps.map((e: any) => ({ id: e.id, name: e.fullName || `${e.firstName} ${e.lastName}`.trim() })));
+      setCategories(cats.map((c: any) => ({ id: c.id, name: c.name })));
 
-      // Load receipts — order + high limit to bypass Supabase's default 1000-row cap
-      const { data: receipts } = await supabase
-        .from('receipts')
-        .select('id, total_amount, payment_method, status, created_at, discount_amount, cashier_name, items_count, is_demo, client_name')
-        .gte('created_at', from)
-        .lte('created_at', to)
-        .order('created_at', { ascending: true })
-        .limit(10000);
+      const receipts = await fetch(`/api/receipts?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&all=true`)
+        .then(r => r.ok ? r.json() : []).catch(() => []);
       const isReal = (r: any) => {
         if (r.is_demo === true) return false;
         const cn = (r.client_name ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
         return cn !== 'CHRISTY LHOMME';
       };
       const realReceipts = (receipts ?? []).filter(isReal);
-      const validReceipts = realReceipts.filter(r => r.status !== 'cancelled');
-      const cancelledReceipts = realReceipts.filter(r => r.status === 'cancelled');
+      const validReceipts = realReceipts.filter((r: any) => r.status !== 'cancelled');
+      const cancelledReceipts = realReceipts.filter((r: any) => r.status === 'cancelled');
 
       // KPIs
-      const totalRevenue = validReceipts.reduce((sum, r) => sum + (r.total_amount ?? 0), 0);
+      const totalRevenue = validReceipts.reduce((sum: number, r: any) => sum + (r.total_amount ?? 0), 0);
       const totalTickets = validReceipts.length;
       const avgBasket = totalTickets > 0 ? totalRevenue / totalTickets : 0;
-      const totalDiscounts = validReceipts.reduce((sum, r) => sum + (r.discount_amount ?? 0), 0);
+      const totalDiscounts = validReceipts.reduce((sum: number, r: any) => sum + (r.discount_amount ?? 0), 0);
 
       // Normalise raw payment_method — case-insensitive, handles all stored formats
       const normalizeMethod = (raw: string): string => {
@@ -243,41 +234,25 @@ export default function GeneralDashboardPage() {
         .sort(([, a], [, b]) => a.sortKey.localeCompare(b.sortKey))
         .map(([label, { revenue, tickets }]) => ({ label, revenue, tickets }));
 
-      // Reservation KPIs — use accounting dates (not created_at) to match when cash was actually collected
-      const [{ data: resDeposits }, { data: resBalances }] = await Promise.all([
-        supabase
-          .from('reservations')
-          .select('deposit_paid')
-          .gte('deposit_accounting_date', from.split('T')[0])
-          .lte('deposit_accounting_date', to.split('T')[0])
-          .neq('reservation_status', 'cancelled'),
-        supabase
-          .from('reservations')
-          .select('balance_paid')
-          .gte('balance_accounting_date', from.split('T')[0])
-          .lte('balance_accounting_date', to.split('T')[0])
-          .neq('reservation_status', 'cancelled'),
-      ]);
+      const allReservations = await fetch(`/api/reservations?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
+        .then(r => r.ok ? r.json() : []).catch(() => []);
+      const activeRes = allReservations.filter((r: any) => r.reservation_status !== 'cancelled');
+      const fromDate = from.split('T')[0];
+      const toDate = to.split('T')[0];
+      const reservationDeposits = activeRes
+        .filter((r: any) => r.deposit_accounting_date >= fromDate && r.deposit_accounting_date <= toDate)
+        .reduce((sum: number, r: any) => sum + (r.deposit_paid ?? 0), 0);
+      const reservationBalances = activeRes
+        .filter((r: any) => r.balance_accounting_date >= fromDate && r.balance_accounting_date <= toDate)
+        .reduce((sum: number, r: any) => sum + (r.balance_paid ?? 0), 0);
 
-      const reservationDeposits = (resDeposits ?? []).reduce((sum, r) => sum + (r.deposit_paid ?? 0), 0);
-      const reservationBalances = (resBalances ?? []).reduce((sum, r) => sum + (r.balance_paid ?? 0), 0);
+      const empSales = receipts;
+      const empDetailsRes = await fetch('/api/employees?all=true').then(r => r.ok ? r.json() : { employees: [] }).catch(() => ({ employees: [] }));
+      const empDetails = empDetailsRes.employees ?? [];
 
-      // Employee performance — read from receipts grouped by cashier_name (always set, even without PIN)
-      const { data: empSales } = await supabase
-        .from('receipts')
-        .select('cashier_name, employee_id, total_amount, status')
-        .gte('created_at', from)
-        .lte('created_at', to)
-        .limit(10000);
-
-      const { data: empDetails } = await supabase
-        .from('employees')
-        .select('id, first_name, last_name, monthly_objective');
-
-      // Build name→objective map from employees table
       const empByName: Record<string, { id: string; monthly_objective: number }> = {};
       for (const e of (empDetails ?? [])) {
-        const fullName = `${e.first_name ?? ''} ${e.last_name ?? ''}`.trim();
+        const fullName = e.fullName || `${e.firstName ?? ''} ${e.lastName ?? ''}`.trim();
         if (fullName) empByName[fullName] = { id: e.id, monthly_objective: e.monthly_objective ?? 0 };
       }
 

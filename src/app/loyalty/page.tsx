@@ -13,7 +13,6 @@ import {
   type RewardType,
   type CreateTierInput,
 } from '@/lib/services/loyaltyService';
-import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
@@ -274,15 +273,9 @@ function RealProductPickerModal({
     if (search.length < 2) { setSearchResults([]); return; }
     const t = setTimeout(async () => {
       setSearching(true);
-      const supabase = createClient();
-      const { data } = await supabase
-        .from('products')
-        .select('id, name, ref, stock, category, sell_price_ttc')
-        .neq('product_status', 'archived')
-        .or(`name.ilike.%${search}%,ref.ilike.%${search}%`)
-        .order('name')
-        .limit(12);
-      setSearchResults(data ?? []);
+      const res = await fetch(`/api/products/search?q=${encodeURIComponent(search)}&limit=12`)
+        .then(r => r.ok ? r.json() : { products: [] }).catch(() => ({ products: [] }));
+      setSearchResults(res.products ?? []);
       setSearching(false);
     }, 300);
     return () => clearTimeout(t);
@@ -716,18 +709,13 @@ export default function LoyaltyPage() {
   };
 
   const loadSlowMovers = useCallback(async (existingRewardProducts: LoyaltyRewardProduct[]) => {
-    const supabase = createClient();
     const linkedProductIds = new Set(
       existingRewardProducts
         .map((p) => p.sku)
         .filter((sku): sku is string => sku !== null && UUID_RE.test(sku))
     );
-    const { data } = await supabase
-      .from('products')
-      .select('id, name, ref, stock, min_stock, buy_price, category')
-      .eq('product_status', 'active')
-      .order('stock', { ascending: false })
-      .limit(50);
+    const data = await fetch('/api/products/list?status=active')
+      .then(r => r.ok ? r.json() : []).catch(() => []);
 
     const filtered = (data ?? [])
       .filter((p: any) => {

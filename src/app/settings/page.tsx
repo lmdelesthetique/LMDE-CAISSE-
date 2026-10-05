@@ -3,11 +3,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
-import { createClient } from '@/lib/supabase/client';
 import { DEFAULT_SETTINGS, type AppSettings } from '@/contexts/SettingsContext';
 import { sha256hex } from '@/contexts/POSAuthContext';
-
-const supabase = createClient();
 
 type SettingsTab = 'company' | 'payment' | 'templates' | 'stock' | 'returns' | 'loyalty' | 'labels' | 'printers' | 'employees' | 'backup' | 'security';
 
@@ -68,8 +65,9 @@ export default function SettingsPage() {
   const loadSettings = useCallback(async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase.from('app_settings').select('*').eq('id', 'main').maybeSingle();
-      if (!error && data) {
+      const res = await fetch('/api/app-settings');
+      const data = res.ok ? await res.json() : null;
+      if (data) {
         const merged = {
           ...DEFAULT_SETTINGS,
           ...data,
@@ -77,7 +75,6 @@ export default function SettingsPage() {
         };
         setSettings(merged);
         setCurrentPinHash(data.pos_pin_hash ?? null);
-        // Cache for receipt generation
         try { localStorage.setItem('beautypos_settings', JSON.stringify(merged)); } catch { /* ignore */ }
       }
     } catch (e) {
@@ -106,8 +103,12 @@ export default function SettingsPage() {
     setPinSaving(true);
     try {
       const newHash = await sha256hex(pinNew);
-      const { error } = await supabase.from('app_settings').upsert({ id: 'main', pos_pin_hash: newHash });
-      if (error) throw error;
+      const res = await fetch('/api/app-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pos_pin_hash: newHash }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Erreur serveur');
       setCurrentPinHash(newHash);
       setPinCurrent(''); setPinNew(''); setPinConfirm('');
       setPinMsg({ text: 'Code PIN mis à jour avec succès ✓', ok: true });
@@ -126,8 +127,12 @@ export default function SettingsPage() {
     }
     setPinSaving(true);
     try {
-      const { error } = await supabase.from('app_settings').upsert({ id: 'main', pos_pin_hash: null });
-      if (error) throw error;
+      const res = await fetch('/api/app-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pos_pin_hash: null }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Erreur serveur');
       setCurrentPinHash(null);
       setPinCurrent(''); setPinNew(''); setPinConfirm('');
       setPinMsg({ text: 'Code PIN supprimé — accès caisse sans PIN', ok: true });
@@ -142,13 +147,14 @@ export default function SettingsPage() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const payload = {
-        ...settings,
-        updated_at: new Date().toISOString(),
-      };
-      const { error } = await supabase.from('app_settings').upsert({ id: 'main', ...payload });
-      if (error) {
-        showToast(`Erreur : ${error.message}`, 'error');
+      const res = await fetch('/api/app-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...settings, updated_at: new Date().toISOString() }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        showToast(`Erreur : ${err.error || 'Erreur serveur'}`, 'error');
       } else {
         // Sync default structure pct to localStorage for order pages
         if (settings.default_structure_pct > 0) {

@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
     const componentIds = kitRows.map((r: any) => r.component_id);
     const { data: products, error: prodError } = await supabase
       .from('products')
-      .select('id, name, ref, image_url')
+      .select('id, name, ref, image_url, buy_price, sell_price_ttc, stock')
       .in('id', componentIds);
 
     if (prodError) return NextResponse.json({ error: prodError.message }, { status: 500 });
@@ -37,6 +37,9 @@ export async function GET(req: NextRequest) {
         name: prod?.name ?? '',
         ref: prod?.ref ?? '',
         imageUrl: prod?.image_url ?? null,
+        buy_price: prod?.buy_price ?? 0,
+        sell_price_ttc: prod?.sell_price_ttc ?? 0,
+        stock: prod?.stock ?? 0,
       };
     });
 

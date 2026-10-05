@@ -6,7 +6,6 @@ import AppImage from '@/components/ui/AppImage';
 import Icon from '@/components/ui/AppIcon';
 import { useBarcodeScanner, useCameraBarcodeScanner } from '@/hooks/useBarcodeScanner';
 import { fetchProductByBarcode, adjustStock } from '@/lib/services/stockService';
-import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import Link from 'next/link';
 
@@ -49,8 +48,6 @@ function playBeep() {
 }
 
 export default function InventaireScanPage() {
-  const supabase = createClient();
-
   const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);
   const [scanMode, setScanMode] = useState<'keyboard' | 'camera'>('keyboard');
   const [manualBarcode, setManualBarcode] = useState('');
@@ -105,11 +102,8 @@ export default function InventaireScanPage() {
       return;
     }
 
-    const { data: variants } = await supabase
-      .from('product_color_stock')
-      .select('id, color_name, color_hex, quantity')
-      .eq('product_id', product.id)
-      .order('created_at', { ascending: true });
+    const variants = await fetch(`/api/product-color-stock?productId=${product.id}`)
+      .then(r => r.ok ? r.json() : []).catch(() => []);
 
     if (variants && variants.length > 0) {
       setVariantProduct({
@@ -126,7 +120,7 @@ export default function InventaireScanPage() {
     }
 
     setIsLooking(false);
-  }, [isLooking, addOrIncrementItem, supabase]);
+  }, [isLooking, addOrIncrementItem]);
 
   const handleManualSubmit = useCallback(() => {
     const bc = manualBarcode.trim();
@@ -186,35 +180,18 @@ export default function InventaireScanPage() {
       if (item.countedQty === item.currentStock) { skipped++; continue; }
       try {
         if (item.isVariant && item.variantId) {
-          const { error } = await supabase
-            .from('product_color_stock')
-            .update({ quantity: item.countedQty })
-            .eq('id', item.variantId);
-
-          if (!error) {
-            const { data: allV } = await supabase
-              .from('product_color_stock')
-              .select('quantity')
-              .eq('product_id', item.productId);
-
-            if (allV) {
-              const total = (allV as { quantity: number }[]).reduce((s, v) => s + (Number(v.quantity) || 0), 0);
-              await supabase
-                .from('products')
-                .update({ stock: total, updated_at: new Date().toISOString() })
-                .eq('id', item.productId);
-            }
-
-            await supabase.from('stock_movements_log').insert({
-              product_id: item.productId,
-              product_name: item.name,
-              movement_type: 'adjustment',
-              quantity_before: item.currentStock,
-              quantity_after: item.countedQty,
-              quantity_change: item.countedQty - item.currentStock,
-              reason: 'Inventaire par scan',
-              performed_by: 'Inventaire',
-            });
+          const res = await fetch('/api/inventory/adjust-variant', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              variantId: item.variantId,
+              productId: item.productId,
+              productName: item.name,
+              countedQty: item.countedQty,
+              currentStock: item.currentStock,
+            }),
+          });
+          if (res.ok) {
             updated++;
           } else {
             errors++;
@@ -239,7 +216,7 @@ export default function InventaireScanPage() {
     } else {
       toast.warning(`${updated} mis à jour · ${errors} erreur(s)`, { duration: 5000 });
     }
-  }, [scannedItems, supabase]);
+  }, [scannedItems]);
 
   const totalScanned = scannedItems.length;
   const withDiff = scannedItems.filter((i) => i.countedQty !== i.currentStock).length;

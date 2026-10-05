@@ -27,6 +27,36 @@ function resolveStripePaymentLink(planName: string, email?: string | null): stri
   return email ? `${baseUrl}?prefilled_email=${encodeURIComponent(email)}` : baseUrl;
 }
 
+// GET /api/subscriptions?month=YYYY-MM — list subscriptions with current month orders
+export async function GET(req: NextRequest) {
+  const { searchParams } = req.nextUrl;
+  const month = searchParams.get('month') ?? new Date().toISOString().slice(0, 7);
+  const supabase = createAdminClient();
+
+  const { data: subs, error: subsErr } = await supabase
+    .from('client_subscriptions')
+    .select(`
+      id, status, portal_phone, pin_code, next_billing_date, launch_offer,
+      client:clients(id, first_name, last_name, email),
+      plan:subscription_plans(id, name, price, quota_amount, shipping_free, shipping_cost)
+    `)
+    .order('created_at', { ascending: false });
+
+  if (subsErr) return NextResponse.json({ error: subsErr.message }, { status: 500 });
+  if (!subs?.length) return NextResponse.json({ subscriptions: [], orders: [] });
+
+  const subIds = subs.map((s: any) => s.id);
+  const { data: orders, error: ordersErr } = await supabase
+    .from('subscription_orders')
+    .select('id, subscription_id, status, total_products_cost, total_sell_price, benefit_amount, shipping_cost, statut_livraison, delivery_id, notified_at, delivery_destination, delivery_address, delivery_payment_sent, shipping_mode')
+    .in('subscription_id', subIds)
+    .eq('order_month', month);
+
+  if (ordersErr) return NextResponse.json({ error: ordersErr.message }, { status: 500 });
+
+  return NextResponse.json({ subscriptions: subs ?? [], orders: orders ?? [] });
+}
+
 // POST — create a new client subscription
 export async function POST(req: NextRequest) {
   let body: any;

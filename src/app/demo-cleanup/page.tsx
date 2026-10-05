@@ -3,7 +3,6 @@
 import React, { useState } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
-import { createClient } from '@/lib/supabase/client';
 
 interface CleanupTask {
   id: string;
@@ -87,16 +86,14 @@ export default function DemoCleanupPage() {
   const handleCount = async () => {
     setPhase('counting');
     setGlobalError(null);
-    const supabase = createClient();
 
     for (const task of tasks) {
       if (!selectedTasks.has(task.id)) continue;
       updateTask(task.id, { status: 'counting' });
       try {
-        const { count } = await supabase
-          .from(task.table)
-          .select('*', { count: 'exact', head: true });
-        updateTask(task.id, { status: 'idle', count: count ?? 0 });
+        const res = await fetch(`/api/admin/table-wipe?table=${task.table}`);
+        const json = res.ok ? await res.json() : { count: 0 };
+        updateTask(task.id, { status: 'idle', count: json.count ?? 0 });
       } catch {
         updateTask(task.id, { status: 'idle', count: 0 });
       }
@@ -106,26 +103,20 @@ export default function DemoCleanupPage() {
 
   const handleCleanup = async () => {
     setPhase('cleaning');
-    const supabase = createClient();
     let hasError = false;
 
     for (const task of tasks) {
       if (!selectedTasks.has(task.id)) continue;
       updateTask(task.id, { status: 'deleting' });
       try {
-        // Delete all rows — using a filter that matches everything
-        const { error } = await supabase
-          .from(task.table)
-          .delete()
-          .gte('created_at', '2000-01-01');
-
-        if (error) {
+        const res = await fetch(`/api/admin/table-wipe?table=${task.table}`, { method: 'DELETE' });
+        if (!res.ok) {
           updateTask(task.id, { status: 'error' });
           hasError = true;
         } else {
           updateTask(task.id, { status: 'done', deleted: task.count ?? 0 });
         }
-      } catch (e: any) {
+      } catch {
         updateTask(task.id, { status: 'error' });
         hasError = true;
       }
@@ -133,7 +124,7 @@ export default function DemoCleanupPage() {
 
     setPhase('done');
     if (hasError) {
-      setGlobalError('Certaines tables n\'ont pas pu être nettoyées. Vérifiez les permissions RLS.');
+      setGlobalError('Certaines tables n\'ont pas pu être nettoyées. Vérifiez les permissions.');
     }
   };
 

@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import AppLayout from '@/components/AppLayout';
-import { createClient } from '@/lib/supabase/client';
 import Icon from '@/components/ui/AppIcon';
 import {
   clientService,
@@ -81,15 +80,14 @@ export default function ClientsPage() {
 
   const loadClients = useCallback(async () => {
     setLoading(true);
-    const supabase = createClient();
-    const [data, { data: activeSubs }, { data: proProfiles }] = await Promise.all([
+    const [data, activeSubs, proProfiles] = await Promise.all([
       clientService.getAll(),
-      supabase.from('client_subscriptions').select('client_id').eq('status', 'active'),
-      supabase.from('client_pro_profiles').select('client_id, statut_commercial'),
+      fetch('/api/client-subscriptions/active').then(r => r.ok ? r.json() : []).catch(() => []),
+      fetch('/api/client-pro-profiles').then(r => r.ok ? r.json() : []).catch(() => []),
     ]);
     setClients(data);
-    setActiveSubClientIds(new Set((activeSubs ?? []).map((s: any) => s.client_id)));
-    setProStatuts(new Map((proProfiles ?? []).map((p: any) => [p.client_id, p.statut_commercial])));
+    setActiveSubClientIds(new Set((activeSubs as any[]).map((s: any) => s.client_id)));
+    setProStatuts(new Map((proProfiles as any[]).map((p: any) => [p.client_id, p.statut_commercial])));
     setLoading(false);
   }, []);
 

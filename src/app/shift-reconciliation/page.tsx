@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
-import { createClient } from '@/lib/supabase/client';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -543,16 +542,12 @@ export default function ShiftReconciliationPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const supabase = createClient();
     try {
-      const { data: tickets } = await supabase
-        .from('receipts')
-        .select('id, ticket_number, created_at, total_amount, payment_method, client_id, client_name, items_count, status')
-        .gte('created_at', selectedDate + 'T00:00:00')
-        .lte('created_at', selectedDate + 'T23:59:59')
-        .order('created_at', { ascending: false });
+      const tickets = await fetch(
+        `/api/receipts?from=${encodeURIComponent(selectedDate + 'T00:00:00')}&to=${encodeURIComponent(selectedDate + 'T23:59:59')}&all=true`
+      ).then(r => r.ok ? r.json() : []).catch(() => []);
 
-      if (tickets) {
+      if (tickets?.length >= 0) {
         const mapped: ReceiptRow[] = tickets.map((t: any) => ({
           id: t.id,
           ticket_number: t.ticket_number ?? t.id.substring(0, 8).toUpperCase(),

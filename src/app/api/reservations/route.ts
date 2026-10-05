@@ -14,6 +14,8 @@ export async function GET(req: NextRequest) {
   const type = searchParams.get('type') ?? '';
   const recovery = searchParams.get('recovery') ?? '';
   const search = searchParams.get('search') ?? '';
+  const from = searchParams.get('from') ?? '';
+  const to = searchParams.get('to') ?? '';
 
   const supabase = createAdminClient();
   let q = supabase.from('reservations').select('*').order('created_at', { ascending: false });
@@ -21,6 +23,8 @@ export async function GET(req: NextRequest) {
   if (status && status !== 'all') q = q.eq('reservation_status', status);
   if (type && type !== 'all') q = q.eq('reservation_type', type);
   if (recovery && recovery !== 'all') q = q.eq('recovery_mode', recovery);
+  if (from) q = q.gte('created_at', from);
+  if (to) q = q.lte('created_at', to);
   if (search.trim()) {
     q = q.or(`client_name.ilike.%${search}%,client_phone.ilike.%${search}%,reservation_number.ilike.%${search}%`);
     q = q.limit(20);

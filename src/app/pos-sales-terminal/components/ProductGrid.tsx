@@ -9,7 +9,7 @@ import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { fetchActivePromotions, getProductPromo, promoDiscountLabel, type ActivePromo } from '@/lib/services/promotionService';
 import KitCompositionModal, { type KitComponent } from './KitCompositionModal';
 
-// Anon client — used only for realtime subscriptions and color variants (read-only, no RLS issue)
+// Anon client — used only for realtime subscriptions (no RLS issue on products table)
 const supabase = createClient();
 
 interface DBProduct {
@@ -90,11 +90,9 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
     setVariantPickerProduct(product);
     setPendingPromo(promo ?? null);
     setVariantPickerLoading(true);
-    const { data } = await supabase
-      .from('product_color_stock')
-      .select('id, color_name, color_hex, quantity')
-      .eq('product_id', product.id)
-      .order('created_at', { ascending: true });
+    const data = await fetch(`/api/product-color-stock?productId=${product.id}`)
+      .then(r => r.ok ? r.json() : [])
+      .catch(() => []);
     setVariantPickerRows((data as ColorVariantRow[]) || []);
     setVariantPickerLoading(false);
   }, []);

@@ -3,10 +3,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import AppImage from '@/components/ui/AppImage';
-import { createClient } from '@/lib/supabase/client';
-import { fetchAll } from '@/lib/utils/fetchAll';
-
-const supabase = createClient();
 
 interface FavouriteProduct {
   id: string; // pos_favourites.id
@@ -46,35 +42,23 @@ export default function POSFavouritesManager({ onClose }: POSFavouritesManagerPr
 
   const loadData = useCallback(async () => {
     setLoading(true);
-    const [favsResult, allProds] = await Promise.all([
-      supabase
-        .from('pos_favourites')
-        .select('id, product_id, sort_order, products(name, ref, image_url, sell_price_ttc, stock, category)')
-        .order('sort_order'),
-      fetchAll<AllProduct>((from, to) =>
-        supabase
-          .from('products')
-          .select('id, name, ref, image_url, sell_price_ttc, stock, category')
-          .eq('status', 'active')
-          .order('name')
-          .range(from, to)
-      ),
+    const [favsData, allProds] = await Promise.all([
+      fetch('/api/pos-favourites').then(r => r.ok ? r.json() : []).catch(() => []),
+      fetch('/api/products/list?status=active,actif').then(r => r.ok ? r.json() : []).catch(() => []),
     ]);
 
-    if (favsResult.data) {
-      const mapped: FavouriteProduct[] = favsResult.data.map((f: any) => ({
-        id: f.id,
-        product_id: f.product_id,
-        sort_order: f.sort_order,
-        name: f.products?.name || '',
-        ref: f.products?.ref || '',
-        image_url: f.products?.image_url,
-        sell_price_ttc: Number(f.products?.sell_price_ttc) || 0,
-        stock: Number(f.products?.stock) || 0,
-        category: f.products?.category || '',
-      }));
-      setFavourites(mapped);
-    }
+    const mapped: FavouriteProduct[] = (favsData as any[]).map((f: any) => ({
+      id: f.id,
+      product_id: f.product_id,
+      sort_order: f.sort_order,
+      name: f.products?.name || '',
+      ref: f.products?.ref || '',
+      image_url: f.products?.image_url,
+      sell_price_ttc: Number(f.products?.sell_price_ttc) || 0,
+      stock: Number(f.products?.stock) || 0,
+      category: f.products?.category || '',
+    }));
+    setFavourites(mapped);
     setAllProducts(allProds);
     setLoading(false);
   }, []);
@@ -92,18 +76,19 @@ export default function POSFavouritesManager({ onClose }: POSFavouritesManagerPr
   const handleAdd = async (product: AllProduct) => {
     setSaving(product.id);
     const maxOrder = favourites.length > 0 ? Math.max(...favourites.map((f) => f.sort_order)) : 0;
-    const { error } = await supabase.from('pos_favourites').insert({
-      product_id: product.id,
-      sort_order: maxOrder + 1,
+    const res = await fetch('/api/pos-favourites', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ product_id: product.id, sort_order: maxOrder + 1 }),
     });
-    if (!error) { showToast(`"${product.name}" ajouté aux favoris`); loadData(); }
+    if (res.ok) { showToast(`"${product.name}" ajouté aux favoris`); loadData(); }
     setSaving(null);
     setSearch('');
   };
 
   const handleRemove = async (fav: FavouriteProduct) => {
     setSaving(fav.id);
-    await supabase.from('pos_favourites').delete().eq('id', fav.id);
+    await fetch(`/api/pos-favourites/${fav.id}`, { method: 'DELETE' });
     showToast(`"${fav.name}" retiré des favoris`);
     loadData();
     setSaving(null);
@@ -118,8 +103,8 @@ export default function POSFavouritesManager({ onClose }: POSFavouritesManagerPr
     [updated[idx], updated[idx - 1]] = [updated[idx - 1], updated[idx]];
     setFavourites(updated);
     await Promise.all([
-      supabase.from('pos_favourites').update({ sort_order: updated[idx].sort_order }).eq('id', updated[idx].id),
-      supabase.from('pos_favourites').update({ sort_order: updated[idx - 1].sort_order }).eq('id', updated[idx - 1].id),
+      fetch(`/api/pos-favourites/${updated[idx].id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sort_order: updated[idx].sort_order }) }),
+      fetch(`/api/pos-favourites/${updated[idx - 1].id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sort_order: updated[idx - 1].sort_order }) }),
     ]);
   };
 
@@ -132,8 +117,8 @@ export default function POSFavouritesManager({ onClose }: POSFavouritesManagerPr
     [updated[idx], updated[idx + 1]] = [updated[idx + 1], updated[idx]];
     setFavourites(updated);
     await Promise.all([
-      supabase.from('pos_favourites').update({ sort_order: updated[idx].sort_order }).eq('id', updated[idx].id),
-      supabase.from('pos_favourites').update({ sort_order: updated[idx + 1].sort_order }).eq('id', updated[idx + 1].id),
+      fetch(`/api/pos-favourites/${updated[idx].id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sort_order: updated[idx].sort_order }) }),
+      fetch(`/api/pos-favourites/${updated[idx + 1].id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sort_order: updated[idx + 1].sort_order }) }),
     ]);
   };
 

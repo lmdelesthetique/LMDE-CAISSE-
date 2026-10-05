@@ -153,7 +153,7 @@ EXECUTE FUNCTION sync_product_status();`;
     const supNames = sups.map((s) => s.companyName).sort();
     // Build category list from active products in loaded data
     const activeCats = Array.from(new Set(
-      mapped.filter(p => p.status === 'active' || p.status === 'actif').map(p => p.category).filter(Boolean)
+      mapped.filter(p => p.status === 'active' || (p.status as string) === 'actif').map(p => p.category).filter(Boolean)
     )).sort() as string[];
     const allCats = Array.from(new Set([...catNames, ...activeCats])).sort();
     const prodSups = Array.from(new Set(mapped.map(p => p.supplier).filter(Boolean)));

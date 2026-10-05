@@ -93,7 +93,7 @@ export default function ProductFormModal({ product, onClose, onSave }: ProductFo
 
   // Load real suppliers and categories from DB
   useEffect(() => {
-    supabase.from('suppliers').select('id, company_name').eq('is_active', true).order('company_name').then(({ data }) => {
+    fetch('/api/suppliers').then(r => r.ok ? r.json() : []).then((data: any[]) => {
       if (data) setSupplierOptions(data.map((s: any) => ({ id: s.id, name: s.company_name })));
     });
 

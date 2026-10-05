@@ -14,7 +14,6 @@ import {
   getClientDiscount,
 } from '@/lib/services/clientService';
 import { loyaltyService, getNextTier, pointsToNextTier, REWARD_TYPE_ICONS, REWARD_TYPE_LABELS, type LoyaltyTier, type LoyaltyRedemption, type ClientLoyaltyReward } from '@/lib/services/loyaltyService';
-import { createClient as createSupabaseClient } from '@/lib/supabase/client';
 
 function countryFlag(country: string): string {
   const c = country.toLowerCase().trim();
@@ -470,31 +469,22 @@ export default function ClientDetailPanel({
 
   useEffect(() => {
     if (tab !== 'subscription') return;
-    const supabase = createSupabaseClient();
-    supabase.from('subscription_plans').select('*').eq('is_active', true).order('price').then(({ data }) => {
+    fetch('/api/subscription-plans').then(r => r.ok ? r.json() : []).then(data => {
       if (data) setPlans(data as SubscriptionPlan[]);
     });
     if (subscription) {
-      supabase
-        .from('client_subscriptions')
-        .select('plan_id, pin_code, portal_phone')
-        .eq('id', subscription.id)
-        .maybeSingle()
-        .then(({ data }) => {
+      fetch(`/api/client-subscriptions/${subscription.id}`)
+        .then(r => r.ok ? r.json() : null)
+        .then((data) => {
           if (data) {
-            setPortalPlanId((data as any).plan_id ?? '');
-            setPortalPhone((data as any).portal_phone ?? '');
-            setPortalPin((data as any).pin_code ?? '');
+            setPortalPlanId(data.plan_id ?? '');
+            setPortalPhone(data.portal_phone ?? '');
+            setPortalPin(data.pin_code ?? '');
           }
         });
-
-      // Load client review via subscription
-      supabase
-        .from('app_reviews')
-        .select('rating, comment, updated_at')
-        .eq('subscription_id', subscription.id)
-        .maybeSingle()
-        .then(({ data }) => { if (data) setClientReview(data as any); });
+      fetch(`/api/app-reviews?subscriptionId=${subscription.id}`)
+        .then(r => r.ok ? r.json() : null)
+        .then((data) => { if (data) setClientReview(data as any); });
     }
   }, [tab, subscription]);
 
@@ -625,15 +615,15 @@ export default function ClientDetailPanel({
   const handleSavePortal = async () => {
     if (!subscription) return;
     setSavingPortal(true);
-    const supabase = createSupabaseClient();
-    await supabase
-      .from('client_subscriptions')
-      .update({
+    await fetch(`/api/client-subscriptions/${subscription.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
         plan_id: portalPlanId || null,
         pin_code: portalPin || null,
         portal_phone: portalPhone || null,
-      })
-      .eq('id', subscription.id);
+      }),
+    });
     setSavingPortal(false);
   };
 

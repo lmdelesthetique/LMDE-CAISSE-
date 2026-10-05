@@ -6,12 +6,8 @@ import AppImage from '@/components/ui/AppImage';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { Category, CategoryFormData, fetchCategories, createCategory, updateCategory, deleteCategory } from '@/lib/services/categoryService';
 import { categoryStore } from '@/lib/stores/dataStore';
-import { createClient } from '@/lib/supabase/client';
-import { fetchAll } from '@/lib/utils/fetchAll';
 import ProductFormModal from '@/app/product-management/components/ProductFormModal';
 import { type ProductRecord, type ColorVariant } from '@/app/product-management/components/mockProducts';
-
-const supabase = createClient();
 
 const ICON_OPTIONS = [
   'SparklesIcon','BeakerIcon','PaintBrushIcon','EyeIcon','StarIcon',
@@ -156,7 +152,11 @@ function MoveProductModal({ product, categories, currentCategory, onClose, onMov
   const handleMove = async () => {
     if (!targetCategory) return;
     setSaving(true);
-    await supabase.from('products').update({ category: targetCategory, updated_at: new Date().toISOString() }).eq('id', product.id);
+    await fetch('/api/products/batch', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [product.id], payload: { category: targetCategory, updated_at: new Date().toISOString() } }),
+    });
     setSaving(false);
     onMoved();
     onClose();
@@ -212,17 +212,12 @@ function AddProductModal({ categoryName, onClose, onAdded }: AddProductModalProp
 
   useEffect(() => {
     setLoading(true);
-    fetchAll<any>((from, to) =>
-      supabase
-        .from('products')
-        .select('id, name, ref, image_url, stock, sell_price_ttc, status, product_status, category')
-        .neq('category', categoryName)
-        .order('name')
-        .range(from, to)
-    ).then((data) => {
-      setProducts(data as any[]);
-      setLoading(false);
-    });
+    fetch('/api/products/list?all=true')
+      .then((r) => r.json())
+      .then((data: any[]) => {
+        setProducts((Array.isArray(data) ? data : []).filter((p) => p.category !== categoryName));
+        setLoading(false);
+      });
   }, [categoryName]);
 
   const filtered = products.filter(
@@ -249,12 +244,11 @@ function AddProductModal({ categoryName, onClose, onAdded }: AddProductModalProp
     if (selectedIds.size === 0) return;
     setSaving(true);
     const ids = Array.from(selectedIds);
-    // Update all selected products in parallel
-    await Promise.all(
-      ids.map((id) =>
-        supabase.from('products').update({ category: categoryName, updated_at: new Date().toISOString() }).eq('id', id)
-      )
-    );
+    await fetch('/api/products/batch', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids, payload: { category: categoryName, updated_at: new Date().toISOString() } }),
+    });
     setSaving(false);
     onAdded();
     onClose();
@@ -379,11 +373,12 @@ function RemoveMultipleModal({ selectedProducts, categoryName, onClose, onRemove
 
   const handleRemove = async () => {
     setRemoving(true);
-    await Promise.all(
-      selectedProducts.map((p) =>
-        supabase.from('products').update({ category: '', updated_at: new Date().toISOString() }).eq('id', p.id)
-      )
-    );
+    const ids = selectedProducts.map((p) => p.id);
+    await fetch('/api/products/batch', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids, payload: { category: '', updated_at: new Date().toISOString() } }),
+    });
     setRemoving(false);
     onRemoved();
     onClose();
@@ -472,15 +467,9 @@ function CategoryDetailPanel({ category, allCategories, onBack, onCategoryUpdate
 
   const loadProducts = useCallback(async () => {
     setLoading(true);
-    const data = await fetchAll<any>((from, to) =>
-      supabase
-        .from('products')
-        .select('id, name, ref, image_url, stock, sell_price_ttc, status, product_status, category')
-        .eq('category', category.name)
-        .order('name')
-        .range(from, to)
-    );
-    setProducts(data as any[]);
+    const res = await fetch('/api/products/list?all=true');
+    const all = res.ok ? await res.json() : [];
+    setProducts((Array.isArray(all) ? all : []).filter((p: any) => p.category === category.name));
     setSelectedIds(new Set());
     setLoading(false);
   }, [category.name]);
@@ -488,12 +477,14 @@ function CategoryDetailPanel({ category, allCategories, onBack, onCategoryUpdate
   useEffect(() => { loadProducts(); }, [loadProducts]);
 
   const openProductEdit = async (product: CategoryProduct) => {
-    const { data: p } = await supabase.from('products').select('*').eq('id', product.id).maybeSingle();
-    if (!p) return;
-    const { data: variantRows } = await supabase
-      .from('product_color_stock').select('id, color_name, color_hex, quantity, min_stock')
-      .eq('product_id', product.id).order('created_at', { ascending: true });
-    const colorVariants: ColorVariant[] = (variantRows || []).map((v: any) => ({
+    const [pRes, vRes] = await Promise.all([
+      fetch(`/api/products/${product.id}`),
+      fetch(`/api/product-color-stock?productId=${product.id}`),
+    ]);
+    if (!pRes.ok) return;
+    const p = await pRes.json();
+    const variantRows: any[] = vRes.ok ? await vRes.json() : [];
+    const colorVariants: ColorVariant[] = variantRows.map((v: any) => ({
       id: v.id, colorName: v.color_name || '', colorHex: v.color_hex || '#000000',
       quantity: Number(v.quantity) || 0, minStock: Number(v.min_stock) || 0,
     }));
@@ -548,7 +539,11 @@ function CategoryDetailPanel({ category, allCategories, onBack, onCategoryUpdate
 
   const handleRemove = async (product: CategoryProduct) => {
     setRemovingId(product.id);
-    await supabase.from('products').update({ category: '', updated_at: new Date().toISOString() }).eq('id', product.id);
+    await fetch('/api/products/batch', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [product.id], payload: { category: '', updated_at: new Date().toISOString() } }),
+    });
     setRemovingId(null);
     showToast(`"${product.name}" retiré de la catégorie`);
     loadProducts();
@@ -835,9 +830,9 @@ export default function CategoriesContent() {
     try {
       const data = await fetchCategories();
       setCategories(data);
-      const products = await fetchAll((from, to) =>
-        supabase.from('products').select('category, stock, sell_price_ttc').neq('product_status', 'archived').range(from, to)
-      );
+      const prodRes = await fetch('/api/products/list?all=true');
+      const allProds = prodRes.ok ? await prodRes.json() : [];
+      const products = (Array.isArray(allProds) ? allProds : []).filter((p: any) => p.product_status !== 'archived');
       if (products.length >= 0) {
         const stats: Record<string, { productCount: number; totalStock: number; totalPrice: number }> = {};
         products.forEach((p: any) => {
@@ -873,8 +868,11 @@ export default function CategoriesContent() {
       // If name changed, propagate to all products via store (DB trigger also handles this)
       if (oldName !== form.name) {
         await categoryStore.rename(editCategory.id, form.name);
-        // Also update products locally in case trigger hasn't fired yet
-        await supabase.from('products').update({ category: form.name }).eq('category', oldName);
+        await fetch('/api/products/rename-category', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ oldName, newName: form.name }),
+        });
       }
       categoryStore.invalidate();
     } else {
@@ -893,7 +891,11 @@ export default function CategoriesContent() {
   const handleTogglePortal = async (cat: Category, e: React.MouseEvent) => {
     e.stopPropagation();
     const next = !cat.visible_in_client_portal;
-    await supabase.from('categories').update({ visible_in_client_portal: next }).eq('id', cat.id);
+    await fetch(`/api/categories/${cat.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ visible_in_client_portal: next }),
+    });
     setCategories((prev) => prev.map((c) => c.id === cat.id ? { ...c, visible_in_client_portal: next } : c));
   };
 

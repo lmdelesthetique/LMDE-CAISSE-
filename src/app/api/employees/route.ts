@@ -10,12 +10,17 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: e.message, employees: [] }, { status: 500 });
   }
 
-  // Use exact enum value 'active' — do NOT use .in() with non-enum values like 'Actif'
-  const { data, error } = await supabase
+  const statusFilter = req.nextUrl.searchParams.get('status') ?? 'active';
+  const allFields = req.nextUrl.searchParams.get('all') === 'true';
+
+  let q = supabase
     .from('employees')
-    .select('id, first_name, last_name, role, status, avatar_initials, pos_pin, perm_cashier_access')
-    .eq('status', 'active')
+    .select(allFields
+      ? 'id, first_name, last_name, role, status, avatar_initials, pos_pin, perm_cashier_access, monthly_objective'
+      : 'id, first_name, last_name, role, status, avatar_initials, pos_pin, perm_cashier_access')
     .order('first_name', { ascending: true });
+  if (statusFilter !== 'all') q = q.eq('status', statusFilter);
+  const { data, error } = await q;
 
   if (error) {
     console.error('[api/employees] query error:', error.message, error.code);
@@ -32,6 +37,7 @@ export async function GET(req: NextRequest) {
     role: r.role ?? 'cashier',
     status: r.status ?? 'active',
     permCashierAccess: r.perm_cashier_access !== false,
+    monthly_objective: r.monthly_objective ?? 0,
   }));
 
   return NextResponse.json({ employees });

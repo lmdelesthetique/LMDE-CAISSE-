@@ -3,10 +3,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import AppImage from '@/components/ui/AppImage';
-import { createClient } from '@/lib/supabase/client';
-import { fetchAll } from '@/lib/utils/fetchAll';
-
-const supabase = createClient();
 
 interface KitComponent {
   componentId: string;
@@ -60,24 +56,14 @@ export default function KitFormModal({ kitProductId, onClose, onSaved }: KitForm
   };
 
   useEffect(() => {
-    // Load all non-kit products (bypass Supabase 1000-row default with range pagination)
-    fetchAll<SimpleProduct>((from, to) =>
-      supabase
-        .from('products')
-        .select('id, name, ref, image_url, buy_price, sell_price_ttc, stock, category')
-        .eq('is_kit', false)
-        .order('name')
-        .range(from, to)
-    ).then((data) => setAllProducts(data));
+    fetch('/api/products/list?all=true')
+      .then(r => r.ok ? r.json() : [])
+      .then((data: SimpleProduct[]) => setAllProducts(data.filter((p: any) => !p.is_kit)));
 
-    // If editing, load existing kit data
     if (kitProductId) {
-      supabase
-        .from('products')
-        .select('name, ref, category, kit_price_override, status, product_status')
-        .eq('id', kitProductId)
-        .single()
-        .then(({ data }) => {
+      fetch(`/api/products/${kitProductId}`)
+        .then(r => r.ok ? r.json() : null)
+        .then((data: any) => {
           if (data) {
             setKitName(data.name || '');
             setKitRef(data.ref || '');
@@ -87,26 +73,22 @@ export default function KitFormModal({ kitProductId, onClose, onSaved }: KitForm
           }
         });
 
-      supabase
-        .from('product_kits')
-        .select('component_id, quantity, products!product_kits_component_id_fkey(id, name, ref, image_url, buy_price, sell_price_ttc, stock)')
-        .eq('product_id', kitProductId)
-        .then(({ data }) => {
-          if (data) {
-            const mapped: KitComponent[] = data.map((row: any) => ({
-              componentId: row.component_id,
-              name: row.products?.name || '',
-              ref: row.products?.ref || '',
-              imageUrl: row.products?.image_url,
-              quantity: Number(row.quantity) || 1,
-              unitCost: Number(row.products?.buy_price) || 0,
-              unitPrice: Number(row.products?.sell_price_ttc) || 0,
-              stock: Number(row.products?.stock) || 0,
-              discount: 0,
-              discountType: 'percent',
-            }));
-            setComponents(mapped);
-          }
+      fetch(`/api/products/kit-components?productId=${kitProductId}`)
+        .then(r => r.ok ? r.json() : { components: [] })
+        .then(({ components: rows }: { components: any[] }) => {
+          const mapped: KitComponent[] = rows.map((row: any) => ({
+            componentId: row.componentId,
+            name: row.name || '',
+            ref: row.ref || '',
+            imageUrl: row.imageUrl,
+            quantity: Number(row.quantity) || 1,
+            unitCost: Number(row.buy_price) || 0,
+            unitPrice: Number(row.sell_price_ttc) || 0,
+            stock: Number(row.stock) || 0,
+            discount: 0,
+            discountType: 'percent',
+          }));
+          setComponents(mapped);
         });
     }
   }, [kitProductId]);
@@ -173,46 +155,34 @@ export default function KitFormModal({ kitProductId, onClose, onSaved }: KitForm
     if (components.length === 0) { showToast('Ajoutez au moins un composant'); return; }
     setSaving(true);
     try {
-      let productId = kitProductId;
-
-      const productPayload: any = {
-        name: kitName.trim(),
-        ref: kitRef.trim() || null,
-        category: kitCategory.trim() || 'Kits',
-        is_kit: true,
-        kit_price_override: kitPriceOverride ? Number(kitPriceOverride) : null,
-        sell_price_ttc: kitPrice,
-        sell_price_ht: kitPrice / 1.085,
-        buy_price: totalCost,
-        status: kitStatus,
-        product_status: kitStatus,
-        updated_at: new Date().toISOString(),
-        stock: minAvailableStock,
-      };
-
-      if (productId) {
-        await supabase.from('products').update(productPayload).eq('id', productId);
-        // Delete old components
-        await supabase.from('product_kits').delete().eq('product_id', productId);
-      } else {
-        const { data, error } = await supabase
-          .from('products')
-          .insert({ ...productPayload, created_at: new Date().toISOString() })
-          .select('id')
-          .single();
-        if (error) throw error;
-        productId = data.id;
+      const res = await fetch('/api/products/save-kit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          productId: kitProductId || undefined,
+          product: {
+            name: kitName.trim(),
+            ref: kitRef.trim() || null,
+            category: kitCategory.trim() || 'Kits',
+            is_kit: true,
+            kit_price_override: kitPriceOverride ? Number(kitPriceOverride) : null,
+            sell_price_ttc: kitPrice,
+            sell_price_ht: kitPrice / 1.085,
+            buy_price: totalCost,
+            status: kitStatus,
+            product_status: kitStatus,
+            stock: minAvailableStock,
+          },
+          components: components.map((c) => ({
+            component_id: c.componentId,
+            quantity: c.quantity,
+          })),
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Erreur serveur');
       }
-
-      // Insert new components
-      const kitRows = components.map((c) => ({
-        product_id: productId,
-        component_id: c.componentId,
-        quantity: c.quantity,
-      }));
-      const { error: kitError } = await supabase.from('product_kits').insert(kitRows);
-      if (kitError) throw kitError;
-
       onSaved();
     } catch (err: any) {
       showToast(`Erreur : ${err.message}`);

@@ -471,29 +471,25 @@ export default function ClientDashboardPage() {
   // ── Load plan data + refresh subscription from DB (anti-stale-session) ──────
   useEffect(() => {
     if (!clientUser) return;
-    const supabase = createClient();
 
     // Refresh subscription row to get fresh plan_name/quota/billing_date
-    supabase
-      .from('client_subscriptions')
-      .select('next_billing_date, status, payment_email, plan:subscription_plans(id, name, price, quota_amount, shipping_free, shipping_cost, description, is_active)')
-      .eq('id', clientUser.subscriptionId)
-      .maybeSingle()
-      .then(({ data }) => {
-        const plan = Array.isArray((data as any)?.plan) ? (data as any)?.plan[0] : (data as any)?.plan;
+    fetch(`/api/client-portal/subscription-data?subscriptionId=${encodeURIComponent(clientUser.subscriptionId)}`, {
+      headers: { 'x-session-token': clientUser.sessionToken ?? '' },
+    })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (!data) return;
+        const plan = Array.isArray(data.plan) ? data.plan[0] : data.plan;
         if (plan) setPlanData(plan as SubscriptionPlan);
-        if ((data as any)?.next_billing_date) setNextBillingDate((data as any).next_billing_date);
-        if ((data as any)?.status) setSubscriptionStatus((data as any).status);
-        if ((data as any)?.payment_email) setClientEmail((data as any).payment_email);
+        if (data.next_billing_date) setNextBillingDate(data.next_billing_date);
+        if (data.status) setSubscriptionStatus(data.status);
+        if (data.payment_email) setClientEmail(data.payment_email);
       });
 
     // Also load all plans for upgrade modal
-    supabase
-      .from('subscription_plans')
-      .select('*')
-      .eq('is_active', true)
-      .order('price')
-      .then(({ data }) => { if (data) setAllPlans(data as SubscriptionPlan[]); });
+    fetch('/api/subscription-plans')
+      .then((r) => r.ok ? r.json() : [])
+      .then((data: any[]) => { if (Array.isArray(data)) setAllPlans(data as SubscriptionPlan[]); });
   }, [clientUser]);
 
   // ── Load current month order + items ──────────────────────────────────────
@@ -524,12 +520,8 @@ export default function ClientDashboardPage() {
     setCurrentOrder(order);
 
     if (order) {
-      const supabase = createClient();
-      const { data: items } = await supabase
-        .from('subscription_order_items')
-        .select('*, product:products(id, name, image_url, sell_price_ttc, description)')
-        .eq('order_id', order.id);
-      setOrderItems(items ?? []);
+      const itemsRes = await fetch(`/api/client-portal/items?orderId=${encodeURIComponent(order.id)}`, { headers: sessionHeaders() });
+      setOrderItems(itemsRes.ok ? await itemsRes.json() : []);
     }
     setLoadingOrder(false);
   // planData intentionally excluded from deps — it's used only for shippingCost and would cause a double-call on load
@@ -553,27 +545,13 @@ export default function ClientDashboardPage() {
   // ── Load past orders + items ───────────────────────────────────────────────
   useEffect(() => {
     if (!clientUser) return;
-    const supabase = createClient();
-    supabase
-      .from('subscription_orders')
-      .select('*')
-      .eq('subscription_id', clientUser.subscriptionId)
-      .neq('status', 'open')
-      .order('order_month', { ascending: false })
-      .then(async ({ data: orders }) => {
+    fetch(`/api/client-portal/past-orders?subscriptionId=${encodeURIComponent(clientUser.subscriptionId)}`, {
+      headers: { 'Content-Type': 'application/json', 'x-subscription-id': clientUser.subscriptionId, 'x-session-token': clientUser.sessionToken ?? '' },
+    })
+      .then((r) => r.ok ? r.json() : { orders: [], items: {} })
+      .then(({ orders, items }) => {
         setPastOrders(orders ?? []);
-        if (!orders || orders.length === 0) return;
-        const ids = orders.map((o: any) => o.id);
-        const { data: items } = await supabase
-          .from('subscription_order_items')
-          .select('*, product:products(id, name, image_url, sell_price_ttc, buy_price, description)')
-          .in('order_id', ids);
-        const byOrder: Record<string, OrderItem[]> = {};
-        for (const item of items ?? []) {
-          if (!byOrder[item.order_id]) byOrder[item.order_id] = [];
-          byOrder[item.order_id].push(item);
-        }
-        setPastOrderItems(byOrder);
+        setPastOrderItems(items ?? {});
       });
   }, [clientUser]);
 
@@ -654,14 +632,8 @@ export default function ClientDashboardPage() {
     }
     setVariantPickerLoading(true);
     setVariantPickerProduct(product);
-    const supabase = createClient();
-    const { data } = await supabase
-      .from('product_color_variants')
-      .select('id, color_name, color_hex, quantity')
-      .eq('product_id', product.id)
-      .gt('quantity', 0)
-      .order('color_name');
-    setVariantPickerVariants(data ?? []);
+    const res = await fetch(`/api/client-portal/product-variants?productId=${product.id}`);
+    setVariantPickerVariants(res.ok ? await res.json() : []);
     setVariantPickerLoading(false);
   }, []);
 
@@ -1003,8 +975,6 @@ export default function ClientDashboardPage() {
     if (!items || items.length === 0) { showToast('Aucun produit dans cette commande.', 'error'); return; }
     setReordering(pastOrderId);
     try {
-      const supabase = createClient();
-
       // Get or create current order
       let orderId = currentOrder?.id;
       if (!orderId) {
@@ -1019,43 +989,28 @@ export default function ClientDashboardPage() {
         if (!orderId) { showToast('Erreur création commande.', 'error'); return; }
       }
 
-      // Fetch current items to avoid duplicates
-      const { data: existing } = await supabase.from('subscription_order_items').select('product_id, quantity').eq('order_id', orderId);
-      const existingMap = new Map((existing ?? []).map((i: any) => [i.product_id, i.quantity]));
-
-      // Build inserts — only products that fit in quota and are in stock
+      // Build items to reorder — filter out-of-stock
       const stockMap = new Map(products.map((p) => [p.id, p.stock]));
-      let remaining = quotaAmount - quotaUsed;
-      const toInsert: any[] = [];
-      for (const item of items) {
-        if (!item.product_id) continue;
-        if (existingMap.has(item.product_id)) continue; // skip already in box
-        if ((stockMap.get(item.product_id) ?? 0) <= 0) continue; // skip out-of-stock
-        const price = item.unit_sell_price;
-        const qty = Math.min(item.quantity, Math.floor(remaining / price));
-        if (qty < 1) continue;
-        toInsert.push({
-          order_id: orderId,
-          product_id: item.product_id,
-          quantity: qty,
-          unit_buy_price: item.unit_buy_price ?? 0,
-          unit_sell_price: price,
-          total_sell_price: price * qty,
-          color_variant: item.color_variant ?? null,
-        });
-        remaining -= price * qty;
+      const itemsToSend = items
+        .filter((item: any) => item.product_id && (stockMap.get(item.product_id) ?? 0) > 0);
+
+      if (itemsToSend.length === 0) { showToast('Quota insuffisant ou produits déjà dans la box.', 'error'); return; }
+
+      const reorderRes = await fetch('/api/client-portal/reorder', {
+        method: 'POST',
+        headers: sessionHeaders(),
+        body: JSON.stringify({ orderId, items: itemsToSend }),
+      });
+      if (!reorderRes.ok) {
+        const errData = await reorderRes.json().catch(() => ({}));
+        showToast(errData.error ?? 'Erreur lors du réajout.', 'error');
+        return;
       }
 
-      if (toInsert.length === 0) { showToast('Quota insuffisant ou produits déjà dans la box.', 'error'); return; }
-
-      const { data: inserted, error } = await supabase
-        .from('subscription_order_items')
-        .insert(toInsert)
-        .select('*, product:products(id, name, image_url, sell_price_ttc, buy_price, description)');
-      if (error) { showToast(`Erreur: ${error.message}`, 'error'); return; }
-
+      const { inserted: reordered } = await reorderRes.json().catch(() => ({ inserted: [] }));
+      const addedCount = Array.isArray(reordered) ? reordered.length : itemsToSend.length;
       await loadCurrentOrder();
-      showToast(`✅ ${toInsert.length} produit${toInsert.length > 1 ? 's' : ''} ajouté${toInsert.length > 1 ? 's' : ''} à votre box !`);
+      showToast(`✅ ${addedCount} produit${addedCount > 1 ? 's' : ''} ajouté${addedCount > 1 ? 's' : ''} à votre box !`);
       setTab('commande');
     } catch (e: any) {
       showToast(`Erreur: ${e.message}`, 'error');

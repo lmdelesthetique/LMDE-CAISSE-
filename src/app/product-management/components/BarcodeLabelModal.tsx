@@ -3,7 +3,6 @@
 import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { type ProductRecord } from './mockProducts';
-import { createClient } from '@/lib/supabase/client';
 
 interface VariantRow { colorName: string; colorHex: string; quantity: number; }
 
@@ -378,15 +377,14 @@ export default function BarcodeLabelModal({ products, onClose, initialQtys, orde
   useEffect(() => {
     const withVariants = products.filter((p) => p.variants);
     if (!withVariants.length) return;
-    const supabase = createClient();
     Promise.all(
       withVariants.map((p) =>
-        supabase.from('product_color_stock').select('color_name, color_hex, quantity').eq('product_id', p.id).order('created_at')
+        fetch(`/api/product-color-stock?productId=${p.id}`).then(r => r.ok ? r.json() : []).catch(() => [])
       )
     ).then((results) => {
       const map: Record<string, VariantRow[]> = {};
       withVariants.forEach((p, i) => {
-        const rows = (results[i].data || []).map((v: any) => ({
+        const rows = (results[i] as any[]).map((v: any) => ({
           colorName: v.color_name || '',
           colorHex: v.color_hex || '#888888',
           quantity: Number(v.quantity) || 0,

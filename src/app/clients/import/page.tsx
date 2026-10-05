@@ -4,11 +4,7 @@ import React, { useState, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
-import { createClient } from '@/lib/supabase/client';
 import * as XLSX from 'xlsx';
-import { fetchAll } from '@/lib/utils/fetchAll';
-
-const supabase = createClient();
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -214,10 +210,8 @@ export default function ClientImportPage() {
       }))
       .filter((c) => c.firstName.trim() || c.lastName.trim());
 
-    // Fetch ALL existing clients for duplicate detection (bypass Supabase 1000-row default)
-    const existingClients = await fetchAll<any>((from, to) =>
-      supabase.from('clients').select('id, first_name, last_name, email, phone').range(from, to)
-    );
+    const existingClients = await fetch('/api/clients?full=true&limit=5000')
+      .then(r => r.ok ? r.json() : []).catch(() => []);
 
     const existingByEmail: Record<string, any> = {};
     const existingByPhone: Record<string, any> = {};
@@ -298,24 +292,31 @@ export default function ClientImportPage() {
         total_visits: 0,
       }));
 
-      const { error } = await supabase.from('clients').insert(payloads);
-      if (error) {
-        // Retry row by row
+      const batchRes = await fetch('/api/clients/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clients: payloads }),
+      });
+      if (!batchRes.ok) {
         addLog(`⚠️ Lot ${Math.floor(i / CHUNK) + 1} échoué — analyse ligne par ligne...`);
         for (const { client } of chunk) {
-          const { error: rowErr } = await supabase.from('clients').insert({
-            first_name: client.firstName,
-            last_name: client.lastName,
-            phone: client.phone || null,
-            email: client.email || null,
-            address: client.address || null,
-            client_type: normalizeClientType(client.clientType),
-            loyalty_points: client.loyaltyPoints || 0,
-            loyalty_tier: 'bronze',
-            total_spent: 0,
-            total_visits: 0,
+          const rowRes = await fetch('/api/clients', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              first_name: client.firstName,
+              last_name: client.lastName,
+              phone: client.phone || null,
+              email: client.email || null,
+              address: client.address || null,
+              client_type: normalizeClientType(client.clientType),
+              loyalty_points: client.loyaltyPoints || 0,
+              loyalty_tier: 'bronze',
+              total_spent: 0,
+              total_visits: 0,
+            }),
           });
-          if (rowErr) { errors++; addLog(`❌ ${client.firstName} ${client.lastName} — ${rowErr.message}`); }
+          if (!rowRes.ok) { errors++; const e = await rowRes.json().catch(() => ({})); addLog(`❌ ${client.firstName} ${client.lastName} — ${e.error ?? 'Erreur'}`); }
           else { created++; }
         }
       } else {

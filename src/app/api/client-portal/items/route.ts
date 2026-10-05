@@ -11,6 +11,37 @@ function getSession(req: NextRequest) {
   };
 }
 
+// GET /api/client-portal/items?orderId=... — list items for a specific order
+export async function GET(req: NextRequest) {
+  const { subscriptionId, sessionToken } = getSession(req);
+  const authErr = await verifyClientSession(subscriptionId, sessionToken);
+  if (authErr) return authErr;
+
+  const orderId = req.nextUrl.searchParams.get('orderId');
+  if (!orderId) return NextResponse.json({ error: 'orderId required' }, { status: 400 });
+
+  const supabase = createAdminClient();
+
+  // Verify order belongs to this subscription
+  const { data: order } = await supabase
+    .from('subscription_orders')
+    .select('id, subscription_id')
+    .eq('id', orderId)
+    .maybeSingle();
+
+  if (!order || order.subscription_id !== subscriptionId) {
+    return NextResponse.json({ error: 'Commande introuvable' }, { status: 404 });
+  }
+
+  const { data: items, error } = await supabase
+    .from('subscription_order_items')
+    .select('*, product:products(id, name, image_url, sell_price_ttc, buy_price, description)')
+    .eq('order_id', orderId);
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json(items ?? []);
+}
+
 // POST — add item to an order
 export async function POST(req: NextRequest) {
   const { subscriptionId, sessionToken } = getSession(req);

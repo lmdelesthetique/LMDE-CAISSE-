@@ -2,12 +2,9 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import Icon from '@/components/ui/AppIcon';
-import { createClient } from '@/lib/supabase/client';
 import { categoryStore } from '@/lib/stores/dataStore';
 import { supplierStore } from '@/lib/stores/dataStore';
 import { type ProductRecord } from './mockProducts';
-
-const supabase = createClient();
 
 type EditField =
   | 'buy_price' | 'sell_price_ttc' | 'sell_price_ht' | 'tva' | 'category' | 'supplier' | 'min_stock' | 'status' | 'promo_price' | 'transport' | 'customs' | 'structure_pct';
@@ -179,30 +176,33 @@ export default function BulkEditModal({ products, onClose, onDone }: BulkEditMod
     let done = 0;
 
     try {
-      // Process in batches
       for (let i = 0; i < ids.length; i += batchSize) {
         const batch = ids.slice(i, i + batchSize);
-        const { error: updateError } = await supabase
-          .from('products')
-          .update(payload)
-          .in('id', batch);
-        if (updateError) throw updateError;
+        const res = await fetch('/api/products/batch', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: batch, payload }),
+        });
+        if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Erreur serveur'); }
         done += batch.length;
         setProgress(Math.round((done / ids.length) * 100));
       }
 
-      // Save audit history
       const oldValues: Record<string, string> = {};
       products.forEach((p) => { oldValues[p.id] = getOldValue(p); });
 
-      await supabase.from('bulk_edit_history').insert({
-        edit_type: field,
-        product_ids: ids,
-        product_count: ids.length,
-        old_values: oldValues,
-        new_value: { value, field },
-        notes: `Modification en masse: ${FIELD_CONFIG[field].label} → ${value}`,
-        edited_by: 'admin',
+      await fetch('/api/bulk-edit-history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          edit_type: field,
+          product_ids: ids,
+          product_count: ids.length,
+          old_values: oldValues,
+          new_value: { value, field },
+          notes: `Modification en masse: ${FIELD_CONFIG[field].label} → ${value}`,
+          edited_by: 'admin',
+        }),
       });
 
       // If category changed, ensure it exists in categories table
