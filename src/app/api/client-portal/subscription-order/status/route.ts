@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { verifyClientSession } from '@/lib/api/verifyClientSession';
+import { syncColorStocksToTotal } from '@/lib/utils/syncColorStock';
 
 export const runtime = 'nodejs';
 
@@ -61,29 +62,37 @@ export async function PATCH(request: NextRequest) {
           .eq('order_id', orderId);
         if (items && items.length > 0) {
           await Promise.all(
-            items.map((item: any) =>
-              supabase.rpc('increment_product_stock', {
+            items.map(async (item: any) => {
+              let newStock: number | null = null;
+              const { error: rpcErr } = await supabase.rpc('increment_product_stock', {
                 p_product_id: item.product_id,
                 p_qty: item.quantity,
-              }).then(({ error: rpcErr }) => {
-                if (rpcErr) {
-                  // Fallback: manual increment if RPC not available
-                  return supabase
+              });
+              if (rpcErr) {
+                const { data: prod } = await supabase
+                  .from('products')
+                  .select('stock')
+                  .eq('id', item.product_id)
+                  .maybeSingle();
+                if (prod) {
+                  newStock = (prod.stock ?? 0) + item.quantity;
+                  await supabase
                     .from('products')
-                    .select('stock')
-                    .eq('id', item.product_id)
-                    .maybeSingle()
-                    .then(({ data: prod }) => {
-                      if (prod) {
-                        return supabase
-                          .from('products')
-                          .update({ stock: (prod.stock ?? 0) + item.quantity })
-                          .eq('id', item.product_id);
-                      }
-                    });
+                    .update({ stock: newStock })
+                    .eq('id', item.product_id);
                 }
-              })
-            )
+              } else {
+                const { data: prod } = await supabase
+                  .from('products')
+                  .select('stock')
+                  .eq('id', item.product_id)
+                  .maybeSingle();
+                newStock = prod?.stock ?? null;
+              }
+              if (newStock !== null) {
+                await syncColorStocksToTotal(supabase, item.product_id, newStock);
+              }
+            })
           );
         }
       }
@@ -143,21 +152,21 @@ export async function PATCH(request: NextRequest) {
         if (succeededIds.length > 0) {
           const itemMap = new Map(items.map((i: any) => [i.product_id, i.quantity]));
           await Promise.all(
-            succeededIds.map((pid) =>
-              supabase
+            succeededIds.map(async (pid) => {
+              const { data: prod } = await supabase
                 .from('products')
                 .select('stock')
                 .eq('id', pid)
-                .maybeSingle()
-                .then(({ data: prod }) => {
-                  if (prod) {
-                    return supabase
-                      .from('products')
-                      .update({ stock: (prod.stock ?? 0) + (itemMap.get(pid) ?? 0) })
-                      .eq('id', pid);
-                  }
-                })
-            )
+                .maybeSingle();
+              if (prod) {
+                const restoredStock = (prod.stock ?? 0) + (itemMap.get(pid) ?? 0);
+                await supabase
+                  .from('products')
+                  .update({ stock: restoredStock })
+                  .eq('id', pid);
+                await syncColorStocksToTotal(supabase, pid, restoredStock);
+              }
+            })
           );
         }
         const failedNames = failedDecrements.map((r) => r.name ?? 'Produit inconnu').join(', ');
@@ -166,6 +175,14 @@ export async function PATCH(request: NextRequest) {
           { status: 422 }
         );
       }
+
+      // Sync color stock variants after successful decrements
+      await Promise.all(
+        items.map((item: any) => {
+          const newStock = (item.product?.stock ?? 0) - item.quantity;
+          return syncColorStocksToTotal(supabase, item.product_id, newStock);
+        })
+      );
     }
   }
 
