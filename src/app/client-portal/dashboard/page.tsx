@@ -532,14 +532,16 @@ export default function ClientDashboardPage() {
     if (clientUser) loadCurrentOrder();
   }, [clientUser, loadCurrentOrder]);
 
-  // Reload order after surplus success (webhook may take 1-3s to fire)
+  // Reload order after surplus success — poll multiple times because Stripe webhook can take up to 10s
   useEffect(() => {
     if (!surplusSuccess || !clientUser) return;
-    const timer = setTimeout(() => {
-      loadCurrentOrder();
-      setSurplusSuccess(false);
-    }, 2500);
-    return () => clearTimeout(timer);
+    const timers = [
+      setTimeout(() => loadCurrentOrder(), 1500),
+      setTimeout(() => loadCurrentOrder(), 4000),
+      setTimeout(() => loadCurrentOrder(), 8000),
+      setTimeout(() => { loadCurrentOrder(); setSurplusSuccess(false); }, 13000),
+    ];
+    return () => timers.forEach(clearTimeout);
   }, [surplusSuccess, clientUser, loadCurrentOrder]);
 
   // ── Load past orders + items ───────────────────────────────────────────────
