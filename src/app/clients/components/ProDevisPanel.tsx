@@ -621,6 +621,7 @@ export default function ProDevisPanel({
   const [sendingWhatsApp, setSendingWhatsApp] = useState(false);
   const [sendingUpdate, setSendingUpdate] = useState(false);
   const [wasSent, setWasSent] = useState(false);
+  const [lastPdfUrl, setLastPdfUrl] = useState<string | null>(null);
   const [generatingConcept, setGeneratingConcept] = useState(false);
   const [sendingConcept, setSendingConcept] = useState(false);
 
@@ -785,7 +786,7 @@ export default function ProDevisPanel({
           free_shipping: freeShipping,
           statut: initialStatut ?? 'envoye',
           sent_at: new Date().toISOString(),
-          pdf_url: null,
+          pdf_url: lastPdfUrl,
         }),
       }).catch(() => { /* graceful failure */ });
       // Try Supabase legacy (backward compat)
@@ -799,6 +800,7 @@ export default function ProDevisPanel({
       setItems([]);
       setDiscountPct(0);
       setWasSent(false);
+      setLastPdfUrl(null);
       setShowArchiveConfirm(false);
     } finally { setArchiving(false); }
   };
@@ -928,13 +930,14 @@ export default function ProDevisPanel({
     setSendingWhatsApp(true);
     try {
       const pdfBytes = await generateDevisPdf(client, baseItems, bonusItems, discountPct, credit, freeShipping);
-      const slug = client.lastName.toLowerCase().replace(/\s+/g, '-');
+      const slug = (client.lastName ?? '').toLowerCase().replace(/\s+/g, '-');
       const filename = `devis-lmde-${slug}-${new Date().toISOString().slice(0, 10)}.pdf`;
       const pdfUrl = await uploadPdf(pdfBytes, filename);
       if (!pdfUrl) {
         const { toast } = await import('sonner');
         toast.warning('Upload PDF échoué — lien absent du message. Vérifiez le bucket Supabase "devis-pro".');
       }
+      if (pdfUrl) setLastPdfUrl(pdfUrl);
 
       const baseLines = baseItems.map((i) => `• ${i.name}${i.ref ? ` (${i.ref})` : ''} × ${i.qty} — ${(i.sellPrice * i.qty).toFixed(2)} €`).join('\n');
       const bonusLines = bonusItems.length > 0
@@ -1024,7 +1027,7 @@ export default function ProDevisPanel({
     setGeneratingPdf(true);
     try {
       const pdfBytes = await generateDevisPdf(client, baseItems, bonusItems, discountPct, credit, freeShipping);
-      const slug = client.lastName.toLowerCase().replace(/\s+/g, '-');
+      const slug = (client.lastName ?? '').toLowerCase().replace(/\s+/g, '-');
       downloadPdf(pdfBytes, `devis-lmde-${slug}-${new Date().toISOString().slice(0, 10)}.pdf`);
     } finally { setGeneratingPdf(false); }
   };

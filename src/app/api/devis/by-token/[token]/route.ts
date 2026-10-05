@@ -102,6 +102,17 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     const clientPays = Math.max(0, Math.round(total * 100) / 100);
     patch.total_ttc = total;
     patch.client_pays = clientPays;
+
+    // Recalculate Budget Pro credit based on new total
+    const TIERS = [
+      { min: 150, bonus: 15 }, { min: 200, bonus: 25 }, { min: 300, bonus: 40 },
+      { min: 400, bonus: 55 }, { min: 500, bonus: 70 }, { min: 600, bonus: 85 },
+      { min: 750, bonus: 110 }, { min: 1000, bonus: 150 }, { min: 1250, bonus: 190 },
+      { min: 1500, bonus: 225 }, { min: 2000, bonus: 290 }, { min: 2500, bonus: 350 },
+    ];
+    let newCredit = 0;
+    for (const t of TIERS) { if (total >= t.min) newCredit = t.bonus; }
+    patch.credit = newCredit;
   }
 
   const { error } = await supabase.from('devis_pro').update(patch).eq('id', devis.id);

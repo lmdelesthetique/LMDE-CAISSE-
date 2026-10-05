@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { syncColorStocksToTotal } from '@/lib/utils/syncColorStock';
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -66,7 +67,7 @@ async function createReceiptFromDevis(supabase: ReturnType<typeof createAdminCli
       product_id: isCustom ? null : (item.productId ?? item.id),
       name: item.name || item.label || 'Article',
       sku: item.sku || '',
-      price: Number(item.price) || 0,
+      price: Number(item.price ?? item.sellPrice ?? item.sell_price_ttc) || 0,
       qty: Number(item.qty) || 1,
       quantity: Number(item.qty) || 1,
       discount: Number(item.discount) || 0,
@@ -74,7 +75,7 @@ async function createReceiptFromDevis(supabase: ReturnType<typeof createAdminCli
       tva: Number(item.tva) || 0.085,
       is_free_price: false,
       image_url: item.imageUrl || item.image_url || null,
-      total: Math.max(0, (Number(item.price) || 0) * (Number(item.qty) || 1)),
+      total: Math.max(0, (Number(item.price ?? item.sellPrice ?? item.sell_price_ttc) || 0) * (Number(item.qty) || 1)),
     };
   });
 
@@ -146,6 +147,7 @@ async function createReceiptFromDevis(supabase: ReturnType<typeof createAdminCli
     const stockAfter = Math.max(0, stockBefore - qty);
 
     await supabase.from('products').update({ stock: stockAfter }).eq('id', productId);
+    await syncColorStocksToTotal(supabase, productId, stockAfter);
 
     await supabase.from('stock_movements_log').insert({
       product_id: productId,
