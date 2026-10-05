@@ -1,7 +1,5 @@
 'use client';
 
-import { createClient } from '@/lib/supabase/client';
-
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type EmployeeRole = 'admin' | 'manager' | 'cashier' | 'stock_manager' | 'sales_rep';
@@ -141,7 +139,6 @@ function mapEmployee(row: any): Employee {
   };
 }
 
-// Maps a row from receipts table (the source of truth for employee sales)
 function mapSale(row: any): EmployeeSale {
   return {
     id: row.id,
@@ -176,46 +173,54 @@ function mapObjective(row: any): EmployeeObjective {
 
 export const employeeService = {
   async getAll(): Promise<Employee[]> {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('employees')
-      .select('*')
-      .order('first_name', { ascending: true });
-    if (error) throw error;
-    return (data ?? []).map(mapEmployee);
+    const res = await fetch('/api/employees?status=all&all=true');
+    if (!res.ok) throw new Error('Failed to fetch employees');
+    const { employees } = await res.json();
+    // employees from this endpoint are already mapped; getById for full data when needed
+    return (employees ?? []).map((e: any) => mapEmployee({
+      id: e.id,
+      first_name: e.firstName,
+      last_name: e.lastName,
+      role: e.role,
+      status: e.status,
+      avatar_initials: e.avatarInitials,
+      pos_pin: e.posPin ?? null,
+      perm_cashier_access: e.permCashierAccess,
+      monthly_objective: e.monthly_objective ?? 0,
+    }));
   },
 
   async getById(id: string): Promise<Employee | null> {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('employees')
-      .select('*')
-      .eq('id', id)
-      .single();
-    if (error) return null;
-    return mapEmployee(data);
+    const res = await fetch(`/api/employees/${id}`);
+    if (!res.ok) return null;
+    return mapEmployee(await res.json());
   },
 
   async search(query: string): Promise<Employee[]> {
-    const supabase = createClient();
-    const q = `%${query}%`;
-    const { data, error } = await supabase
-      .from('employees')
-      .select('*')
-      .or(`first_name.ilike.${q},last_name.ilike.${q},email.ilike.${q},phone.ilike.${q}`)
-      .order('first_name', { ascending: true });
-    if (error) throw error;
-    return (data ?? []).map(mapEmployee);
+    const res = await fetch(`/api/employees?status=all&all=true&search=${encodeURIComponent(query)}`);
+    if (!res.ok) return [];
+    const { employees } = await res.json();
+    return (employees ?? []).map((e: any) => mapEmployee({
+      id: e.id,
+      first_name: e.firstName,
+      last_name: e.lastName,
+      role: e.role,
+      status: e.status,
+      avatar_initials: e.avatarInitials,
+      pos_pin: e.posPin ?? null,
+      perm_cashier_access: e.permCashierAccess,
+      monthly_objective: e.monthly_objective ?? 0,
+    }));
   },
 
   async create(input: CreateEmployeeInput): Promise<Employee> {
-    const supabase = createClient();
     const fn = input.firstName;
     const ln = input.lastName;
     const initials = `${fn.charAt(0)}${ln.charAt(0)}`.toUpperCase();
-    const { data, error } = await supabase
-      .from('employees')
-      .insert({
+    const res = await fetch('/api/employees', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
         first_name: fn,
         last_name: ln,
         email: input.email ?? null,
@@ -239,87 +244,73 @@ export const employeeService = {
         is_delivery_driver: input.isDeliveryDriver ?? false,
         portal_phone: input.portalPhone ?? null,
         portal_pin: input.portalPin ?? null,
-      })
-      .select()
-      .single();
-    if (error) throw error;
-    return mapEmployee(data);
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error ?? 'Failed to create employee');
+    }
+    return mapEmployee(await res.json());
   },
 
   async update(input: UpdateEmployeeInput): Promise<Employee> {
-    const supabase = createClient();
-    const updates: any = {};
-    if (input.firstName !== undefined) updates.first_name = input.firstName;
-    if (input.lastName !== undefined) updates.last_name = input.lastName;
-    if (input.email !== undefined) updates.email = input.email;
-    if (input.phone !== undefined) updates.phone = input.phone;
-    if (input.role !== undefined) updates.role = input.role;
-    if (input.status !== undefined) updates.status = input.status;
-    if (input.posPin !== undefined) updates.pos_pin = input.posPin;
-    if (input.hireDate !== undefined) updates.hire_date = input.hireDate;
-    if (input.notes !== undefined) updates.notes = input.notes;
-    if (input.monthlyObjective !== undefined) updates.monthly_objective = input.monthlyObjective;
-    if (input.isDeliveryDriver !== undefined) updates.is_delivery_driver = input.isDeliveryDriver;
-    if (input.portalPhone !== undefined) updates.portal_phone = input.portalPhone || null;
-    if (input.portalPin !== undefined) updates.portal_pin = input.portalPin || null;
+    const body: any = {};
+    if (input.firstName !== undefined) { body.first_name = input.firstName; }
+    if (input.lastName !== undefined) { body.last_name = input.lastName; }
+    if (input.email !== undefined) body.email = input.email;
+    if (input.phone !== undefined) body.phone = input.phone;
+    if (input.role !== undefined) body.role = input.role;
+    if (input.status !== undefined) body.status = input.status;
+    if (input.posPin !== undefined) body.pos_pin = input.posPin;
+    if (input.hireDate !== undefined) body.hire_date = input.hireDate;
+    if (input.notes !== undefined) body.notes = input.notes;
+    if (input.monthlyObjective !== undefined) body.monthly_objective = input.monthlyObjective;
+    if (input.isDeliveryDriver !== undefined) body.is_delivery_driver = input.isDeliveryDriver;
+    if (input.portalPhone !== undefined) body.portal_phone = input.portalPhone || null;
+    if (input.portalPin !== undefined) body.portal_pin = input.portalPin || null;
     if (input.permissions) {
-      updates.perm_cashier_access = input.permissions.cashierAccess;
-      updates.perm_stock_access = input.permissions.stockAccess;
-      updates.perm_suppliers_access = input.permissions.suppliersAccess;
-      updates.perm_products_access = input.permissions.productsAccess;
-      updates.perm_stats_access = input.permissions.statsAccess;
-      updates.perm_discount_auth = input.permissions.discountAuth;
-      updates.perm_cancel_auth = input.permissions.cancelAuth;
-      updates.perm_price_modify = input.permissions.priceModify;
-      updates.perm_admin_access = input.permissions.adminAccess;
+      body.perm_cashier_access = input.permissions.cashierAccess;
+      body.perm_stock_access = input.permissions.stockAccess;
+      body.perm_suppliers_access = input.permissions.suppliersAccess;
+      body.perm_products_access = input.permissions.productsAccess;
+      body.perm_stats_access = input.permissions.statsAccess;
+      body.perm_discount_auth = input.permissions.discountAuth;
+      body.perm_cancel_auth = input.permissions.cancelAuth;
+      body.perm_price_modify = input.permissions.priceModify;
+      body.perm_admin_access = input.permissions.adminAccess;
     }
     if (input.firstName !== undefined || input.lastName !== undefined) {
       const fn = input.firstName ?? '';
       const ln = input.lastName ?? '';
-      updates.avatar_initials = `${fn.charAt(0)}${ln.charAt(0)}`.toUpperCase();
+      body.avatar_initials = `${fn.charAt(0)}${ln.charAt(0)}`.toUpperCase();
     }
-    const { data, error } = await supabase
-      .from('employees')
-      .update(updates)
-      .eq('id', input.id)
-      .select()
-      .single();
-    if (error) throw error;
-    return mapEmployee(data);
+    const res = await fetch(`/api/employees/${input.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error ?? 'Failed to update employee');
+    }
+    return mapEmployee(await res.json());
   },
 
   async delete(id: string): Promise<void> {
-    const supabase = createClient();
-    const { error } = await supabase.from('employees').delete().eq('id', id);
-    if (error) throw error;
+    const res = await fetch(`/api/employees/${id}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error ?? 'Failed to delete employee');
+    }
   },
 
   async getSales(employeeId: string, from?: string, to?: string): Promise<EmployeeSale[]> {
-    const supabase = createClient();
-    // Fetch employee name for cashier_name fallback (tickets saved without PIN use cashier_name only)
-    const { data: emp } = await supabase
-      .from('employees')
-      .select('first_name, last_name')
-      .eq('id', employeeId)
-      .maybeSingle();
-    const fullName = emp ? `${emp.first_name ?? ''} ${emp.last_name ?? ''}`.trim() : null;
-
-    let query = supabase
-      .from('receipts')
-      .select('id, employee_id, ticket_number, total_amount, discount_amount, items_count, payment_method, status, client_id, created_at, cashier_name')
-      .order('created_at', { ascending: false });
-
-    // Match by employee_id (PIN login) OR cashier_name (no-PIN / default mode)
-    if (fullName) {
-      query = query.or(`employee_id.eq.${employeeId},cashier_name.eq.${fullName}`);
-    } else {
-      query = query.eq('employee_id', employeeId);
-    }
-    if (from) query = query.gte('created_at', from);
-    if (to) query = query.lte('created_at', to);
-
-    const { data, error } = await query;
-    if (error) throw error;
+    const params = new URLSearchParams();
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    const res = await fetch(`/api/employees/${employeeId}/sales?${params}`);
+    if (!res.ok) throw new Error('Failed to fetch sales');
+    const data = await res.json();
     return (data ?? []).map(mapSale);
   },
 
@@ -341,7 +332,6 @@ export const employeeService = {
     const currentMonthRevenue = monthSales.reduce((sum, s) => sum + s.totalTtc, 0);
     const currentMonthTickets = monthSales.length;
 
-    // Get objective for current month
     const objective = await employeeService.getObjective(employeeId, currentYear, currentMonth);
     const target = objective?.targetRevenue ?? 0;
     const objectiveProgress = target > 0 ? Math.min(100, (currentMonthRevenue / target) * 100) : 0;
@@ -359,27 +349,17 @@ export const employeeService = {
   },
 
   async getObjective(employeeId: string, year: number, month: number): Promise<EmployeeObjective | null> {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('employee_objectives')
-      .select('*')
-      .eq('employee_id', employeeId)
-      .eq('year', year)
-      .eq('month', month)
-      .single();
-    if (error) return null;
-    return mapObjective(data);
+    const res = await fetch(`/api/employees/${employeeId}/objectives?year=${year}&month=${month}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const row = Array.isArray(data) ? data[0] : null;
+    return row ? mapObjective(row) : null;
   },
 
   async getAllObjectives(employeeId: string): Promise<EmployeeObjective[]> {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('employee_objectives')
-      .select('*')
-      .eq('employee_id', employeeId)
-      .order('year', { ascending: false })
-      .order('month', { ascending: false });
-    if (error) throw error;
+    const res = await fetch(`/api/employees/${employeeId}/objectives`);
+    if (!res.ok) throw new Error('Failed to fetch objectives');
+    const data = await res.json();
     return (data ?? []).map(mapObjective);
   },
 
@@ -391,36 +371,33 @@ export const employeeService = {
     targetTickets: number;
     notes?: string;
   }): Promise<EmployeeObjective> {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('employee_objectives')
-      .upsert(
-        {
-          employee_id: input.employeeId,
-          year: input.year,
-          month: input.month,
-          target_revenue: input.targetRevenue,
-          target_tickets: input.targetTickets,
-          notes: input.notes ?? null,
-        },
-        { onConflict: 'employee_id,year,month' }
-      )
-      .select()
-      .single();
-    if (error) throw error;
-    return mapObjective(data);
+    const res = await fetch(`/api/employees/${input.employeeId}/objectives`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        year: input.year,
+        month: input.month,
+        targetRevenue: input.targetRevenue,
+        targetTickets: input.targetTickets,
+        notes: input.notes ?? null,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error ?? 'Failed to upsert objective');
+    }
+    return mapObjective(await res.json());
   },
 
   async verifyPin(pin: string): Promise<Employee | null> {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('employees')
-      .select('*')
-      .eq('pos_pin', pin)
-      .in('status', ['active', 'Actif'])
-      .single();
-    if (error) return null;
-    return mapEmployee(data);
+    const res = await fetch('/api/employees/verify-pin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin }),
+    });
+    if (!res.ok) return null;
+    const { employee } = await res.json();
+    return employee ? mapEmployee(employee) : null;
   },
 };
 

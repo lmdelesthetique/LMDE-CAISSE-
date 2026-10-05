@@ -1,7 +1,5 @@
 'use client';
 
-import { createClient } from '@/lib/supabase/client';
-
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type FoOrderStatus =
@@ -289,40 +287,35 @@ export const supplierOrderService = {
 
   // Orders
   async getAll(filters?: { status?: FoOrderStatus; supplierId?: string }): Promise<FoOrder[]> {
-    const supabase = createClient();
     try {
-      let q = supabase.from('fo_orders').select('*, suppliers(company_name)').order('created_at', { ascending: false });
-      if (filters?.status) q = q.eq('order_status', filters.status);
-      if (filters?.supplierId) q = q.eq('supplier_id', filters.supplierId);
-      const { data, error } = await q;
-      if (error) return [];
+      const params = new URLSearchParams();
+      if (filters?.status) params.set('status', filters.status);
+      if (filters?.supplierId) params.set('supplierId', filters.supplierId);
+      const res = await fetch(`/api/fo-orders?${params}`);
+      if (!res.ok) return [];
+      const data = await res.json();
       return (data || []).map(mapOrder);
     } catch { return []; }
   },
 
   async getById(id: string): Promise<FoOrder | null> {
-    const supabase = createClient();
     try {
-      const { data, error } = await supabase
-        .from('fo_orders')
-        .select('*, suppliers(company_name, portal_login, phone, whatsapp)')
-        .eq('id', id)
-        .maybeSingle();
-      if (error || !data) return null;
+      const res = await fetch(`/api/fo-orders/${id}`);
+      if (!res.ok) return null;
+      const data = await res.json();
       const order = mapOrder(data);
-      const lines = await supplierOrderService.getLines(id);
-      order.lines = lines;
+      order.lines = (data.fo_order_lines || []).map(mapLine);
       return order;
     } catch { return null; }
   },
 
   async create(payload: Partial<FoOrder>): Promise<FoOrder | null> {
-    const supabase = createClient();
     try {
       const orderNum = `FO-${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`;
-      const { data, error } = await supabase
-        .from('fo_orders')
-        .insert({
+      const res = await fetch('/api/fo-orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           supplier_id: payload.supplierId,
           order_number: payload.orderNumber || orderNum,
           order_status: payload.orderStatus || 'draft',
@@ -345,11 +338,11 @@ export const supplierOrderService = {
           payment_status: payload.paymentStatus || 'pending',
           order_group: payload.orderGroup || null,
           transport_method: payload.transportMethod || null,
-        })
-        .select('*, suppliers(company_name)')
-        .single();
-      if (error) return null;
-      return data ? mapOrder(data) : null;
+        }),
+      });
+      if (!res.ok) return null;
+      const { order } = await res.json();
+      return order ? mapOrder(order) : null;
     } catch { return null; }
   },
 
@@ -365,7 +358,6 @@ export const supplierOrderService = {
         console.error('[supplierOrderService.update]', err);
         return null;
       }
-      // Re-fetch the full order so caller gets updated data
       return await supplierOrderService.getById(id);
     } catch (e) {
       console.error('[supplierOrderService.update]', e);
@@ -374,114 +366,119 @@ export const supplierOrderService = {
   },
 
   async changeStatus(orderId: string, newStatus: FoOrderStatus, changedBy: string, comment?: string): Promise<boolean> {
-    const supabase = createClient();
     try {
-      // Read current status (anon read is fine)
-      const { data: current } = await supabase.from('fo_orders').select('order_status').eq('id', orderId).single();
-      // Write through service-role API route
+      // Get current status for history
+      let oldStatus: string | undefined;
+      try {
+        const current = await supplierOrderService.getById(orderId);
+        oldStatus = current?.orderStatus;
+      } catch { /* non-critical */ }
+
       const res = await fetch(`/api/fo-orders/${orderId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ orderStatus: newStatus }),
       });
       if (!res.ok) return false;
-      // History insert — best effort through anon client
-      try {
-        await supabase.from('fo_order_status_history').insert({
-          order_id: orderId,
-          old_status: current?.order_status,
-          new_status: newStatus,
-          changed_by: changedBy,
-          comment,
-        });
-      } catch { /* non-critical */ }
+
+      // Insert history entry
+      fetch(`/api/fo-orders/${orderId}/status-history`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ oldStatus, newStatus, changedBy, comment }),
+      }).catch(() => {});
+
       return true;
     } catch { return false; }
   },
 
   // Lines
   async getLines(orderId: string): Promise<FoOrderLine[]> {
-    const supabase = createClient();
     try {
-      const { data, error } = await supabase.from('fo_order_lines').select('*').eq('order_id', orderId);
-      if (error) return [];
+      const res = await fetch(`/api/fo-orders/${orderId}/lines`);
+      if (!res.ok) return [];
+      const data = await res.json();
       return (data || []).map(mapLine);
     } catch { return []; }
   },
 
   async addLine(line: Partial<FoOrderLine>): Promise<FoOrderLine | null> {
-    const supabase = createClient();
     try {
-      const { data, error } = await supabase.from('fo_order_lines').insert({
-        order_id: line.orderId,
-        product_id: line.productId,
-        product_name: line.productName,
-        product_ref: line.productRef,
-        product_image_url: line.productImageUrl,
-        variant: line.variant,
-        color: line.color,
-        size: line.size,
-        model: line.model,
-        qty_ordered: line.qtyOrdered || 1,
-        qty_received: line.qtyReceived || 0,
-        unit_price: line.unitPrice || 0,
-        line_total: (line.qtyOrdered || 1) * (line.unitPrice || 0),
-        sale_price: line.salePrice || 0,
-        weight_kg: line.weightKg || 0,
-        volume_m3: line.volumeM3 || 0,
-        note: line.note,
-      }).select().single();
-      if (error) return null;
-      return data ? mapLine(data) : null;
+      const res = await fetch(`/api/fo-orders/${line.orderId}/lines`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          line: {
+            productId: line.productId,
+            productName: line.productName,
+            productRef: line.productRef,
+            productImageUrl: line.productImageUrl,
+            variant: line.variant,
+            color: line.color,
+            size: line.size,
+            model: line.model,
+            qtyOrdered: line.qtyOrdered || 1,
+            unitPrice: line.unitPrice || 0,
+            salePrice: line.salePrice || 0,
+            weightKg: line.weightKg || 0,
+            volumeM3: line.volumeM3 || 0,
+            note: line.note,
+          },
+        }),
+      });
+      if (!res.ok) return null;
+      const { id } = await res.json();
+      if (!id) return null;
+      // Return a minimal object so callers can use the id
+      return { ...line, id, orderId: line.orderId! } as FoOrderLine;
     } catch { return null; }
   },
 
   async updateLine(lineId: string, payload: Partial<FoOrderLine>): Promise<boolean> {
-    const supabase = createClient();
     try {
-      const u: any = {};
-      if (payload.qtyOrdered !== undefined) u.qty_ordered = payload.qtyOrdered;
-      if (payload.qtyReceived !== undefined) u.qty_received = payload.qtyReceived;
-      if (payload.unitPrice !== undefined) u.unit_price = payload.unitPrice;
-      if (payload.lineTotal !== undefined) u.line_total = payload.lineTotal;
-      if (payload.unitRealCost !== undefined) u.unit_real_cost = payload.unitRealCost;
-      if (payload.unitTransport !== undefined) u.unit_transport = payload.unitTransport;
-      if (payload.unitCustoms !== undefined) u.unit_customs = payload.unitCustoms;
-      if (payload.unitVatImport !== undefined) u.unit_vat_import = payload.unitVatImport;
-      if (payload.unitFreight !== undefined) u.unit_freight = payload.unitFreight;
-      if (payload.unitOther !== undefined) u.unit_other = payload.unitOther;
-      if (payload.salePrice !== undefined) u.sale_price = payload.salePrice;
-      if (payload.grossMargin !== undefined) u.gross_margin = payload.grossMargin;
-      if (payload.marginRate !== undefined) u.margin_rate = payload.marginRate;
-      if (payload.qtyMissing !== undefined) u.qty_missing = payload.qtyMissing;
-      if (payload.qtyDamaged !== undefined) u.qty_damaged = payload.qtyDamaged;
-      if (payload.receptionNote !== undefined) u.reception_note = payload.receptionNote;
-      if (payload.note !== undefined) u.note = payload.note;
-      if (payload.customCostShare !== undefined) u.custom_cost_share = payload.customCostShare;
-      const { error } = await supabase.from('fo_order_lines').update(u).eq('id', lineId);
-      return !error;
+      const body: any = {};
+      if (payload.qtyOrdered !== undefined) body.qty_ordered = payload.qtyOrdered;
+      if (payload.qtyReceived !== undefined) body.qty_received = payload.qtyReceived;
+      if (payload.unitPrice !== undefined) body.unit_price = payload.unitPrice;
+      if (payload.lineTotal !== undefined) body.line_total = payload.lineTotal;
+      if (payload.unitRealCost !== undefined) body.unit_real_cost = payload.unitRealCost;
+      if (payload.unitTransport !== undefined) body.unit_transport = payload.unitTransport;
+      if (payload.unitCustoms !== undefined) body.unit_customs = payload.unitCustoms;
+      if (payload.unitVatImport !== undefined) body.unit_vat_import = payload.unitVatImport;
+      if (payload.unitFreight !== undefined) body.unit_freight = payload.unitFreight;
+      if (payload.unitOther !== undefined) body.unit_other = payload.unitOther;
+      if (payload.salePrice !== undefined) body.sale_price = payload.salePrice;
+      if (payload.grossMargin !== undefined) body.gross_margin = payload.grossMargin;
+      if (payload.marginRate !== undefined) body.margin_rate = payload.marginRate;
+      if (payload.qtyMissing !== undefined) body.qty_missing = payload.qtyMissing;
+      if (payload.qtyDamaged !== undefined) body.qty_damaged = payload.qtyDamaged;
+      if (payload.receptionNote !== undefined) body.reception_note = payload.receptionNote;
+      if (payload.note !== undefined) body.note = payload.note;
+      if (payload.customCostShare !== undefined) body.custom_cost_share = payload.customCostShare;
+      if (payload.confirmedUnitPrice !== undefined) body.confirmed_unit_price = payload.confirmedUnitPrice;
+      const res = await fetch(`/api/fo-order-lines/${lineId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      return res.ok;
     } catch { return false; }
   },
 
   async deleteLine(lineId: string): Promise<boolean> {
-    const supabase = createClient();
     try {
-      const { error } = await supabase.from('fo_order_lines').delete().eq('id', lineId);
-      return !error;
+      const res = await fetch(`/api/fo-order-lines/${lineId}`, { method: 'DELETE' });
+      return res.ok;
     } catch { return false; }
   },
 
   // Status history
   async getStatusHistory(orderId: string): Promise<FoStatusHistory[]> {
-    const supabase = createClient();
     try {
-      const { data, error } = await supabase
-        .from('fo_order_status_history')
-        .select('*')
-        .eq('order_id', orderId)
-        .order('changed_at', { ascending: true });
-      if (error) return [];
-      return (data || []).map((r) => ({
+      const res = await fetch(`/api/fo-orders/${orderId}/status-history`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      return (data || []).map((r: any) => ({
         id: r.id,
         orderId: r.order_id,
         oldStatus: r.old_status,
@@ -495,53 +492,47 @@ export const supplierOrderService = {
 
   // Restock
   async getRestockSuggestions(statusFilter?: FoRestockStatus): Promise<FoRestockSuggestion[]> {
-    const supabase = createClient();
     try {
-      let q = supabase.from('fo_restock_suggestions').select('*, suppliers(company_name)').order('recent_sales', { ascending: false });
-      if (statusFilter) q = q.eq('restock_status', statusFilter);
-      const { data, error } = await q;
-      if (error) return [];
+      const params = statusFilter ? `?status=${statusFilter}` : '';
+      const res = await fetch(`/api/fo-restock-suggestions${params}`);
+      if (!res.ok) return [];
+      const data = await res.json();
       return (data || []).map(mapRestock);
     } catch { return []; }
   },
 
   async updateRestockStatus(id: string, status: FoRestockStatus, reason?: FoSuspensionReason, note?: string): Promise<boolean> {
-    const supabase = createClient();
     try {
-      const u: any = { restock_status: status, last_updated: new Date().toISOString() };
-      if (status === 'suspended') {
-        u.suspension_reason = reason;
-        u.suspension_note = note;
-        u.suspended_at = new Date().toISOString();
-      }
-      const { error } = await supabase.from('fo_restock_suggestions').update(u).eq('id', id);
-      return !error;
+      const res = await fetch(`/api/fo-restock-suggestions/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status, reason, note }),
+      });
+      return res.ok;
     } catch { return false; }
   },
 
   // Cost history
   async getCostHistory(productId?: string): Promise<FoProductCostHistory[]> {
-    const supabase = createClient();
     try {
-      let q = supabase.from('fo_product_cost_history').select('*').order('changed_at', { ascending: false });
-      if (productId) q = q.eq('product_id', productId);
-      const { data, error } = await q;
-      if (error) return [];
+      const params = productId ? `?productId=${productId}` : '';
+      const res = await fetch(`/api/fo-cost-history${params}`);
+      if (!res.ok) return [];
+      const data = await res.json();
       return (data || []).map(mapCostHistory);
     } catch { return []; }
   },
 
   // Analytics
   async getSupplierExpenses(supplierId?: string, period?: { from: string; to: string }) {
-    const supabase = createClient();
     try {
-      let q = supabase.from('fo_orders').select('*, suppliers(company_name), fo_order_lines(*)');
-      if (supplierId) q = q.eq('supplier_id', supplierId);
-      if (period?.from) q = q.gte('created_at', period.from);
-      if (period?.to) q = q.lte('created_at', period.to);
-      const { data, error } = await q;
-      if (error) return null;
-      const orders = data || [];
+      const params = new URLSearchParams();
+      if (supplierId) params.set('supplierId', supplierId);
+      if (period?.from) params.set('from', period.from);
+      if (period?.to) params.set('to', period.to);
+      const res = await fetch(`/api/fo-orders?${params}`);
+      if (!res.ok) return null;
+      const orders = await res.json();
       return {
         totalSpent: orders.reduce((s: number, o: any) => s + Number(o.total_real_cost || 0), 0),
         totalProducts: orders.reduce((s: number, o: any) => s + Number(o.subtotal || 0), 0),
@@ -557,22 +548,21 @@ export const supplierOrderService = {
   },
 
   async getDashboardStats() {
-    const supabase = createClient();
     try {
-      const { data, error } = await supabase.from('fo_orders').select('order_status, payment_status, costs_validated, stock_integrated');
-      if (error) return null;
-      const orders = data || [];
+      const res = await fetch('/api/fo-orders');
+      if (!res.ok) return null;
+      const orders = await res.json();
       return {
-        draft: orders.filter((o) => o.order_status === 'draft').length,
-        awaitingValidation: orders.filter((o) => o.order_status === 'awaiting_validation').length,
-        toPay: orders.filter((o) => o.payment_status === 'pending' && !['draft', 'cancelled', 'closed'].includes(o.order_status)).length,
-        paid: orders.filter((o) => ['paid', 'payment_received_by_supplier'].includes(o.payment_status)).length,
-        inPreparation: orders.filter((o) => ['in_preparation', 'in_production', 'ready_to_ship'].includes(o.order_status)).length,
-        shipped: orders.filter((o) => o.order_status === 'shipped').length,
-        received: orders.filter((o) => ['fully_received', 'partially_received'].includes(o.order_status)).length,
-        costsNotRecorded: orders.filter((o) => ['fully_received', 'partially_received'].includes(o.order_status) && !o.costs_validated).length,
-        toIntegrate: orders.filter((o) => o.costs_validated && !o.stock_integrated).length,
-        suspended: orders.filter((o) => o.order_status === 'suspended').length,
+        draft: orders.filter((o: any) => o.order_status === 'draft').length,
+        awaitingValidation: orders.filter((o: any) => o.order_status === 'awaiting_validation').length,
+        toPay: orders.filter((o: any) => o.payment_status === 'pending' && !['draft', 'cancelled', 'closed'].includes(o.order_status)).length,
+        paid: orders.filter((o: any) => ['paid', 'payment_received_by_supplier'].includes(o.payment_status)).length,
+        inPreparation: orders.filter((o: any) => ['in_preparation', 'in_production', 'ready_to_ship'].includes(o.order_status)).length,
+        shipped: orders.filter((o: any) => o.order_status === 'shipped').length,
+        received: orders.filter((o: any) => ['fully_received', 'partially_received'].includes(o.order_status)).length,
+        costsNotRecorded: orders.filter((o: any) => ['fully_received', 'partially_received'].includes(o.order_status) && !o.costs_validated).length,
+        toIntegrate: orders.filter((o: any) => o.costs_validated && !o.stock_integrated).length,
+        suspended: orders.filter((o: any) => o.order_status === 'suspended').length,
       };
     } catch { return null; }
   },

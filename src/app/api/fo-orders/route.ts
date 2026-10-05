@@ -6,12 +6,18 @@ import { createAdminClient } from '@/lib/supabase/admin';
 
 export async function GET(req: NextRequest) {
   const supplierId = req.nextUrl.searchParams.get('supplierId');
+  const status = req.nextUrl.searchParams.get('status');
+  const from = req.nextUrl.searchParams.get('from');
+  const to = req.nextUrl.searchParams.get('to');
   const supabase = createAdminClient();
   let q = supabase
     .from('fo_orders')
     .select('*, fo_order_lines(*), suppliers(company_name)')
     .order('created_at', { ascending: false });
   if (supplierId) q = q.eq('supplier_id', supplierId);
+  if (status) q = q.eq('order_status', status);
+  if (from) q = q.gte('created_at', from);
+  if (to) q = q.lte('created_at', to);
   const { data, error } = await q;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data ?? []);
@@ -34,11 +40,25 @@ export async function POST(req: NextRequest) {
       supplier_id: body.supplier_id,
       order_number: orderNum,
       order_status: body.order_status ?? 'draft',
+      currency: body.currency ?? 'EUR',
+      exchange_rate: body.exchange_rate ?? 1,
       notes: body.notes ?? null,
+      internal_notes: body.internal_notes ?? null,
+      expected_delivery_at: body.expected_delivery_at ?? null,
       subtotal,
       transport_cost: transportCost,
       customs_cost: customsCost,
+      vat_import: Number(body.vat_import) || 0,
+      freight_forwarder_cost: Number(body.freight_forwarder_cost) || 0,
+      bank_fees: Number(body.bank_fees) || 0,
+      exchange_fees: Number(body.exchange_fees) || 0,
+      local_delivery: Number(body.local_delivery) || 0,
+      other_costs: Number(body.other_costs) || 0,
       total_real_cost: totalRealCost,
+      cost_method: body.cost_method ?? 'by_value',
+      payment_status: body.payment_status ?? 'pending',
+      order_group: body.order_group ?? null,
+      transport_method: body.transport_method ?? null,
     })
     .select()
     .single();

@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 
+// GET — return all lines for an order
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const supabase = createAdminClient();
+  const { data, error } = await supabase.from('fo_order_lines').select('*').eq('order_id', id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json(data ?? []);
+}
+
 // POST — insert a single new line (safe: no deletion, just INSERT + subtotal update)
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -29,12 +38,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     product_name: line.productName,
     product_ref: line.productRef || null,
     product_image_url: imageUrl,
+    variant: line.variant || null,
+    color: line.color || null,
+    size: line.size || null,
+    model: line.model || null,
     qty_ordered: line.qtyOrdered || 1,
     qty_received: 0,
     unit_price: line.unitPrice || 0,
     line_total: lineTotal,
     sale_price: line.salePrice || 0,
-    weight_kg: 0, volume_m3: 0,
+    weight_kg: line.weightKg || 0,
+    volume_m3: line.volumeM3 || 0,
+    note: line.note || null,
     unit_transport: 0, unit_customs: 0, unit_vat_import: 0,
     unit_freight: 0, unit_other: 0,
     unit_real_cost: 0, gross_margin: 0, margin_rate: 0,
@@ -57,31 +72,45 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (!id || !lineId) return NextResponse.json({ error: 'Missing id or lineId' }, { status: 400 });
 
   const body = await req.json().catch(() => ({}));
-  const { qtyOrdered, salePrice } = body;
-  if (qtyOrdered === undefined && salePrice === undefined) {
-    return NextResponse.json({ error: 'qtyOrdered or salePrice required' }, { status: 400 });
-  }
-
   const supabase = createAdminClient();
 
   const { data: line } = await supabase.from('fo_order_lines').select('unit_price, qty_ordered').eq('id', lineId).eq('order_id', id).maybeSingle();
   if (!line) return NextResponse.json({ error: 'Line not found' }, { status: 404 });
 
   const update: Record<string, unknown> = {};
-
-  if (qtyOrdered !== undefined) {
-    const qty = Math.max(1, Math.round(Number(qtyOrdered)));
+  if (body.qtyOrdered !== undefined) {
+    const qty = Math.max(1, Math.round(Number(body.qtyOrdered)));
     update.qty_ordered = qty;
-    update.line_total = qty * Number(line.unit_price || 0);
+    update.line_total = qty * Number(body.unitPrice ?? line.unit_price ?? 0);
   }
+  if (body.unitPrice !== undefined) {
+    update.unit_price = Number(body.unitPrice);
+    update.line_total = Number(body.qtyOrdered ?? line.qty_ordered ?? 1) * Number(body.unitPrice);
+  }
+  if (body.salePrice !== undefined) update.sale_price = Math.max(0, Number(body.salePrice));
+  if (body.qtyReceived !== undefined) update.qty_received = body.qtyReceived;
+  if (body.lineTotal !== undefined) update.line_total = body.lineTotal;
+  if (body.unitRealCost !== undefined) update.unit_real_cost = body.unitRealCost;
+  if (body.unitTransport !== undefined) update.unit_transport = body.unitTransport;
+  if (body.unitCustoms !== undefined) update.unit_customs = body.unitCustoms;
+  if (body.unitVatImport !== undefined) update.unit_vat_import = body.unitVatImport;
+  if (body.unitFreight !== undefined) update.unit_freight = body.unitFreight;
+  if (body.unitOther !== undefined) update.unit_other = body.unitOther;
+  if (body.grossMargin !== undefined) update.gross_margin = body.grossMargin;
+  if (body.marginRate !== undefined) update.margin_rate = body.marginRate;
+  if (body.qtyMissing !== undefined) update.qty_missing = body.qtyMissing;
+  if (body.qtyDamaged !== undefined) update.qty_damaged = body.qtyDamaged;
+  if (body.receptionNote !== undefined) update.reception_note = body.receptionNote;
+  if (body.note !== undefined) update.note = body.note;
+  if (body.customCostShare !== undefined) update.custom_cost_share = body.customCostShare;
 
-  if (salePrice !== undefined) {
-    update.sale_price = Math.max(0, Number(salePrice));
+  if (Object.keys(update).length === 0) {
+    return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 });
   }
 
   await supabase.from('fo_order_lines').update(update).eq('id', lineId);
 
-  if (qtyOrdered !== undefined) {
+  if (update.line_total !== undefined || update.qty_ordered !== undefined) {
     const { data: allLines } = await supabase.from('fo_order_lines').select('line_total').eq('order_id', id);
     const subtotal = (allLines ?? []).reduce((s: number, l: any) => s + Number(l.line_total || 0), 0);
     await supabase.from('fo_orders').update({ subtotal, updated_at: new Date().toISOString() }).eq('id', id);

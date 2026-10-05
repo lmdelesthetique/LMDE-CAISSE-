@@ -1,7 +1,5 @@
 'use client';
 
-import { createClient } from '@/lib/supabase/client';
-
 export type ExpeditionStatus = 'pending' | 'label_generated' | 'shipped' | 'delivered' | 'returned';
 
 export interface Expedition {
@@ -86,67 +84,62 @@ function mapPickup(row: any): PickupNotification {
 
 export const expeditionService = {
   async getAll(): Promise<Expedition[]> {
-    const supabase = createClient();
-    const { data } = await supabase
-      .from('expeditions')
-      .select('*')
-      .order('created_at', { ascending: false });
+    const res = await fetch('/api/expeditions');
+    if (!res.ok) return [];
+    const data = await res.json();
     return (data ?? []).map(mapExpedition);
   },
 
   async markLabelPrinted(id: string): Promise<void> {
-    const supabase = createClient();
-    await supabase
-      .from('expeditions')
-      .update({ label_printed: true, status: 'label_generated', updated_at: new Date().toISOString() })
-      .eq('id', id);
+    await fetch(`/api/expeditions/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label_printed: true, status: 'label_generated' }),
+    });
   },
 
   async markShipped(id: string, trackingNumber: string): Promise<void> {
-    const supabase = createClient();
-    await supabase
-      .from('expeditions')
-      .update({
+    await fetch(`/api/expeditions/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
         status: 'shipped',
         tracking_number: trackingNumber || null,
         shipped_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', id);
+      }),
+    });
   },
 
   async cancel(id: string): Promise<void> {
-    const supabase = createClient();
-    await supabase
-      .from('expeditions')
-      .update({ status: 'returned', updated_at: new Date().toISOString() })
-      .eq('id', id);
+    await fetch(`/api/expeditions/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'returned' }),
+    });
   },
 };
 
 export const pickupService = {
   async getAll(): Promise<PickupNotification[]> {
-    const supabase = createClient();
-    const { data } = await supabase
-      .from('pickup_notifications')
-      .select('*')
-      .order('created_at', { ascending: false });
+    const res = await fetch('/api/pickup-notifications');
+    if (!res.ok) return [];
+    const data = await res.json();
     return (data ?? []).map(mapPickup);
   },
 
   async markCollected(id: string): Promise<void> {
-    const supabase = createClient();
-    await supabase
-      .from('pickup_notifications')
-      .update({ status: 'collected', collected_at: new Date().toISOString() })
-      .eq('id', id);
+    await fetch(`/api/pickup-notifications/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'collected', collected_at: new Date().toISOString() }),
+    });
   },
 
   async markNotified(id: string): Promise<void> {
-    const supabase = createClient();
-    await supabase
-      .from('pickup_notifications')
-      .update({ status: 'notified' })
-      .eq('id', id);
+    await fetch(`/api/pickup-notifications/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'notified' }),
+    });
   },
 };
