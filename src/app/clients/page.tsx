@@ -286,7 +286,7 @@ export default function ClientsPage() {
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-3">
                             <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                              <span className="text-xs font-700 text-primary">{client.firstName.charAt(0)}{client.lastName.charAt(0)}</span>
+                              <span className="text-xs font-700 text-primary">{(client.firstName ?? '').charAt(0)}{(client.lastName ?? '').charAt(0)}</span>
                             </div>
                             <div>
                               <div className="flex items-center gap-1.5">
@@ -390,7 +390,7 @@ function ClientCard({ client, hasActiveSub, statutCommercial, onClick }: { clien
     >
       <div className="flex items-start gap-3">
         <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0 group-hover:bg-primary/20 transition-colors">
-          <span className="text-sm font-700 text-primary">{client.firstName.charAt(0)}{client.lastName.charAt(0)}</span>
+          <span className="text-sm font-700 text-primary">{(client.firstName ?? '').charAt(0)}{(client.lastName ?? '').charAt(0)}</span>
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap">

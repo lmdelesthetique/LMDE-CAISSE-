@@ -619,6 +619,8 @@ export default function ProDevisPanel({
   const [showBudgetTable, setShowBudgetTable] = useState(false);
   const [generatingPdf, setGeneratingPdf] = useState(false);
   const [sendingWhatsApp, setSendingWhatsApp] = useState(false);
+  const [sendingUpdate, setSendingUpdate] = useState(false);
+  const [wasSent, setWasSent] = useState(false);
   const [generatingConcept, setGeneratingConcept] = useState(false);
   const [sendingConcept, setSendingConcept] = useState(false);
 
@@ -796,6 +798,7 @@ export default function ProDevisPanel({
       onHistoryChanged?.(newHistory);
       setItems([]);
       setDiscountPct(0);
+      setWasSent(false);
       setShowArchiveConfirm(false);
     } finally { setArchiving(false); }
   };
@@ -974,7 +977,47 @@ export default function ProDevisPanel({
         `Tu valides cette commande ou tu veux ajuster quelque chose ? 😊`,
       ].filter((v) => v !== null).join('\n');
       window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+      setWasSent(true);
     } finally { setSendingWhatsApp(false); }
+  };
+
+  const handleWhatsAppUpdate = async () => {
+    const phone = normalizePhone(client.whatsapp || client.phone || '');
+    if (!phone) { import('sonner').then(({ toast }) => toast.error('Numéro WhatsApp manquant')); return; }
+    setSendingUpdate(true);
+    try {
+      const pdfBytes = await generateDevisPdf(client, baseItems, bonusItems, discountPct, credit, freeShipping);
+      const slug = (client.lastName ?? '').toLowerCase().replace(/\s+/g, '-');
+      const filename = `devis-update-lmde-${slug}-${new Date().toISOString().slice(0, 10)}.pdf`;
+      const pdfUrl = await uploadPdf(pdfBytes, filename);
+
+      const baseLines = baseItems.map((i) => `• ${i.name}${i.ref ? ` (${i.ref})` : ''} × ${i.qty} — ${(i.sellPrice * i.qty).toFixed(2)} €`).join('\n');
+      const bonusLines = bonusItems.length > 0
+        ? `\n\n✨ *Produits offerts (Budget Pro) :*\n${bonusItems.map((i) => `• ${i.name} × ${i.qty} — ${(i.sellPrice * i.qty).toFixed(2)} €`).join('\n')}`
+        : '';
+      const pdfLine = pdfUrl ? `\n\n📄 *Devis mis à jour en PDF :*\n${pdfUrl}` : '';
+
+      const msg = [
+        `Coucou ${client.firstName} 🌸`,
+        ``,
+        `Suite à nos échanges, voici ton *devis LMDE PRO mis à jour* ✨`,
+        ``,
+        `📦 *Commande mise à jour :*`,
+        baseLines,
+        discountPct > 0 ? `\n🏷️ Remise : -${discountPct}% (-${(baseTotal * discountPct / 100).toFixed(2)} €)` : null,
+        freeShipping ? `\n🚚 Livraison offerte ✅` : null,
+        credit > 0 ? `\n✨ Bonus Budget Pro : +${credit} € en produits offerts` : null,
+        bonusLines || null,
+        ``,
+        `*💳 Tu paies : ${clientPays.toFixed(2)} €*`,
+        bonusItems.length > 0 ? `*🎁 Valeur totale emportée : ${totalValue.toFixed(2)} €*` : null,
+        pdfLine || null,
+        ``,
+        `N'hésite pas si tu veux d'autres ajustements 😊`,
+      ].filter((v) => v !== null).join('\n');
+
+      window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+    } finally { setSendingUpdate(false); }
   };
 
   const handlePdf = async () => {
@@ -1513,18 +1556,27 @@ export default function ProDevisPanel({
           )}
         </div>
         {baseItems.length > 0 && (
-          <div className="grid grid-cols-2 gap-3">
-            <button onClick={handleWhatsApp} disabled={sendingWhatsApp}
-              className="flex items-center justify-center gap-2 py-3 bg-green-500 text-white rounded-xl text-sm font-700 hover:bg-green-600 transition-colors disabled:opacity-50">
-              {sendingWhatsApp ? <Icon name="ArrowPathIcon" size={16} className="animate-spin" /> : <Icon name="ChatBubbleLeftRightIcon" size={16} />}
-              {sendingWhatsApp ? 'Génération…' : 'WhatsApp + PDF'}
-            </button>
-            <button onClick={handlePdf} disabled={generatingPdf}
-              className="flex items-center justify-center gap-2 py-3 bg-[#EC4899] text-white rounded-xl text-sm font-700 hover:bg-pink-600 transition-colors disabled:opacity-50">
-              {generatingPdf ? <Icon name="ArrowPathIcon" size={16} className="animate-spin" /> : <Icon name="DocumentArrowDownIcon" size={16} />}
-              {generatingPdf ? 'Génération…' : 'Télécharger PDF'}
-            </button>
-          </div>
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <button onClick={handleWhatsApp} disabled={sendingWhatsApp}
+                className="flex items-center justify-center gap-2 py-3 bg-green-500 text-white rounded-xl text-sm font-700 hover:bg-green-600 transition-colors disabled:opacity-50">
+                {sendingWhatsApp ? <Icon name="ArrowPathIcon" size={16} className="animate-spin" /> : <Icon name="ChatBubbleLeftRightIcon" size={16} />}
+                {sendingWhatsApp ? 'Génération…' : wasSent ? 'Renvoyer devis' : 'WhatsApp + PDF'}
+              </button>
+              <button onClick={handlePdf} disabled={generatingPdf}
+                className="flex items-center justify-center gap-2 py-3 bg-[#EC4899] text-white rounded-xl text-sm font-700 hover:bg-pink-600 transition-colors disabled:opacity-50">
+                {generatingPdf ? <Icon name="ArrowPathIcon" size={16} className="animate-spin" /> : <Icon name="DocumentArrowDownIcon" size={16} />}
+                {generatingPdf ? 'Génération…' : 'Télécharger PDF'}
+              </button>
+            </div>
+            {wasSent && (
+              <button onClick={handleWhatsAppUpdate} disabled={sendingUpdate}
+                className="w-full flex items-center justify-center gap-2 py-3 border-2 border-violet-400 text-violet-700 rounded-xl text-sm font-700 hover:bg-violet-50 transition-colors disabled:opacity-50">
+                {sendingUpdate ? <Icon name="ArrowPathIcon" size={16} className="animate-spin" /> : <Icon name="PencilSquareIcon" size={16} />}
+                {sendingUpdate ? 'Génération…' : 'Envoyer la mise à jour (après modif client)'}
+              </button>
+            )}
+          </>
         )}
         <button onClick={() => setShowDecouverteModal(true)}
           className="w-full py-2.5 border-2 border-[#B8960C]/30 text-[#B8960C] rounded-xl text-sm font-700 hover:bg-[#FDF8E7] transition-colors flex items-center justify-center gap-2">

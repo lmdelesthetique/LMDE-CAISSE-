@@ -720,7 +720,7 @@ export default function ClientDetailPanel({
         {/* Header */}
         <div className="flex items-center gap-4 px-6 py-4 border-b border-border shrink-0">
           <div className="w-12 h-12 rounded-full bg-primary/15 flex items-center justify-center shrink-0">
-            <span className="text-lg font-700 text-primary">{client.firstName.charAt(0)}{client.lastName.charAt(0)}</span>
+            <span className="text-lg font-700 text-primary">{(client.firstName ?? '').charAt(0)}{(client.lastName ?? '').charAt(0)}</span>
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">

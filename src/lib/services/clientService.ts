@@ -145,9 +145,9 @@ export interface CreateSubscriptionInput {
 function mapClient(row: any): Client {
   return {
     id: row.id,
-    firstName: row.first_name,
-    lastName: row.last_name,
-    fullName: `${row.first_name} ${row.last_name}`,
+    firstName: row.first_name ?? '',
+    lastName: row.last_name ?? '',
+    fullName: `${row.first_name ?? ''} ${row.last_name ?? ''}`.trim(),
     email: row.email,
     phone: row.phone,
     whatsapp: row.whatsapp,

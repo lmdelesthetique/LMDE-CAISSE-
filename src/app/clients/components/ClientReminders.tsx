@@ -2,110 +2,40 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Icon from '@/components/ui/AppIcon';
-import { createClient } from '@/lib/supabase/client';
-import { fetchAll } from '@/lib/utils/fetchAll';
+import { normalizePhone } from '@/lib/utils/phoneUtils';
 
 interface ReminderClient {
   id: string;
   name: string;
   phone: string | null;
   email: string | null;
-  type: 'balance_due' | 'birthday';
+  type: 'balance_due' | 'birthday' | 'devis_pending';
   detail: string;
   urgency: 'high' | 'medium' | 'low';
   daysOverdue?: number;
+  daysWaiting?: number;
   birthdayDate?: string;
   amount?: number;
   reservationNumber?: string;
-}
-
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long' });
+  devisId?: string;
+  devisNumero?: string;
 }
 
 export default function ClientReminders() {
   const [reminders, setReminders] = useState<ReminderClient[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'all' | 'balance_due' | 'birthday'>('all');
+  const [filter, setFilter] = useState<'all' | 'balance_due' | 'birthday' | 'devis_pending'>('all');
   const [sentIds, setSentIds] = useState<Set<string>>(new Set());
 
   const loadReminders = useCallback(async () => {
     setLoading(true);
-    const supabase = createClient();
-    const results: ReminderClient[] = [];
-
     try {
-      // 1. Reservations with unpaid balance > 30 days
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-      const { data: reservations } = await supabase
-        .from('reservations')
-        .select('id, reservation_number, client_name, client_phone, client_email, balance_due, created_at, reservation_status')
-        .in('reservation_status', ['pending', 'deposit_paid', 'ready'])
-        .gt('balance_due', 0)
-        .lte('created_at', thirtyDaysAgo.toISOString());
-
-      for (const r of reservations ?? []) {
-        const createdAt = new Date(r.created_at);
-        const daysOverdue = Math.floor((Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24));
-        results.push({
-          id: `res-${r.id}`,
-          name: r.client_name,
-          phone: r.client_phone ?? null,
-          email: r.client_email ?? null,
-          type: 'balance_due',
-          detail: `Solde impayé depuis ${daysOverdue} jours — Réservation ${r.reservation_number}`,
-          urgency: daysOverdue > 60 ? 'high' : daysOverdue > 45 ? 'medium' : 'low',
-          daysOverdue,
-          amount: parseFloat(r.balance_due ?? 0),
-          reservationNumber: r.reservation_number,
-        });
-      }
-
-      // 2. Birthday reminders — clients with birthday in next 7 days
-      const today = new Date();
-      const todayMD = `${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-
-      const clients = await fetchAll<any>((from, to) =>
-        supabase
-          .from('clients')
-          .select('id, first_name, last_name, phone, email, date_of_birth')
-          .not('date_of_birth', 'is', null)
-          .order('id', { ascending: true })
-          .range(from, to)
-      );
-
-      for (const c of clients) {
-        if (!c.date_of_birth) continue;
-        const bDate = new Date(c.date_of_birth);
-        const bMD = `${String(bDate.getMonth() + 1).padStart(2, '0')}-${String(bDate.getDate()).padStart(2, '0')}`;
-
-        // Check if birthday is within next 7 days
-        const thisYearBirthday = new Date(today.getFullYear(), bDate.getMonth(), bDate.getDate());
-        const diffDays = Math.floor((thisYearBirthday.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-
-        if (diffDays >= 0 && diffDays <= 7) {
-          const name = `${c.first_name ?? ''} ${c.last_name ?? ''}`.trim();
-          results.push({
-            id: `bday-${c.id}`,
-            name,
-            phone: c.phone ?? null,
-            email: c.email ?? null,
-            type: 'birthday',
-            detail: diffDays === 0 ? `🎂 Anniversaire aujourd'hui !` : `🎂 Anniversaire dans ${diffDays} jour${diffDays > 1 ? 's' : ''}`,
-            urgency: diffDays === 0 ? 'high' : diffDays <= 2 ? 'medium' : 'low',
-            birthdayDate: c.date_of_birth,
-          });
-        }
-      }
-
-      // Sort by urgency
-      const urgencyOrder = { high: 0, medium: 1, low: 2 };
-      results.sort((a, b) => urgencyOrder[a.urgency] - urgencyOrder[b.urgency]);
-      setReminders(results);
-    } catch (e) {
-      console.error('Reminders load error:', e);
+      const res = await fetch('/api/clients/reminders');
+      if (!res.ok) throw new Error('fetch failed');
+      const { reminders: data } = await res.json();
+      setReminders(Array.isArray(data) ? data : []);
+    } catch {
+      setReminders([]);
     } finally {
       setLoading(false);
     }
@@ -113,18 +43,46 @@ export default function ClientReminders() {
 
   useEffect(() => { loadReminders(); }, [loadReminders]);
 
-  const markSent = (id: string) => {
-    setSentIds(prev => new Set([...prev, id]));
-  };
+  const markSent = (id: string) => setSentIds(prev => new Set([...prev, id]));
 
   const filtered = reminders.filter(r => filter === 'all' || r.type === filter);
   const balanceCount = reminders.filter(r => r.type === 'balance_due').length;
   const birthdayCount = reminders.filter(r => r.type === 'birthday').length;
+  const devisCount = reminders.filter(r => r.type === 'devis_pending').length;
 
   const urgencyConfig = {
     high: { color: 'text-red-700 bg-red-50 border-red-200', dot: 'bg-red-500', label: 'Urgent' },
     medium: { color: 'text-amber-700 bg-amber-50 border-amber-200', dot: 'bg-amber-500', label: 'Moyen' },
     low: { color: 'text-blue-700 bg-blue-50 border-blue-200', dot: 'bg-blue-400', label: 'Normal' },
+  };
+
+  const typeIcon: Record<ReminderClient['type'], string> = {
+    birthday: '🎂',
+    balance_due: '💰',
+    devis_pending: '📋',
+  };
+
+  const buildDevisRelanceMsg = (r: ReminderClient): string => {
+    const name = (r.name || '').split(' ')[0] || 'Madame';
+    return [
+      `Bonjour ${name} 🌸`,
+      ``,
+      `Je vous fais une petite relance concernant votre devis PRO ${r.devisNumero ? `*${r.devisNumero}*` : ''} d'un montant de *${r.amount?.toFixed(2)} €*.`,
+      ``,
+      `Il attend votre confirmation depuis ${r.daysWaiting} jour${(r.daysWaiting ?? 0) > 1 ? 's' : ''}. Souhaitez-vous valider cette commande ou apporter des modifications ? 😊`,
+      ``,
+      `— Le Monde de l'Esthétique ✨`,
+    ].join('\n');
+  };
+
+  const buildBirthdayMsg = (r: ReminderClient): string => {
+    const name = (r.name || '').split(' ')[0] || 'Madame';
+    return `Bonjour ${name} 🎂✨\n\nToute l'équipe du Monde de l'Esthétique vous souhaite un très joyeux anniversaire ! 🎉\n\nNous espérons que votre journée est magnifique. Merci de votre fidélité 💖\n\n— LMDE ✨`;
+  };
+
+  const buildBalanceMsg = (r: ReminderClient): string => {
+    const name = (r.name || '').split(' ')[0] || 'Madame';
+    return `Bonjour ${name} 🌸\n\nNous vous contactons au sujet de votre solde restant de *${r.amount?.toFixed(2)} €* (${r.reservationNumber ?? ''}).\n\nPourriez-vous nous confirmer la date de règlement ? N'hésitez pas à nous contacter pour toute question. 😊\n\n— Le Monde de l'Esthétique ✨`;
   };
 
   return (
@@ -138,7 +96,7 @@ export default function ClientReminders() {
             </div>
             <div>
               <h3 className="text-base font-700 text-foreground">Relances clients</h3>
-              <p className="text-xs text-muted-foreground mt-0.5">Soldes impayés +30j et anniversaires à venir</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Soldes impayés, anniversaires, devis en attente</p>
             </div>
           </div>
           <button
@@ -151,11 +109,12 @@ export default function ClientReminders() {
         </div>
 
         {/* Filter tabs */}
-        <div className="flex gap-2 mt-4">
+        <div className="flex flex-wrap gap-2 mt-4">
           {[
             { id: 'all' as const, label: 'Toutes', count: reminders.length },
             { id: 'balance_due' as const, label: '💰 Soldes impayés', count: balanceCount },
             { id: 'birthday' as const, label: '🎂 Anniversaires', count: birthdayCount },
+            { id: 'devis_pending' as const, label: '📋 Devis en attente', count: devisCount },
           ].map(tab => (
             <button
               key={tab.id}
@@ -193,14 +152,24 @@ export default function ClientReminders() {
           filtered.map(reminder => {
             const urg = urgencyConfig[reminder.urgency];
             const isSent = sentIds.has(reminder.id);
+            const phone = reminder.phone ? normalizePhone(reminder.phone) : null;
+
+            const waMsg = reminder.type === 'devis_pending'
+              ? buildDevisRelanceMsg(reminder)
+              : reminder.type === 'birthday'
+              ? buildBirthdayMsg(reminder)
+              : buildBalanceMsg(reminder);
+
             return (
               <div key={reminder.id} className={`px-5 py-4 ${isSent ? 'opacity-50' : ''}`}>
                 <div className="flex items-start gap-3">
                   {/* Type icon */}
                   <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
-                    reminder.type === 'birthday' ? 'bg-pink-100' : 'bg-amber-100'
+                    reminder.type === 'birthday' ? 'bg-pink-100'
+                    : reminder.type === 'devis_pending' ? 'bg-violet-100'
+                    : 'bg-amber-100'
                   }`}>
-                    <span className="text-base">{reminder.type === 'birthday' ? '🎂' : '💰'}</span>
+                    <span className="text-base">{typeIcon[reminder.type]}</span>
                   </div>
 
                   {/* Content */}
@@ -213,7 +182,7 @@ export default function ClientReminders() {
                       </span>
                     </div>
                     <p className="text-xs text-muted-foreground mt-0.5">{reminder.detail}</p>
-                    {reminder.amount && reminder.amount > 0 && (
+                    {reminder.amount && reminder.amount > 0 && reminder.type !== 'devis_pending' && (
                       <p className="text-sm font-700 text-amber-700 mt-1 tabular-nums">
                         Solde dû : {reminder.amount.toFixed(2)} €
                       </p>
@@ -240,16 +209,21 @@ export default function ClientReminders() {
                   <div className="flex flex-col gap-1.5 shrink-0">
                     {!isSent ? (
                       <>
-                        {reminder.phone && (
-                          <button
+                        {phone && (
+                          <a
+                            href={`https://wa.me/${phone}?text=${encodeURIComponent(waMsg)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
                             onClick={() => markSent(reminder.id)}
-                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-500 hover:bg-emerald-100 transition-colors"
+                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-green-50 border border-green-200 text-green-700 text-xs font-500 hover:bg-green-100 transition-colors"
                           >
-                            <Icon name="PhoneIcon" size={11} />
-                            Appeler
-                          </button>
+                            <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.373 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                            </svg>
+                            WhatsApp
+                          </a>
                         )}
-                        {reminder.email && (
+                        {reminder.email && !phone && (
                           <button
                             onClick={() => markSent(reminder.id)}
                             className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 border border-blue-200 text-blue-700 text-xs font-500 hover:bg-blue-100 transition-colors"

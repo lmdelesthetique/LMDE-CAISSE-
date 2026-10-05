@@ -301,7 +301,7 @@ export default function ClientAnalyticsPage() {
                       <BarChart
                         layout="vertical"
                         data={[...data.clients].sort((a, b) => b.totalSpent - a.totalSpent).slice(0, 10).map((c) => ({
-                          name: `${c.firstName} ${c.lastName.charAt(0)}.`,
+                          name: `${c.firstName ?? ''} ${(c.lastName ?? '').charAt(0)}.`,
                           ca: c.totalSpent,
                         }))}
                         margin={{ top: 0, right: 16, left: 0, bottom: 0 }}
@@ -441,7 +441,7 @@ export default function ClientAnalyticsPage() {
                     <tbody className="divide-y divide-border">
                       {paginated.map((c) => {
                         const seg = SEGMENT_META[c.segment];
-                        const initials = `${c.firstName.charAt(0)}${c.lastName.charAt(0)}`.toUpperCase();
+                        const initials = `${(c.firstName ?? '').charAt(0)}${(c.lastName ?? '').charAt(0)}`.toUpperCase();
                         return (
                           <tr key={c.id} className="hover:bg-muted/30 transition-colors">
                             <td className="px-4 py-3">

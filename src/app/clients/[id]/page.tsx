@@ -179,7 +179,7 @@ export default function ClientDetailPage() {
             <div className="bg-white rounded-xl border border-border p-6">
               <div className="flex items-start gap-4">
                 <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
-                  <span className="text-2xl font-700 text-blue-700">{client.firstName.charAt(0).toUpperCase()}</span>
+                  <span className="text-2xl font-700 text-blue-700">{(client.firstName ?? '').charAt(0).toUpperCase()}</span>
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap mb-1">
