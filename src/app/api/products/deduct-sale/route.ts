@@ -159,26 +159,27 @@ export async function POST(req: NextRequest) {
 
       if (updateError) { errors.push(`Erreur décompte stock: ${item.name}`); continue; }
 
+      let finalStock = newStock;
       if (!updatedRows || updatedRows.length === 0) {
-        // Retry once on concurrent modification
+        // Retry once on concurrent modification — re-read fresh stock
         const { data: fresh } = await supabase.from('products').select('stock').eq('id', item.productId).maybeSingle();
         if (fresh !== null) {
-          const retryNew = Math.max(0, Number(fresh.stock) - item.qty);
-          await supabase.from('products').update({ stock: retryNew, updated_at: now }).eq('id', item.productId);
+          finalStock = Math.max(0, Number(fresh.stock) - item.qty);
+          await supabase.from('products').update({ stock: finalStock, updated_at: now }).eq('id', item.productId);
         }
       }
 
-      shopifySyncItems.push({ productId: item.productId, delta: -item.qty, newStock });
+      shopifySyncItems.push({ productId: item.productId, delta: -item.qty, newStock: finalStock });
 
       // Keep color variant quantities in sync with the new product total
-      await syncColorStocksToTotal(supabase, item.productId, newStock);
+      await syncColorStocksToTotal(supabase, item.productId, finalStock);
 
       await supabase.from('stock_movements_log').insert({
         product_id: item.productId,
         product_name: item.name,
         movement_type: 'sale',
         quantity_before: currentStock,
-        quantity_after: newStock,
+        quantity_after: finalStock,
         quantity_change: -item.qty,
         reason: `Vente caisse — ${paymentMethod}`,
         reference: ticketRef,
@@ -186,7 +187,7 @@ export async function POST(req: NextRequest) {
         source: 'pos_sale',
       });
 
-      if (newStock === 0) {
+      if (finalStock === 0) {
         await supabase.from('products').update({ status: 'rupture', product_status: 'rupture' })
           .eq('id', item.productId).neq('product_status', 'inactive');
       }

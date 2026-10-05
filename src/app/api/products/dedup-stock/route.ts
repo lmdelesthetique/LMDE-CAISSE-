@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { syncColorStocksToTotal } from '@/lib/utils/syncColorStock';
 
 interface Movement {
   id: string;
@@ -228,6 +229,9 @@ export async function POST(req: NextRequest) {
     const newStock = Math.max(0, currentStock - g.netAdjustment);
 
     await supabase.from('products').update({ stock: newStock, updated_at: now }).eq('id', productId);
+
+    // Sync color variant quantities to match the corrected total
+    await syncColorStocksToTotal(supabase, productId, newStock);
 
     // Only flag rupture when stock drops to 0 (not when we're adding stock back)
     if (newStock <= 0 && g.netAdjustment > 0 && p.product_status !== 'inactive') {
