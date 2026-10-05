@@ -112,6 +112,38 @@ function detectDuplicates(mvs: Movement[], windowMs: number): DuplicateGroup[] {
   return groups;
 }
 
+// Paginate stock_movements_log to bypass the 1000-row Supabase default cap.
+async function fetchAllMovements(
+  supabase: any,
+  since: string,
+  productName: string,
+  specificProductIds: string[] | null
+): Promise<{ movements: Movement[]; error: string | null }> {
+  const PAGE = 1000;
+  const all: Movement[] = [];
+  let from = 0;
+  while (true) {
+    let q = supabase
+      .from('stock_movements_log')
+      .select('id, product_id, product_name, movement_type, quantity_change, quantity_before, quantity_after, reason, reference, created_at, performed_by')
+      .in('movement_type', ['entry', 'supplier_reception', 'sortie'])
+      .not('reason', 'ilike', '[DOUBLON ANNULÉ]%')
+      .gte('created_at', since)
+      .order('created_at', { ascending: true })
+      .range(from, from + PAGE - 1) as any;
+    if (productName) q = q.ilike('product_name', `%${productName}%`);
+    if (specificProductIds?.length) q = q.in('product_id', specificProductIds);
+
+    const { data, error } = await q;
+    if (error) return { movements: [], error: error.message };
+    if (!data?.length) break;
+    all.push(...(data as Movement[]));
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+  return { movements: all, error: null };
+}
+
 // GET — analyze stock_movements_log for duplicates.
 // ?days=90&windowDays=1&productName=5+in+1
 export async function GET(req: NextRequest) {
@@ -122,23 +154,10 @@ export async function GET(req: NextRequest) {
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
   const supabase = createAdminClient();
+  const { movements, error } = await fetchAllMovements(supabase, since, productName, null);
+  if (error) return NextResponse.json({ error }, { status: 500 });
 
-  let query = supabase
-    .from('stock_movements_log')
-    .select('id, product_id, product_name, movement_type, quantity_change, quantity_before, quantity_after, reason, reference, created_at, performed_by')
-    .in('movement_type', ['entry', 'supplier_reception', 'sortie'])
-    .not('reason', 'ilike', '[DOUBLON ANNULÉ]%')
-    .gte('created_at', since)
-    .order('created_at', { ascending: true });
-
-  if (productName) {
-    query = query.ilike('product_name', `%${productName}%`);
-  }
-
-  const { data: movements, error } = await query;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  const mvs = (movements ?? []) as Movement[];
+  const mvs = movements;
   const windowMs = windowDays * 24 * 60 * 60 * 1000;
   const groups = detectDuplicates(mvs, windowMs);
 
@@ -168,21 +187,10 @@ export async function POST(req: NextRequest) {
   const specificProductIds: string[] | null = body.productIds ?? null;
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
-  let query = supabase
-    .from('stock_movements_log')
-    .select('id, product_id, product_name, movement_type, quantity_change, quantity_before, quantity_after, reason, reference, created_at')
-    .in('movement_type', ['entry', 'supplier_reception', 'sortie'])
-    .not('reason', 'ilike', '[DOUBLON ANNULÉ]%')
-    .gte('created_at', since)
-    .order('created_at', { ascending: true });
+  const { movements, error } = await fetchAllMovements(supabase, since, productName, specificProductIds);
+  if (error) return NextResponse.json({ error }, { status: 500 });
 
-  if (productName) query = query.ilike('product_name', `%${productName}%`);
-  if (specificProductIds?.length) query = query.in('product_id', specificProductIds);
-
-  const { data: movements, error } = await query;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  const mvs = (movements ?? []) as Movement[];
+  const mvs = movements;
   const windowMs = windowDays * 24 * 60 * 60 * 1000;
   const groups = detectDuplicates(mvs, windowMs);
 
@@ -209,7 +217,7 @@ export async function POST(req: NextRequest) {
     byProduct[g.product_id].descriptions.push(g.description);
   }
 
-  const log: { name: string; adjusted: number; before: number; after: number; details: string }[] = [];
+  const log: { name: string; removed: number; before: number; after: number; details: string }[] = [];
   let fixed = 0;
 
   for (const [productId, g] of Object.entries(byProduct)) {
@@ -226,11 +234,14 @@ export async function POST(req: NextRequest) {
       await supabase.from('products').update({ status: 'rupture', product_status: 'rupture' }).eq('id', productId);
     }
 
-    // Mark duplicate movements as cancelled
+    // Mark duplicate movements as cancelled — chunk to avoid URL length limits
     const uniqueIds = [...new Set(g.ids)];
-    await supabase.from('stock_movements_log')
-      .update({ reason: `[DOUBLON ANNULÉ] ${g.reason}` })
-      .in('id', uniqueIds);
+    const CHUNK = 200;
+    for (let i = 0; i < uniqueIds.length; i += CHUNK) {
+      await supabase.from('stock_movements_log')
+        .update({ reason: `[DOUBLON ANNULÉ] ${g.reason}` })
+        .in('id', uniqueIds.slice(i, i + CHUNK));
+    }
 
     const adjLabel = g.netAdjustment >= 0
       ? `${g.netAdjustment} unité(s) supprimée(s)`
@@ -247,7 +258,7 @@ export async function POST(req: NextRequest) {
       performed_by: 'Système',
     });
 
-    log.push({ name: g.name, adjusted: newStock - currentStock, before: currentStock, after: newStock, details: g.descriptions.join('; ') });
+    log.push({ name: g.name, removed: g.netAdjustment, before: currentStock, after: newStock, details: g.descriptions.join('; ') });
     fixed++;
   }
 
