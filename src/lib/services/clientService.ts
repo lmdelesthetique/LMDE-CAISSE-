@@ -143,37 +143,40 @@ export interface CreateSubscriptionInput {
 }
 
 function mapClient(row: any): Client {
+  // Accept both snake_case (Supabase raw) and camelCase (legacy API shape)
+  const firstName = row.first_name ?? row.firstName ?? '';
+  const lastName  = row.last_name  ?? row.lastName  ?? '';
   return {
     id: row.id,
-    firstName: row.first_name ?? '',
-    lastName: row.last_name ?? '',
-    fullName: `${row.first_name ?? ''} ${row.last_name ?? ''}`.trim(),
+    firstName,
+    lastName,
+    fullName: `${firstName} ${lastName}`.trim(),
     email: row.email,
     phone: row.phone,
     whatsapp: row.whatsapp,
-    dateOfBirth: row.date_of_birth,
+    dateOfBirth: row.date_of_birth ?? row.dateOfBirth,
     gender: row.gender,
     address: row.address,
     city: row.city,
-    postalCode: row.postal_code,
+    postalCode: row.postal_code ?? row.postalCode,
     country: row.country,
     notes: row.notes,
-    loyaltyPoints: row.loyalty_points ?? 0,
-    loyaltyTier: row.loyalty_tier ?? 'bronze',
-    storeCredit: parseFloat(row.store_credit ?? 0),
-    totalSpent: parseFloat(row.total_spent ?? 0),
-    totalVisits: row.total_visits ?? 0,
-    isActive: row.is_active,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    clientType: row.client_type ?? 'particulier',
-    loyaltyDiscountType: row.loyalty_discount_type ?? null,
-    loyaltyDiscountValue: parseFloat(row.loyalty_discount_value ?? 0),
-    lastPurchaseAt: row.last_purchase_at ?? null,
-    balanceDue: parseFloat(row.balance_due ?? 0),
-    referralCode: row.referral_code ?? null,
-    referralCount: row.referral_count ?? 0,
-    referralPointsEarned: row.referral_points_earned ?? 0,
+    loyaltyPoints: row.loyalty_points ?? row.loyaltyPoints ?? 0,
+    loyaltyTier: row.loyalty_tier ?? row.loyaltyTier ?? 'bronze',
+    storeCredit: parseFloat(row.store_credit ?? row.storeCredit ?? 0),
+    totalSpent: parseFloat(row.total_spent ?? row.totalSpent ?? 0),
+    totalVisits: row.total_visits ?? row.totalVisits ?? 0,
+    isActive: row.is_active ?? row.isActive,
+    createdAt: row.created_at ?? row.createdAt,
+    updatedAt: row.updated_at ?? row.updatedAt,
+    clientType: row.client_type ?? row.clientType ?? 'particulier',
+    loyaltyDiscountType: row.loyalty_discount_type ?? row.loyaltyDiscountType ?? null,
+    loyaltyDiscountValue: parseFloat(row.loyalty_discount_value ?? row.loyaltyDiscountValue ?? 0),
+    lastPurchaseAt: row.last_purchase_at ?? row.lastPurchaseAt ?? null,
+    balanceDue: parseFloat(row.balance_due ?? row.balanceDue ?? 0),
+    referralCode: row.referral_code ?? row.referralCode ?? null,
+    referralCount: row.referral_count ?? row.referralCount ?? 0,
+    referralPointsEarned: row.referral_points_earned ?? row.referralPointsEarned ?? 0,
   };
 }
 
@@ -285,10 +288,10 @@ export function getClientDiscount(client: Client, subscription: ClientSubscripti
 export const clientService = {
   async getAll(): Promise<Client[]> {
     try {
-      const res = await fetch('/api/clients').catch(() => null);
+      const res = await fetch('/api/clients?full=true&limit=500').catch(() => null);
       if (!res?.ok) return [];
       const data = await res.json();
-      return (Array.isArray(data) ? data : data.clients ?? []).map(mapClient);
+      return (Array.isArray(data) ? data : []).map(mapClient);
     } catch (e: any) { console.log('clientService.getAll exception:', e.message); return []; }
   },
 

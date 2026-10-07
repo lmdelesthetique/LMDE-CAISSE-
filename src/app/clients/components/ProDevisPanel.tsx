@@ -16,6 +16,7 @@ export interface ReassortItem {
   qty: number;
   isCustom: boolean;
   isBonus: boolean; // true = covered by Budget Pro credit, client does not pay
+  discountPct?: number; // item-level discount (0–100)
 }
 
 interface SearchProduct {
@@ -213,7 +214,8 @@ async function generateDevisPdf(
   doc.text(`Cliente : ${client.fullName}`, margin + 22, 24);
   doc.text(`Date : ${new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })}`, margin + 22, 30);
 
-  const baseTotal  = baseItems.reduce((s, i) => s + i.sellPrice * i.qty, 0);
+  const effPrice = (i: ReassortItem) => i.sellPrice * (1 - (i.discountPct ?? 0) / 100);
+  const baseTotal  = baseItems.reduce((s, i) => s + effPrice(i) * i.qty, 0);
   const discountAmount = baseTotal * (discountPct / 100);
   const afterDiscount  = baseTotal - discountAmount;
   const bonusTotal = bonusItems.reduce((s, i) => s + i.sellPrice * i.qty, 0);
@@ -229,10 +231,14 @@ async function generateDevisPdf(
   autoTable(doc, {
     startY: 49,
     head: [hasBaseImg ? ['', 'Produit', 'Qté', 'Prix unit.', 'Total'] : ['Produit', 'Qté', 'Prix unit.', 'Total']],
-    body: baseItems.map((i) => hasBaseImg
-      ? ['', i.name + (i.ref ? `\n${i.ref}` : '') + (i.isCustom ? '\n(à sourcer)' : ''), String(i.qty), `${i.sellPrice.toFixed(2)} €`, `${(i.sellPrice * i.qty).toFixed(2)} €`]
-      : [i.name + (i.ref ? `\n${i.ref}` : '') + (i.isCustom ? '\n(à sourcer)' : ''), String(i.qty), `${i.sellPrice.toFixed(2)} €`, `${(i.sellPrice * i.qty).toFixed(2)} €`]
-    ),
+    body: baseItems.map((i) => {
+      const eff = effPrice(i);
+      const disc = i.discountPct ?? 0;
+      const unitCell = disc > 0 ? `${i.sellPrice.toFixed(2)} €\n→ -${disc}% = ${eff.toFixed(2)} €` : `${i.sellPrice.toFixed(2)} €`;
+      const totalCell = `${(eff * i.qty).toFixed(2)} €`;
+      const label = i.name + (i.ref ? `\n${i.ref}` : '') + (i.isCustom ? '\n(à sourcer)' : '');
+      return hasBaseImg ? ['', label, String(i.qty), unitCell, totalCell] : [label, String(i.qty), unitCell, totalCell];
+    }),
     theme: 'striped',
     headStyles: { fillColor: GOLD, textColor: WHITE, fontStyle: 'bold', fontSize: 9 },
     bodyStyles: { fontSize: 8.5, minCellHeight: hasBaseImg ? 14 : 8 },
@@ -281,7 +287,10 @@ async function generateDevisPdf(
   }
 
   // ── Summary ────────────────────────────────────────────────────────────────
-  const summaryRows: [string, string][] = [['Commande principale', `${baseTotal.toFixed(2)} €`]];
+  const itemDiscountTotal = baseItems.reduce((s, i) => s + (i.discountPct ?? 0 > 0 ? i.sellPrice * (i.discountPct! / 100) * i.qty : 0), 0);
+  const baseBeforeItemDiscount = baseItems.reduce((s, i) => s + i.sellPrice * i.qty, 0);
+  const summaryRows: [string, string][] = [['Commande principale', `${baseBeforeItemDiscount.toFixed(2)} €`]];
+  if (itemDiscountTotal > 0) summaryRows.push([`Remises produits`, `-${itemDiscountTotal.toFixed(2)} €`]);
   if (discountPct > 0) summaryRows.push([`Offre commerciale (-${discountPct}%)`, `-${discountAmount.toFixed(2)} €`]);
   if (freeShipping) summaryRows.push(['🚚 Livraison offerte (commande ≥ 150 €)', 'OFFERTE']);
   if (bonusItems.length > 0) {
@@ -533,43 +542,128 @@ function ProductSearchBox({ placeholder, onAdd, variant = 'gold' }: {
   );
 }
 
-// ── Item list component ────────────────────────────────────────────────────────
+// ── Item row with per-item discount ───────────────────────────────────────────
 
-function ItemList({ items, onQtyChange, onRemove, variant = 'gold' }: {
-  items: ReassortItem[]; onQtyChange: (id: string, d: number) => void; onRemove: (id: string) => void; variant?: 'gold' | 'pink';
+function ItemRow({ item, onQtyChange, onRemove, onDiscountChange, variant }: {
+  item: ReassortItem;
+  onQtyChange: (id: string, d: number) => void;
+  onRemove: (id: string) => void;
+  onDiscountChange?: (id: string, pct: number) => void;
+  variant: 'gold' | 'pink';
 }) {
-  if (!items.length) return null;
+  const [showCustom, setShowCustom] = useState(false);
+  const [customInput, setCustomInput] = useState('');
+
   const btnBg = variant === 'pink' ? 'bg-pink-500' : 'bg-[#B8960C]';
   const priceColor = variant === 'pink' ? 'text-pink-700' : 'text-[#8B7009]';
+  const discount = item.discountPct ?? 0;
+  const effectivePrice = item.sellPrice * (1 - discount / 100);
+  const lineTotal = effectivePrice * item.qty;
+
+  return (
+    <div className={`bg-white border border-border rounded-xl p-3 ${item.isBonus ? '' : ''}`}>
+      <div className="flex items-center gap-3">
+        {item.imageUrl ? (
+          <img src={item.imageUrl} alt="" className="w-12 h-12 rounded-lg object-cover shrink-0 border border-border" />
+        ) : (
+          <div className={`w-12 h-12 rounded-lg flex items-center justify-center shrink-0 ${item.isCustom ? 'bg-amber-50 border border-amber-200' : 'bg-muted'}`}>
+            <Icon name={item.isCustom ? 'MagnifyingGlassIcon' : 'PhotoIcon'} size={18} className={item.isCustom ? 'text-amber-400' : 'text-muted-foreground'} />
+          </div>
+        )}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-600 text-foreground truncate">{item.name}</p>
+          <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+            {discount > 0 ? (
+              <>
+                <span className="text-[11px] text-muted-foreground line-through">{item.sellPrice.toFixed(2)} €</span>
+                <span className={`text-[11px] font-700 ${priceColor}`}>{effectivePrice.toFixed(2)} € / unité</span>
+                <span className="text-[10px] font-700 px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">-{discount}%</span>
+              </>
+            ) : (
+              <span className="text-[11px] text-muted-foreground">{item.ref && `${item.ref} · `}{item.sellPrice.toFixed(2)} € / unité{item.isCustom && <span className="ml-1 text-amber-600 font-600">· à sourcer</span>}</span>
+            )}
+          </div>
+          {/* Per-item discount selector — only for non-bonus items */}
+          {!item.isBonus && onDiscountChange && (
+            <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+              <span className="text-[10px] text-muted-foreground font-500">Remise :</span>
+              {[0, 5, 10, 15].map((pct) => (
+                <button
+                  key={pct}
+                  onClick={() => { onDiscountChange(item.id, pct); setShowCustom(false); setCustomInput(''); }}
+                  className={`text-[10px] px-1.5 py-0.5 rounded-md font-700 transition-colors ${discount === pct && !showCustom ? 'bg-amber-500 text-white' : 'bg-muted text-muted-foreground hover:bg-amber-100 hover:text-amber-700'}`}
+                >
+                  {pct === 0 ? '—' : `-${pct}%`}
+                </button>
+              ))}
+              <button
+                onClick={() => setShowCustom(!showCustom)}
+                className={`text-[10px] px-1.5 py-0.5 rounded-md font-700 transition-colors ${showCustom || (discount > 0 && ![5, 10, 15].includes(discount)) ? 'bg-amber-500 text-white' : 'bg-muted text-muted-foreground hover:bg-amber-100 hover:text-amber-700'}`}
+              >
+                Autre %
+              </button>
+              {showCustom && (
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number" min="0" max="100" value={customInput}
+                    onChange={(e) => setCustomInput(e.target.value)}
+                    placeholder="Ex: 7"
+                    className="w-14 px-1.5 py-0.5 border border-border rounded text-[10px] outline-none focus:ring-1 focus:ring-amber-300"
+                    autoFocus
+                  />
+                  <button
+                    onClick={() => {
+                      const v = parseFloat(customInput);
+                      if (!isNaN(v) && v >= 0 && v <= 100) { onDiscountChange(item.id, v); setShowCustom(false); setCustomInput(''); }
+                    }}
+                    className="text-[10px] px-1.5 py-0.5 bg-amber-500 text-white rounded font-700"
+                  >
+                    OK
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button onClick={() => onQtyChange(item.id, -1)} className="w-7 h-7 rounded-full border border-border flex items-center justify-center hover:bg-muted transition-colors text-muted-foreground">
+            <Icon name="MinusIcon" size={11} />
+          </button>
+          <span className="w-7 text-center text-sm font-800 tabular-nums">{item.qty}</span>
+          <button onClick={() => onQtyChange(item.id, 1)} className={`w-7 h-7 rounded-full ${btnBg} flex items-center justify-center hover:opacity-80 transition-opacity text-white`}>
+            <Icon name="PlusIcon" size={11} />
+          </button>
+        </div>
+        <span className={`text-sm font-700 tabular-nums w-18 text-right shrink-0 ${priceColor}`}>{lineTotal.toFixed(2)} €</span>
+        <button onClick={() => onRemove(item.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-colors shrink-0">
+          <Icon name="TrashIcon" size={13} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Item list component ────────────────────────────────────────────────────────
+
+function ItemList({ items, onQtyChange, onRemove, onDiscountChange, variant = 'gold' }: {
+  items: ReassortItem[];
+  onQtyChange: (id: string, d: number) => void;
+  onRemove: (id: string) => void;
+  onDiscountChange?: (id: string, pct: number) => void;
+  variant?: 'gold' | 'pink';
+}) {
+  if (!items.length) return null;
   return (
     <div className="space-y-2">
       {items.map((item) => (
-        <div key={item.id + (item.isBonus ? '-b' : '')} className="flex items-center gap-3 bg-white border border-border rounded-xl p-3">
-          {item.imageUrl ? (
-            <img src={item.imageUrl} alt="" className="w-12 h-12 rounded-lg object-cover shrink-0 border border-border" />
-          ) : (
-            <div className={`w-12 h-12 rounded-lg flex items-center justify-center shrink-0 ${item.isCustom ? 'bg-amber-50 border border-amber-200' : 'bg-muted'}`}>
-              <Icon name={item.isCustom ? 'MagnifyingGlassIcon' : 'PhotoIcon'} size={18} className={item.isCustom ? 'text-amber-400' : 'text-muted-foreground'} />
-            </div>
-          )}
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-600 text-foreground truncate">{item.name}</p>
-            <p className="text-[11px] text-muted-foreground">{item.ref && `${item.ref} · `}{item.sellPrice.toFixed(2)} € / unité{item.isCustom && <span className="ml-1 text-amber-600 font-600">· à sourcer</span>}</p>
-          </div>
-          <div className="flex items-center gap-1.5 shrink-0">
-            <button onClick={() => onQtyChange(item.id, -1)} className="w-7 h-7 rounded-full border border-border flex items-center justify-center hover:bg-muted transition-colors text-muted-foreground">
-              <Icon name="MinusIcon" size={11} />
-            </button>
-            <span className="w-7 text-center text-sm font-800 tabular-nums">{item.qty}</span>
-            <button onClick={() => onQtyChange(item.id, 1)} className={`w-7 h-7 rounded-full ${btnBg} flex items-center justify-center hover:opacity-80 transition-opacity text-white`}>
-              <Icon name="PlusIcon" size={11} />
-            </button>
-          </div>
-          <span className={`text-sm font-700 tabular-nums w-18 text-right shrink-0 ${priceColor}`}>{(item.sellPrice * item.qty).toFixed(2)} €</span>
-          <button onClick={() => onRemove(item.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-colors shrink-0">
-            <Icon name="TrashIcon" size={13} />
-          </button>
-        </div>
+        <ItemRow
+          key={item.id + (item.isBonus ? '-b' : '')}
+          item={item}
+          onQtyChange={onQtyChange}
+          onRemove={onRemove}
+          onDiscountChange={onDiscountChange}
+          variant={variant}
+        />
       ))}
     </div>
   );
@@ -622,6 +716,7 @@ export default function ProDevisPanel({
   const [sendingUpdate, setSendingUpdate] = useState(false);
   const [wasSent, setWasSent] = useState(false);
   const [lastPdfUrl, setLastPdfUrl] = useState<string | null>(null);
+  const [currentDevisProId, setCurrentDevisProId] = useState<string | null>(null);
   const [generatingConcept, setGeneratingConcept] = useState(false);
   const [sendingConcept, setSendingConcept] = useState(false);
 
@@ -688,7 +783,8 @@ export default function ProDevisPanel({
   // ── Derived state ──────────────────────────────────────────────────────────
   const baseItems = items.filter((i) => !i.isBonus);
   const bonusItems = items.filter((i) => i.isBonus);
-  const baseTotal = baseItems.reduce((s, i) => s + i.sellPrice * i.qty, 0);
+  const getEffectivePrice = (i: ReassortItem) => i.sellPrice * (1 - (i.discountPct ?? 0) / 100);
+  const baseTotal = baseItems.reduce((s, i) => s + getEffectivePrice(i) * i.qty, 0);
   const discountAmount = baseTotal * (discountPct / 100);
   const afterDiscount = baseTotal - discountAmount;
   const tier = getTier(afterDiscount);
@@ -734,6 +830,9 @@ export default function ProDevisPanel({
   const removeItem = (id: string, isBonus: boolean) =>
     setItems((prev) => prev.filter((i) => !(i.id === id && i.isBonus === isBonus)));
 
+  const updateItemDiscount = (id: string, isBonus: boolean, pct: number) =>
+    setItems((prev) => prev.map((i) => (i.id === id && i.isBonus === isBonus) ? { ...i, discountPct: pct } : i));
+
   const [migrationNeeded, setMigrationNeeded] = useState(false);
 
   const lsDevisKey = `beautypos_devis_${client.id}`;
@@ -772,23 +871,40 @@ export default function ProDevisPanel({
       const newHistory = [entry, ...devisHistory];
       // Always save to localStorage first
       persistDevisLocally([], newHistory);
-      // Save to new devis_pro table (global view)
-      fetch('/api/devis-pro', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          client_id: client.id,
-          items,
-          discount_pct: discountPct,
-          credit,
-          total_ttc: totalValue,
-          client_pays: clientPays,
-          free_shipping: freeShipping,
-          statut: initialStatut ?? 'envoye',
-          sent_at: new Date().toISOString(),
-          pdf_url: lastPdfUrl,
-        }),
-      }).catch(() => { /* graceful failure */ });
+      // Save to devis_pro table — PATCH if already created (WhatsApp was sent first), else POST
+      if (currentDevisProId) {
+        fetch(`/api/devis-pro/${currentDevisProId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            items,
+            discount_pct: discountPct,
+            credit,
+            total_ttc: totalValue,
+            client_pays: clientPays,
+            free_shipping: freeShipping,
+            pdf_url: lastPdfUrl,
+            statut: 'envoye',
+          }),
+        }).catch(() => {});
+      } else {
+        fetch('/api/devis-pro', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            client_id: client.id,
+            items,
+            discount_pct: discountPct,
+            credit,
+            total_ttc: totalValue,
+            client_pays: clientPays,
+            free_shipping: freeShipping,
+            statut: initialStatut ?? 'envoye',
+            sent_at: new Date().toISOString(),
+            pdf_url: lastPdfUrl,
+          }),
+        }).catch(() => {});
+      }
       // Try Supabase legacy (backward compat)
       await fetch(`/api/clients/${client.id}/pro-profile`, {
         method: 'PATCH',
@@ -801,6 +917,7 @@ export default function ProDevisPanel({
       setDiscountPct(0);
       setWasSent(false);
       setLastPdfUrl(null);
+      setCurrentDevisProId(null);
       setShowArchiveConfirm(false);
     } finally { setArchiving(false); }
   };
@@ -929,6 +1046,37 @@ export default function ProDevisPanel({
     if (!phone) { import('sonner').then(({ toast }) => toast.error('Numéro WhatsApp manquant')); return; }
     setSendingWhatsApp(true);
     try {
+      // Create devis_pro entry + generate client portal token
+      let portalLink: string | null = null;
+      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://lmdecaisse.com';
+      let devisId = currentDevisProId;
+      if (!devisId) {
+        try {
+          const createRes = await fetch('/api/devis-pro', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              client_id: client.id, items, discount_pct: discountPct, credit,
+              total_ttc: totalValue, client_pays: clientPays, free_shipping: freeShipping,
+              statut: 'envoye', sent_at: new Date().toISOString(), pdf_url: null,
+            }),
+          });
+          if (createRes.ok) {
+            const { devis } = await createRes.json();
+            if (devis?.id) { devisId = devis.id; setCurrentDevisProId(devis.id); }
+          }
+        } catch { /* non-blocking */ }
+      }
+      if (devisId) {
+        try {
+          const tokenRes = await fetch(`/api/devis-pro/${devisId}/generate-token`, { method: 'POST' });
+          if (tokenRes.ok) {
+            const { token } = await tokenRes.json();
+            if (token) portalLink = `${siteUrl}/devis/${token}`;
+          }
+        } catch { /* non-blocking */ }
+      }
+
       const pdfBytes = await generateDevisPdf(client, baseItems, bonusItems, discountPct, credit, freeShipping);
       const slug = (client.lastName ?? '').toLowerCase().replace(/\s+/g, '-');
       const filename = `devis-lmde-${slug}-${new Date().toISOString().slice(0, 10)}.pdf`;
@@ -937,9 +1085,21 @@ export default function ProDevisPanel({
         const { toast } = await import('sonner');
         toast.warning('Upload PDF échoué — lien absent du message. Vérifiez le bucket Supabase "devis-pro".');
       }
-      if (pdfUrl) setLastPdfUrl(pdfUrl);
+      if (pdfUrl) {
+        setLastPdfUrl(pdfUrl);
+        if (devisId) {
+          fetch(`/api/devis-pro/${devisId}`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pdf_url: pdfUrl }),
+          }).catch(() => {});
+        }
+      }
 
-      const baseLines = baseItems.map((i) => `• ${i.name}${i.ref ? ` (${i.ref})` : ''} × ${i.qty} — ${(i.sellPrice * i.qty).toFixed(2)} €`).join('\n');
+      const baseLines = baseItems.map((i) => {
+        const eff = getEffectivePrice(i);
+        const discNote = (i.discountPct ?? 0) > 0 ? ` (-${i.discountPct}%)` : '';
+        return `• ${i.name}${i.ref ? ` (${i.ref})` : ''} × ${i.qty} — ${(eff * i.qty).toFixed(2)} €${discNote}`;
+      }).join('\n');
       const bonusLines = bonusItems.length > 0
         ? `\n\n✨ *Produits offerts (Budget Pro) :*\n${bonusItems.map((i) => `• ${i.name} × ${i.qty} — ${(i.sellPrice * i.qty).toFixed(2)} €`).join('\n')}`
         : '';
@@ -947,6 +1107,7 @@ export default function ProDevisPanel({
       const shippingLine = freeShipping ? '\n🚚 Livraison offerte ✅' : '';
       const creditLine = credit > 0 ? `\n✨ Bonus Budget Pro : +${credit} € en produits offerts` : '';
       const pdfLine = pdfUrl ? `\n\n📄 *Ton devis complet en PDF :*\n${pdfUrl}` : '';
+      const portalLine = portalLink ? `\n\n🔗 *Valider ou modifier ton devis en ligne :*\n${portalLink}` : '';
       const avantageLines = [
         `• Tu es *prioritaire sur le stock* — tes produits sont réservés chaque mois avant tout le monde 🔒`,
         `• Ton réassort est *préparé automatiquement* — plus rien à gérer de ton côté 🙌`,
@@ -974,6 +1135,7 @@ export default function ProDevisPanel({
         `*💳 Tu paies : ${clientPays.toFixed(2)} €*`,
         bonusItems.length > 0 ? `*🎁 Valeur totale emportée : ${totalValue.toFixed(2)} €*` : null,
         pdfLine || null,
+        portalLine || null,
         ``,
         credit > 0 ? `⚠️ _Bonus Budget Pro valable uniquement sur ce devis · non cumulable · non reportable._` : null,
         ``,
@@ -994,7 +1156,11 @@ export default function ProDevisPanel({
       const filename = `devis-update-lmde-${slug}-${new Date().toISOString().slice(0, 10)}.pdf`;
       const pdfUrl = await uploadPdf(pdfBytes, filename);
 
-      const baseLines = baseItems.map((i) => `• ${i.name}${i.ref ? ` (${i.ref})` : ''} × ${i.qty} — ${(i.sellPrice * i.qty).toFixed(2)} €`).join('\n');
+      const baseLines = baseItems.map((i) => {
+        const eff = getEffectivePrice(i);
+        const discNote = (i.discountPct ?? 0) > 0 ? ` (-${i.discountPct}%)` : '';
+        return `• ${i.name}${i.ref ? ` (${i.ref})` : ''} × ${i.qty} — ${(eff * i.qty).toFixed(2)} €${discNote}`;
+      }).join('\n');
       const bonusLines = bonusItems.length > 0
         ? `\n\n✨ *Produits offerts (Budget Pro) :*\n${bonusItems.map((i) => `• ${i.name} × ${i.qty} — ${(i.sellPrice * i.qty).toFixed(2)} €`).join('\n')}`
         : '';
@@ -1007,7 +1173,7 @@ export default function ProDevisPanel({
         ``,
         `📦 *Commande mise à jour :*`,
         baseLines,
-        discountPct > 0 ? `\n🏷️ Remise : -${discountPct}% (-${(baseTotal * discountPct / 100).toFixed(2)} €)` : null,
+        discountPct > 0 ? `\n🏷️ Remise globale : -${discountPct}%` : null,
         freeShipping ? `\n🚚 Livraison offerte ✅` : null,
         credit > 0 ? `\n✨ Bonus Budget Pro : +${credit} € en produits offerts` : null,
         bonusLines || null,
@@ -1313,7 +1479,7 @@ export default function ProDevisPanel({
               <p className="text-xs text-muted-foreground">Aucun produit dans la commande principale</p>
             </div>
           ) : (
-            <ItemList items={baseItems} onQtyChange={(id, d) => updateQty(id, false, d)} onRemove={(id) => removeItem(id, false)} variant="gold" />
+            <ItemList items={baseItems} onQtyChange={(id, d) => updateQty(id, false, d)} onRemove={(id) => removeItem(id, false)} onDiscountChange={(id, pct) => updateItemDiscount(id, false, pct)} variant="gold" />
           )}
           {/* Shipping badge */}
           {baseItems.length > 0 && (

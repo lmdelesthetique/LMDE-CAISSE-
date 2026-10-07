@@ -34,17 +34,7 @@ export async function GET(req: NextRequest) {
   }
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  if (full) return NextResponse.json(data ?? []);
-  const clients = (data ?? []).map((r: any) => ({
-    id: r.id,
-    firstName: r.first_name,
-    lastName: r.last_name,
-    phone: r.phone,
-    whatsapp: r.whatsapp,
-    clientType: r.client_type,
-    email: r.email,
-  }));
-  return NextResponse.json({ clients });
+  return NextResponse.json(data ?? []);
 }
 
 export async function POST(req: NextRequest) {

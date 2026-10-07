@@ -80,12 +80,49 @@ export default function ClientsPage() {
 
   const loadClients = useCallback(async () => {
     setLoading(true);
-    const [data, activeSubs, proProfiles] = await Promise.all([
-      clientService.getAll(),
+    const [rawClients, activeSubs, proProfiles] = await Promise.all([
+      fetch('/api/clients?full=true&limit=500').then(r => r.ok ? r.json() : []).catch(() => []),
       fetch('/api/client-subscriptions/active').then(r => r.ok ? r.json() : []).catch(() => []),
       fetch('/api/client-pro-profiles').then(r => r.ok ? r.json() : []).catch(() => []),
     ]);
-    setClients(data);
+    // Map raw Supabase rows (snake_case) to Client objects
+    const mapped = (Array.isArray(rawClients) ? rawClients : []).map((row: any) => {
+      const firstName = row.first_name ?? '';
+      const lastName  = row.last_name  ?? '';
+      return {
+        id: row.id,
+        firstName,
+        lastName,
+        fullName: `${firstName} ${lastName}`.trim(),
+        email: row.email ?? null,
+        phone: row.phone ?? null,
+        whatsapp: row.whatsapp ?? null,
+        dateOfBirth: row.date_of_birth ?? null,
+        gender: row.gender ?? 'not_specified',
+        address: row.address ?? null,
+        city: row.city ?? null,
+        postalCode: row.postal_code ?? null,
+        country: row.country ?? null,
+        notes: row.notes ?? null,
+        loyaltyPoints: row.loyalty_points ?? 0,
+        loyaltyTier: row.loyalty_tier ?? 'bronze',
+        storeCredit: parseFloat(row.store_credit ?? 0),
+        totalSpent: parseFloat(row.total_spent ?? 0),
+        totalVisits: row.total_visits ?? 0,
+        isActive: row.is_active ?? true,
+        createdAt: row.created_at ?? '',
+        updatedAt: row.updated_at ?? '',
+        clientType: row.client_type ?? 'particulier',
+        loyaltyDiscountType: row.loyalty_discount_type ?? null,
+        loyaltyDiscountValue: parseFloat(row.loyalty_discount_value ?? 0),
+        lastPurchaseAt: row.last_purchase_at ?? null,
+        balanceDue: parseFloat(row.balance_due ?? 0),
+        referralCode: row.referral_code ?? null,
+        referralCount: row.referral_count ?? 0,
+        referralPointsEarned: row.referral_points_earned ?? 0,
+      };
+    });
+    setClients(mapped as any);
     setActiveSubClientIds(new Set((activeSubs as any[]).map((s: any) => s.client_id)));
     setProStatuts(new Map((proProfiles as any[]).map((p: any) => [p.client_id, p.statut_commercial])));
     setLoading(false);
