@@ -17,6 +17,25 @@ export async function GET(req: NextRequest) {
   const clientType = searchParams.get('clientType') ?? '';
   const supabase = createAdminClient();
   const selectCols = full ? '*' : 'id, first_name, last_name, phone, whatsapp, client_type, email';
+
+  // full=true (admin page): fetch all pages to return every client
+  if (full && !search.trim() && !phone.trim()) {
+    const PAGE = 1000;
+    let all: any[] = [];
+    let from = 0;
+    while (true) {
+      let q = supabase.from('clients').select(selectCols).eq('is_active', true).order('last_name', { ascending: true }).range(from, from + PAGE - 1);
+      if (clientType && clientType !== 'all') q = q.eq('client_type', clientType);
+      const { data, error } = await q;
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      if (!data || data.length === 0) break;
+      all = all.concat(data);
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+    return NextResponse.json(all);
+  }
+
   let query = supabase
     .from('clients')
     .select(selectCols)

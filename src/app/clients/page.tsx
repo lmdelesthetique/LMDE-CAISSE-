@@ -81,7 +81,7 @@ export default function ClientsPage() {
   const loadClients = useCallback(async () => {
     setLoading(true);
     const [rawClients, activeSubs, proProfiles] = await Promise.all([
-      fetch('/api/clients?full=true&limit=500').then(r => r.ok ? r.json() : []).catch(() => []),
+      fetch('/api/clients?full=true').then(r => r.ok ? r.json() : []).catch(() => []),
       fetch('/api/client-subscriptions/active').then(r => r.ok ? r.json() : []).catch(() => []),
       fetch('/api/client-pro-profiles').then(r => r.ok ? r.json() : []).catch(() => []),
     ]);
