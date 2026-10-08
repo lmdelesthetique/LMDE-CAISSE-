@@ -60,6 +60,7 @@ interface ProductGridProps {
     isKit?: boolean;
     kitComponents?: KitComponent[];
   }) => void;
+  onPromosLoaded?: (promos: ActivePromo[]) => void;
 }
 
 function computeCostPrice(p: DBProduct): number {
@@ -72,7 +73,7 @@ function computeCostPrice(p: DBProduct): number {
   return baseCost + baseCost * (structurePct / 100);
 }
 
-export default function ProductGrid({ onAddToCart }: ProductGridProps) {
+export default function ProductGrid({ onAddToCart, onPromosLoaded }: ProductGridProps) {
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState('__all__');
   const [products, setProducts] = useState<DBProduct[]>([]);
@@ -107,6 +108,7 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
     ]);
     setProducts(allProds);
     setPromos(activePromos);
+    onPromosLoaded?.(activePromos);
     // Exclude demo products from normal category list
     const cats = Array.from(new Set(
       allProds.filter((p: DBProduct) => !p.is_demo).map((p: DBProduct) => p.category).filter(Boolean)

@@ -16,6 +16,7 @@ import { toast } from 'sonner';
 import Icon from '@/components/ui/AppIcon';
 import { useBarcodeScanner, useCameraBarcodeScanner } from '@/hooks/useBarcodeScanner';
 import { fetchProductByBarcode, deductStockForSale, fetchProductStockById, fetchProductById } from '@/lib/services/stockService';
+import { getProductPromo, type ActivePromo } from '@/lib/services/promotionService';
 import {
   loyaltyService,
   detectUnlockedTiers,
@@ -639,6 +640,7 @@ export default function POSTerminal() {
   const [paymentMode, setPaymentMode] = useState<'immediate' | 'acompte' | 'installment'>('immediate');
   const cartPanelRef = useRef<CartPanelHandle>(null);
   const returnModalRef = useRef<NewReturnModalHandle>(null);
+  const promosRef = useRef<ActivePromo[]>([]);
 
   const openPayment = useCallback((mode: 'immediate' | 'acompte' | 'installment') => {
     cartPanelRef.current?.applyPendingDiscount();
@@ -790,6 +792,7 @@ export default function POSTerminal() {
     setBarcodeStatus('scanning');
     const product = await fetchProductByBarcode(barcode);
     if (product) {
+      const promo = getProductPromo(promosRef.current, product.id);
       await addToCart({
         id: product.id,
         name: product.name,
@@ -798,6 +801,9 @@ export default function POSTerminal() {
         imageUrl: product.imageUrl || undefined,
         stock: product.stock,
         costPrice: product.costPrice,
+        promoDiscount: promo?.discountValue ?? undefined,
+        promoDiscountType: promo?.discountType ?? undefined,
+        promoName: promo?.name ?? undefined,
       });
       setBarcodeStatus('found');
       toast.success(`📦 ${product.name} ajouté au panier`, { duration: 2000 });
@@ -1933,7 +1939,7 @@ export default function POSTerminal() {
       <div className="flex-1 flex overflow-hidden">
         {/* Left: product grid */}
         <div className="flex-1 overflow-hidden flex flex-col">
-          <ProductGrid onAddToCart={addToCart} />
+          <ProductGrid onAddToCart={addToCart} onPromosLoaded={(p) => { promosRef.current = p; }} />
         </div>
 
         {/* Right: cart */}
