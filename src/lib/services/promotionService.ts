@@ -41,7 +41,7 @@ export async function fetchActivePromotions(): Promise<ActivePromo[]> {
 }
 
 export function getProductPromo(promos: ActivePromo[], productId: string): ActivePromo | null {
-  return promos.find((p) => p.productIds.includes(productId)) ?? null;
+  return promos.find((p) => p.productIds.length === 0 || p.productIds.includes(productId)) ?? null;
 }
 
 export function promoDiscountLabel(promo: ActivePromo): string {

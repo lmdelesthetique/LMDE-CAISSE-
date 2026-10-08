@@ -131,7 +131,7 @@ export default function ProductGrid({ onAddToCart }: ProductGridProps) {
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
-  useRealtimeSync({ tables: ['products', 'stock_movements'], onRefresh: loadData });
+  useRealtimeSync({ tables: ['products', 'stock_movements_log'], onRefresh: loadData });
 
   const favCount = useMemo(() => products.filter(p => p.is_favorite && !p.is_demo).length, [products]);
   const demoCount = useMemo(() => products.filter(p => p.is_demo).length, [products]);

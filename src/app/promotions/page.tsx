@@ -121,7 +121,7 @@ function PromoFormModal({
   useEffect(() => {
     if (productsLoadedRef.current) return;
     productsLoadedRef.current = true;
-    fetch('/api/products/list?status=active,actif,rupture')
+    fetch('/api/products/list?all=true')
       .then(r => r.ok ? r.json() : [])
       .then((data: any[]) => {
         allProductsRef.current = data.map(p => ({
@@ -189,7 +189,7 @@ function PromoFormModal({
       min_amount: form.min_amount ? parseFloat(form.min_amount) : null,
       is_active: form.is_active,
       starts_at: form.starts_at || null,
-      ends_at: form.ends_at || null,
+      ends_at: form.ends_at ? form.ends_at + 'T23:59:59' : null,
     };
 
     const res = isEdit
