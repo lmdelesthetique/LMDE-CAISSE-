@@ -2,13 +2,30 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 export async function GET(req: NextRequest) {
-  const ids = req.nextUrl.searchParams.get('ids');
-  if (!ids) return NextResponse.json([]);
-  const idList = ids.split(',').filter(Boolean).slice(0, 50);
+  const { searchParams } = req.nextUrl;
+  const ids = searchParams.get('ids');
+  const search = searchParams.get('search') ?? '';
+
   const supabase = createAdminClient();
+
+  // Search by name/ref
+  if (search.trim()) {
+    const { data } = await supabase
+      .from('products')
+      .select('id, name, ref, image_url, stock, has_color_variants')
+      .or(`name.ilike.%${search.trim()}%,ref.ilike.%${search.trim()}%`)
+      .eq('is_active', true)
+      .order('name', { ascending: true })
+      .limit(50);
+    return NextResponse.json(data ?? []);
+  }
+
+  // Fetch by IDs — returns stock so inventory can detect stale values
+  if (!ids) return NextResponse.json([]);
+  const idList = ids.split(',').filter(Boolean).slice(0, 200);
   const { data } = await supabase
     .from('products')
-    .select('id, image_url')
+    .select('id, image_url, stock')
     .in('id', idList);
   return NextResponse.json(data ?? []);
 }

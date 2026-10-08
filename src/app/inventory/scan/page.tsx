@@ -47,6 +47,15 @@ function playBeep() {
   } catch { /* audio not available */ }
 }
 
+interface ProductSearchResult {
+  id: string;
+  name: string;
+  ref: string;
+  image_url: string | null;
+  stock: number;
+  has_color_variants: boolean;
+}
+
 export default function InventaireScanPage() {
   const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);
   const [scanMode, setScanMode] = useState<'keyboard' | 'camera'>('keyboard');
@@ -54,6 +63,12 @@ export default function InventaireScanPage() {
   const [isLooking, setIsLooking] = useState(false);
   const [lastScanned, setLastScanned] = useState<ScannedItem | null>(null);
   const lastScannedRef = useRef<ScannedItem | null>(null);
+
+  // Name search
+  const [nameSearch, setNameSearch] = useState('');
+  const [nameResults, setNameResults] = useState<ProductSearchResult[]>([]);
+  const [nameSearching, setNameSearching] = useState(false);
+  const nameSearchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [variantProduct, setVariantProduct] = useState<{
     id: string; name: string; ref: string; imageUrl: string; stock: number;
@@ -129,6 +144,53 @@ export default function InventaireScanPage() {
     handleScan(bc);
   }, [manualBarcode, handleScan]);
 
+  const handleNameSearch = useCallback((val: string) => {
+    setNameSearch(val);
+    setNameResults([]);
+    if (nameSearchTimeout.current) clearTimeout(nameSearchTimeout.current);
+    if (val.trim().length < 2) return;
+    nameSearchTimeout.current = setTimeout(async () => {
+      setNameSearching(true);
+      try {
+        const res = await fetch(`/api/products?search=${encodeURIComponent(val.trim())}`);
+        const data = await res.json();
+        setNameResults(Array.isArray(data) ? data : []);
+      } catch { setNameResults([]); }
+      setNameSearching(false);
+    }, 300);
+  }, []);
+
+  const handleAddFromSearch = useCallback(async (product: ProductSearchResult) => {
+    setNameSearch('');
+    setNameResults([]);
+
+    if (product.has_color_variants) {
+      const variants = await fetch(`/api/product-color-stock?productId=${product.id}`)
+        .then(r => r.ok ? r.json() : []).catch(() => []);
+      if (variants && variants.length > 0) {
+        setVariantProduct({
+          id: product.id,
+          name: product.name,
+          ref: product.ref,
+          imageUrl: product.image_url ?? '',
+          stock: product.stock,
+        });
+        setVariantRows(variants as ColorVariantRow[]);
+        return;
+      }
+    }
+
+    addOrIncrementItem({
+      productId: product.id,
+      name: product.name,
+      ref: product.ref,
+      imageUrl: product.image_url ?? '',
+      currentStock: product.stock,
+      countedQty: 1,
+      isVariant: false,
+    });
+  }, [addOrIncrementItem]);
+
   useBarcodeScanner({ onScan: handleScan, enabled: !isLooking });
 
   const cameraScanner = useCameraBarcodeScanner({
@@ -176,10 +238,24 @@ export default function InventaireScanPage() {
     setIsSyncing(true);
     let updated = 0, skipped = 0, errors = 0;
 
+    // Fetch real-time stock from DB for all non-variant products
+    // This prevents stale values if a POS sale happened during the inventory session
+    const nonVariantIds = [...new Set(
+      scannedItems.filter(i => !i.isVariant).map(i => i.productId)
+    )];
+    const freshStockMap = new Map<string, number>();
+    if (nonVariantIds.length > 0) {
+      try {
+        const res = await fetch(`/api/products?ids=${nonVariantIds.join(',')}`);
+        const data: { id: string; stock: number }[] = await res.json();
+        for (const p of data) freshStockMap.set(p.id, p.stock);
+      } catch { /* fallback to stale values */ }
+    }
+
     for (const item of scannedItems) {
-      if (item.countedQty === item.currentStock) { skipped++; continue; }
       try {
         if (item.isVariant && item.variantId) {
+          // Always update variants — their currentStock is per-colour and may be stale
           const res = await fetch('/api/inventory/adjust-variant', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -191,14 +267,16 @@ export default function InventaireScanPage() {
               currentStock: item.currentStock,
             }),
           });
-          if (res.ok) {
-            updated++;
-          } else {
-            errors++;
-          }
+          if (res.ok) updated++; else errors++;
         } else {
+          // Use fresh DB stock for comparison — avoids skipping products
+          // that were sold via POS during the inventory session
+          const realStock = freshStockMap.has(item.productId)
+            ? freshStockMap.get(item.productId)!
+            : item.currentStock;
+          if (item.countedQty === realStock) { skipped++; continue; }
           const ok = await adjustStock(
-            item.productId, item.name, item.currentStock,
+            item.productId, item.name, realStock,
             item.countedQty, 'Inventaire par scan', 'Inventaire',
           );
           if (ok) updated++; else errors++;
@@ -391,6 +469,68 @@ export default function InventaireScanPage() {
                   )}
                 </button>
               </div>
+            </div>
+
+            {/* Search by name */}
+            <div className="bg-white rounded-xl border border-border p-4">
+              <p className="text-[10px] font-600 uppercase tracking-widest text-muted-foreground mb-3">
+                Recherche par nom de produit
+              </p>
+              <div className="relative">
+                <Icon name="MagnifyingGlassIcon" size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                <input
+                  type="text"
+                  value={nameSearch}
+                  onChange={(e) => handleNameSearch(e.target.value)}
+                  placeholder="Nom ou référence…"
+                  className="w-full pl-9 pr-3 py-2.5 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-colors"
+                />
+                {nameSearching && (
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                    <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                  </div>
+                )}
+              </div>
+
+              {nameResults.length > 0 && (
+                <div className="mt-2 border border-border rounded-xl overflow-hidden divide-y divide-border max-h-72 overflow-y-auto">
+                  {nameResults.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => handleAddFromSearch(p)}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-primary/5 transition-colors text-left"
+                    >
+                      <div className="w-10 h-10 rounded-lg overflow-hidden bg-muted shrink-0 border border-border">
+                        {p.image_url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={p.image_url} alt={p.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <Icon name="PhotoIcon" size={16} className="text-muted-foreground/40" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-600 text-foreground leading-tight line-clamp-2">{p.name}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <p className="text-xs text-muted-foreground font-mono">{p.ref}</p>
+                          <span className={`text-[10px] font-600 px-1.5 py-0.5 rounded-full ${p.stock <= 0 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                            Stock : {p.stock}
+                          </span>
+                          {p.has_color_variants && (
+                            <span className="text-[10px] font-600 px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700">Variantes</span>
+                          )}
+                        </div>
+                      </div>
+                      <Icon name="PlusCircleIcon" size={18} className="text-primary shrink-0" />
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {nameSearch.trim().length >= 2 && !nameSearching && nameResults.length === 0 && (
+                <p className="mt-2 text-xs text-muted-foreground text-center py-3">Aucun produit trouvé pour &ldquo;{nameSearch}&rdquo;</p>
+              )}
             </div>
 
             {/* Last scanned */}
