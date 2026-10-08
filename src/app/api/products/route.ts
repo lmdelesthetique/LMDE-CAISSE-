@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
       .from('products')
       .select('id, name, ref, image_url, stock, has_color_variants')
       .or(`name.ilike.%${search.trim()}%,ref.ilike.%${search.trim()}%`)
-      .eq('is_active', true)
+      .neq('product_status', 'inactive')
       .order('name', { ascending: true })
       .limit(50);
     return NextResponse.json(data ?? []);
