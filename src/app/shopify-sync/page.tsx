@@ -4,6 +4,7 @@ import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import AppLayout from '@/components/AppLayout';
 import { createClient } from '@/lib/supabase/client';
 import { fetchAll } from '@/lib/utils/fetchAll';
+import { toast } from 'sonner';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -440,7 +441,7 @@ export default function ShopifySyncPage() {
         supabase
           .from('products')
           .select('id, name, ref, barcode, stock, image_url, shopify, shopify_product_id, shopify_variant_id, shopify_inventory_item_id')
-          .eq('product_status', 'active')
+          .neq('product_status', 'inactive')
           .order('name')
           .range(from, to)
       );
@@ -534,12 +535,15 @@ export default function ShopifySyncPage() {
           ? { ...m, shopifyProduct: sp, shopifyVariant: sv, confidence: 100, reason: 'Lié manuellement', linked: true, ignored: false }
           : m
       ));
+      toast.success(`✅ Lié à "${sp.title}" — stock POS poussé vers Shopify`);
       // Push POS stock → Shopify immediately after linking (POS is source of truth)
       fetch('/api/shopify/push-stock', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ productIds: [posId] }),
       }).catch(() => {});
+    } else {
+      toast.error('Erreur lors du liage — réessayez');
     }
     setLinking((prev) => { const s = new Set(prev); s.delete(posId); return s; });
   }, []);
@@ -552,12 +556,35 @@ export default function ShopifySyncPage() {
       body: JSON.stringify({ posProductId: posId, unlink: true }),
     });
     if (res.ok) {
-      setMatches((prev) => prev.map((m) =>
-        m.pos.id === posId ? { ...m, linked: false, confidence: 0, reason: 'Délié', shopifyProduct: null, shopifyVariant: null } : m
-      ));
+      // Rebuild the auto-match so the product gets suggestions and lands in the right tab
+      const old = matches.find((m) => m.pos.id === posId);
+      if (old) {
+        const [rebuilt] = buildMatches([old.pos], shopifyProducts, ignoredIds);
+        const newMatch: MatchResult = rebuilt
+          ? { ...rebuilt, linked: false }
+          : { ...old, linked: false, confidence: 0, reason: 'Délié manuellement', shopifyProduct: null, shopifyVariant: null };
+
+        setMatches((prev) => prev.map((m) => m.pos.id === posId ? newMatch : m));
+
+        // Navigate to the tab where the product will appear
+        const conf = newMatch.confidence;
+        const hasVariant = !!newMatch.shopifyVariant;
+        if (conf >= 80 && hasVariant) {
+          setActiveTab('ready');
+          toast.success('Produit délié — retrouvez-le dans l\'onglet "À lier"');
+        } else if (conf >= 1 && hasVariant) {
+          setActiveTab('verify');
+          toast.success('Produit délié — retrouvez-le dans l\'onglet "Vérifier"');
+        } else {
+          setActiveTab('unmatched');
+          toast.success('Produit délié — retrouvez-le dans l\'onglet "Non liés" pour l\'associer manuellement');
+        }
+      }
+    } else {
+      toast.error('Erreur lors du déliage — réessayez');
     }
     setLinking((prev) => { const s = new Set(prev); s.delete(posId); return s; });
-  }, []);
+  }, [matches, shopifyProducts, ignoredIds]);
 
   // ── Ignore / Restore ───────────────────────────────────────────────────────
   const handleIgnore = useCallback((posId: string) => {
