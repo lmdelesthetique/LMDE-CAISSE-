@@ -56,6 +56,8 @@ interface ProductSearchResult {
   has_color_variants: boolean;
 }
 
+const STORAGE_KEY = 'inventaire_session_v1';
+
 export default function InventaireScanPage() {
   const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);
   const [scanMode, setScanMode] = useState<'keyboard' | 'camera'>('keyboard');
@@ -83,6 +85,31 @@ export default function InventaireScanPage() {
   useEffect(() => {
     if (typeof window !== 'undefined') setPageUrl(window.location.href);
   }, []);
+
+  // ── Restore session from localStorage on mount ─────────────────────────────
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed: ScannedItem[] = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setScannedItems(parsed);
+          setLastScanned(parsed[0]);
+        }
+      }
+    } catch { /* ignore parse errors */ }
+  }, []);
+
+  // ── Persist session to localStorage whenever items change ──────────────────
+  useEffect(() => {
+    try {
+      if (scannedItems.length > 0) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(scannedItems));
+      } else {
+        localStorage.removeItem(STORAGE_KEY);
+      }
+    } catch { /* quota exceeded or private mode */ }
+  }, [scannedItems]);
 
   const addOrIncrementItem = useCallback((baseItem: Omit<ScannedItem, 'uid'>) => {
     const uid = baseItem.isVariant && baseItem.variantId
@@ -251,19 +278,19 @@ export default function InventaireScanPage() {
       } catch { /* fallback to stale */ }
     }
 
-    // ── 2. Fetch fresh stock for variant products (per colour) ─────────────────
+    // ── 2. Fetch fresh stock for variant products in parallel ─────────────────
     const variantProductIds = [...new Set(
       scannedItems.filter(i => i.isVariant).map(i => i.productId)
     )];
     // freshVariantStock: key = variantId → fresh quantity
     const freshVariantStock = new Map<string, number>();
-    for (const pid of variantProductIds) {
+    await Promise.all(variantProductIds.map(async (pid) => {
       try {
         const res = await fetch(`/api/product-color-stock?productId=${pid}`);
         const variants: { id: string; quantity: number }[] = await res.json();
         for (const v of variants) freshVariantStock.set(v.id, v.quantity);
       } catch { /* fallback to stale */ }
-    }
+    }));
 
     // ── 3. Validate each item ──────────────────────────────────────────────────
     for (const item of scannedItems) {
@@ -302,7 +329,9 @@ export default function InventaireScanPage() {
     setIsSyncing(false);
     setSyncDone({ updated, skipped, errors });
     setShowConfirm(false);
+    // Update displayed stocks to the counted values and clear the saved session
     setScannedItems((prev) => prev.map((i) => ({ ...i, currentStock: i.countedQty })));
+    try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
 
     if (errors === 0) {
       toast.success(`Inventaire terminé — ${updated} produit(s) mis à jour`, { duration: 5000, icon: '✅' });
@@ -312,6 +341,7 @@ export default function InventaireScanPage() {
   }, [scannedItems]);
 
   const totalScanned = scannedItems.length;
+  // Note: currentStock reflects scan-time values; real comparison uses fresh DB values at validate time
   const withDiff = scannedItems.filter((i) => i.countedQty !== i.currentStock).length;
   const totalUnitsEcart = scannedItems.reduce((s, i) => s + Math.abs(i.countedQty - i.currentStock), 0);
 
@@ -667,7 +697,7 @@ export default function InventaireScanPage() {
                 <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                   <p className="text-sm font-600 text-foreground">{totalScanned} produit(s) dans l'inventaire</p>
                   <button
-                    onClick={() => { setScannedItems([]); setLastScanned(null); setSyncDone(null); }}
+                    onClick={() => { setScannedItems([]); setLastScanned(null); setSyncDone(null); try { localStorage.removeItem(STORAGE_KEY); } catch { /**/ } }}
                     className="text-xs text-red-500 hover:text-red-700 transition-colors"
                   >
                     Tout effacer

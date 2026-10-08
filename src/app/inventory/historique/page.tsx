@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
-import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
 
 interface InventoryMovement {
@@ -76,27 +75,17 @@ function exportToCSV(sessions: InventorySession[]) {
 }
 
 export default function InventaireHistoriquePage() {
-  const supabase = createClient();
   const [sessions, setSessions] = useState<InventorySession[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedSessions, setExpandedSessions] = useState<Set<string>>(new Set());
 
   const loadData = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('stock_movements_log')
-      .select('id, product_id, product_name, quantity_before, quantity_after, quantity_change, performed_by, created_at')
-      .eq('performed_by', 'Inventaire')
-      .eq('movement_type', 'adjustment')
-      .order('created_at', { ascending: false });
+    const res = await fetch('/api/inventory/history').catch(() => null);
+    if (!res?.ok) { setLoading(false); return; }
+    const data = await res.json();
 
-    if (error) {
-      console.error('inventaire historique', error);
-      setLoading(false);
-      return;
-    }
-
-    const movements: InventoryMovement[] = (data || []).map((r) => ({
+    const movements: InventoryMovement[] = (data || []).map((r: any) => ({
       id: r.id as string,
       productId: r.product_id as string,
       productName: r.product_name as string,
@@ -109,7 +98,7 @@ export default function InventaireHistoriquePage() {
 
     setSessions(groupByDate(movements));
     setLoading(false);
-  }, [supabase]);
+  }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
 
