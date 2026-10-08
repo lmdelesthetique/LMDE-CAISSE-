@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { getAccessToken } from '@/lib/services/shopifyService';
+
+const STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN ?? '';
+const API_VERSION = '2024-10';
 
 // POST: link or unlink a BeautyPOS product to a Shopify variant
 export async function POST(req: NextRequest) {
@@ -28,15 +32,35 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    if (!shopifyVariantId || !shopifyInventoryItemId) {
-      return NextResponse.json({ error: 'shopifyVariantId et shopifyInventoryItemId requis' }, { status: 400 });
+    if (!shopifyVariantId) {
+      return NextResponse.json({ error: 'shopifyVariantId requis' }, { status: 400 });
+    }
+
+    // If inventory_item_id not provided, fetch it from Shopify API
+    let resolvedInventoryItemId = shopifyInventoryItemId;
+    if (!resolvedInventoryItemId) {
+      const token = await getAccessToken();
+      if (token && STORE_DOMAIN) {
+        try {
+          const res = await fetch(
+            `https://${STORE_DOMAIN}/admin/api/${API_VERSION}/variants/${shopifyVariantId}.json?fields=id,inventory_item_id`,
+            { headers: { 'X-Shopify-Access-Token': token } }
+          );
+          if (res.ok) {
+            const data = await res.json();
+            if (data.variant?.inventory_item_id) {
+              resolvedInventoryItemId = String(data.variant.inventory_item_id);
+            }
+          }
+        } catch { /* proceed without */ }
+      }
     }
 
     const { error } = await supabase
       .from('products')
       .update({
         shopify_variant_id: String(shopifyVariantId),
-        shopify_inventory_item_id: String(shopifyInventoryItemId),
+        shopify_inventory_item_id: resolvedInventoryItemId ? String(resolvedInventoryItemId) : null,
         shopify_product_id: shopifyProductId ? String(shopifyProductId) : null,
         shopify: true,
       })

@@ -44,6 +44,7 @@ interface LineResult {
   reason: string;
   pos_suggestion_name?: string;
   pos_suggestion_id?: string;
+  shopify_order_product_id?: number | null;
 }
 
 function normName(s: string): string {
@@ -207,6 +208,7 @@ async function runBackfill(req: NextRequest, dryRun: boolean) {
         stock_after: null,
         deducted: false,
         reason: '',
+        shopify_order_product_id: item.product_id ?? null,
       };
 
       // Match product — 4 levels of fallback

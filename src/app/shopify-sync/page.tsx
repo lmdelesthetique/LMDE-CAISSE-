@@ -199,6 +199,62 @@ function ShopifyPicker({
   );
 }
 
+// ─── Backfill inline POS picker ───────────────────────────────────────────────
+
+function BackfillPOSPicker({
+  shopifyTitle,
+  posProducts,
+  loading,
+  onSelect,
+  onCancel,
+}: {
+  shopifyTitle: string;
+  posProducts: POSProduct[];
+  loading: boolean;
+  onSelect: (posProductId: string) => void;
+  onCancel: () => void;
+}) {
+  const [q, setQ] = useState(shopifyTitle);
+  const results = useMemo(() => {
+    const lq = q.trim().toLowerCase();
+    if (!lq) return posProducts.slice(0, 10);
+    return posProducts.filter(
+      (p) =>
+        p.name.toLowerCase().includes(lq) ||
+        (p.ref ?? '').toLowerCase().includes(lq) ||
+        (p.barcode ?? '').toLowerCase().includes(lq)
+    ).slice(0, 10);
+  }, [q, posProducts]);
+
+  return (
+    <div className="mt-1.5 border border-blue-200 rounded-lg bg-blue-50 p-2 space-y-1.5">
+      <p className="text-[10px] text-blue-700 font-medium">Choisir le produit POS correspondant à &quot;{shopifyTitle}&quot; :</p>
+      <input
+        autoFocus
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder="Nom, ref, EAN…"
+        className="w-full text-xs border border-blue-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white"
+      />
+      <div className="max-h-36 overflow-y-auto space-y-0.5">
+        {results.map((p) => (
+          <button
+            key={p.id}
+            onClick={() => onSelect(p.id)}
+            disabled={loading}
+            className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-white border border-transparent hover:border-blue-200 transition-colors flex items-center justify-between gap-2 disabled:opacity-40"
+          >
+            <span className="font-medium truncate">{p.name}</span>
+            <span className="text-muted-foreground flex-shrink-0 text-[10px]">Stock: {p.stock}</span>
+          </button>
+        ))}
+        {results.length === 0 && <p className="text-[10px] text-muted-foreground px-2 py-1">Aucun résultat</p>}
+      </div>
+      <button onClick={onCancel} className="text-[10px] text-muted-foreground hover:text-foreground">Annuler</button>
+    </div>
+  );
+}
+
 // ─── Match card ───────────────────────────────────────────────────────────────
 
 function MatchCard({
@@ -421,6 +477,13 @@ export default function ShopifySyncPage() {
   const [backfillRunning, setBackfillRunning] = useState(false);
   const [backfillResult, setBackfillResult] = useState<any | null>(null);
   const [showBackfill, setShowBackfill] = useState(false);
+  const [backfillLinker, setBackfillLinker] = useState<{
+    lineKey: string;
+    variantId: number | null;
+    shopifyProductId: number | null;
+    shopifyTitle: string;
+  } | null>(null);
+  const [backfillLinking, setBackfillLinking] = useState(false);
 
   // ── Auto-match state ────────────────────────────────────────────────────────
   const [autoMatchRunning, setAutoMatchRunning] = useState(false);
@@ -592,6 +655,37 @@ export default function ShopifySyncPage() {
     }
     setLinking((prev) => { const s = new Set(prev); s.delete(posId); return s; });
   }, [matches, shopifyProducts, ignoredIds]);
+
+  // ── Backfill inline linker ─────────────────────────────────────────────────
+  const handleBackfillLink = useCallback(async (posProductId: string) => {
+    if (!backfillLinker) return;
+    setBackfillLinking(true);
+    try {
+      const res = await fetch('/api/shopify/link-product', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          posProductId,
+          shopifyVariantId: backfillLinker.variantId,
+          shopifyProductId: backfillLinker.shopifyProductId,
+        }),
+      });
+      if (res.ok) {
+        toast.success(`Lien créé — relancez l'analyse pour décompter le stock`);
+        setBackfillLinker(null);
+        // Update matches to reflect the new link
+        setMatches((prev) => prev.map((m) => {
+          if (m.pos.id !== posProductId) return m;
+          return { ...m, linked: true };
+        }));
+      } else {
+        const d = await res.json().catch(() => ({}));
+        toast.error(`Erreur : ${d.error ?? 'réessayez'}`);
+      }
+    } finally {
+      setBackfillLinking(false);
+    }
+  }, [backfillLinker]);
 
   // ── Ignore / Restore ───────────────────────────────────────────────────────
   const handleIgnore = useCallback((posId: string) => {
@@ -1005,7 +1099,10 @@ export default function ShopifySyncPage() {
                               </div>
                             </div>
                             <div className="space-y-1">
-                              {order.lines.map((line: any, i: number) => (
+                              {order.lines.map((line: any, i: number) => {
+                                const lineKey = `${order.order_number}-${i}`;
+                                const isLinkerOpen = backfillLinker?.lineKey === lineKey;
+                                return (
                                 <div key={i} className={`text-xs py-1 px-2 rounded-lg ${line.deducted ? 'bg-emerald-50' : line.reason === 'Déjà traité' ? 'bg-gray-50' : 'bg-amber-50'}`}>
                                   <div className="flex items-center justify-between">
                                     <span className={`${line.deducted ? 'text-emerald-800' : line.reason === 'Déjà traité' ? 'text-gray-500' : 'text-amber-800'} flex-1 min-w-0 truncate`}>
@@ -1015,25 +1112,41 @@ export default function ShopifySyncPage() {
                                       <span className="text-emerald-700 font-500 flex-shrink-0 ml-2">{line.stock_before} → {line.stock_after}</span>
                                     ) : line.reason === 'Déjà traité' ? (
                                       <span className="text-gray-400 flex-shrink-0 ml-2">déjà traité</span>
-                                    ) : null}
+                                    ) : (
+                                      <button
+                                        onClick={() => isLinkerOpen
+                                          ? setBackfillLinker(null)
+                                          : setBackfillLinker({ lineKey, variantId: line.variant_id, shopifyProductId: line.shopify_order_product_id ?? null, shopifyTitle: line.title })
+                                        }
+                                        className="flex-shrink-0 ml-2 text-[10px] font-medium text-blue-600 border border-blue-200 rounded px-1.5 py-0.5 hover:bg-blue-50 transition-colors"
+                                      >
+                                        {isLinkerOpen ? '✕ Fermer' : '🔗 Lier'}
+                                      </button>
+                                    )}
                                   </div>
-                                  {!line.deducted && line.reason !== 'Déjà traité' && (
+                                  {!line.deducted && line.reason !== 'Déjà traité' && !isLinkerOpen && (
                                     <div className="mt-0.5">
                                       {line.pos_suggestion_name ? (
                                         <span className="text-[10px] text-orange-700 font-medium">
-                                          ↳ Produit POS similaire : <strong>&quot;{line.pos_suggestion_name}&quot;</strong> — probablement lié au mauvais produit Shopify → onglet <strong>Liés</strong> pour corriger
+                                          ↳ {line.reason}
                                         </span>
                                       ) : (
-                                        <span className="text-[10px] text-amber-500">
-                                          ↳ {line.sku
-                                            ? `cherche "${line.sku}" dans l'onglet Non liés`
-                                            : 'Non lié — onglet Non liés pour lier ce produit'}
-                                        </span>
+                                        <span className="text-[10px] text-amber-500">↳ {line.reason}</span>
                                       )}
                                     </div>
                                   )}
+                                  {isLinkerOpen && (
+                                    <BackfillPOSPicker
+                                      shopifyTitle={line.title}
+                                      posProducts={posProducts}
+                                      loading={backfillLinking}
+                                      onSelect={handleBackfillLink}
+                                      onCancel={() => setBackfillLinker(null)}
+                                    />
+                                  )}
                                 </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           </div>
                         ))}
