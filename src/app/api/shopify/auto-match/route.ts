@@ -172,7 +172,7 @@ async function analyze(days: number): Promise<{ suggestions: Suggestion[]; noMat
           if (score > bestScore) { bestScore = score; bestPos = p; }
         }
 
-        if (bestPos && bestScore >= 0.50) {
+        if (bestPos && bestScore >= 0.40) {
           suggestions.push({
             shopify_product_id: pid,
             shopify_variant_id: info.variantId,
@@ -234,7 +234,7 @@ export async function POST(req: NextRequest) {
   try { body = await req.json(); } catch { /* ignore */ }
 
   const days = Math.min(body.days ?? 90, 365);
-  const minScore: number = body.minScore ?? 0.50;
+  const minScore: number = body.minScore ?? 0.40;
 
   const { suggestions, noMatch, error } = await analyze(days);
   if (error) return NextResponse.json({ error }, { status: 503 });

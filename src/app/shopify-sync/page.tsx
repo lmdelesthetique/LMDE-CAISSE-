@@ -999,22 +999,31 @@ export default function ShopifySyncPage() {
                             </div>
                             <div className="space-y-1">
                               {order.lines.map((line: any, i: number) => (
-                                <div key={i} className={`text-xs flex items-center justify-between py-1 px-2 rounded-lg ${line.deducted ? 'bg-emerald-50' : 'bg-amber-50'}`}>
-                                  <span className={`${line.deducted ? 'text-emerald-800' : 'text-amber-800'} flex-1 min-w-0 truncate`}>
-                                    {line.deducted ? '✅' : '⚠️'} {line.title} {line.sku ? `(SKU: ${line.sku})` : ''} × {line.qty}
-                                    {!line.deducted && (
-                                      <span className="text-[10px] text-amber-500 ml-1">
-                                        — non lié au POS,{' '}
-                                        {line.sku
-                                          ? `cherche "${line.sku}" dans l'onglet Non liés`
-                                          : 'va dans Sync Shopify → onglet Non liés pour lier ce produit'}
-                                      </span>
-                                    )}
-                                  </span>
-                                  {line.deducted ? (
-                                    <span className="text-emerald-700 font-500 flex-shrink-0 ml-2">{line.stock_before} → {line.stock_after}</span>
-                                  ) : (
-                                    <span className="text-amber-700 flex-shrink-0 ml-2 text-right">{line.reason}</span>
+                                <div key={i} className={`text-xs py-1 px-2 rounded-lg ${line.deducted ? 'bg-emerald-50' : line.reason === 'Déjà traité' ? 'bg-gray-50' : 'bg-amber-50'}`}>
+                                  <div className="flex items-center justify-between">
+                                    <span className={`${line.deducted ? 'text-emerald-800' : line.reason === 'Déjà traité' ? 'text-gray-500' : 'text-amber-800'} flex-1 min-w-0 truncate`}>
+                                      {line.deducted ? '✅' : line.reason === 'Déjà traité' ? '✓' : '⚠️'} {line.title} {line.sku ? `(SKU: ${line.sku})` : ''} × {line.qty}
+                                    </span>
+                                    {line.deducted ? (
+                                      <span className="text-emerald-700 font-500 flex-shrink-0 ml-2">{line.stock_before} → {line.stock_after}</span>
+                                    ) : line.reason === 'Déjà traité' ? (
+                                      <span className="text-gray-400 flex-shrink-0 ml-2">déjà traité</span>
+                                    ) : null}
+                                  </div>
+                                  {!line.deducted && line.reason !== 'Déjà traité' && (
+                                    <div className="mt-0.5">
+                                      {line.pos_suggestion_name ? (
+                                        <span className="text-[10px] text-orange-700 font-medium">
+                                          ↳ Produit POS similaire : <strong>&quot;{line.pos_suggestion_name}&quot;</strong> — probablement lié au mauvais produit Shopify → onglet <strong>Liés</strong> pour corriger
+                                        </span>
+                                      ) : (
+                                        <span className="text-[10px] text-amber-500">
+                                          ↳ {line.sku
+                                            ? `cherche "${line.sku}" dans l'onglet Non liés`
+                                            : 'Non lié — onglet Non liés pour lier ce produit'}
+                                        </span>
+                                      )}
+                                    </div>
                                   )}
                                 </div>
                               ))}

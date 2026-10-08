@@ -42,6 +42,27 @@ interface LineResult {
   stock_after: number | null;
   deducted: boolean;
   reason: string;
+  pos_suggestion_name?: string;
+  pos_suggestion_id?: string;
+}
+
+function normName(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/(\d)([a-z])/g, '$1 $2')
+    .replace(/([a-z])(\d)/g, '$1 $2')
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function wordOverlapScore(a: string, b: string): number {
+  const wa = normName(a).split(' ').filter(w => w.length >= 3);
+  const nb = normName(b);
+  if (!wa.length) return 0;
+  const hits = wa.filter(w => nb.includes(w)).length;
+  return hits / wa.length;
 }
 
 interface OrderResult {
@@ -214,7 +235,23 @@ async function runBackfill(req: NextRequest, dryRun: boolean) {
       }
 
       if (!product) {
-        lineResult.reason = `Produit introuvable (variant_id=${item.variant_id ?? '—'}, product_id=${item.product_id ?? '—'}, sku=${item.sku ?? '—'}) — lier ce produit dans Sync Shopify`;
+        // Level 5: name-based suggestion (display only — no stock deduction)
+        const searchTitle = item.name || item.title || '';
+        let bestCandidate: { id: string; name: string } | null = null;
+        let bestScore = 0;
+        if (searchTitle) {
+          for (const p of (allProducts ?? []) as any[]) {
+            const score = wordOverlapScore(searchTitle, p.name);
+            if (score > bestScore) { bestScore = score; bestCandidate = { id: p.id, name: p.name }; }
+          }
+        }
+        if (bestCandidate && bestScore >= 0.30) {
+          lineResult.pos_suggestion_name = bestCandidate.name;
+          lineResult.pos_suggestion_id = bestCandidate.id;
+          lineResult.reason = `Introuvable — produit POS similaire : "${bestCandidate.name}" (score ${Math.round(bestScore * 100)}%) — peut-être lié au mauvais produit Shopify ? Corrigez dans Sync Shopify onglet Liés`;
+        } else {
+          lineResult.reason = `Produit introuvable (variant_id=${item.variant_id ?? '—'}, product_id=${item.product_id ?? '—'}, sku=${item.sku ?? '—'}) — lier ce produit dans Sync Shopify`;
+        }
         orderResult.lines.push(lineResult);
         orderResult.skipped_count++;
         totalSkipped++;
