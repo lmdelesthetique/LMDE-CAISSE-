@@ -659,6 +659,10 @@ export default function ShopifySyncPage() {
   // ── Backfill inline linker ─────────────────────────────────────────────────
   const handleBackfillLink = useCallback(async (posProductId: string) => {
     if (!backfillLinker) return;
+    if (!backfillLinker.variantId) {
+      toast.error('Impossible de lier : pas de variant_id Shopify pour cette commande');
+      return;
+    }
     setBackfillLinking(true);
     try {
       const res = await fetch('/api/shopify/link-product', {
@@ -670,22 +674,28 @@ export default function ShopifySyncPage() {
           shopifyProductId: backfillLinker.shopifyProductId,
         }),
       });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        toast.success(`Lien créé — relancez l'analyse pour décompter le stock`);
         setBackfillLinker(null);
-        // Update matches to reflect the new link
-        setMatches((prev) => prev.map((m) => {
-          if (m.pos.id !== posProductId) return m;
-          return { ...m, linked: true };
-        }));
+        toast.success('Lien créé — re-analyse en cours…');
+        // Re-run analysis automatically so the line updates
+        setBackfillRunning(true);
+        try {
+          const r2 = await fetch(`/api/shopify/backfill-stock?days=${backfillDays}`);
+          const d2 = await r2.json();
+          setBackfillResult({ ...d2, applied: false });
+        } catch { /* keep existing result */ } finally {
+          setBackfillRunning(false);
+        }
       } else {
-        const d = await res.json().catch(() => ({}));
-        toast.error(`Erreur : ${d.error ?? 'réessayez'}`);
+        toast.error(`Erreur liaison : ${data.error ?? `HTTP ${res.status}`}`);
       }
+    } catch (e: any) {
+      toast.error(`Erreur réseau : ${e.message ?? 'réessayez'}`);
     } finally {
       setBackfillLinking(false);
     }
-  }, [backfillLinker]);
+  }, [backfillLinker, backfillDays]);
 
   // ── Ignore / Restore ───────────────────────────────────────────────────────
   const handleIgnore = useCallback((posId: string) => {
