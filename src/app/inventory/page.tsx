@@ -101,7 +101,7 @@ export default function InventoryPage() {
   useEffect(() => { loadData(); }, [loadData]);
 
   // Real-time sync: refresh inventory when products or stock_movements change
-  useRealtimeSync({ tables: ['products', 'stock_movements'], onRefresh: loadData });
+  useRealtimeSync({ tables: ['products', 'stock_movements_log'], onRefresh: loadData });
 
   // Load movements when tab or filters change
   useEffect(() => {
