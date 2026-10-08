@@ -331,6 +331,13 @@ function MatchCard({
                 {linking ? '…' : '✅ Confirmer'}
               </button>
               <button
+                onClick={() => setPickerOpen((v) => !v)}
+                disabled={linking}
+                className="text-xs text-blue-600 border border-blue-200 rounded-lg px-3 py-1.5 hover:bg-blue-50 transition-colors disabled:opacity-40 whitespace-nowrap"
+              >
+                🔍 Autre produit
+              </button>
+              <button
                 onClick={() => onIgnore(match.pos.id)}
                 disabled={linking}
                 className="text-xs text-slate-600 border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50 transition-colors disabled:opacity-40 whitespace-nowrap"
