@@ -238,24 +238,41 @@ export default function InventaireScanPage() {
     setIsSyncing(true);
     let updated = 0, skipped = 0, errors = 0;
 
-    // Fetch real-time stock from DB for all non-variant products
-    // This prevents stale values if a POS sale happened during the inventory session
+    // ── 1. Fetch fresh stock for non-variant products ──────────────────────────
     const nonVariantIds = [...new Set(
       scannedItems.filter(i => !i.isVariant).map(i => i.productId)
     )];
-    const freshStockMap = new Map<string, number>();
+    const freshProductStock = new Map<string, number>();
     if (nonVariantIds.length > 0) {
       try {
         const res = await fetch(`/api/products?ids=${nonVariantIds.join(',')}`);
         const data: { id: string; stock: number }[] = await res.json();
-        for (const p of data) freshStockMap.set(p.id, p.stock);
-      } catch { /* fallback to stale values */ }
+        for (const p of data) freshProductStock.set(p.id, p.stock);
+      } catch { /* fallback to stale */ }
     }
 
+    // ── 2. Fetch fresh stock for variant products (per colour) ─────────────────
+    const variantProductIds = [...new Set(
+      scannedItems.filter(i => i.isVariant).map(i => i.productId)
+    )];
+    // freshVariantStock: key = variantId → fresh quantity
+    const freshVariantStock = new Map<string, number>();
+    for (const pid of variantProductIds) {
+      try {
+        const res = await fetch(`/api/product-color-stock?productId=${pid}`);
+        const variants: { id: string; quantity: number }[] = await res.json();
+        for (const v of variants) freshVariantStock.set(v.id, v.quantity);
+      } catch { /* fallback to stale */ }
+    }
+
+    // ── 3. Validate each item ──────────────────────────────────────────────────
     for (const item of scannedItems) {
       try {
         if (item.isVariant && item.variantId) {
-          // Always update variants — their currentStock is per-colour and may be stale
+          const realVariantStock = freshVariantStock.has(item.variantId)
+            ? freshVariantStock.get(item.variantId)!
+            : item.currentStock;
+          if (item.countedQty === realVariantStock) { skipped++; continue; }
           const res = await fetch('/api/inventory/adjust-variant', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -264,15 +281,13 @@ export default function InventaireScanPage() {
               productId: item.productId,
               productName: item.name,
               countedQty: item.countedQty,
-              currentStock: item.currentStock,
+              currentStock: realVariantStock,
             }),
           });
           if (res.ok) updated++; else errors++;
         } else {
-          // Use fresh DB stock for comparison — avoids skipping products
-          // that were sold via POS during the inventory session
-          const realStock = freshStockMap.has(item.productId)
-            ? freshStockMap.get(item.productId)!
+          const realStock = freshProductStock.has(item.productId)
+            ? freshProductStock.get(item.productId)!
             : item.currentStock;
           if (item.countedQty === realStock) { skipped++; continue; }
           const ok = await adjustStock(
