@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAccessToken } from '@/lib/services/shopifyService';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { syncColorStocksToTotal } from '@/lib/utils/syncColorStock';
 
 const STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN ?? '';
 const API_VERSION = '2024-10';
@@ -83,7 +84,83 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  let body: any = {};
+  try { body = await req.json(); } catch { /* no body */ }
+  if (body.deductLine) return deductSingleLine(body.deductLine);
   return runBackfill(req, false);
+}
+
+// Direct line deduction after inline "Lier" — no Shopify API call needed
+async function deductSingleLine(params: {
+  posProductId: string;
+  qty: number;
+  orderRef: string;
+  orderName?: string;
+}): Promise<NextResponse> {
+  const { posProductId, qty, orderRef, orderName } = params;
+  if (!posProductId || !qty || !orderRef) {
+    return NextResponse.json({ error: 'posProductId, qty, orderRef requis' }, { status: 400 });
+  }
+
+  const supabase = createAdminClient();
+
+  const { data: alreadyInDb } = await supabase
+    .from('stock_movements_log')
+    .select('id')
+    .eq('source', 'shopify_sale')
+    .eq('reference', orderRef)
+    .eq('product_id', posProductId)
+    .maybeSingle();
+
+  if (alreadyInDb) {
+    return NextResponse.json({ ok: true, deducted: false, reason: 'Déjà traité' });
+  }
+
+  const { data: product } = await supabase
+    .from('products')
+    .select('id, name, stock')
+    .eq('id', posProductId)
+    .maybeSingle();
+
+  if (!product) return NextResponse.json({ error: 'Produit non trouvé' }, { status: 404 });
+
+  const stockBefore = Number(product.stock) || 0;
+  const newStock = Math.max(0, stockBefore - qty);
+
+  await supabase.from('products')
+    .update({ stock: newStock, updated_at: new Date().toISOString() })
+    .eq('id', posProductId);
+
+  await syncColorStocksToTotal(supabase, posProductId, newStock);
+
+  await supabase.from('stock_movements_log').insert({
+    product_id: posProductId,
+    product_name: product.name,
+    movement_type: 'sale',
+    quantity_before: stockBefore,
+    quantity_after: newStock,
+    quantity_change: -qty,
+    reason: `Rattrapage stock — Vente Shopify #${orderRef}${orderName ? ` (${orderName})` : ''} — lié manuellement`,
+    reference: orderRef,
+    performed_by: 'Backfill Shopify',
+    source: 'shopify_sale',
+    created_at: new Date().toISOString(),
+  });
+
+  if (newStock === 0) {
+    await supabase.from('products')
+      .update({ status: 'rupture', product_status: 'rupture' })
+      .eq('id', posProductId)
+      .neq('product_status', 'inactive');
+  }
+
+  return NextResponse.json({
+    ok: true,
+    deducted: true,
+    stock_before: stockBefore,
+    stock_after: newStock,
+    product_name: product.name,
+  });
 }
 
 async function runBackfill(req: NextRequest, dryRun: boolean) {

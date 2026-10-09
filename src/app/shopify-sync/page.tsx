@@ -483,6 +483,9 @@ export default function ShopifySyncPage() {
     variantId: number | null;
     shopifyProductId: number | null;
     shopifyTitle: string;
+    qty: number;
+    orderNum: string;
+    orderName: string;
   } | null>(null);
   const [backfillLinking, setBackfillLinking] = useState(false);
 
@@ -657,16 +660,17 @@ export default function ShopifySyncPage() {
     setLinking((prev) => { const s = new Set(prev); s.delete(posId); return s; });
   }, [matches, shopifyProducts, ignoredIds]);
 
-  // ── Backfill inline linker ─────────────────────────────────────────────────
+  // ── Backfill inline linker — lier ET décompter en une seule action ─────────
   const handleBackfillLink = useCallback(async (posProductId: string, posProductName: string) => {
     if (!backfillLinker) return;
     if (!backfillLinker.variantId && !backfillLinker.shopifyProductId) {
-      toast.error('Impossible de lier : aucun identifiant Shopify (variant_id ni product_id) pour cette commande');
+      toast.error('Impossible de lier : aucun identifiant Shopify pour cette commande');
       return;
     }
     setBackfillLinking(true);
     try {
-      const res = await fetch('/api/shopify/link-product', {
+      // Étape 1 : sauvegarder le lien Shopify ↔ POS
+      const linkRes = await fetch('/api/shopify/link-product', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -675,31 +679,71 @@ export default function ShopifySyncPage() {
           shopifyProductId: backfillLinker.shopifyProductId,
         }),
       });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        const { lineKey } = backfillLinker;
-        setBackfillLinker(null);
-        // Patch the specific line in backfillResult to show it's been linked
-        setBackfillResult((prev: any) => {
-          if (!prev?.orders_needing_backfill) return prev;
-          const [orderNum, lineIdx] = lineKey.split('-');
-          const orders = prev.orders_needing_backfill.map((order: any) => {
-            if (order.order_number !== orderNum) return order;
-            const lines = order.lines.map((line: any, i: number) => {
-              if (i !== Number(lineIdx)) return line;
+      const linkData = await linkRes.json().catch(() => ({}));
+      if (!linkRes.ok) {
+        toast.error(`Erreur liaison : ${linkData.error ?? `HTTP ${linkRes.status}`}`);
+        return;
+      }
+
+      // Étape 2 : décompter immédiatement le stock pour cette ligne
+      const deductRes = await fetch('/api/shopify/backfill-stock', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deductLine: {
+            posProductId,
+            qty: backfillLinker.qty,
+            orderRef: backfillLinker.orderNum,
+            orderName: backfillLinker.orderName,
+          },
+        }),
+      });
+      const deductData = await deductRes.json().catch(() => ({}));
+
+      const { lineKey } = backfillLinker;
+      setBackfillLinker(null);
+
+      const [orderNum, lineIdxStr] = lineKey.split('-');
+      const lineIdx = Number(lineIdxStr);
+
+      setBackfillResult((prev: any) => {
+        if (!prev?.orders_needing_backfill) return prev;
+        const orders = prev.orders_needing_backfill.map((order: any) => {
+          if (order.order_number !== orderNum) return order;
+          const lines = order.lines.map((line: any, i: number) => {
+            if (i !== lineIdx) return line;
+            if (deductData.deducted) {
               return {
                 ...line,
-                _linked_to: posProductName,
-                reason: `Lié manuellement à "${posProductName}" — cliquez Appliquer pour décompter`,
+                deducted: true,
+                _linked_to: undefined,
+                stock_before: deductData.stock_before,
+                stock_after: deductData.stock_after,
+                reason: 'Décompté',
               };
-            });
-            return { ...order, lines };
+            }
+            // Déjà traité ou erreur : montrer comme lié sans déduction
+            return {
+              ...line,
+              _linked_to: posProductName,
+              reason: deductData.reason === 'Déjà traité'
+                ? 'Déjà traité'
+                : `Lié à "${posProductName}" — cliquez Appliquer pour décompter`,
+            };
           });
-          return { ...prev, orders_needing_backfill: orders };
+          const newDeductedCount = lines.filter((l: any) => l.deducted).length;
+          const newSkippedCount = lines.filter((l: any) => !l.deducted && l.reason !== 'Déjà traité').length;
+          return { ...order, lines, deducted_count: newDeductedCount, skipped_count: newSkippedCount };
         });
-        toast.success(`"${posProductName}" lié — cliquez Appliquer pour décompter le stock`);
+        return { ...prev, orders_needing_backfill: orders };
+      });
+
+      if (deductData.deducted) {
+        toast.success(`✅ "${posProductName}" lié et stock décompté (${deductData.stock_before} → ${deductData.stock_after})`);
+      } else if (deductData.reason === 'Déjà traité') {
+        toast.success(`"${posProductName}" lié — stock déjà décompté`);
       } else {
-        toast.error(`Erreur liaison : ${data.error ?? `HTTP ${res.status}`}`);
+        toast.success(`"${posProductName}" lié — cliquez Appliquer pour décompter`);
       }
     } catch (e: any) {
       toast.error(`Erreur réseau : ${e.message ?? 'réessayez'}`);
@@ -1158,7 +1202,7 @@ export default function ShopifySyncPage() {
                                       <button
                                         onClick={() => isLinkerOpen
                                           ? setBackfillLinker(null)
-                                          : setBackfillLinker({ lineKey, variantId: line.variant_id, shopifyProductId: line.shopify_order_product_id ?? null, shopifyTitle: line.title })
+                                          : setBackfillLinker({ lineKey, variantId: line.variant_id, shopifyProductId: line.shopify_order_product_id ?? null, shopifyTitle: line.title, qty: line.qty, orderNum: order.order_number, orderName: order.order_name })
                                         }
                                         className="flex-shrink-0 ml-2 text-[10px] font-medium text-blue-600 border border-blue-200 rounded px-1.5 py-0.5 hover:bg-blue-50 transition-colors"
                                       >
@@ -1173,9 +1217,9 @@ export default function ShopifySyncPage() {
                                       </span>
                                     </div>
                                   )}
-                                  {line._linked_to && (
+                                  {line._linked_to && line.reason !== 'Déjà traité' && (
                                     <div className="mt-0.5">
-                                      <span className="text-[10px] text-blue-600">↳ Lié à &quot;{line._linked_to}&quot; — cliquez <strong>Appliquer</strong> pour décompter le stock</span>
+                                      <span className="text-[10px] text-blue-600">↳ {line.reason || `Lié à "${line._linked_to}" — cliquez Appliquer pour décompter`}</span>
                                     </div>
                                   )}
                                   {isLinkerOpen && (
