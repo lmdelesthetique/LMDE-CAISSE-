@@ -239,12 +239,12 @@ async function runBackfill(req: NextRequest, dryRun: boolean) {
       if (!product) {
         // Level 5: name-based suggestion (display only — no stock deduction)
         const searchTitle = item.name || item.title || '';
-        let bestCandidate: { id: string; name: string; shopify_product_id?: string | null } | null = null;
+        let bestCandidate: { id: string; name: string; shopify_product_id?: string | null; shopify_variant_id?: string | null } | null = null;
         let bestScore = 0;
         if (searchTitle) {
           for (const p of (allProducts ?? []) as any[]) {
             const score = wordOverlapScore(searchTitle, p.name);
-            if (score > bestScore) { bestScore = score; bestCandidate = { id: p.id, name: p.name, shopify_product_id: p.shopify_product_id }; }
+            if (score > bestScore) { bestScore = score; bestCandidate = { id: p.id, name: p.name, shopify_product_id: p.shopify_product_id, shopify_variant_id: p.shopify_variant_id }; }
           }
         }
         if (bestCandidate && bestScore >= 0.30) {
@@ -252,9 +252,14 @@ async function runBackfill(req: NextRequest, dryRun: boolean) {
           lineResult.pos_suggestion_id = bestCandidate.id;
           const orderPid = item.product_id ? String(item.product_id) : null;
           const linkedPid = bestCandidate.shopify_product_id ? String(bestCandidate.shopify_product_id) : null;
+          const linkedVid = bestCandidate.shopify_variant_id ? String(bestCandidate.shopify_variant_id) : null;
+          const isLinked = !!(linkedPid || linkedVid);
           if (linkedPid && orderPid && linkedPid !== orderPid) {
             lineResult.reason = `Produit POS similaire : "${bestCandidate.name}" — mais lié à un AUTRE produit Shopify (ID …${linkedPid.slice(-6)}) alors que cette commande vient du produit Shopify ID …${orderPid.slice(-6)} → délier et re-lier au bon produit Shopify dans l'onglet Liés`;
-          } else if (!linkedPid) {
+          } else if (isLinked && !linkedPid) {
+            // Has shopify_variant_id but no shopify_product_id — repair will fix this
+            lineResult.reason = `Produit POS similaire : "${bestCandidate.name}" — lié (variant_id présent) mais shopify_product_id manquant → cliquer 🔧 Réparer les liens manquants en haut de page`;
+          } else if (!isLinked) {
             lineResult.reason = `Produit POS similaire : "${bestCandidate.name}" — non encore lié à Shopify → aller dans l'onglet Non liés pour l'associer`;
           } else {
             lineResult.reason = `Produit POS similaire : "${bestCandidate.name}" (score ${Math.round(bestScore * 100)}%) — vérifier le lien dans Sync Shopify`;
