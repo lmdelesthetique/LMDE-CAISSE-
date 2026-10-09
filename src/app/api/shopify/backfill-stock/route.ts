@@ -129,7 +129,6 @@ async function runBackfill(req: NextRequest, dryRun: boolean) {
     .from('stock_movements_log')
     .select('reference, product_id')
     .eq('source', 'shopify_sale')
-    .gte('created_at', since)
     .range(0, 9999);
 
   // "orderRef:productId" — skip this specific combination only, not the whole order
