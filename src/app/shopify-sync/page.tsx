@@ -211,44 +211,45 @@ function BackfillPOSPicker({
   shopifyTitle: string;
   posProducts: POSProduct[];
   loading: boolean;
-  onSelect: (posProductId: string) => void;
+  onSelect: (posProductId: string, posProductName: string) => void;
   onCancel: () => void;
 }) {
-  const [q, setQ] = useState(shopifyTitle);
+  const [q, setQ] = useState('');
   const results = useMemo(() => {
     const lq = q.trim().toLowerCase();
-    if (!lq) return posProducts.slice(0, 10);
+    if (!lq) return posProducts.slice(0, 12);
     return posProducts.filter(
       (p) =>
         p.name.toLowerCase().includes(lq) ||
         (p.ref ?? '').toLowerCase().includes(lq) ||
         (p.barcode ?? '').toLowerCase().includes(lq)
-    ).slice(0, 10);
+    ).slice(0, 12);
   }, [q, posProducts]);
 
   return (
     <div className="mt-1.5 border border-blue-200 rounded-lg bg-blue-50 p-2 space-y-1.5">
-      <p className="text-[10px] text-blue-700 font-medium">Choisir le produit POS correspondant à &quot;{shopifyTitle}&quot; :</p>
+      <p className="text-[10px] text-blue-700 font-medium">Produit POS à lier à &quot;{shopifyTitle}&quot; :</p>
       <input
         autoFocus
         value={q}
         onChange={(e) => setQ(e.target.value)}
-        placeholder="Nom, ref, EAN…"
+        placeholder="Tapez nom, ref ou EAN…"
         className="w-full text-xs border border-blue-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white"
       />
-      <div className="max-h-36 overflow-y-auto space-y-0.5">
+      <div className="max-h-40 overflow-y-auto space-y-0.5">
         {results.map((p) => (
           <button
             key={p.id}
-            onClick={() => onSelect(p.id)}
+            onClick={() => onSelect(p.id, p.name)}
             disabled={loading}
             className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-white border border-transparent hover:border-blue-200 transition-colors flex items-center justify-between gap-2 disabled:opacity-40"
           >
             <span className="font-medium truncate">{p.name}</span>
-            <span className="text-muted-foreground flex-shrink-0 text-[10px]">Stock: {p.stock}</span>
+            <span className="text-muted-foreground flex-shrink-0 text-[10px]">Stock: {p.stock} {p.ref ? `· ${p.ref}` : ''}</span>
           </button>
         ))}
-        {results.length === 0 && <p className="text-[10px] text-muted-foreground px-2 py-1">Aucun résultat</p>}
+        {results.length === 0 && q.length > 0 && <p className="text-[10px] text-muted-foreground px-2 py-1">Aucun résultat pour &quot;{q}&quot;</p>}
+        {results.length === 0 && q.length === 0 && <p className="text-[10px] text-muted-foreground px-2 py-1">Tapez pour rechercher…</p>}
       </div>
       <button onClick={onCancel} className="text-[10px] text-muted-foreground hover:text-foreground">Annuler</button>
     </div>
@@ -657,7 +658,7 @@ export default function ShopifySyncPage() {
   }, [matches, shopifyProducts, ignoredIds]);
 
   // ── Backfill inline linker ─────────────────────────────────────────────────
-  const handleBackfillLink = useCallback(async (posProductId: string) => {
+  const handleBackfillLink = useCallback(async (posProductId: string, posProductName: string) => {
     if (!backfillLinker) return;
     if (!backfillLinker.variantId) {
       toast.error('Impossible de lier : pas de variant_id Shopify pour cette commande');
@@ -676,17 +677,27 @@ export default function ShopifySyncPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
+        const { lineKey } = backfillLinker;
         setBackfillLinker(null);
-        toast.success('Lien créé — re-analyse en cours…');
-        // Re-run analysis automatically so the line updates
-        setBackfillRunning(true);
-        try {
-          const r2 = await fetch(`/api/shopify/backfill-stock?days=${backfillDays}`);
-          const d2 = await r2.json();
-          setBackfillResult({ ...d2, applied: false });
-        } catch { /* keep existing result */ } finally {
-          setBackfillRunning(false);
-        }
+        // Patch the specific line in backfillResult to show it's been linked
+        setBackfillResult((prev: any) => {
+          if (!prev?.orders_needing_backfill) return prev;
+          const [orderNum, lineIdx] = lineKey.split('-');
+          const orders = prev.orders_needing_backfill.map((order: any) => {
+            if (order.order_number !== orderNum) return order;
+            const lines = order.lines.map((line: any, i: number) => {
+              if (i !== Number(lineIdx)) return line;
+              return {
+                ...line,
+                _linked_to: posProductName,
+                reason: `Lié manuellement à "${posProductName}" — cliquez Appliquer pour décompter`,
+              };
+            });
+            return { ...order, lines };
+          });
+          return { ...prev, orders_needing_backfill: orders };
+        });
+        toast.success(`"${posProductName}" lié — cliquez Appliquer pour décompter le stock`);
       } else {
         toast.error(`Erreur liaison : ${data.error ?? `HTTP ${res.status}`}`);
       }
@@ -695,7 +706,7 @@ export default function ShopifySyncPage() {
     } finally {
       setBackfillLinking(false);
     }
-  }, [backfillLinker, backfillDays]);
+  }, [backfillLinker]);
 
   // ── Ignore / Restore ───────────────────────────────────────────────────────
   const handleIgnore = useCallback((posId: string) => {
@@ -1113,13 +1124,25 @@ export default function ShopifySyncPage() {
                                 const lineKey = `${order.order_number}-${i}`;
                                 const isLinkerOpen = backfillLinker?.lineKey === lineKey;
                                 return (
-                                <div key={i} className={`text-xs py-1 px-2 rounded-lg ${line.deducted ? 'bg-emerald-50' : line.reason === 'Déjà traité' ? 'bg-gray-50' : 'bg-amber-50'}`}>
+                                <div key={i} className={`text-xs py-1 px-2 rounded-lg ${
+                                  line.deducted ? 'bg-emerald-50' :
+                                  line._linked_to ? 'bg-blue-50' :
+                                  line.reason === 'Déjà traité' ? 'bg-gray-50' :
+                                  'bg-amber-50'
+                                }`}>
                                   <div className="flex items-center justify-between">
-                                    <span className={`${line.deducted ? 'text-emerald-800' : line.reason === 'Déjà traité' ? 'text-gray-500' : 'text-amber-800'} flex-1 min-w-0 truncate`}>
-                                      {line.deducted ? '✅' : line.reason === 'Déjà traité' ? '✓' : '⚠️'} {line.title} {line.sku ? `(SKU: ${line.sku})` : ''} × {line.qty}
+                                    <span className={`${
+                                      line.deducted ? 'text-emerald-800' :
+                                      line._linked_to ? 'text-blue-800' :
+                                      line.reason === 'Déjà traité' ? 'text-gray-500' :
+                                      'text-amber-800'
+                                    } flex-1 min-w-0 truncate`}>
+                                      {line.deducted ? '✅' : line._linked_to ? '🔗' : line.reason === 'Déjà traité' ? '✓' : '⚠️'} {line.title} {line.sku ? `(SKU: ${line.sku})` : ''} × {line.qty}
                                     </span>
                                     {line.deducted ? (
                                       <span className="text-emerald-700 font-500 flex-shrink-0 ml-2">{line.stock_before} → {line.stock_after}</span>
+                                    ) : line._linked_to ? (
+                                      <span className="text-blue-600 font-500 flex-shrink-0 ml-2 text-[10px]">lié ✓</span>
                                     ) : line.reason === 'Déjà traité' ? (
                                       <span className="text-gray-400 flex-shrink-0 ml-2">déjà traité</span>
                                     ) : (
@@ -1134,15 +1157,16 @@ export default function ShopifySyncPage() {
                                       </button>
                                     )}
                                   </div>
-                                  {!line.deducted && line.reason !== 'Déjà traité' && !isLinkerOpen && (
+                                  {!line.deducted && !line._linked_to && line.reason !== 'Déjà traité' && !isLinkerOpen && (
                                     <div className="mt-0.5">
-                                      {line.pos_suggestion_name ? (
-                                        <span className="text-[10px] text-orange-700 font-medium">
-                                          ↳ {line.reason}
-                                        </span>
-                                      ) : (
-                                        <span className="text-[10px] text-amber-500">↳ {line.reason}</span>
-                                      )}
+                                      <span className={`text-[10px] ${line.pos_suggestion_name ? 'text-orange-700 font-medium' : 'text-amber-500'}`}>
+                                        ↳ {line.reason}
+                                      </span>
+                                    </div>
+                                  )}
+                                  {line._linked_to && (
+                                    <div className="mt-0.5">
+                                      <span className="text-[10px] text-blue-600">↳ Lié à &quot;{line._linked_to}&quot; — cliquez <strong>Appliquer</strong> pour décompter le stock</span>
                                     </div>
                                   )}
                                   {isLinkerOpen && (
