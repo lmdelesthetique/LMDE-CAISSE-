@@ -1004,6 +1004,15 @@ export default function ShopifySyncPage() {
                       {backfillRunning ? <><span className="animate-spin">⟳</span> Application…</> : `⚡ Appliquer (${backfillResult.summary.total_lines_deducted} lignes)`}
                     </button>
                   )}
+                  {backfillResult && !backfillResult.error && backfillResult.applied && backfillResult.summary?.orders_unmatched > 0 && (
+                    <button
+                      onClick={handleBackfillAnalyze}
+                      disabled={backfillRunning}
+                      className="text-sm font-medium bg-amber-500 text-white rounded-lg px-4 py-2 hover:bg-amber-600 transition-colors disabled:opacity-50 flex items-center gap-2"
+                    >
+                      {backfillRunning ? <><span className="animate-spin">⟳</span> Analyse…</> : `🔄 Re-analyser (${backfillResult.summary.orders_unmatched} encore introuvables)`}
+                    </button>
+                  )}
                   {backfillResult && !backfillResult.error && (backfillResult.summary?.orders_unmatched > 0 || !backfillResult.applied) && (
                     <button
                       onClick={handleAutoMatch}
