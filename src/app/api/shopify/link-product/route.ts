@@ -32,13 +32,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    if (!shopifyVariantId) {
-      return NextResponse.json({ error: 'shopifyVariantId requis' }, { status: 400 });
+    // Require at least one Shopify identifier
+    if (!shopifyVariantId && !shopifyProductId) {
+      return NextResponse.json({ error: 'shopifyVariantId ou shopifyProductId requis' }, { status: 400 });
     }
 
-    // If inventory_item_id not provided, fetch it from Shopify API
+    // If inventory_item_id not provided and we have a variant, fetch it from Shopify API
     let resolvedInventoryItemId = shopifyInventoryItemId;
-    if (!resolvedInventoryItemId) {
+    if (!resolvedInventoryItemId && shopifyVariantId) {
       const token = await getAccessToken();
       if (token && STORE_DOMAIN) {
         try {
@@ -59,7 +60,7 @@ export async function POST(req: NextRequest) {
     const { error } = await supabase
       .from('products')
       .update({
-        shopify_variant_id: String(shopifyVariantId),
+        shopify_variant_id: shopifyVariantId ? String(shopifyVariantId) : null,
         shopify_inventory_item_id: resolvedInventoryItemId ? String(resolvedInventoryItemId) : null,
         shopify_product_id: shopifyProductId ? String(shopifyProductId) : null,
         shopify: true,

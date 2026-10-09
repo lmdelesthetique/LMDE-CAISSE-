@@ -660,8 +660,8 @@ export default function ShopifySyncPage() {
   // ── Backfill inline linker ─────────────────────────────────────────────────
   const handleBackfillLink = useCallback(async (posProductId: string, posProductName: string) => {
     if (!backfillLinker) return;
-    if (!backfillLinker.variantId) {
-      toast.error('Impossible de lier : pas de variant_id Shopify pour cette commande');
+    if (!backfillLinker.variantId && !backfillLinker.shopifyProductId) {
+      toast.error('Impossible de lier : aucun identifiant Shopify (variant_id ni product_id) pour cette commande');
       return;
     }
     setBackfillLinking(true);
