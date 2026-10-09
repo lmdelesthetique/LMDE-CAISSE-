@@ -192,6 +192,7 @@ export async function POST(req: NextRequest) {
       reference: orderRef,
       performed_by: 'Shopify',
       source: 'shopify_sale',
+      created_at: new Date().toISOString(),
     });
 
     if (newStock === 0) {
