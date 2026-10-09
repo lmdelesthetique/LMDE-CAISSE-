@@ -125,11 +125,12 @@ async function runBackfill(req: NextRequest, dryRun: boolean) {
   // 2. Get all already-processed (order_ref, product_id) pairs from stock_movements_log.
   // Use per-product idempotency so that an order with SOME products missing can be re-run
   // without re-deducting the products that were already processed.
-  const { data: processedRows } = await supabase
+  const { data: processedRows, error: processedError } = await supabase
     .from('stock_movements_log')
     .select('reference, product_id')
     .eq('source', 'shopify_sale')
-    .gte('created_at', since);
+    .gte('created_at', since)
+    .range(0, 9999);
 
   // "orderRef:productId" — skip this specific combination only, not the whole order
   const processedKeys = new Set(
@@ -283,6 +284,22 @@ async function runBackfill(req: NextRequest, dryRun: boolean) {
       }
 
       if (!dryRun) {
+        // Hard DB check: prevent double-deduction even if processedKeys was stale/empty
+        const { data: alreadyInDb } = await supabase
+          .from('stock_movements_log')
+          .select('id')
+          .eq('source', 'shopify_sale')
+          .eq('reference', orderRef)
+          .eq('product_id', product.id)
+          .maybeSingle();
+
+        if (alreadyInDb) {
+          lineResult.deducted = false;
+          lineResult.reason = 'Déjà traité';
+          orderResult.lines.push(lineResult);
+          continue;
+        }
+
         // Fetch fresh stock before deducting (avoid stale cache)
         const { data: fresh } = await supabase
           .from('products')
@@ -311,6 +328,7 @@ async function runBackfill(req: NextRequest, dryRun: boolean) {
           reference: orderRef,
           performed_by: 'Backfill Shopify',
           source: 'shopify_sale',
+          created_at: new Date().toISOString(),
         });
 
         if (newStock === 0) {
@@ -384,6 +402,8 @@ async function runBackfill(req: NextRequest, dryRun: boolean) {
       orders_unmatched: ordersWithIntrouvable.length,
       total_lines_deducted: totalDeducted,
       total_lines_skipped: totalSkipped,
+      debug_processed_keys_count: processedKeys.size,
+      debug_processed_query_error: processedError?.message ?? null,
     },
     orders_needing_backfill: ordersNeedingAttention,
   });
