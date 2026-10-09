@@ -69,10 +69,11 @@ async function analyze(days: number): Promise<{ suggestions: Suggestion[]; noMat
   const supabase = createAdminClient();
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
-  // Load ALL POS products
+  // Load ALL POS products — range overrides Supabase's 1000-row default cap
   const { data: posData } = await supabase
     .from('products')
-    .select('id, name, stock, shopify_variant_id, shopify_product_id, shopify_inventory_item_id, ref, barcode');
+    .select('id, name, stock, shopify_variant_id, shopify_product_id, shopify_inventory_item_id, ref, barcode')
+    .range(0, 9999);
   const allPos = (posData ?? []) as (PosProduct & { ref?: string; barcode?: string })[];
 
   // Build lookup maps (same as backfill)
