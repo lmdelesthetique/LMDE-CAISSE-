@@ -729,16 +729,39 @@ export default function StockPage() {
   };
 
   const handleRestoreImages = async () => {
-    if (!confirm('Restaurer les photos custom depuis le stockage Supabase ?\n\nSeuls les produits dont l\'image a été remplacée par une URL Shopify seront corrigés.')) return;
     setRestoreImagesLoading(true);
     setRestoreImagesResult(null);
     try {
+      // Step 1: dry-run to see what would be restored
+      const dryRes = await fetch('/api/admin/restore-product-images');
+      const dryData = await dryRes.json();
+      console.log('[restore-images dry-run]', dryData);
+
+      if (dryData.error) {
+        alert(`Erreur : ${dryData.error}\nlistError: ${dryData.listError}`);
+        return;
+      }
+
+      const msg = `Fichiers dans le bucket : ${dryData.bucket_files_total}\n`
+        + `Produits avec URL Shopify : ${dryData.products_with_shopify_url}\n`
+        + `Correspondances trouvées : ${dryData.matched}\n`
+        + `Sans correspondance : ${dryData.unmatched}\n`
+        + (dryData.listError ? `\n⚠️ Erreur listing : ${dryData.listError}\n` : '')
+        + `\nExemples fichiers bucket : ${(dryData.bucket_sample ?? []).slice(0,3).join(', ')}\n`
+        + `\nRestorer ${dryData.matched} photos ?`;
+
+      if (!confirm(msg)) return;
+      if (dryData.matched === 0) { alert('Aucune correspondance trouvée — vérifiez la console pour les détails.'); return; }
+
+      // Step 2: apply
       const res = await fetch('/api/admin/restore-product-images', { method: 'POST' });
       const data = await res.json();
+      console.log('[restore-images result]', data);
       setRestoreImagesResult(data);
       if (data.restored > 0) await loadData();
-    } catch (e) {
+    } catch (e: any) {
       console.error('restore-product-images', e);
+      alert(`Erreur réseau : ${e.message}`);
     } finally {
       setRestoreImagesLoading(false);
     }
