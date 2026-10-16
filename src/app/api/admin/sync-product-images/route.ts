@@ -50,13 +50,15 @@ export async function POST() {
 
   const shopifyImages = await shopifyFetchImages(numericIds);
 
-  // 3. Update products.image_url for all that have a Shopify image
+  // 3. Update products.image_url — ONLY if image_url is currently null/empty.
+  //    Never overwrite a manually-assigned custom photo.
   let productsUpdated = 0;
   const updatedProductIds = new Set<string>();
 
   for (const prod of products) {
     const imgUrl = shopifyImages.get(Number(prod.shopify_product_id));
-    if (!imgUrl || imgUrl === prod.image_url) continue;
+    // Skip: no Shopify image, already has a custom image, or same URL
+    if (!imgUrl || prod.image_url || imgUrl === prod.image_url) continue;
 
     const { error } = await supabase
       .from('products')

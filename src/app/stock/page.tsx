@@ -648,6 +648,8 @@ export default function StockPage() {
   const [recalcLoading, setRecalcLoading] = useState(false);
   const [syncImagesLoading, setSyncImagesLoading] = useState(false);
   const [syncImagesResult, setSyncImagesResult] = useState<{ productsUpdated: number; linesUpdated: number } | null>(null);
+  const [restoreImagesLoading, setRestoreImagesLoading] = useState(false);
+  const [restoreImagesResult, setRestoreImagesResult] = useState<{ found: number; restored: number } | null>(null);
   const [dedupLoading, setDedupLoading] = useState(false);
   const [dedupResult, setDedupResult] = useState<{ fixed: number; log: { name: string; removed: number; before: number; after: number; details?: string }[] } | null>(null);
   const [dedupPreview, setDedupPreview] = useState<{ total_duplicates: number; total_extra_units: number; groups: any[] } | null>(null);
@@ -723,6 +725,22 @@ export default function StockPage() {
       console.error('sync-product-images', e);
     } finally {
       setSyncImagesLoading(false);
+    }
+  };
+
+  const handleRestoreImages = async () => {
+    if (!confirm('Restaurer les photos custom depuis le stockage Supabase ?\n\nSeuls les produits dont l\'image a été remplacée par une URL Shopify seront corrigés.')) return;
+    setRestoreImagesLoading(true);
+    setRestoreImagesResult(null);
+    try {
+      const res = await fetch('/api/admin/restore-product-images', { method: 'POST' });
+      const data = await res.json();
+      setRestoreImagesResult(data);
+      if (data.restored > 0) await loadData();
+    } catch (e) {
+      console.error('restore-product-images', e);
+    } finally {
+      setRestoreImagesLoading(false);
     }
   };
 
@@ -928,11 +946,20 @@ export default function StockPage() {
               <button
                 onClick={handleSyncImages}
                 disabled={syncImagesLoading}
-                title="Synchroniser les images depuis Shopify pour tous les produits liés"
+                title="Ajouter les images Shopify pour les produits qui n'ont pas encore de photo (ne remplace pas les photos existantes)"
                 className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border text-sm font-500 hover:bg-muted transition-colors disabled:opacity-50"
               >
                 <Icon name="PhotoIcon" size={15} className={syncImagesLoading ? 'text-primary animate-pulse' : 'text-muted-foreground'} />
                 <span className="hidden sm:inline">{syncImagesResult ? `Images: ${syncImagesResult.productsUpdated} produits` : 'Sync images'}</span>
+              </button>
+              <button
+                onClick={handleRestoreImages}
+                disabled={restoreImagesLoading}
+                title="Restaurer les photos custom depuis le stockage Supabase (répare les images remplacées par erreur)"
+                className="flex items-center gap-2 px-3 py-2 rounded-xl border border-orange-300 bg-orange-50 text-orange-800 text-sm font-500 hover:bg-orange-100 transition-colors disabled:opacity-50"
+              >
+                <Icon name="PhotoIcon" size={15} className={restoreImagesLoading ? 'animate-pulse' : ''} />
+                <span className="hidden sm:inline">{restoreImagesResult ? `Restaurées: ${restoreImagesResult.restored}` : '🔄 Restaurer photos'}</span>
               </button>
               <button
                 onClick={handleDedupPreview}
