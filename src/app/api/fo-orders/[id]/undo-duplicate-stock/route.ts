@@ -17,6 +17,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
 
+  // Idempotency: check if this undo was already applied
+  const undoRef = `undo_dup_${order.order_number || id}`;
+  const { data: alreadyDone } = await supabase
+    .from('stock_movements_log')
+    .select('id')
+    .eq('reference', undoRef)
+    .limit(1);
+  if (alreadyDone?.length) {
+    return NextResponse.json({ ok: true, fixed: 0, alreadyDone: true, message: 'Déjà annulé' });
+  }
+
   const { data: lines } = await supabase
     .from('fo_order_lines')
     .select('id, product_id, product_ref, product_name, qty_ordered, color')
@@ -77,6 +88,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       quantity_change: -qtyToRemove,
       reason: `Correction doublon sync — commande ${order.order_number || id}`,
       performed_by: 'Admin',
+      source: 'fo_receive',
+      reference: undoRef,
     }).then(({ error }) => { if (error) console.error('[undo-duplicate-stock log]', error.message); });
 
     log.push({ name: productName, removed: qtyToRemove, before: currentStock, after: newStock });

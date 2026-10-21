@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { syncColorStocksToTotal } from '@/lib/utils/syncColorStock';
 
 export async function POST(req: NextRequest) {
   let body: { factureId: string; lines: Array<{ productId?: string; description: string; quantity: number }>; clientName?: string; numero?: string };
@@ -18,6 +19,17 @@ export async function POST(req: NextRequest) {
   const errors: string[] = [];
   const reference = numero ?? factureId;
   const reason = `Facture B2B payée — ${clientName ?? 'Client'}`;
+
+  // Idempotency: skip entirely if this reference was already processed
+  const { data: alreadyDone } = await supabase
+    .from('stock_movements_log')
+    .select('id')
+    .eq('reference', reference)
+    .eq('source', 'b2b_sale')
+    .limit(1);
+  if (alreadyDone?.length) {
+    return NextResponse.json({ success: true, errors: [], alreadyProcessed: true });
+  }
 
   for (const line of lines) {
     if (!line.productId || line.quantity <= 0) continue;
@@ -49,6 +61,15 @@ export async function POST(req: NextRequest) {
       continue;
     }
 
+    if (newStock === 0) {
+      await supabase.from('products')
+        .update({ status: 'rupture', product_status: 'rupture' })
+        .eq('id', line.productId)
+        .neq('product_status', 'inactive');
+    }
+
+    await syncColorStocksToTotal(supabase, line.productId, newStock);
+
     await supabase.from('stock_movements_log').insert({
       product_id: line.productId,
       product_name: product.name,
@@ -63,5 +84,5 @@ export async function POST(req: NextRequest) {
     }).then(({ error }) => { if (error) console.error('[b2b deduct-stock log]', error.message); });
   }
 
-  return NextResponse.json({ success: true, errors });
+  return NextResponse.json({ success: errors.length === 0, errors });
 }

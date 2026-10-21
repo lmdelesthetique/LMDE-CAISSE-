@@ -118,7 +118,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       .select('id')
       .eq('reference', lineRef)
       .limit(1);
-    if (alreadyLogged?.length) { updated++; totalReceived += newQtyReceived; continue; }
+    if (alreadyLogged?.length) { updated++; totalReceived += prevQtyReceived; continue; }
 
     totalReceived += newQtyReceived;
 

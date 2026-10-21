@@ -146,7 +146,13 @@ async function createReceiptFromDevis(supabase: ReturnType<typeof createAdminCli
     const stockBefore = Number(product.stock) || 0;
     const stockAfter = Math.max(0, stockBefore - qty);
 
-    await supabase.from('products').update({ stock: stockAfter }).eq('id', productId);
+    await supabase.from('products').update({ stock: stockAfter, updated_at: new Date().toISOString() }).eq('id', productId);
+    if (stockAfter === 0) {
+      await supabase.from('products')
+        .update({ status: 'rupture', product_status: 'rupture' })
+        .eq('id', productId)
+        .neq('product_status', 'inactive');
+    }
     await syncColorStocksToTotal(supabase, productId, stockAfter);
 
     await supabase.from('stock_movements_log').insert({

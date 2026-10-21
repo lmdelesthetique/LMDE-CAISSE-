@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { syncColorStocksToTotal } from '@/lib/utils/syncColorStock';
 
 // ─── GET /api/receipts/[id] ───────────────────────────────────────────────────
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -96,18 +97,21 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         if (!productId || qty <= 0) continue;
         const { data: prod } = await supabase.from('products').select('stock, name').eq('id', productId).maybeSingle();
         if (prod) {
-          const newStock = (prod.stock || 0) + qty;
+          const stockBefore = Number(prod.stock || 0);
+          const newStock = stockBefore + qty;
           await supabase.from('products').update({ stock: newStock, updated_at: new Date().toISOString() }).eq('id', productId);
+          await syncColorStocksToTotal(supabase, productId, newStock);
           await supabase.from('stock_movements_log').insert({
             product_id: productId,
             product_name: prod.name,
-            movement_type: 'return',
-            quantity_before: prod.stock || 0,
+            movement_type: 'entry',
+            quantity_before: stockBefore,
             quantity_after: newStock,
             quantity_change: qty,
             reason: `Annulation ticket #${id}`,
             performed_by: modifiedBy || 'Admin',
             source: 'receipt_cancellation',
+            reference: `cancel_${id}`,
           }).then(({ error: logErr }) => { if (logErr) console.error('[receipts/cancel] stock log:', logErr.message); });
         }
       }

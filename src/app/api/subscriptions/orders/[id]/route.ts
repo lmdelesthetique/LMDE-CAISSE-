@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { syncColorStocksToTotal } from '@/lib/utils/syncColorStock';
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -21,7 +22,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       return NextResponse.json({ error: 'Aucun champ à mettre à jour' }, { status: 400 });
     }
 
-    // If admin cancels an order that was confirmed, restore stock
+    // If admin cancels a confirmed order, restore stock with logging
     if (body.status === 'cancelled') {
       const { data: currentOrder } = await supabase
         .from('subscription_orders')
@@ -32,17 +33,32 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       if (currentOrder?.status === 'confirmed') {
         const { data: items } = await supabase
           .from('subscription_order_items')
-          .select('product_id, quantity, product:products(stock)')
+          .select('product_id, quantity, product:products(id, name, stock)')
           .eq('order_id', id);
 
         if (items && items.length > 0) {
           await Promise.all(
             items.map(async (item: any) => {
-              const currentStock = item.product?.stock ?? 0;
-              return supabase
-                .from('products')
-                .update({ stock: currentStock + item.quantity })
+              const prod = item.product;
+              if (!prod) return;
+              const stockBefore = Number(prod.stock ?? 0);
+              const newStock = stockBefore + item.quantity;
+              await supabase.from('products')
+                .update({ stock: newStock, updated_at: new Date().toISOString() })
                 .eq('id', item.product_id);
+              await syncColorStocksToTotal(supabase, item.product_id, newStock);
+              await supabase.from('stock_movements_log').insert({
+                product_id: item.product_id,
+                product_name: prod.name,
+                movement_type: 'entry',
+                quantity_before: stockBefore,
+                quantity_after: newStock,
+                quantity_change: item.quantity,
+                reason: `Annulation box admin — commande ${id}`,
+                performed_by: 'Admin',
+                source: 'subscription',
+                reference: `box_admin_cancel_${id}`,
+              }).then(({ error: le }) => { if (le) console.error('[sub-orders admin cancel]', le.message); });
             })
           );
         }
