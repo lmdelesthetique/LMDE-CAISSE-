@@ -110,6 +110,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     const newStock = currentStock + qty;
     const newQtyReceived = prevQtyReceived + qty;
+
+    // Per-line idempotency: skip if this line was already logged (prevents double-entry on re-run)
+    const lineRef = `fo_${order.order_number || id}_line_${line.id}`;
+    const { data: alreadyLogged } = await supabase
+      .from('stock_movements_log')
+      .select('id')
+      .eq('reference', lineRef)
+      .limit(1);
+    if (alreadyLogged?.length) { updated++; totalReceived += newQtyReceived; continue; }
+
     totalReceived += newQtyReceived;
 
     // Update product stock
@@ -159,13 +169,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // Movement log (best-effort)
     await supabase.from('stock_movements_log').insert({
       product_id: productId,
-      product_name: line.product_ref || '',
+      product_name: line.product_name || line.product_ref || '',
       movement_type: 'supplier_reception',
       quantity_before: currentStock,
       quantity_after: newStock,
       quantity_change: qty,
       reason: `Réception commande fournisseur ${order.order_number || id}`,
       performed_by: 'Admin',
+      source: 'fo_receive',
+      reference: lineRef,
     }).then(({ error }) => { if (error) console.error('[receive-stock log]', error.message); });
 
     updated++;

@@ -58,40 +58,29 @@ export async function PATCH(request: NextRequest) {
       if (orderRow.status === 'confirmed') {
         const { data: items } = await supabase
           .from('subscription_order_items')
-          .select('product_id, quantity')
+          .select('product_id, quantity, product:products(id, name, stock)')
           .eq('order_id', orderId);
         if (items && items.length > 0) {
           await Promise.all(
             items.map(async (item: any) => {
-              let newStock: number | null = null;
-              const { error: rpcErr } = await supabase.rpc('increment_product_stock', {
-                p_product_id: item.product_id,
-                p_qty: item.quantity,
-              });
-              if (rpcErr) {
-                const { data: prod } = await supabase
-                  .from('products')
-                  .select('stock')
-                  .eq('id', item.product_id)
-                  .maybeSingle();
-                if (prod) {
-                  newStock = (prod.stock ?? 0) + item.quantity;
-                  await supabase
-                    .from('products')
-                    .update({ stock: newStock })
-                    .eq('id', item.product_id);
-                }
-              } else {
-                const { data: prod } = await supabase
-                  .from('products')
-                  .select('stock')
-                  .eq('id', item.product_id)
-                  .maybeSingle();
-                newStock = prod?.stock ?? null;
-              }
-              if (newStock !== null) {
-                await syncColorStocksToTotal(supabase, item.product_id, newStock);
-              }
+              const prod = item.product;
+              if (!prod) return;
+              const stockBefore = Number(prod.stock ?? 0);
+              const newStock = stockBefore + item.quantity;
+              await supabase.from('products').update({ stock: newStock, updated_at: new Date().toISOString() }).eq('id', item.product_id);
+              await syncColorStocksToTotal(supabase, item.product_id, newStock);
+              await supabase.from('stock_movements_log').insert({
+                product_id: item.product_id,
+                product_name: prod.name,
+                movement_type: 'entry',
+                quantity_before: stockBefore,
+                quantity_after: newStock,
+                quantity_change: item.quantity,
+                reason: `Annulation box — commande ${orderId}`,
+                performed_by: 'Client Portal',
+                source: 'subscription',
+                reference: `box_cancel_${orderId}`,
+              }).then(({ error: le }) => { if (le) console.error('[sub-order cancel restock]', le.message); });
             })
           );
         }
@@ -176,11 +165,24 @@ export async function PATCH(request: NextRequest) {
         );
       }
 
-      // Sync color stock variants after successful decrements
+      // Sync color stock variants + log movements after successful decrements
       await Promise.all(
-        items.map((item: any) => {
-          const newStock = (item.product?.stock ?? 0) - item.quantity;
-          return syncColorStocksToTotal(supabase, item.product_id, newStock);
+        items.map(async (item: any) => {
+          const stockBefore = Number(item.product?.stock ?? 0);
+          const newStock = stockBefore - item.quantity;
+          await syncColorStocksToTotal(supabase, item.product_id, newStock);
+          await supabase.from('stock_movements_log').insert({
+            product_id: item.product_id,
+            product_name: item.product?.name ?? '',
+            movement_type: 'sale',
+            quantity_before: stockBefore,
+            quantity_after: newStock,
+            quantity_change: -item.quantity,
+            reason: `Confirmation box — commande ${orderId}`,
+            performed_by: 'Client Portal',
+            source: 'subscription',
+            reference: `box_confirm_${orderId}`,
+          }).then(({ error: le }) => { if (le) console.error('[sub-order confirm stock log]', le.message); });
         })
       );
     }

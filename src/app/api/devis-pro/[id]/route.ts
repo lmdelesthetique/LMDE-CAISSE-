@@ -159,6 +159,7 @@ async function createReceiptFromDevis(supabase: ReturnType<typeof createAdminCli
       reason: `Vente devis ${devis.numero || devisId}`,
       performed_by: 'Devis Pro',
       source: 'devis_pro',
+      reference: devis.numero || devisId,
     });
   }
 

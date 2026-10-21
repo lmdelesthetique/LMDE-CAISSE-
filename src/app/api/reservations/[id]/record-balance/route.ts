@@ -47,14 +47,48 @@ export async function POST(
     is_balance: true,
   };
 
+  const reservationRef = existing.reservation_number || id;
+
+  const deductWithLog = async (productId: string, productName: string, qty: number) => {
+    const { data: prod } = await supabase
+      .from('products')
+      .select('id, name, stock')
+      .eq('id', productId)
+      .maybeSingle();
+    if (!prod) return;
+    const stockBefore = Number(prod.stock) || 0;
+    const stockAfter = Math.max(0, stockBefore - qty);
+    await supabase.from('products')
+      .update({ stock: stockAfter, updated_at: new Date().toISOString() })
+      .eq('id', productId);
+    if (stockAfter === 0) {
+      await supabase.from('products')
+        .update({ status: 'rupture', product_status: 'rupture' })
+        .eq('id', productId)
+        .neq('product_status', 'inactive');
+    }
+    await supabase.from('stock_movements_log').insert({
+      product_id: productId,
+      product_name: prod.name || productName,
+      movement_type: 'sale',
+      quantity_before: stockBefore,
+      quantity_after: stockAfter,
+      quantity_change: -qty,
+      reason: `Réservation complétée ${reservationRef}`,
+      performed_by: cashierName || 'Caisse',
+      source: 'reservation',
+      reference: reservationRef,
+    }).then(({ error: le }) => { if (le) console.error('[record-balance] log error:', le.message); });
+  };
+
   // STEP 1: Deduct stock FIRST (before marking complete)
-  // Payment is already received — stock must be deducted before we commit the sale.
   const stockErrors: string[] = [];
   if (existing.reservation_status !== 'completed' && Array.isArray(existing.items)) {
     const stockItems = (existing.items as any[])
       .filter((item: any) => item.productId || item.product_id)
       .map((item: any) => ({
         productId: item.productId || item.product_id,
+        name: item.name || '',
         qty: Number(item.qty || item.quantity) || 1,
         isKit: Boolean(item.isKit),
         kitComponents: Array.isArray(item.kitComponents) ? item.kitComponents : [],
@@ -63,7 +97,7 @@ export async function POST(
     for (const item of stockItems) {
       try {
         if (item.isKit || item.kitComponents.length > 0) {
-          let components: Array<{ componentId?: string; component_id?: string; quantity: number }> = item.kitComponents;
+          let components: Array<{ componentId?: string; component_id?: string; quantity: number; name?: string }> = item.kitComponents;
           if (components.length === 0) {
             const { data: kitRows } = await supabase
               .from('product_kits')
@@ -74,20 +108,10 @@ export async function POST(
           for (const comp of components) {
             const compId = (comp as any).componentId ?? (comp as any).component_id;
             const compQty = Number((comp as any).quantity ?? 1) * item.qty;
-            if (compId) {
-              const { error: stockErr } = await supabase.rpc('deduct_stock_on_reservation', { p_product_id: compId, p_qty: compQty });
-              if (stockErr) {
-                console.error('[record-balance] kit component stock deduction failed:', compId, stockErr.message);
-                stockErrors.push(`Composant ${compId}: ${stockErr.message}`);
-              }
-            }
+            if (compId) await deductWithLog(compId, (comp as any).name || '', compQty);
           }
         } else {
-          const { error: stockErr } = await supabase.rpc('deduct_stock_on_reservation', { p_product_id: item.productId, p_qty: item.qty });
-          if (stockErr) {
-            console.error('[record-balance] stock deduction failed:', item.productId, stockErr.message);
-            stockErrors.push(`Produit ${item.productId}: ${stockErr.message}`);
-          }
+          await deductWithLog(item.productId, item.name, item.qty);
         }
       } catch (e: any) {
         console.error('[record-balance] stock deduction exception:', e.message);

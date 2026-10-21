@@ -45,6 +45,19 @@ export async function POST(req: NextRequest) {
   const shopifySyncItems: Array<{ productId: string; delta: number; newStock: number }> = [];
   const now = new Date().toISOString();
 
+  // Idempotency: skip if this ticketRef was already processed
+  if (ticketRef) {
+    const { data: already } = await supabase
+      .from('stock_movements_log')
+      .select('id')
+      .eq('reference', ticketRef)
+      .eq('source', 'pos_sale')
+      .limit(1);
+    if (already?.length) {
+      return NextResponse.json({ success: true, errors: [], alreadyProcessed: true });
+    }
+  }
+
   for (const item of items) {
     if (item.isFreePrice || !item.productId || item.productId.startsWith('free-')) continue;
 
