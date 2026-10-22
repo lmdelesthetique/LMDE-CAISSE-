@@ -432,8 +432,10 @@ export default function ClientDashboardPage() {
   const isPastDeadline = today.getDate() > deadlineDay;
   const daysLeft = isPastDeadline ? 0 : deadlineDay - today.getDate();
 
-  const quotaUsed = orderItems.filter(i => !i.is_surplus).reduce((s, i) => s + i.unit_sell_price * i.quantity, 0);
   const quotaAmount = planData?.quota_amount ?? clientUser?.quotaAmount ?? 0;
+  const rawQuotaUsed = orderItems.reduce((s, i) => s + i.unit_sell_price * i.quantity, 0);
+  // Cap at quotaAmount so surplus items don't make quotaRemaining negative
+  const quotaUsed = quotaAmount > 0 ? Math.min(rawQuotaUsed, quotaAmount) : rawQuotaUsed;
   const quotaRemaining = quotaAmount - quotaUsed;
   const shippingFree = planData?.shipping_free ?? clientUser?.shippingFree ?? false;
   const shippingCost = planData?.shipping_cost ?? clientUser?.shippingCost ?? 0;

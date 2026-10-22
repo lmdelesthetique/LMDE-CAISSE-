@@ -81,14 +81,16 @@ export async function POST(req: NextRequest) {
       .maybeSingle(),
     supabase
       .from('subscription_order_items')
-      .select('quantity, unit_sell_price, is_surplus')
+      .select('quantity, unit_sell_price')
       .eq('order_id', orderId),
   ]);
   const quotaAmount: number = (subRes.data as any)?.subscription_plans?.quota_amount ?? 0;
   if (quotaAmount > 0) {
-    const currentTotal = (itemsRes.data ?? [])
-      .filter((i: any) => !i.is_surplus)
-      .reduce((s: number, i: any) => s + i.unit_sell_price * i.quantity, 0);
+    const rawTotal = (itemsRes.data ?? []).reduce(
+      (s: number, i: any) => s + i.unit_sell_price * i.quantity, 0
+    );
+    // Cap current total at quotaAmount so surplus items don't inflate the baseline
+    const currentTotal = Math.min(rawTotal, quotaAmount);
     const addedCost = (unitSellPrice ?? 0) * quantity;
     if (currentTotal + addedCost > quotaAmount + 0.01) {
       const remaining = Math.max(0, quotaAmount - currentTotal);
