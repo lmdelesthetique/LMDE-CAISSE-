@@ -659,11 +659,11 @@ export default function ClientDashboardPage() {
     // Block out-of-stock products
     if (product.stock <= 0) { showToast('Ce produit est en rupture de stock.', 'error'); return; }
 
-    if (currentOrder !== null && currentOrder.status !== 'open') {
+    if (currentOrder !== null && !['open', 'confirmed', 'preparing'].includes(currentOrder.status)) {
       if (currentOrder.status === 'cancelled') {
         showToast('Votre commande a été annulée. Allez dans l\'onglet Ma Box pour la rouvrir.', 'error');
       } else {
-        showToast('Votre box du mois est déjà confirmée et en cours de préparation.', 'error');
+        showToast('Votre box est déjà expédiée, impossible d\'ajouter des produits.', 'error');
       }
       return;
     }
@@ -1058,7 +1058,8 @@ export default function ClientDashboardPage() {
     })).filter((g) => g.products.length > 0);
   }, [visibleCategories, products, searchQuery]);
 
-  const canEdit = (subscriptionStatus === 'active' || subscriptionStatus === 'suspended') && (!currentOrder || currentOrder.status === 'open' || currentOrder.status === 'cancelled') && !isPastDeadline && currentOrder?.statut_livraison !== 'en_livraison';
+  // Allow adds while order is open, confirmed, or even preparing — lock only once shipped/en_livraison
+  const canEdit = (subscriptionStatus === 'active' || subscriptionStatus === 'suspended') && (!currentOrder || ['open', 'confirmed', 'preparing', 'cancelled'].includes(currentOrder.status)) && !isPastDeadline && currentOrder?.statut_livraison !== 'en_livraison';
   const totalCartQty = orderItems.reduce((s, i) => s + i.quantity, 0);
 
   // ── Upgrade section ────────────────────────────────────────────────────────
@@ -1950,18 +1951,17 @@ export default function ClientDashboardPage() {
         {/* ══ CATALOGUE ══════════════════════════════════════════════════════ */}
         {tab === 'catalogue' && (
           <>
-            {/* Banner quand on ne peut pas modifier */}
-            {!canEdit && currentOrder?.status === 'confirmed' && (
-              <div className="flex items-center gap-2 p-3 bg-amber-50 rounded-xl border border-amber-200">
-                <svg className="w-4 h-4 text-amber-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
-                <p className="text-xs text-amber-800 font-semibold flex-1">Votre box est déjà confirmée. Pour modifier, allez dans l'onglet <strong>Ma Box</strong> et annulez la commande.</p>
-                <button onClick={() => setTab('commande')} className="text-xs text-amber-700 underline font-bold shrink-0">Ma Box</button>
-              </div>
-            )}
+            {/* Banners d'état dans le catalogue */}
             {!canEdit && isPastDeadline && (
               <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-xl border border-gray-200">
                 <svg className="w-4 h-4 text-gray-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                 <p className="text-xs text-gray-700 font-semibold">La date limite de sélection est dépassée (après le 28). Rendez-vous le mois prochain.</p>
+              </div>
+            )}
+            {!canEdit && currentOrder && currentOrder?.statut_livraison === 'en_livraison' && (
+              <div className="flex items-center gap-2 p-3 bg-blue-50 rounded-xl border border-blue-200">
+                <svg className="w-4 h-4 text-blue-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0" /></svg>
+                <p className="text-xs text-blue-800 font-semibold">Votre box est en cours de livraison — plus de modifications possibles.</p>
               </div>
             )}
             {canEdit && quotaAmount > 0 && quotaRemaining <= 0 && (

@@ -68,8 +68,8 @@ export async function POST(req: NextRequest) {
   if (!order || order.subscription_id !== subscriptionId) {
     return NextResponse.json({ error: 'Commande introuvable' }, { status: 404 });
   }
-  if (order.status !== 'open') {
-    return NextResponse.json({ error: 'Commande déjà confirmée' }, { status: 409 });
+  if (!['open', 'confirmed', 'preparing'].includes(order.status)) {
+    return NextResponse.json({ error: 'Commande non modifiable (déjà expédiée)' }, { status: 409 });
   }
 
   // Server-side quota enforcement
