@@ -106,9 +106,9 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
         const imgUrl = shopifyImages.get(Number(prod.shopify_product_id));
         if (!imgUrl) continue;
 
-        // Persist image back to products table so future loads are instant
-        await supabase.from('products').update({ image_url: imgUrl }).eq('id', prod.id);
-        // Update local maps
+        // Do NOT write Shopify CDN URLs back to products.image_url —
+        // that would overwrite custom images that may have been lost from the column.
+        // Only update local maps so the fo_order_lines get the image for display.
         const p = byId.get(prod.id);
         if (p) p.image_url = imgUrl;
         if (prod.ref) {
