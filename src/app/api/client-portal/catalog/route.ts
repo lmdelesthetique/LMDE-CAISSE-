@@ -10,8 +10,6 @@ async function fetchAllProducts(supabase: ReturnType<typeof createAdminClient>) 
     const { data, error } = await supabase
       .from('products')
       .select('id, name, image_url, sell_price_ttc, buy_price, description, category, stock, product_status, has_color_variants')
-      .eq('product_status', 'active')
-      .gt('stock', 0)
       .order('name')
       .range(from, from + PAGE_SIZE - 1);
     if (error) throw error;
