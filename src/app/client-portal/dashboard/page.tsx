@@ -798,7 +798,7 @@ export default function ClientDashboardPage() {
         subscriptionId: clientUser?.subscriptionId,
         status: 'confirmed',
         total_products_cost: totalBuy,
-        total_sell_price: quotaUsed,
+        total_sell_price: rawQuotaUsed,
         benefit_amount: benefit,
         shipping_cost: effectiveShippingCost,
       }),
@@ -1627,7 +1627,7 @@ export default function ClientDashboardPage() {
               <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 space-y-2">
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500">Produits ({totalCartQty})</span>
-                  <span className="font-semibold tabular-nums">{quotaUsed.toFixed(2)} €</span>
+                  <span className="font-semibold tabular-nums">{rawQuotaUsed.toFixed(2)} €</span>
                 </div>
 
                 <div className="flex justify-between text-sm">
