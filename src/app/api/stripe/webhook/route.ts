@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
             const newQty = existingQty + qty;
             await supabase
               .from('subscription_order_items')
-              .update({ quantity: newQty, total_sell_price: unitSellPrice * newQty })
+              .update({ quantity: newQty, total_sell_price: unitSellPrice * newQty, is_surplus: true })
               .eq('id', existingId);
           } else {
             await supabase.from('subscription_order_items').insert({
@@ -88,6 +88,7 @@ export async function POST(req: NextRequest) {
               unit_sell_price: unitSellPrice,
               total_sell_price: unitSellPrice * qty,
               color_variant: colorVariant,
+              is_surplus: true,
             });
           }
 

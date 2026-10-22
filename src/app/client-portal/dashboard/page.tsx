@@ -17,6 +17,7 @@ interface OrderItem {
   unit_buy_price: number;
   unit_sell_price: number;
   total_sell_price: number;
+  is_surplus?: boolean;
   product?: { id: string; name: string; image_url: string | null; sell_price_ttc: number; description: string | null } | null;
 }
 
@@ -431,7 +432,7 @@ export default function ClientDashboardPage() {
   const isPastDeadline = today.getDate() > deadlineDay;
   const daysLeft = isPastDeadline ? 0 : deadlineDay - today.getDate();
 
-  const quotaUsed = orderItems.reduce((s, i) => s + i.unit_sell_price * i.quantity, 0);
+  const quotaUsed = orderItems.filter(i => !i.is_surplus).reduce((s, i) => s + i.unit_sell_price * i.quantity, 0);
   const quotaAmount = planData?.quota_amount ?? clientUser?.quotaAmount ?? 0;
   const quotaRemaining = quotaAmount - quotaUsed;
   const shippingFree = planData?.shipping_free ?? clientUser?.shippingFree ?? false;
