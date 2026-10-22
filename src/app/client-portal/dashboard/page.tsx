@@ -287,8 +287,8 @@ export default function ClientDashboardPage() {
   // Next billing date (refreshed from DB)
   const [nextBillingDate, setNextBillingDate] = useState<string | null>(null);
 
-  // Subscription status — empty until DB confirms (avoids flashing active UI to pending users)
-  const [subscriptionStatus, setSubscriptionStatus] = useState<string>('');
+  // Subscription status — default 'active' (optimistic) so buttons aren't permanently disabled if API is slow or fails
+  const [subscriptionStatus, setSubscriptionStatus] = useState<string>('active');
   const [clientEmail, setClientEmail] = useState<string>('');
 
   // App review
@@ -479,7 +479,15 @@ export default function ClientDashboardPage() {
     fetch(`/api/client-portal/subscription-data?subscriptionId=${encodeURIComponent(clientUser.subscriptionId)}`, {
       headers: { 'x-session-token': clientUser.sessionToken ?? '' },
     })
-      .then((r) => r.ok ? r.json() : null)
+      .then((r) => {
+        if (r.status === 401) {
+          // Session expirée — forcer reconnexion
+          localStorage.removeItem('client_portal_session');
+          router.replace('/client-portal/login');
+          return null;
+        }
+        return r.ok ? r.json() : null;
+      })
       .then((data) => {
         if (!data) return;
         const plan = Array.isArray(data.plan) ? data.plan[0] : data.plan;
@@ -651,8 +659,13 @@ export default function ClientDashboardPage() {
     // Block out-of-stock products
     if (product.stock <= 0) { showToast('Ce produit est en rupture de stock.', 'error'); return; }
 
-    if (currentOrder?.status !== 'open' && currentOrder !== null) {
-      showToast('La commande est déjà confirmée.', 'error'); return;
+    if (currentOrder !== null && currentOrder.status !== 'open') {
+      if (currentOrder.status === 'cancelled') {
+        showToast('Votre commande a été annulée. Allez dans l\'onglet Ma Box pour la rouvrir.', 'error');
+      } else {
+        showToast('Votre box du mois est déjà confirmée et en cours de préparation.', 'error');
+      }
+      return;
     }
 
     if (product.sell_price_ttc > quotaRemaining) {
@@ -1937,6 +1950,26 @@ export default function ClientDashboardPage() {
         {/* ══ CATALOGUE ══════════════════════════════════════════════════════ */}
         {tab === 'catalogue' && (
           <>
+            {/* Banner quand on ne peut pas modifier */}
+            {!canEdit && currentOrder?.status === 'confirmed' && (
+              <div className="flex items-center gap-2 p-3 bg-amber-50 rounded-xl border border-amber-200">
+                <svg className="w-4 h-4 text-amber-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
+                <p className="text-xs text-amber-800 font-semibold flex-1">Votre box est déjà confirmée. Pour modifier, allez dans l'onglet <strong>Ma Box</strong> et annulez la commande.</p>
+                <button onClick={() => setTab('commande')} className="text-xs text-amber-700 underline font-bold shrink-0">Ma Box</button>
+              </div>
+            )}
+            {!canEdit && isPastDeadline && (
+              <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-xl border border-gray-200">
+                <svg className="w-4 h-4 text-gray-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <p className="text-xs text-gray-700 font-semibold">La date limite de sélection est dépassée (après le 28). Rendez-vous le mois prochain.</p>
+              </div>
+            )}
+            {canEdit && quotaAmount > 0 && quotaRemaining <= 0 && (
+              <div className="flex items-center gap-2 p-3 bg-violet-50 rounded-xl border border-violet-200">
+                <svg className="w-4 h-4 text-violet-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" /></svg>
+                <p className="text-xs text-violet-800 font-semibold">Quota épuisé. Vous pouvez encore ajouter des produits en payant le surplus via carte bancaire.</p>
+              </div>
+            )}
             {/* Search */}
             <div className="relative">
               <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
