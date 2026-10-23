@@ -428,9 +428,13 @@ export default function ClientDashboardPage() {
   const currentMonth = new Date().toISOString().slice(0, 7);
   const today = new Date();
   const deadlineDay = 28;
-  const deadlineDate = new Date(today.getFullYear(), today.getMonth(), deadlineDay);
-  const isPastDeadline = today.getDate() > deadlineDay;
-  const daysLeft = isPastDeadline ? 0 : deadlineDay - today.getDate();
+  // Use the active order's month for deadline display — may be next month if current is already delivered
+  const activeOrderMonth = currentOrder?.order_month ?? currentMonth;
+  const [_adY, _adM] = activeOrderMonth.split('-').map(Number);
+  const activeDeadline = new Date(_adY, _adM - 1, deadlineDay);
+  const deadlineDate = activeDeadline;
+  const isPastDeadline = today > activeDeadline;
+  const daysLeft = isPastDeadline ? 0 : Math.max(0, Math.ceil((activeDeadline.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
 
   const quotaAmount = planData?.quota_amount ?? clientUser?.quotaAmount ?? 0;
   const rawQuotaUsed = orderItems.reduce((s, i) => s + i.unit_sell_price * i.quantity, 0);
@@ -509,23 +513,47 @@ export default function ClientDashboardPage() {
     setLoadingOrder(true);
 
     let order: SubscriptionOrder | null = null;
+    const calPastDeadline = new Date().getDate() > deadlineDay;
 
-    if (!isPastDeadline) {
-      const planShippingCost = planData?.shipping_cost ?? clientUser.shippingCost ?? 0;
-      const res = await fetch('/api/client-portal/subscription-order', {
-        method: 'POST',
-        headers: sessionHeaders(),
-        body: JSON.stringify({
-          subscriptionId: clientUser.subscriptionId,
-          month: currentMonth,
-          shippingCost: planShippingCost,
-          deadlineDate: deadlineDate.toISOString().slice(0, 10),
-        }),
-      });
-      if (res.ok) { const json = await res.json(); order = json.order ?? null; }
-    } else {
-      const res = await fetch(`/api/client-portal/subscription-order?subscriptionId=${encodeURIComponent(clientUser.subscriptionId)}&month=${encodeURIComponent(currentMonth)}`, { headers: sessionHeaders() });
-      if (res.ok) { const json = await res.json(); order = json.order ?? null; }
+    // Check current calendar month first — if box already delivered, advance to next month
+    let targetMonth = currentMonth;
+    const checkRes = await fetch(
+      `/api/client-portal/subscription-order?subscriptionId=${encodeURIComponent(clientUser.subscriptionId)}&month=${encodeURIComponent(currentMonth)}`,
+      { headers: sessionHeaders() }
+    );
+    if (checkRes.ok) {
+      const { order: existing } = await checkRes.json();
+      if (existing && (['shipped', 'en_livraison'].includes(existing.status) || existing.statut_livraison === 'remis_client')) {
+        const [y, m] = currentMonth.split('-').map(Number);
+        targetMonth = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
+      } else {
+        order = existing;
+      }
+    }
+
+    if (!order) {
+      if (!calPastDeadline) {
+        const [ty, tm] = targetMonth.split('-').map(Number);
+        const targetDeadline = new Date(ty, tm - 1, deadlineDay).toISOString().slice(0, 10);
+        const planShippingCost = planData?.shipping_cost ?? clientUser.shippingCost ?? 0;
+        const res = await fetch('/api/client-portal/subscription-order', {
+          method: 'POST',
+          headers: sessionHeaders(),
+          body: JSON.stringify({
+            subscriptionId: clientUser.subscriptionId,
+            month: targetMonth,
+            shippingCost: planShippingCost,
+            deadlineDate: targetDeadline,
+          }),
+        });
+        if (res.ok) { const json = await res.json(); order = json.order ?? null; }
+      } else {
+        const res = await fetch(
+          `/api/client-portal/subscription-order?subscriptionId=${encodeURIComponent(clientUser.subscriptionId)}&month=${encodeURIComponent(targetMonth)}`,
+          { headers: sessionHeaders() }
+        );
+        if (res.ok) { const json = await res.json(); order = json.order ?? null; }
+      }
     }
 
     setCurrentOrder(order);
@@ -537,7 +565,7 @@ export default function ClientDashboardPage() {
     setLoadingOrder(false);
   // planData intentionally excluded from deps — it's used only for shippingCost and would cause a double-call on load
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientUser, currentMonth, isPastDeadline]);
+  }, [clientUser, currentMonth]);
 
   useEffect(() => {
     if (clientUser) loadCurrentOrder();
@@ -1420,7 +1448,7 @@ export default function ClientDashboardPage() {
       <div className="sticky top-[53px] z-20 bg-white border-b border-gray-100 px-4 py-2">
         <div className="max-w-lg mx-auto">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-[11px] font-semibold text-gray-600">Quota {currentMonth}</span>
+            <span className="text-[11px] font-semibold text-gray-600">Quota {activeOrderMonth}</span>
             <span className="text-[11px] font-bold text-rose-600 tabular-nums">{quotaUsed.toFixed(2)} € / {quotaAmount} €</span>
           </div>
           <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
