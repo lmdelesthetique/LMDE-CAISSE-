@@ -92,10 +92,11 @@ function urlBase64ToUint8Array(base64String: string) {
   return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
 }
 
-const STATUS_LABEL: Record<OrderStatus, string> = {
+const STATUS_LABEL: Record<string, string> = {
   open: 'En cours', confirmed: 'Confirmée', preparing: 'Préparation', shipped: 'Expédiée', auto: 'Générée auto', en_livraison: '🚚 En livraison', cancelled: '❌ Annulée',
+  remis_client: '✓ Récupérée', retrait_magasin: '🏪 Dispo magasin',
 };
-const STATUS_COLOR: Record<OrderStatus, string> = {
+const STATUS_COLOR: Record<string, string> = {
   open: 'bg-amber-50 text-amber-700 border-amber-200',
   confirmed: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   preparing: 'bg-blue-50 text-blue-700 border-blue-200',
@@ -103,7 +104,15 @@ const STATUS_COLOR: Record<OrderStatus, string> = {
   en_livraison: 'bg-pink-50 text-pink-700 border-pink-200',
   cancelled: 'bg-red-50 text-red-600 border-red-200',
   auto: 'bg-gray-50 text-gray-600 border-gray-200',
+  remis_client: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  retrait_magasin: 'bg-emerald-50 text-emerald-700 border-emerald-200',
 };
+function orderDisplayKey(status: OrderStatus, statut_livraison: string | null): string {
+  if (statut_livraison === 'remis_client') return 'remis_client';
+  if (statut_livraison === 'en_livraison') return 'en_livraison';
+  if (statut_livraison === 'retrait_magasin') return 'retrait_magasin';
+  return status;
+}
 
 const WA_LINK = 'https://wa.me/message/QBWQFIG2EHXCI1';
 const STRIPE_DELIVERY_LINK = 'https://buy.stripe.com/00wfZi5R16Xt4IGeK37IY09';
@@ -1556,8 +1565,8 @@ export default function ClientDashboardPage() {
                 {isPastDeadline ? 'Date limite dépassée' : `${daysLeft} jour${daysLeft > 1 ? 's' : ''} avant clôture`}
               </span>
               {currentOrder && (
-                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${currentOrder.statut_livraison === 'retrait_magasin' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : STATUS_COLOR[currentOrder.statut_livraison === 'en_livraison' ? 'en_livraison' : currentOrder.status]}`}>
-                  {currentOrder.statut_livraison === 'retrait_magasin' ? '🏪 Disponible en magasin' : STATUS_LABEL[currentOrder.statut_livraison === 'en_livraison' ? 'en_livraison' : currentOrder.status]}
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${STATUS_COLOR[orderDisplayKey(currentOrder.status, currentOrder.statut_livraison)]}`}>
+                  {STATUS_LABEL[orderDisplayKey(currentOrder.status, currentOrder.statut_livraison)]}
                 </span>
               )}
             </div>
@@ -2545,7 +2554,7 @@ export default function ClientDashboardPage() {
                 <p className="text-2xl mb-2">📦</p>
                 <p className="text-sm text-gray-400">Aucune commande passée</p>
               </div>
-            ) : pastOrders.map((order) => {
+            ) : pastOrders.filter(o => o.id !== currentOrder?.id).map((order) => {
               const items = pastOrderItems[order.id] ?? [];
               const isExpanded = expandedPastOrder === order.id;
               const isReordering = reordering === order.id;
@@ -2565,8 +2574,8 @@ export default function ClientDashboardPage() {
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${STATUS_COLOR[order.statut_livraison === 'en_livraison' ? 'en_livraison' : order.status]}`}>
-                        {STATUS_LABEL[order.statut_livraison === 'en_livraison' ? 'en_livraison' : order.status]}
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${STATUS_COLOR[orderDisplayKey(order.status, order.statut_livraison)]}`}>
+                        {STATUS_LABEL[orderDisplayKey(order.status, order.statut_livraison)]}
                       </span>
                       <svg className={`w-4 h-4 text-gray-300 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
