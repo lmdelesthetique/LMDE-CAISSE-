@@ -894,7 +894,7 @@ export default function ClientDashboardPage() {
     setCancelling(true);
     const res = await fetch('/api/client-portal/subscription-order/status', {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ orderId: currentOrder.id, subscriptionId: clientUser?.subscriptionId, status: 'cancelled' }),
     });
     if (!res.ok) { const j = await res.json().catch(() => ({})); showToast(`Erreur: ${j.error ?? 'inconnue'}`, 'error'); setCancelling(false); return; }
@@ -908,7 +908,7 @@ export default function ClientDashboardPage() {
     setRestarting(true);
     const res = await fetch('/api/client-portal/subscription-order/status', {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ orderId: currentOrder.id, subscriptionId: clientUser?.subscriptionId, status: 'open' }),
     });
     if (!res.ok) { const j = await res.json().catch(() => ({})); showToast(`Erreur: ${j.error ?? 'inconnue'}`, 'error'); setRestarting(false); return; }
@@ -974,15 +974,17 @@ export default function ClientDashboardPage() {
   };
 
   const updateShippingMode = async (mode: 'delivery' | 'pickup') => {
-    if (!currentOrder || currentOrder.status === 'confirmed') return;
+    if (!currentOrder) return;
     setUpdatingShipping(true);
+    const body: any = { orderId: currentOrder.id, subscriptionId: clientUser?.subscriptionId, shipping_mode: mode };
+    if (mode === 'pickup') body.delivery_destination = null;
     const res = await fetch('/api/client-portal/subscription-order/status', {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ orderId: currentOrder.id, subscriptionId: clientUser?.subscriptionId, shipping_mode: mode }),
+      headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
     });
     if (!res.ok) { showToast('Erreur mise à jour livraison', 'error'); setUpdatingShipping(false); return; }
-    setCurrentOrder((prev) => prev ? { ...prev, shipping_mode: mode } : prev);
+    setCurrentOrder((prev) => prev ? { ...prev, shipping_mode: mode, ...(mode === 'pickup' ? { delivery_destination: null } : {}) } : prev);
     setUpdatingShipping(false);
   };
 

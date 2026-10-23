@@ -226,11 +226,12 @@ function PrepModal({
       if (!res.ok) { setErr(json.error ?? 'Erreur création expédition'); setCreatingExpedition(false); return; }
 
       const expeditionId = json.id ?? null;
-      await fetch(`/api/subscriptions/orders/${order.id}`, {
+      const patchRes = await fetch(`/api/subscriptions/orders/${order.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'shipped', ...(expeditionId ? { linked_expedition_id: expeditionId } : {}) }),
       });
+      if (!patchRes.ok) { setErr('Expédition créée mais mise à jour commande échouée — vérifiez manuellement'); setCreatingExpedition(false); return; }
 
       // Portal notification
       if (sub.client?.id) {
@@ -262,7 +263,7 @@ function PrepModal({
       const res = await fetch(`/api/subscriptions/orders/${order.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'shipped', statut_livraison: 'retrait_magasin' }),
+        body: JSON.stringify({ status: 'shipped', statut_livraison: 'retrait_magasin', shipping_mode: 'pickup' }),
       });
       if (!res.ok) { setErr('Erreur mise à jour'); setMarkingPickup(false); return; }
       setLocalStatus('shipped');
@@ -306,7 +307,7 @@ function PrepModal({
       const res = await fetch(`/api/subscriptions/orders/${order.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ statut_livraison: 'remis_client' }),
+        body: JSON.stringify({ status: 'shipped', statut_livraison: 'remis_client' }),
       });
       if (!res.ok) { setErr('Erreur mise à jour'); setMarkingRemis(false); return; }
       const phone = sub.portal_phone;
@@ -576,11 +577,12 @@ function DeliveryModal({
       if (!deliveryId) { setError('Livraison créée mais ID introuvable — réessayez.'); setSubmitting(false); return; }
 
       // 2. Update subscription_order
-      await fetch(`/api/subscriptions/orders/${sub.currentOrder!.id}`, {
+      const orderPatch = await fetch(`/api/subscriptions/orders/${sub.currentOrder!.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ statut_livraison: 'en_livraison', delivery_id: deliveryId }),
+        body: JSON.stringify({ status: 'en_livraison', statut_livraison: 'en_livraison', delivery_id: deliveryId }),
       });
+      if (!orderPatch.ok) { const j = await orderPatch.json().catch(() => ({})); setError(j.error ?? 'Livraison créée mais mise à jour commande échouée'); setSubmitting(false); return; }
 
       // 3. WhatsApp to driver (non-blocking — livraison route handles it when assigned_to_driver is set)
       // Driver notification is sent server-side by /api/livraisons/[id] PATCH

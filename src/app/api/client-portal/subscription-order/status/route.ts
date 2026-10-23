@@ -11,7 +11,7 @@ export async function PATCH(request: NextRequest) {
   let body: any;
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
 
-  const { orderId, subscriptionId, status, shipping_mode, total_products_cost, total_sell_price, benefit_amount, shipping_cost } = body;
+  const { orderId, subscriptionId, status, shipping_mode, delivery_destination, total_products_cost, total_sell_price, benefit_amount, shipping_cost } = body;
   if (!orderId) return NextResponse.json({ error: 'orderId required' }, { status: 400 });
 
   const authErr = await verifyClientSession(subscriptionId, request.headers.get('x-session-token'));
@@ -43,6 +43,7 @@ export async function PATCH(request: NextRequest) {
   if (shipping_mode !== undefined) {
     if (!['delivery', 'pickup'].includes(shipping_mode)) return NextResponse.json({ error: 'Invalid shipping_mode' }, { status: 400 });
     updates.shipping_mode = shipping_mode;
+    if (shipping_mode === 'pickup' || delivery_destination === null) updates.delivery_destination = null;
   }
 
   if (status !== undefined) {
