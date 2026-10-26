@@ -924,15 +924,22 @@ export default function DevisProPage() {
     const email = devis.client?.email;
     if (email) {
       try {
-        await fetch(`/api/devis-pro/${devis.id}/send-link-email`, {
+        const res = await fetch(`/api/devis-pro/${devis.id}/send-link-email`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email, firstName, link, itemLines, amount: devis.client_pays, numero: devis.numero }),
         });
-        toast.success('Lien envoyé par WhatsApp et par email ✓');
+        if (res.ok) {
+          toast.success(phone ? 'Lien envoyé par WhatsApp et par email ✓' : 'Email envoyé ✓');
+        } else {
+          toast.warning(phone ? 'WhatsApp ouvert — email non envoyé' : 'Échec envoi email');
+        }
       } catch {
-        // email failed silently — WA was already opened
+        if (phone) toast.success('Lien ouvert dans WhatsApp ✓');
+        else toast.error('Erreur réseau — email non envoyé');
       }
+    } else if (phone) {
+      toast.success('Lien ouvert dans WhatsApp ✓');
     }
   };
 
@@ -1816,8 +1823,8 @@ export default function DevisProPage() {
                 💬 Marquer en discussion
               </button>
             )}
-            {/* Shortcut: mark as delivered directly from any active state */}
-            {selected.statut !== 'livre' && selected.statut !== 'annule' && selected.statut !== 'pret' && (
+            {/* Shortcut: only visible after client has responded / order is in progress */}
+            {['client_valide', 'client_modifie', 'valide', 'en_preparation'].includes(selected.statut) && (
               <button
                 onClick={() => updateStatut(selected, 'livre')}
                 disabled={statusUpdating}
@@ -2063,7 +2070,7 @@ export default function DevisProPage() {
                     {editingDevisId ? 'Modifier le devis' : 'Nouveau devis'} — {newDevisClient.firstName} {newDevisClient.lastName}
                   </p>
                 </div>
-                <button onClick={() => { setShowNewDevis(false); setEditingDevisId(null); fetchDevis(); }}
+                <button onClick={() => { setShowNewDevis(false); setEditingDevisId(null); setNewDevisClient(null); setClientSearch(''); setClientResults([]); fetchDevis(); }}
                   className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
                   <Icon name="XMarkIcon" size={18} />
                 </button>
@@ -2083,6 +2090,9 @@ export default function DevisProPage() {
                       setEditingDevisId(null);
                     }
                     setShowNewDevis(false);
+                    setNewDevisClient(null);
+                    setClientSearch('');
+                    setClientResults([]);
                     fetchDevis();
                   }}
                 />

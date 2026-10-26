@@ -36,7 +36,7 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   const { data: devis, error } = await supabase
     .from('devis_pro')
     .select(`
-      id, numero, items, discount_pct, credit, total_ttc, client_pays,
+      id, numero, items, discount_pct, credit, total_ttc, client_pays, paye_total,
       free_shipping, statut, client_response, client_responded_at, notes,
       client:clients(first_name, last_name)
     `)

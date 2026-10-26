@@ -45,6 +45,7 @@ interface DevisData {
   credit: number;
   total_ttc: number;
   client_pays: number;
+  paye_total: number;
   free_shipping: boolean;
   statut: string;
   client_response: string | null;
@@ -94,7 +95,7 @@ export default function DevisClientPage() {
         const mapped = mapItems(data.devis.items ?? []);
         setItems(mapped);
         setOriginalItems(mapped);
-        if (data.devis.client_response) setSubmitted(true);
+        if (data.devis.client_response || ['livre', 'annule'].includes(data.devis.statut)) setSubmitted(true);
       })
       .catch(() => setErr('Impossible de charger le devis.'))
       .finally(() => setLoading(false));
@@ -222,7 +223,7 @@ export default function DevisClientPage() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
         </div>
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">Merci {devis?.client?.first_name} !</h1>
+        <h1 className="text-2xl font-bold text-gray-900 mb-2">Merci {(() => { const f = devis?.client?.first_name?.trim() ?? ''; const l = devis?.client?.last_name?.trim() ?? ''; return (f && !/^\d+$/.test(f)) ? f : l || ''; })()} !</h1>
         <p className="text-gray-600 mb-1">Nous avons bien reçu votre réponse.</p>
         <p className="text-sm text-gray-400 mt-2">
           L&apos;équipe Le Monde de l&apos;Esthétique prépare votre commande et vous contactera très prochainement. 💅
@@ -416,9 +417,21 @@ export default function DevisClientPage() {
               <span>{devis?.free_shipping ? '✅ Gratuite' : 'À définir'}</span>
             </div>
             <div className="border-t border-gray-100 pt-2 flex justify-between font-bold text-gray-900">
-              <span>Vous payez</span>
+              <span>Total</span>
               <span className="text-xl text-[#B8960C]">{clientPays.toFixed(2)} €</span>
             </div>
+            {(devis?.paye_total ?? 0) > 0 && (
+              <>
+                <div className="flex justify-between text-emerald-600 font-medium">
+                  <span>Acompte versé</span>
+                  <span>-{(devis!.paye_total).toFixed(2)} €</span>
+                </div>
+                <div className="flex justify-between font-bold text-orange-600 border-t border-gray-100 pt-2">
+                  <span>Reste à payer</span>
+                  <span>{Math.max(0, clientPays - devis!.paye_total).toFixed(2)} €</span>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>
