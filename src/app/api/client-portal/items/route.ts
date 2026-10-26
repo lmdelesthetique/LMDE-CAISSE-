@@ -168,8 +168,8 @@ export async function PATCH(req: NextRequest) {
   if (!item || order?.subscription_id !== subscriptionId) {
     return NextResponse.json({ error: 'Article introuvable' }, { status: 404 });
   }
-  if (order?.status !== 'open') {
-    return NextResponse.json({ error: 'Commande déjà confirmée' }, { status: 409 });
+  if (!['open', 'confirmed'].includes(order?.status)) {
+    return NextResponse.json({ error: 'Commande en préparation, modification impossible' }, { status: 409 });
   }
 
   const { error } = await supabase
@@ -203,8 +203,8 @@ export async function DELETE(req: NextRequest) {
   if (!item || order?.subscription_id !== subscriptionId) {
     return NextResponse.json({ error: 'Article introuvable' }, { status: 404 });
   }
-  if (order?.status !== 'open') {
-    return NextResponse.json({ error: 'Commande déjà confirmée' }, { status: 409 });
+  if (!['open', 'confirmed'].includes(order?.status)) {
+    return NextResponse.json({ error: 'Commande en préparation, modification impossible' }, { status: 409 });
   }
 
   const { error } = await supabase

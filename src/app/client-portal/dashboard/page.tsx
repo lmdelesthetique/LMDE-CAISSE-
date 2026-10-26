@@ -815,6 +815,17 @@ export default function ClientDashboardPage() {
   const removeProduct = useCallback(async (itemId: string) => {
     const item = orderItems.find((i) => i.id === itemId);
     if (!item || !currentOrder) return;
+
+    // If order was confirmed, reset to open so client must re-confirm after changes
+    if (currentOrder.status === 'confirmed') {
+      await fetch('/api/client-portal/subscription-order/status', {
+        method: 'PATCH',
+        headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId: currentOrder.id, subscriptionId: clientUser?.subscriptionId, status: 'open' }),
+      });
+      setCurrentOrder((prev) => prev ? { ...prev, status: 'open' } : prev);
+    }
+
     if (item.quantity > 1) {
       const newQty = item.quantity - 1;
       const newTotal = item.unit_sell_price * newQty;
@@ -833,7 +844,7 @@ export default function ClientDashboardPage() {
       if (!res.ok) { const j = await res.json().catch(() => ({})); showToast(j.error ?? 'Erreur suppression', 'error'); return; }
       setOrderItems((prev) => prev.filter((i) => i.id !== itemId));
     }
-  }, [orderItems, currentOrder, showToast, sessionHeaders]);
+  }, [orderItems, currentOrder, clientUser, showToast, sessionHeaders]);
 
   // ── Confirm order ──────────────────────────────────────────────────────────
   const confirmOrder = async () => {
