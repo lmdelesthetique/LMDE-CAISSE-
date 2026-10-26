@@ -446,6 +446,8 @@ export default function DevisProPage() {
 
   // ── Status update ────────────────────────────────────────────────────────────
   const updateStatut = async (devis: DevisPro, newStatut: Statut) => {
+    if (devis.statut === 'annule') { toast.error('Ce devis est annulé — impossible de le modifier.'); return; }
+    if (devis.statut === 'livre' && newStatut !== 'livre') { toast.error('Ce devis est déjà livré.'); return; }
     setStatusUpdating(true);
     try {
       const patch: any = { statut: newStatut };
@@ -2084,6 +2086,8 @@ export default function DevisProPage() {
                   initialStatut={editingDevisId ? editingStatut : undefined}
                   onHistoryChanged={async () => {
                     if (editingDevisId) {
+                      // Clear selected immediately so stale UI can't trigger livre/autres actions
+                      setSelected((prev) => prev?.id === editingDevisId ? null : prev);
                       await fetch(`/api/devis-pro/${editingDevisId}`, {
                         method: 'PATCH',
                         headers: { 'Content-Type': 'application/json' },

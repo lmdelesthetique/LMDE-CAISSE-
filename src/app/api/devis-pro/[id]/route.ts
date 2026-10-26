@@ -272,6 +272,15 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     .eq('id', id)
     .single();
 
+  // Guard: never change statut of an annulé devis (prevents stale UI from marking it livre)
+  if (current?.statut === 'annule' && 'statut' in body && body.statut !== 'annule') {
+    return NextResponse.json({ error: 'Ce devis est annulé — impossible de modifier le statut.' }, { status: 400 });
+  }
+  // Guard: never go from livre → active state
+  if (current?.statut === 'livre' && 'statut' in body && body.statut !== 'livre') {
+    return NextResponse.json({ error: 'Ce devis est déjà livré — impossible de revenir en arrière.' }, { status: 400 });
+  }
+
   const allowed = [
     'items', 'discount_pct', 'credit', 'total_ttc', 'client_pays', 'free_shipping',
     'statut', 'type_expedition', 'adresse_livraison', 'notes', 'notes_preparation',

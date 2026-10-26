@@ -872,8 +872,9 @@ export default function ProDevisPanel({
       // Always save to localStorage first
       persistDevisLocally([], newHistory);
       // Save to devis_pro table — PATCH if already created (WhatsApp was sent first), else POST
+      // Awaited so onHistoryChanged fires only after the devis is confirmed saved
       if (currentDevisProId) {
-        fetch(`/api/devis-pro/${currentDevisProId}`, {
+        await fetch(`/api/devis-pro/${currentDevisProId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -888,7 +889,7 @@ export default function ProDevisPanel({
           }),
         }).catch(() => {});
       } else {
-        fetch('/api/devis-pro', {
+        await fetch('/api/devis-pro', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
