@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
     let q = supabase
       .from('receipts')
       .select('total_amount, items_count, is_demo, client_name')
-      .neq('status', 'cancelled')
+      .not('status', 'eq', 'cancelled')
       .gte('created_at', s)
       .lte('created_at', e)
       .limit(50000);

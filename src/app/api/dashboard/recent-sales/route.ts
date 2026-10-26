@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
   const { data: rawRecent } = await supabase
     .from('receipts')
     .select('id, total_amount, payment_method, client_name, items_count, created_at, ticket_number, is_demo')
-    .neq('status', 'cancelled')
+    .not('status', 'eq', 'cancelled')
     .gte('created_at', start)
     .order('created_at', { ascending: false })
     .limit(30);

@@ -12,7 +12,7 @@ async function fetchAllReceipts(supabase: any, start: string, end: string, emplo
     let q = supabase
       .from('receipts')
       .select('payment_method, total_amount, is_demo, client_name')
-      .neq('status', 'cancelled')
+      .not('status', 'eq', 'cancelled')
       .gte('created_at', start)
       .lte('created_at', end)
       .order('created_at', { ascending: true })

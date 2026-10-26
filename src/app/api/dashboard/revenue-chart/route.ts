@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
   let query = supabase
     .from('receipts')
     .select('total_amount, created_at, is_demo, client_name')
-    .neq('status', 'cancelled')
+    .not('status', 'eq', 'cancelled')
     .gte('created_at', start)
     .lte('created_at', end)
     .order('created_at', { ascending: true })
