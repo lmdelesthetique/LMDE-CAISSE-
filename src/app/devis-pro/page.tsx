@@ -70,6 +70,7 @@ interface DevisPro {
     lastName: string;
     phone?: string;
     whatsapp?: string;
+    email?: string;
     clientType?: string;
     address?: string;
     city?: string;
@@ -847,13 +848,51 @@ export default function DevisProPage() {
     finally { setGeneratingLink(false); }
   };
 
-  const sendWhatsAppWithLink = (devis: DevisPro, link: string) => {
+  const sendWhatsAppWithLink = async (devis: DevisPro, link: string) => {
     const phone = devis.client?.whatsapp ?? devis.client?.phone;
-    if (!phone) { toast.error('Pas de numéro WhatsApp'); return; }
-    const clean = phone.replace(/\s/g, '');
-    const intl = clean.startsWith('0') ? '+596' + clean.slice(1) : clean.startsWith('+') ? clean : '+596' + clean;
-    const msg = `Bonjour ${devis.client?.firstName} 🌸\n\nVotre devis *${devis.numero ?? ''}* est prêt — *${fmtMoney(devis.client_pays)}*\n\n👆 Consultez-le, modifiez-le ou acceptez-le directement depuis votre téléphone :\n${link}\n\nPour toute question, n'hésitez pas à nous contacter 😊\n— Le Monde de l'Esthétique 💅`;
-    window.open(`https://wa.me/${intl}?text=${encodeURIComponent(msg)}`, '_blank');
+    const firstName = devis.client?.firstName || devis.client?.lastName || 'Madame';
+    const itemLines = devis.items
+      .filter((i) => !i.isBonus)
+      .slice(0, 6)
+      .map((i) => `• ${i.name}${i.qty > 1 ? ` x${i.qty}` : ''}`)
+      .join('\n');
+
+    const msg = [
+      `Bonjour ${firstName} 🌸`,
+      '',
+      `Gérer son réassort entre deux clients, c'est chronophage — alors on s'en occupe pour vous. 💼`,
+      '',
+      `Votre sélection personnalisée est prête :`,
+      itemLines,
+      `💰 *${fmtMoney(devis.client_pays)}* · Sans engagement`,
+      '',
+      `👉 Consultez, ajustez si besoin et confirmez en 1 clic :`,
+      link,
+      '',
+      `Aucune commande automatique — vous validez quand vous êtes prête 😊`,
+      `— Le Monde de l'Esthétique ✨`,
+    ].join('\n');
+
+    if (phone) {
+      const clean = phone.replace(/\s/g, '');
+      const intl = clean.startsWith('0') ? '+596' + clean.slice(1) : clean.startsWith('+') ? clean : '+596' + clean;
+      window.open(`https://wa.me/${intl}?text=${encodeURIComponent(msg)}`, '_blank');
+    }
+
+    // Also send by email if client has email
+    const email = devis.client?.email;
+    if (email) {
+      try {
+        await fetch(`/api/devis-pro/${devis.id}/send-link-email`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, firstName, link, itemLines, amount: devis.client_pays, numero: devis.numero }),
+        });
+        toast.success('Lien envoyé par WhatsApp et par email ✓');
+      } catch {
+        // email failed silently — WA was already opened
+      }
+    }
   };
 
   // ─── Render ────────────────────────────────────────────────────────────────

@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
     .from('devis_pro')
     .select(`
       *,
-      client:clients(id, firstName:first_name, lastName:last_name, phone, clientType:client_type, whatsapp),
+      client:clients(id, firstName:first_name, lastName:last_name, phone, clientType:client_type, whatsapp, email),
       created_by:employees(id, first_name, last_name, avatar_initials)
     `)
     .order('created_at', { ascending: false })
