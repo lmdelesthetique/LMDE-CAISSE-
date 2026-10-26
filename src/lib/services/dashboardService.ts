@@ -189,27 +189,20 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
   const period = filters?.period ?? 'month';
   const { start, end, prevStart, prevEnd } = getDateRangeForPeriod(period, filters?.customStart, filters?.customEnd);
 
-  // For "today" period we need day-specific ranges
   const dayRange = getDateRange('day');
-  const prevDayRange = getDateRange('prevDay');
-
-  // Build receipt queries with optional employee filter (demo tickets excluded)
-  // limit(10000) bypasses Supabase's default 1000-row cap for year-long queries
-  const buildReceiptsQuery = (s: string, e: string) => {
-    let q = supabase.from('receipts').select('total_amount, items_count, is_demo, client_name').neq('status', 'cancelled')
-      .gte('created_at', s).lte('created_at', e).limit(10000);
-    if (filters?.employeeId) q = q.eq('employee_id', filters.employeeId);
-    return q;
-  };
-
-  const isReal = (r: any) => {
-    if (r.is_demo === true) return false;
-    const cn = (r.client_name ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
-    return cn !== 'CHRISTY LHOMME';
-  };
-
   const curMonthRange = getDateRange('month');
   const prevMonthRange = getDateRange('prevMonth');
+  const prevDayRange = getDateRange('prevDay');
+
+  // Receipt KPIs via admin API route (bypasses RLS — anon client returns incomplete data)
+  const kpisParams = new URLSearchParams({
+    start, end, prevStart, prevEnd,
+    curMonthStart: curMonthRange.start, curMonthEnd: curMonthRange.end,
+    prevMonthStart: prevMonthRange.start, prevMonthEnd: prevMonthRange.end,
+    dayStart: dayRange.start, dayEnd: dayRange.end,
+    prevDayStart: prevDayRange.start, prevDayEnd: prevDayRange.end,
+  });
+  if (filters?.employeeId) kpisParams.set('employeeId', filters.employeeId);
 
   const shopifyRevenuePromise = fetch(
     `/api/shopify/revenue?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`
@@ -223,13 +216,12 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
     `/api/shopify/revenue?start=${encodeURIComponent(curMonthRange.start)}&end=${encodeURIComponent(curMonthRange.end)}`
   ).then((r) => r.json()).then((j) => Number(j.revenue) || 0).catch(() => 0);
 
+  const kpisPromise = fetch(`/api/dashboard/kpis?${kpisParams}`)
+    .then((r) => r.json())
+    .catch(() => ({ caMain: 0, caPrev: 0, caDay: 0, caDayPrev: 0, salesDay: 0, salesDayPrev: 0, caCurrentMonth: 0, caPrevMonth: 0 }));
+
   const [
-    currentReceipts,
-    prevReceipts,
-    dayReceipts,
-    prevDayReceipts,
-    currentMonthReceipts,
-    prevMonthReceipts,
+    kpisData,
     stockAlertResult,
     activeProductsResult,
     marginProductsResult,
@@ -243,12 +235,7 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
     resDepositsPrevMonthResult,
     resBalancesPrevMonthResult,
   ] = await Promise.all([
-    buildReceiptsQuery(start, end),
-    buildReceiptsQuery(prevStart, prevEnd),
-    buildReceiptsQuery(dayRange.start, dayRange.end),
-    buildReceiptsQuery(prevDayRange.start, prevDayRange.end),
-    buildReceiptsQuery(curMonthRange.start, curMonthRange.end),
-    buildReceiptsQuery(prevMonthRange.start, prevMonthRange.end),
+    kpisPromise,
     supabase.from('products').select('id, stock, min_stock, product_status')
       .neq('product_status', 'inactive'),
     supabase.from('products').select('*', { count: 'exact', head: true })
@@ -289,14 +276,12 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
     Number(p.stock ?? 0) <= 0 || Number(p.stock ?? 0) <= Number(p.min_stock || 5)
   ).length;
   const activeProductsCount = activeProductsResult.count;
-  // caShopify is already resolved from the parallel Promise.all above
 
   const marginPcts = (marginProductsResult.data ?? []).map((p: any) => {
     const buyPrice = Number(p.buy_price) || 0;
     const transport = Number(p.transport) || 0;
     const customs = Number(p.customs) || 0;
     const otherFees = Number(p.other_fees) || 0;
-    // structure_pct is overhead info only — not added to real import cost
     const realCost = buyPrice + transport + customs + otherFees;
     const sellHT = Number(p.sell_price_ht) || Number(p.sell_price_ttc) / 1.085 || 0;
     return sellHT > 0 ? ((sellHT - realCost) / sellHT) * 100 : 0;
@@ -305,32 +290,17 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
   const productsBelow20Pct = marginPcts.filter((m: number) => m < 20).length;
   const productsAbove50Pct = marginPcts.filter((m: number) => m >= 50).length;
 
-  const sum = (arr: { data: any[] | null }) =>
-    (arr.data ?? []).filter(isReal).reduce((s, r) => s + (Number(r.total_amount) || 0), 0);
+  const reservationDeposits = (resDepositsResult.data ?? []).reduce((s: number, r: any) => s + (Number(r.deposit_paid) || 0), 0);
+  const reservationBalances = (resBalancesResult.data ?? []).reduce((s: number, r: any) => s + (Number(r.balance_paid) || 0), 0);
 
-  const caMain = sum(currentReceipts);
-  const caPrev = sum(prevReceipts);
-  const caDay = sum(dayReceipts);
-  const caDayPrev = sum(prevDayReceipts);
-  const salesDay = (dayReceipts.data ?? []).filter(isReal).length;
-  const salesDayPrev = (prevDayReceipts.data ?? []).filter(isReal).length;
-  const avgBasket = salesDay > 0 ? caDay / salesDay : 0;
-
-  const reservationDeposits = (resDepositsResult.data ?? []).reduce((s, r) => s + (Number(r.deposit_paid) || 0), 0);
-  const reservationBalances = (resBalancesResult.data ?? []).reduce((s, r) => s + (Number(r.balance_paid) || 0), 0);
-
-  const caCurrentMonthCaisse = sum(currentMonthReceipts);
-  const resCurrentMonthDeposits = (resDepositsMonthResult.data ?? []).reduce((s, r) => s + (Number(r.deposit_paid) || 0), 0);
-  const resCurrentMonthBalances = (resBalancesMonthResult.data ?? []).reduce((s, r) => s + (Number(r.balance_paid) || 0), 0);
+  const resCurrentMonthDeposits = (resDepositsMonthResult.data ?? []).reduce((s: number, r: any) => s + (Number(r.deposit_paid) || 0), 0);
+  const resCurrentMonthBalances = (resBalancesMonthResult.data ?? []).reduce((s: number, r: any) => s + (Number(r.balance_paid) || 0), 0);
   const reservationCurrentMonth = resCurrentMonthDeposits + resCurrentMonthBalances;
 
-  const caCurrentMonthPrevCaisse = sum(prevMonthReceipts);
-  // prev-month comparison uses caisse-only (no reservation addition) for consistency
-  const caCurrentMonthPrev = caCurrentMonthPrevCaisse;
+  const { caMain, caPrev, caDay, caDayPrev, salesDay, salesDayPrev, caCurrentMonth, caPrevMonth } = kpisData;
+  const avgBasket = salesDay > 0 ? caDay / salesDay : 0;
 
   return {
-    // caMain = sum of real completed receipts for the selected period (no reservation addition —
-    // POS acomptes already create a receipt, so adding reservations would double-count)
     caMonth: caMain,
     caWeek: caMain,
     caDay,
@@ -349,117 +319,39 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
     caShopifyDay,
     reservationDeposits,
     reservationBalances,
-    caCurrentMonthCaisse,
+    caCurrentMonthCaisse: caCurrentMonth,
     caShopifyCurrentMonth,
     reservationCurrentMonth,
-    caCurrentMonthPrev,
+    caCurrentMonthPrev: caPrevMonth,
   };
 }
 
 export async function fetchRevenueChart(filters?: DashboardFiltersState): Promise<RevenuePoint[]> {
-  const supabase = createClient();
-
   const period = filters?.period ?? 'month';
   const { start: rangeStart, end: rangeEnd } = getDateRangeForPeriod(period, filters?.customStart, filters?.customEnd);
 
-  let query = supabase
-    .from('receipts')
-    .select('total_amount, created_at, is_demo, client_name')
-    .neq('status', 'cancelled')
-    .gte('created_at', rangeStart)
-    .lte('created_at', rangeEnd)
-    .order('created_at', { ascending: true })
-    .limit(10000);
+  const params = new URLSearchParams({ start: rangeStart, end: rangeEnd });
+  if (filters?.employeeId) params.set('employeeId', filters.employeeId);
 
-  if (filters?.employeeId) query = query.eq('employee_id', filters.employeeId);
+  const data: RevenuePoint[] = await fetch(`/api/dashboard/revenue-chart?${params}`)
+    .then((r) => r.json())
+    .catch(() => []);
 
-  const { data: rawData } = await query;
-  const data = (rawData ?? []).filter((r: any) => {
-    if (r.is_demo === true) return false;
-    const cn = (r.client_name ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
-    return cn !== 'CHRISTY LHOMME';
-  });
-
-  if (!data || data.length === 0) return [];
-
-  const byDay: Record<string, { revenue: number; transactions: number }> = {};
-  data.forEach((r) => {
-    const d = new Date(r.created_at);
-    const key = `${d.getDate()} ${d.toLocaleString('fr-FR', { month: 'short' })}`;
-    if (!byDay[key]) byDay[key] = { revenue: 0, transactions: 0 };
-    byDay[key].revenue += Number(r.total_amount) || 0;
-    byDay[key].transactions += 1;
-  });
-
-  return Object.entries(byDay).map(([date, v]) => ({ date, ...v }));
+  return data;
 }
 
 export async function fetchPaymentMethods(filters?: DashboardFiltersState): Promise<PaymentMethodData[]> {
-  const supabase = createClient();
-
   const period = filters?.period ?? 'month';
   const { start, end } = getDateRangeForPeriod(period, filters?.customStart, filters?.customEnd);
 
-  const rawPayData = await fetchAll<any>((from, to) => {
-    let q = supabase
-      .from('receipts')
-      .select('payment_method, total_amount, is_demo, client_name')
-      .neq('status', 'cancelled')
-      .gte('created_at', start)
-      .lte('created_at', end)
-      .order('created_at', { ascending: true })
-      .range(from, to);
-    if (filters?.employeeId) q = q.eq('employee_id', filters.employeeId);
-    return q;
-  });
-  const data = rawPayData.filter((r: any) => {
-    if (r.is_demo === true) return false;
-    const cn = (r.client_name ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
-    return cn !== 'CHRISTY LHOMME';
-  });
+  const params = new URLSearchParams({ start, end });
+  if (filters?.employeeId) params.set('employeeId', filters.employeeId);
 
-  if (!data || data.length === 0) return [];
+  const data: PaymentMethodData[] = await fetch(`/api/dashboard/payment-methods?${params}`)
+    .then((r) => r.json())
+    .catch(() => []);
 
-  const colors: Record<string, string> = {
-    'SumUp (CB)': '#C4837A',
-    'Espèces': '#D4A0A0',
-    'Virement': '#8B6F6A',
-    'Acompte': '#E8C4BE',
-    'Mixte': '#BFA09C',
-    'Alma (3x/4x)': '#A8C4D4',
-    'PayPal': '#7B9EBF',
-    'Avoir': '#B8CFA0',
-    'Autre': '#C4A0A0',
-  };
-
-  // Normalize payment method: Mixte|CB|cash → "Mixte", aliases → canonical
-  const normalizePM = (raw: string): string => {
-    if (!raw) return 'Autre';
-    const lower = raw.toLowerCase();
-    if (lower.startsWith('mixte') || lower === 'mixed') return 'Mixte';
-    if (lower.startsWith('espèces|') || lower.startsWith('especes|') || lower === 'espèces' || lower === 'especes' || lower === 'cash') return 'Espèces';
-    if (lower === 'sumup (cb)' || lower === 'cb' || lower === 'card' || lower === 'sumup') return 'SumUp (CB)';
-    if (lower === 'transfer' || lower === 'virement') return 'Virement';
-    if (lower.startsWith('alma')) return 'Alma (3x/4x)';
-    if (lower === 'paypal') return 'PayPal';
-    if (lower === 'store_credit' || lower === 'avoir') return 'Avoir';
-    return raw;
-  };
-
-  const byMethod: Record<string, number> = {};
-  data.forEach((r) => {
-    const m = normalizePM(r.payment_method ?? 'Autre');
-    byMethod[m] = (byMethod[m] ?? 0) + (Number(r.total_amount) || 0);
-  });
-
-  return Object.entries(byMethod)
-    .filter(([, v]) => v > 0)
-    .sort(([, a], [, b]) => b - a)
-    .map(([name, value]) => ({
-      name,
-      value,
-      color: colors[name] ?? '#C4A0A0',
-    }));
+  return data;
 }
 
 export async function fetchTopProducts(filters?: DashboardFiltersState): Promise<TopProduct[]> {
@@ -567,38 +459,11 @@ export async function fetchStockAlerts(): Promise<StockAlert[]> {
 }
 
 export async function fetchRecentSales(): Promise<RecentSale[]> {
-  const supabase = createClient();
   const { start } = getDateRange('day');
-
-  const { data: rawRecent } = await supabase
-    .from('receipts')
-    .select('id, total_amount, payment_method, client_name, items_count, created_at, ticket_number, is_demo')
-    .neq('status', 'cancelled')
-    .gte('created_at', start)
-    .order('created_at', { ascending: false })
-    .limit(20);
-
-  const data = (rawRecent ?? []).filter((r: any) => {
-    if (r.is_demo === true) return false;
-    const cn = (r.client_name ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
-    return cn !== 'CHRISTY LHOMME';
-  }).slice(0, 8);
-
-  if (!data) return [];
-
-  return data.map((r) => {
-    const d = new Date(r.created_at);
-    const hh = String(d.getHours()).padStart(2, '0');
-    const mm = String(d.getMinutes()).padStart(2, '0');
-    return {
-      id: r.ticket_number ?? r.id,
-      time: `${hh}:${mm}`,
-      client: r.client_name ?? 'Non identifié',
-      amount: Number(r.total_amount) || 0,
-      method: r.payment_method ?? 'Autre',
-      items: Number(r.items_count) || 0,
-    };
-  });
+  const data: RecentSale[] = await fetch(`/api/dashboard/recent-sales?start=${encodeURIComponent(start)}`)
+    .then((r) => r.json())
+    .catch(() => []);
+  return data;
 }
 
 // ─── Accounting CSV export ────────────────────────────────────────────────────
