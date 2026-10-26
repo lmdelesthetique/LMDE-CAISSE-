@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import {
@@ -77,6 +77,7 @@ export default function ClientsPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [activeSubClientIds, setActiveSubClientIds] = useState<Set<string>>(new Set());
   const [proStatuts, setProStatuts] = useState<Map<string, string>>(new Map());
+  const autoOpenedRef = useRef(false);
 
   const loadClients = useCallback(async () => {
     setLoading(true);
@@ -129,6 +130,18 @@ export default function ClientsPage() {
   }, []);
 
   useEffect(() => { loadClients(); }, [loadClients]);
+
+  // Auto-open client when navigated from devis-pro with ?id= param
+  useEffect(() => {
+    if (autoOpenedRef.current || clients.length === 0 || loading) return;
+    const clientId = new URLSearchParams(window.location.search).get('id');
+    if (!clientId) return;
+    const client = clients.find((c) => c.id === clientId);
+    if (client) {
+      autoOpenedRef.current = true;
+      openDetail(client);
+    }
+  }, [clients, loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (search.trim().length >= 2) {

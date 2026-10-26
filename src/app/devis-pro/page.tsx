@@ -17,6 +17,7 @@ interface DevisItem {
   imageUrl?: string | null;
   qty: number;
   sellPrice: number;
+  price?: number;
   isBonus: boolean;
   isCustom: boolean;
 }
@@ -661,8 +662,14 @@ export default function DevisProPage() {
       });
       const json = await res.json();
       if (json.error) throw new Error(json.error);
+      const updatedSelected = { ...selected, date_reassort: dateReassort || null };
       setSelected((prev) => prev ? { ...prev, date_reassort: dateReassort || null } : prev);
-      toast.success('Date de réassort enregistrée');
+      // Immediately send relance if not already sent
+      if (dateReassort && !selected.relance_auto_sent_at) {
+        await sendAutoRelanceNow(updatedSelected as any);
+      } else {
+        toast.success('Date de réassort enregistrée');
+      }
     } catch (e: any) {
       toast.error(e.message);
     } finally {
@@ -682,11 +689,9 @@ export default function DevisProPage() {
       const json = await res.json();
       if (json.error) throw new Error(json.error);
       const emp = employees.find(e => e.id === empId) ?? null;
-      setSelected((prev) => prev ? {
-        ...prev,
-        created_by_employee_id: empId || null,
-        created_by: emp ? { id: emp.id, first_name: emp.fullName.split(' ')[0], last_name: emp.fullName.split(' ').slice(1).join(' '), avatar_initials: emp.avatarInitials } : null,
-      } : prev);
+      const createdBy = emp ? { id: emp.id, first_name: emp.fullName.split(' ')[0], last_name: emp.fullName.split(' ').slice(1).join(' '), avatar_initials: emp.avatarInitials } : null;
+      setSelected((prev) => prev ? { ...prev, created_by_employee_id: empId || null, created_by: createdBy } : prev);
+      setDevisList((prev) => prev.map((d) => d.id === selected.id ? { ...d, created_by_employee_id: empId || null, created_by: createdBy } : d));
       toast.success(emp ? `Devis attribué à ${emp.fullName}` : 'Attribution retirée');
     } catch (e: any) {
       toast.error(e.message);
@@ -768,7 +773,7 @@ export default function DevisProPage() {
       });
       setEditingDevisId(devis.id);
       setEditingDiscountPct(devis.discount_pct ?? 0);
-      setEditingStatut(devis.statut);
+      setEditingStatut(devis.statut === 'client_modifie' ? 'valide' : devis.statut);
       setNewDevisClient(devis.client);
       setShowNewDevis(true);
     } catch {
@@ -1186,7 +1191,7 @@ export default function DevisProPage() {
                 </div>
               </div>
               <div className="flex items-center gap-1.5">
-                {['brouillon', 'envoye', 'en_discussion'].includes(selected.statut) && (
+                {['brouillon', 'envoye', 'en_discussion', 'client_modifie'].includes(selected.statut) && (
                   <button
                     onClick={() => openEditDevis(selected)}
                     disabled={restoringItems}
@@ -1392,7 +1397,7 @@ export default function DevisProPage() {
                       </div>
                       <div className="text-right shrink-0">
                         <p className="text-xs font-700">x{item.qty}</p>
-                        <p className="text-[10px] text-muted-foreground">{fmtMoney(item.sellPrice * item.qty)}</p>
+                        <p className="text-[10px] text-muted-foreground">{fmtMoney((item.sellPrice ?? item.price ?? 0) * item.qty)}</p>
                       </div>
                       {isShortage && !item.isCustom && (
                         <button
@@ -1514,9 +1519,9 @@ export default function DevisProPage() {
                   onChange={(e) => setDateReassort(e.target.value)}
                   className="flex-1 px-3 py-2 text-sm border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30"
                 />
-                <button onClick={saveReassort} disabled={savingReassort}
+                <button onClick={saveReassort} disabled={savingReassort || sendingAutoRelance}
                   className="px-3 py-2 text-xs font-600 bg-primary text-primary-foreground rounded-xl hover:opacity-90 disabled:opacity-50">
-                  {savingReassort ? '…' : 'Sauver'}
+                  {savingReassort || sendingAutoRelance ? '…' : 'Sauver & Envoyer'}
                 </button>
               </div>
               {selected.relance_auto_sent_at && (
@@ -1725,13 +1730,26 @@ export default function DevisProPage() {
               </button>
             )}
             {selected.statut === 'livre' && (
-              <button
-                onClick={() => sendWhatsAppFacture(selected)}
-                className="w-full mt-2 py-3 bg-[#25D366] text-white rounded-2xl text-sm font-700 hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
-              >
-                <Icon name="ChatBubbleLeftRightIcon" size={16} />
-                Envoyer la facture WhatsApp
-              </button>
+              <>
+                <button
+                  onClick={() => sendWhatsAppFacture(selected)}
+                  className="w-full mt-2 py-3 bg-[#25D366] text-white rounded-2xl text-sm font-700 hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+                >
+                  <Icon name="ChatBubbleLeftRightIcon" size={16} />
+                  Envoyer la facture WhatsApp
+                </button>
+                {selected.receipt_id && (
+                  <a
+                    href={`/facture/${selected.receipt_id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="w-full mt-2 py-2 text-xs font-600 text-primary hover:underline flex items-center justify-center gap-1"
+                  >
+                    <Icon name="DocumentTextIcon" size={13} />
+                    Voir la facture
+                  </a>
+                )}
+              </>
             )}
             {selected.type_expedition === 'livraison' && !['livre', 'annule'].includes(selected.statut) && !selected.delivery_id && (
               <button
