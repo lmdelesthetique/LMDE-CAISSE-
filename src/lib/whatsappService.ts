@@ -118,13 +118,14 @@ async function sendViaBrevoEmail(
   email: string,
   clientName: string,
   subject: string,
-  message: string
+  message: string,
+  htmlOverride?: string
 ): Promise<{ ok: boolean; error?: string }> {
   const apiKey = process.env.BREVO_API_KEY;
   if (!apiKey) return { ok: false, error: 'BREVO_API_KEY not configured' };
 
   const fromEmail = process.env.BREVO_SENDER_EMAIL ?? 'lm.delesthetique@gmail.com';
-  const htmlContent = `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7;color:#18181b;max-width:600px;margin:0 auto;padding:24px">${message.replace(/\n/g, '<br/>')}</div>`;
+  const htmlContent = htmlOverride ?? `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7;color:#18181b;max-width:600px;margin:0 auto;padding:24px">${message.replace(/\n/g, '<br/>')}</div>`;
 
   const res = await fetch('https://api.brevo.com/v3/smtp/email', {
     method: 'POST',
@@ -156,12 +157,12 @@ export async function sendCampaignMultiChannel(
   return { sms: smsRes.ok, email: emailRes.ok, anyOk: smsRes.ok || emailRes.ok };
 }
 
-async function sendViaResend(email: string, message: string): Promise<{ ok: boolean; error?: string }> {
+async function sendViaResend(email: string, message: string, htmlOverride?: string): Promise<{ ok: boolean; error?: string }> {
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.RESEND_FROM_EMAIL ?? "Le Monde de l'Esthétique <noreply@lmdecaisse.com>";
   if (!apiKey) return { ok: false, error: 'RESEND_API_KEY not configured' };
 
-  const htmlBody = `<div style="font-family:-apple-system,sans-serif;font-size:14px;line-height:1.7;color:#18181b;white-space:pre-wrap">${message.replace(/\n/g, '<br/>')}</div>`;
+  const htmlBody = htmlOverride ?? `<div style="font-family:-apple-system,sans-serif;font-size:14px;line-height:1.7;color:#18181b;white-space:pre-wrap">${message.replace(/\n/g, '<br/>')}</div>`;
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
@@ -177,11 +178,12 @@ export async function sendEmailNotification(
   email: string,
   clientName: string,
   subject: string,
-  message: string
+  message: string,
+  htmlContent?: string
 ): Promise<{ ok: boolean; error?: string }> {
-  const brevoResult = await sendViaBrevoEmail(email, clientName, subject, message);
+  const brevoResult = await sendViaBrevoEmail(email, clientName, subject, message, htmlContent);
   if (brevoResult.ok) return brevoResult;
-  return sendViaResend(email, message);
+  return sendViaResend(email, message, htmlContent);
 }
 
 export async function sendWhatsApp({ to, message, email }: WhatsAppMessage): Promise<WhatsAppResult> {

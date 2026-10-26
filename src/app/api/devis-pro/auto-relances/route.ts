@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
   for (const devis of dueDevis) {
     const client = devis.client as any;
     const phone = client?.whatsapp ?? client?.phone;
-    const firstName = client?.first_name ?? 'Madame';
+    const firstName = (client?.first_name as string | null)?.trim() || (client?.last_name as string | null)?.trim() || 'Madame';
 
     const clientEmail = client?.email as string | undefined;
 
@@ -104,29 +104,83 @@ export async function POST(req: NextRequest) {
       ? `${siteUrl}/devis/${devis.client_token}`
       : null;
 
-    const message = [
+    // WhatsApp plain-text message
+    const waMessage = [
       `Bonjour ${firstName} 🌸`,
       '',
-      `C'est le moment de votre réassort ! 🛍️`,
+      `Vos produits préférés vous attendent ! ✨`,
       '',
-      `Voici votre dernier devis *${devis.numero ?? ''}* (du ${fmtDate(devis.created_at)}) :`,
+      `Il y a quelques semaines vous nous avez commandé :`,
       itemLines,
       '',
+      `Ces produits font partie de votre routine beauté — et vos stocks diminuent vite ! En renouvelant maintenant, vous évitez les ruptures et maintenez la qualité de vos soins. 💅`,
+      '',
       devisLink
-        ? `👉 Consulter et renouveler : ${devisLink}`
+        ? `👉 Accédez à votre devis, modifiez-le si besoin et confirmez en un clic :\n${devisLink}`
         : `👉 Contactez-nous pour renouveler votre commande.`,
+      '',
+      `N'hésitez pas à répondre à ce message pour toute question 😊`,
       '',
       '— Le Monde de l\'Esthétique ✨',
     ].join('\n');
+
+    // HTML email with button and persuasive layout
+    const emailHtml = `
+<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="UTF-8"/></head>
+<body style="margin:0;padding:0;background:#fdf5f9;font-family:Arial,sans-serif">
+<div style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08)">
+  <!-- Header -->
+  <div style="background:#e91e8c;padding:32px 32px 24px;text-align:center">
+    <p style="margin:0;font-size:22px;font-weight:bold;color:#fff;letter-spacing:0.5px">Le Monde de l'Esthétique 💅</p>
+  </div>
+  <!-- Body -->
+  <div style="padding:32px">
+    <p style="font-size:18px;font-weight:bold;color:#18181b;margin:0 0 16px">Bonjour ${firstName} 🌸</p>
+    <p style="font-size:15px;color:#444;line-height:1.7;margin:0 0 20px">
+      Vos produits préférés vous attendent ! Vos stocks diminuent vite, et votre clientèle mérite toujours le meilleur.
+      <strong>En renouvelant maintenant, vous évitez les ruptures et restez toujours prête.</strong>
+    </p>
+    <!-- Items -->
+    <div style="background:#fdf5f9;border-radius:8px;padding:16px 20px;margin-bottom:24px">
+      <p style="font-size:13px;font-weight:bold;color:#e91e8c;margin:0 0 8px;text-transform:uppercase;letter-spacing:0.5px">Votre sélection habituelle</p>
+      <p style="font-size:14px;color:#333;line-height:1.8;margin:0;white-space:pre-line">${itemLines}</p>
+    </div>
+    <!-- Psychological nudge -->
+    <div style="border-left:4px solid #e91e8c;padding:12px 16px;background:#fff0f7;margin-bottom:28px">
+      <p style="font-size:14px;color:#444;line-height:1.6;margin:0">
+        💡 <strong>Le saviez-vous ?</strong> Les professionnels qui réassortent régulièrement enregistrent moins de pertes de clients liées à l'indisponibilité des soins. <em>Ne laissez pas un produit manquant freiner votre activité !</em>
+      </p>
+    </div>
+    ${devisLink ? `
+    <!-- CTA Button -->
+    <div style="text-align:center;margin-bottom:28px">
+      <a href="${devisLink}" style="display:inline-block;background:#e91e8c;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:bold;letter-spacing:0.3px">
+        ✅ Consulter et renouveler mon devis
+      </a>
+      <p style="font-size:12px;color:#999;margin:10px 0 0">Ou copiez ce lien dans votre navigateur :<br/><a href="${devisLink}" style="color:#e91e8c;word-break:break-all">${devisLink}</a></p>
+    </div>` : `<p style="color:#444;font-size:14px">Contactez-nous pour renouveler votre commande.</p>`}
+    <p style="font-size:13px;color:#888;margin:0">Des questions ? Répondez simplement à cet email.</p>
+  </div>
+  <!-- Footer -->
+  <div style="background:#fdf5f9;padding:16px 32px;text-align:center;border-top:1px solid #f0d6e8">
+    <p style="font-size:12px;color:#aaa;margin:0">Le Monde de l'Esthétique — Martinique 🇲🇶</p>
+  </div>
+</div>
+</body>
+</html>`;
+
+    const emailSubject = `${firstName}, vos produits vous attendent ! 🌸`;
 
     try {
       // Send WhatsApp AND email in parallel
       const [waResult, emailResult] = await Promise.all([
         phone
-          ? sendWhatsApp({ to: normalizePhone(phone), message, email: clientEmail })
+          ? sendWhatsApp({ to: normalizePhone(phone), message: waMessage, email: clientEmail })
           : Promise.resolve({ ok: false, error: 'no_phone' } as { ok: boolean; error?: string }),
         clientEmail
-          ? sendEmailNotification(clientEmail, firstName, `Votre réassort — Devis ${devis.numero ?? ''}`, message)
+          ? sendEmailNotification(clientEmail, firstName, emailSubject, waMessage, emailHtml)
           : Promise.resolve({ ok: false, error: 'no_email' } as { ok: boolean; error?: string }),
       ]);
 
