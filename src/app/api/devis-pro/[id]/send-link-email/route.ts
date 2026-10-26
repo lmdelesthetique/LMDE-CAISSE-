@@ -5,67 +5,84 @@ export async function POST(req: NextRequest) {
   let body: any;
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
 
-  const { email, firstName, link, itemLines, amount, numero } = body;
+  const { email, firstName, link, itemLines, amount } = body;
   if (!email || !link) return NextResponse.json({ error: 'email et link requis' }, { status: 400 });
 
   const fmtMoney = (n: number) => n.toFixed(2).replace('.', ',') + ' €';
-  const name = (firstName as string) || 'Madame';
+  const name = (firstName as string)?.trim() || 'Madame';
+  const items = (itemLines as string) || '';
+  const total = fmtMoney(Number(amount) || 0);
 
-  const subject = `${name}, votre sélection beauté est prête ✨`;
+  const subject = `${name}, votre commande est prête 🌸`;
 
   const textMessage = [
-    `Bonjour ${name} 🌸`,
+    `Bonjour ${name},`,
     '',
-    `Gérer son réassort entre deux clients, c'est chronophage — alors on s'en occupe pour vous.`,
+    `Vos produits habituels sont sélectionnés et prêts à être confirmés.`,
     '',
-    `Votre sélection personnalisée est prête :`,
-    (itemLines as string) || '',
-    `Total : ${fmtMoney(Number(amount) || 0)} · Sans engagement`,
+    `${items}`,
+    `Total : ${total}`,
     '',
-    `Consultez, ajustez si besoin et confirmez en 1 clic :`,
+    `Consultez votre commande, modifiez-la si besoin, et confirmez :`,
     link,
     '',
-    `Aucune commande automatique — vous validez quand vous êtes prête.`,
-    `— Le Monde de l'Esthétique ✨`,
+    `Aucun engagement — vous validez quand vous voulez.`,
+    `— Le Monde de l'Esthétique`,
   ].join('\n');
 
-  const htmlContent = `
-<!DOCTYPE html>
+  // Items formatted as HTML list rows
+  const itemsHtml = items
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => `<tr><td style="padding:6px 0;font-size:14px;color:#333;border-bottom:1px solid #f5e0ee">${line.replace(/^•\s*/, '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</td></tr>`)
+    .join('');
+
+  const htmlContent = `<!DOCTYPE html>
 <html lang="fr">
-<head><meta charset="UTF-8"/></head>
-<body style="margin:0;padding:0;background:#fdf5f9;font-family:Arial,sans-serif">
-<div style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08)">
-  <div style="background:#e91e8c;padding:28px 32px 22px;text-align:center">
-    <p style="margin:0;font-size:20px;font-weight:bold;color:#fff">Le Monde de l'Esthétique 💅</p>
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
+<body style="margin:0;padding:0;background:#fdf5f9;font-family:Arial,Helvetica,sans-serif">
+<div style="max-width:580px;margin:0 auto;padding:20px">
+
+  <!-- Header -->
+  <div style="background:#e91e8c;border-radius:12px 12px 0 0;padding:24px 28px;text-align:center">
+    <p style="margin:0;font-size:18px;font-weight:bold;color:#fff;letter-spacing:0.3px">Le Monde de l'Esthétique</p>
   </div>
-  <div style="padding:32px">
-    <p style="font-size:18px;font-weight:bold;color:#18181b;margin:0 0 12px">Bonjour ${name} 🌸</p>
-    <p style="font-size:15px;color:#444;line-height:1.7;margin:0 0 20px">
-      Gérer son réassort entre deux clients, c'est chronophage.
-      <strong>Alors on s'en occupe pour vous</strong> — votre sélection habituelle est déjà prête, sans engagement. ✨
+
+  <!-- Card -->
+  <div style="background:#fff;border-radius:0 0 12px 12px;padding:28px;box-shadow:0 2px 10px rgba(0,0,0,0.07)">
+
+    <p style="font-size:17px;font-weight:bold;color:#18181b;margin:0 0 6px">Bonjour ${name} 🌸</p>
+    <p style="font-size:14px;color:#555;line-height:1.6;margin:0 0 22px">
+      Votre commande est prête. Retrouvez vos produits ci-dessous, modifiez-les si besoin, puis confirmez en un clic.
     </p>
-    <div style="background:#fdf5f9;border-radius:8px;padding:16px 20px;margin-bottom:24px">
-      <p style="font-size:13px;font-weight:bold;color:#e91e8c;margin:0 0 8px;text-transform:uppercase;letter-spacing:0.5px">Votre sélection</p>
-      <p style="font-size:14px;color:#333;line-height:1.8;margin:0 0 10px;white-space:pre-line">${(itemLines as string) || ''}</p>
-      <p style="font-size:15px;font-weight:bold;color:#18181b;margin:0">Total : ${fmtMoney(Number(amount) || 0)}</p>
-    </div>
-    <div style="border-left:4px solid #e91e8c;padding:12px 16px;background:#fff0f7;margin-bottom:28px">
-      <p style="font-size:14px;color:#444;line-height:1.6;margin:0">
-        💡 <strong>Sans engagement.</strong> Vous consultez votre devis, vous ajustez si besoin, et vous confirmez seulement quand vous êtes prête.
-        <em>Aucune commande automatique.</em>
-      </p>
-    </div>
-    <div style="text-align:center;margin-bottom:28px">
-      <a href="${link}" style="display:inline-block;background:#e91e8c;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:bold">
-        ✅ Voir et confirmer mon devis
+
+    <!-- CTA en premier, visible immédiatement -->
+    <div style="text-align:center;margin-bottom:24px">
+      <a href="${link}"
+         style="display:inline-block;background:#e91e8c;color:#ffffff;padding:14px 36px;border-radius:10px;text-decoration:none;font-size:15px;font-weight:bold;letter-spacing:0.2px">
+        Voir ma commande →
       </a>
-      <p style="font-size:12px;color:#999;margin:10px 0 0">Ou copiez :<br/><a href="${link}" style="color:#e91e8c;word-break:break-all">${link}</a></p>
     </div>
-    <p style="font-size:13px;color:#888;margin:0">Des questions ? Répondez simplement à cet email.</p>
+
+    <!-- Produits -->
+    <div style="background:#fdf5f9;border-radius:8px;padding:16px 18px;margin-bottom:20px">
+      <p style="font-size:12px;font-weight:bold;color:#e91e8c;text-transform:uppercase;letter-spacing:0.8px;margin:0 0 10px">Vos produits</p>
+      <table style="width:100%;border-collapse:collapse">
+        ${itemsHtml}
+      </table>
+      <p style="font-size:15px;font-weight:bold;color:#18181b;margin:12px 0 0;border-top:2px solid #e91e8c;padding-top:10px">Total : ${total}</p>
+    </div>
+
+    <!-- Note engagement -->
+    <p style="font-size:13px;color:#777;line-height:1.5;margin:0 0 6px">
+      Aucun engagement — vous confirmez quand vous êtes prête. Vous pouvez aussi modifier vos quantités ou retirer des produits avant de valider.
+    </p>
+    <p style="font-size:13px;color:#999;margin:0">Une question ? Répondez à cet email.</p>
+
   </div>
-  <div style="background:#fdf5f9;padding:14px 32px;text-align:center;border-top:1px solid #f0d6e8">
-    <p style="font-size:12px;color:#aaa;margin:0">Le Monde de l'Esthétique — Martinique 🇲🇶</p>
-  </div>
+
+  <!-- Footer -->
+  <p style="text-align:center;font-size:11px;color:#bbb;margin:14px 0 0">Le Monde de l'Esthétique · Martinique 🇲🇶</p>
 </div>
 </body>
 </html>`;

@@ -860,16 +860,15 @@ export default function DevisProPage() {
     const msg = [
       `Bonjour ${firstName} 🌸`,
       '',
-      `Gérer son réassort entre deux clients, c'est chronophage — alors on s'en occupe pour vous. 💼`,
+      `Votre commande est prête — vos produits habituels sont sélectionnés, vous n'avez rien à faire.`,
       '',
-      `Votre sélection personnalisée est prête :`,
       itemLines,
-      `💰 *${fmtMoney(devis.client_pays)}* · Sans engagement`,
+      `💰 *${fmtMoney(devis.client_pays)}*`,
       '',
-      `👉 Consultez, ajustez si besoin et confirmez en 1 clic :`,
+      `👉 Consultez, modifiez si besoin et confirmez en 1 clic :`,
       link,
       '',
-      `Aucune commande automatique — vous validez quand vous êtes prête 😊`,
+      `Sans engagement — vous validez quand vous êtes prête 😊`,
       `— Le Monde de l'Esthétique ✨`,
     ].join('\n');
 
