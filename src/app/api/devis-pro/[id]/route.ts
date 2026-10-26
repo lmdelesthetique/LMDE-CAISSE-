@@ -286,24 +286,28 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     if (key in body) patch[key] = body[key];
   }
 
-  // Re-credit avoir to client balance if an avoir payment was removed or reduced
+  // Calculate avoir delta before the update (re-credit applied AFTER devis update succeeds)
+  let toReCredit = 0;
   if ('paiements' in body && current?.client_id) {
     const oldPaiements: any[] = Array.isArray(current.paiements) ? current.paiements : [];
     const newPaiements: any[] = Array.isArray(body.paiements) ? body.paiements : [];
     const oldAvoir = oldPaiements.filter((p: any) => p.method === 'avoir').reduce((s: number, p: any) => s + Number(p.amount || 0), 0);
     const newAvoir = newPaiements.filter((p: any) => p.method === 'avoir').reduce((s: number, p: any) => s + Number(p.amount || 0), 0);
-    const toReCredit = oldAvoir - newAvoir;
-    if (toReCredit > 0.005) {
-      const { data: cl } = await supabase.from('clients').select('store_credit').eq('id', current.client_id).maybeSingle();
-      if (cl) {
-        const newCredit = Math.round((Number(cl.store_credit) + toReCredit) * 100) / 100;
-        await supabase.from('clients').update({ store_credit: newCredit }).eq('id', current.client_id);
-      }
-    }
+    toReCredit = oldAvoir - newAvoir;
   }
 
   const { data, error } = await supabase.from('devis_pro').update(patch).eq('id', id).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Re-credit avoir only after devis update confirmed
+  if (toReCredit > 0.005 && current?.client_id) {
+    const { data: cl } = await supabase.from('clients').select('store_credit').eq('id', current.client_id).maybeSingle();
+    if (cl) {
+      const newCredit = Math.round((Number(cl.store_credit) + toReCredit) * 100) / 100;
+      const { error: creditErr } = await supabase.from('clients').update({ store_credit: newCredit }).eq('id', current.client_id);
+      if (creditErr) console.error('[devis-pro] avoir re-credit failed:', creditErr.message);
+    }
+  }
 
   const wasAlreadyLivre = current?.statut === 'livre';
   const becomesLivre = body.statut === 'livre';

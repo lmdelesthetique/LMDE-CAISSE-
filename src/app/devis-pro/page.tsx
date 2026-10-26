@@ -23,6 +23,7 @@ interface DevisItem {
 }
 
 interface Paiement {
+  id?: string;
   method: 'especes' | 'carte' | 'virement' | 'avoir' | 'sumup';
   amount: number;
   note?: string;
@@ -500,6 +501,7 @@ export default function DevisProPage() {
     if (!amount || amount <= 0) { toast.error('Montant invalide'); return; }
 
     const newPaiement: Paiement = {
+      id: crypto.randomUUID(),
       method: paymentMethod as any,
       amount,
       note: noteAuto || undefined,

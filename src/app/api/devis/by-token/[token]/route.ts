@@ -137,7 +137,10 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
         const c = (devis as any).client;
         if (!c) return 'Une cliente';
         const obj = Array.isArray(c) ? c[0] : c;
-        return `${obj?.first_name || ''} ${obj?.last_name || ''}`.trim() || 'Une cliente';
+        const f = (obj?.first_name ?? '').trim();
+        const l = (obj?.last_name ?? '').trim();
+        const first = (f && !/^\d+$/.test(f)) ? f : '';
+        return `${first} ${l}`.trim() || 'Une cliente';
       })();
 
       const responseLabel = response === 'accepted' ? 'a accepté' : 'a modifié';
