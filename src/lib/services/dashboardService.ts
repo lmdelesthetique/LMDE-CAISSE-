@@ -196,7 +196,7 @@ export async function fetchDashboardKPIs(filters?: DashboardFiltersState): Promi
   // Build receipt queries with optional employee filter (demo tickets excluded)
   // limit(10000) bypasses Supabase's default 1000-row cap for year-long queries
   const buildReceiptsQuery = (s: string, e: string) => {
-    let q = supabase.from('receipts').select('total_amount, items_count, is_demo, client_name').eq('status', 'completed')
+    let q = supabase.from('receipts').select('total_amount, items_count, is_demo, client_name').neq('status', 'cancelled')
       .gte('created_at', s).lte('created_at', e).limit(10000);
     if (filters?.employeeId) q = q.eq('employee_id', filters.employeeId);
     return q;
@@ -365,7 +365,7 @@ export async function fetchRevenueChart(filters?: DashboardFiltersState): Promis
   let query = supabase
     .from('receipts')
     .select('total_amount, created_at, is_demo, client_name')
-    .eq('status', 'completed')
+    .neq('status', 'cancelled')
     .gte('created_at', rangeStart)
     .lte('created_at', rangeEnd)
     .order('created_at', { ascending: true })
@@ -404,7 +404,7 @@ export async function fetchPaymentMethods(filters?: DashboardFiltersState): Prom
     let q = supabase
       .from('receipts')
       .select('payment_method, total_amount, is_demo, client_name')
-      .eq('status', 'completed')
+      .neq('status', 'cancelled')
       .gte('created_at', start)
       .lte('created_at', end)
       .order('created_at', { ascending: true })
@@ -471,7 +471,7 @@ export async function fetchTopProducts(filters?: DashboardFiltersState): Promise
   let receiptsQuery = supabase
     .from('receipts')
     .select('items, total_amount, is_demo, client_name')
-    .eq('status', 'completed')
+    .neq('status', 'cancelled')
     .gte('created_at', start)
     .lte('created_at', end);
 
@@ -573,7 +573,7 @@ export async function fetchRecentSales(): Promise<RecentSale[]> {
   const { data: rawRecent } = await supabase
     .from('receipts')
     .select('id, total_amount, payment_method, client_name, items_count, created_at, ticket_number, is_demo')
-    .eq('status', 'completed')
+    .neq('status', 'cancelled')
     .gte('created_at', start)
     .order('created_at', { ascending: false })
     .limit(20);
@@ -616,7 +616,7 @@ export async function exportAccountingCSV(filters: DashboardFiltersState): Promi
   const [receiptsRes, reservationsRes] = await Promise.all([
     supabase.from('receipts')
       .select('ticket_number, created_at, client_name, total_amount, payment_method, items_count, is_demo')
-      .eq('status', 'completed')
+      .neq('status', 'cancelled')
       .gte('created_at', start)
       .lte('created_at', end)
       .order('created_at', { ascending: true }),

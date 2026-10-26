@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
       supabase
         .from('receipts')
         .select('items, is_demo, client_name, total_amount')
-        .eq('status', 'completed')
+        .neq('status', 'cancelled')
         .neq('is_demo', true)
         .gte('created_at', startDate)
         .order('created_at', { ascending: true })
@@ -85,12 +85,14 @@ export async function GET(req: NextRequest) {
       continue;
     }
 
-    // item.total is pre-discount; scale to match actual receipt.total_amount
+    // Use price × qty consistently as the basis; scaleFactor aligns item proportions
+    // with the actual receipt.total_amount (accounts for discounts, etc.)
+    const receiptTotal = parseFloat(String(receipt.total_amount ?? 0));
     const rawItemTotal = items.reduce((s: number, i: any) => {
       const qty = Number(i?.qty ?? i?.quantity ?? 1);
-      return s + (Number(i?.total ?? 0) || (Number(i?.price ?? 0) * qty));
+      const price = Number(i?.price ?? 0);
+      return s + price * qty;
     }, 0);
-    const receiptTotal = parseFloat(String(receipt.total_amount ?? 0));
     const scaleFactor = rawItemTotal > 0 ? receiptTotal / rawItemTotal : 1;
 
     for (const item of items) {
@@ -102,7 +104,7 @@ export async function GET(req: NextRequest) {
       if (!cat) cat = 'Non catégorisé';
 
       const qty = Number(item?.qty ?? item?.quantity ?? 1);
-      const rawLine = Number(item?.total ?? 0) || (Number(item?.price ?? 0) * qty);
+      const rawLine = Number(item?.price ?? 0) * qty;
       const lineTotal = rawLine * scaleFactor;
 
       if (!categoryMap[cat]) categoryMap[cat] = { revenue: 0, qty: 0 };
@@ -124,11 +126,12 @@ export async function GET(req: NextRequest) {
       if (cn === 'CHRISTY LHOMME') continue;
 
       const items = Array.isArray(receipt.items) ? receipt.items : [];
+      const receiptTotal = parseFloat(String(receipt.total_amount ?? 0));
       const rawItemTotal = items.reduce((s: number, i: any) => {
         const qty = Number(i?.qty ?? i?.quantity ?? 1);
-        return s + (Number(i?.total ?? 0) || (Number(i?.price ?? 0) * qty));
+        const price = Number(i?.price ?? 0);
+        return s + price * qty;
       }, 0);
-      const receiptTotal = parseFloat(String(receipt.total_amount ?? 0));
       const scaleFactor = rawItemTotal > 0 ? receiptTotal / rawItemTotal : 1;
 
       for (const item of items) {
@@ -141,7 +144,7 @@ export async function GET(req: NextRequest) {
         if (cat !== filterCategory) continue;
 
         const qty = Number(item?.qty ?? item?.quantity ?? 1);
-        const rawLine = Number(item?.total ?? 0) || (Number(item?.price ?? 0) * qty);
+        const rawLine = Number(item?.price ?? 0) * qty;
         const lineTotal = rawLine * scaleFactor;
         const name = item?.name || 'Produit inconnu';
 
