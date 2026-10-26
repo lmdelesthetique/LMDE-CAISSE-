@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { sendWhatsApp } from '@/lib/whatsappService';
+import { sendWhatsApp, sendEmailNotification } from '@/lib/whatsappService';
 
 export const maxDuration = 60;
 
@@ -86,13 +86,14 @@ export async function POST(req: NextRequest) {
     const phone = client?.whatsapp ?? client?.phone;
     const firstName = client?.first_name ?? 'Madame';
 
-    if (!phone) {
+    const clientEmail = client?.email as string | undefined;
+
+    if (!phone && !clientEmail) {
       results.push({ id: devis.id, numero: devis.numero ?? devis.id, status: 'no_phone' });
       errors++;
       continue;
     }
 
-    const intlPhone = normalizePhone(phone);
     const itemLines = (devis.items as any[])
       .filter(i => !i.isBonus)
       .slice(0, 8)
@@ -119,20 +120,27 @@ export async function POST(req: NextRequest) {
     ].join('\n');
 
     try {
-      const result = await sendWhatsApp({
-        to: intlPhone,
-        message,
-        email: client?.email ?? undefined,
-      });
+      // Send WhatsApp AND email in parallel
+      const [waResult, emailResult] = await Promise.all([
+        phone
+          ? sendWhatsApp({ to: normalizePhone(phone), message, email: clientEmail })
+          : Promise.resolve({ ok: false, error: 'no_phone' } as { ok: boolean; error?: string }),
+        clientEmail
+          ? sendEmailNotification(clientEmail, firstName, `Votre réassort — Devis ${devis.numero ?? ''}`, message)
+          : Promise.resolve({ ok: false, error: 'no_email' } as { ok: boolean; error?: string }),
+      ]);
 
-      if (result.ok) {
+      const anyOk = waResult.ok || emailResult.ok;
+
+      if (anyOk) {
         await supabase.from('devis_pro')
           .update({ relance_auto_sent_at: new Date().toISOString() })
           .eq('id', devis.id);
         results.push({ id: devis.id, numero: devis.numero ?? devis.id, status: 'sent' });
         sent++;
       } else {
-        results.push({ id: devis.id, numero: devis.numero ?? devis.id, status: 'error', detail: result.error });
+        const detail = [waResult.error, emailResult.error].filter(Boolean).join(' / ');
+        results.push({ id: devis.id, numero: devis.numero ?? devis.id, status: 'error', detail });
         errors++;
       }
     } catch (e: any) {

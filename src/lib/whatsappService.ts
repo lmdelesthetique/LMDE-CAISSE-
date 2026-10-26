@@ -172,6 +172,18 @@ async function sendViaResend(email: string, message: string): Promise<{ ok: bool
   return { ok: false, error: (data as any).message ?? `Resend HTTP ${res.status}` };
 }
 
+// Send email directly (Brevo primary, Resend fallback) — used alongside WhatsApp for relances
+export async function sendEmailNotification(
+  email: string,
+  clientName: string,
+  subject: string,
+  message: string
+): Promise<{ ok: boolean; error?: string }> {
+  const brevoResult = await sendViaBrevoEmail(email, clientName, subject, message);
+  if (brevoResult.ok) return brevoResult;
+  return sendViaResend(email, message);
+}
+
 export async function sendWhatsApp({ to, message, email }: WhatsAppMessage): Promise<WhatsAppResult> {
   const phone = cleanPhone(to);
   const waLink = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
