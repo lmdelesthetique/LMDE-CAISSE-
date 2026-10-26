@@ -1290,6 +1290,7 @@ export default function CaisseHistoriquePage() {
   const [selectedTicket, setSelectedTicket] = useState<TicketRow | null>(null);
   const PAGE_SIZE = 50;
 
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
   const [returnsTotal, setReturnsTotal] = useState(0);
   const [returnsCount, setReturnsCount] = useState(0);
@@ -1395,6 +1396,7 @@ export default function CaisseHistoriquePage() {
       }));
 
       setTickets(mapped);
+      setLastRefreshed(new Date());
 
       // Also fetch returns/avoirs for the period to compute CA net
       try {
@@ -1425,6 +1427,12 @@ export default function CaisseHistoriquePage() {
   }, [period, customFrom, customTo, filterMethod, filterStatus, runDiagnose]);
 
   useEffect(() => { loadTickets(); }, [loadTickets]);
+
+  // Auto-refresh every 60 seconds so new sales appear without manual reload
+  useEffect(() => {
+    const id = setInterval(() => { loadTickets(); }, 60_000);
+    return () => clearInterval(id);
+  }, [loadTickets]);
 
   const filtered = tickets.filter(t => {
     if (filterType === 'real' && t.is_demo) return false;
@@ -1522,13 +1530,20 @@ export default function CaisseHistoriquePage() {
               <Icon name="DocumentChartBarIcon" size={16} />
               Synthèse journée
             </a>
-            <button
-              onClick={loadTickets}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-border text-sm font-500 text-muted-foreground hover:bg-muted transition-colors"
-            >
-              <Icon name="ArrowPathIcon" size={16} />
-              Actualiser
-            </button>
+            <div className="flex flex-col items-end gap-0.5">
+              <button
+                onClick={loadTickets}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-border text-sm font-500 text-muted-foreground hover:bg-muted transition-colors"
+              >
+                <Icon name="ArrowPathIcon" size={16} className={loading ? 'animate-spin' : ''} />
+                Actualiser
+              </button>
+              {lastRefreshed && (
+                <p className="text-[10px] text-muted-foreground">
+                  Màj {lastRefreshed.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/Martinique' })}
+                </p>
+              )}
+            </div>
           </div>
         </div>
 

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 
+export const dynamic = 'force-dynamic';
+
 // ─── GET /api/receipts — list with filters ────────────────────────────────────
 export async function GET(req: NextRequest) {
   console.log('[api/receipts GET] called');
