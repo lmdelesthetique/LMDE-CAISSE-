@@ -84,7 +84,9 @@ export async function POST(req: NextRequest) {
   for (const devis of dueDevis) {
     const client = devis.client as any;
     const phone = client?.whatsapp ?? client?.phone;
-    const firstName = (client?.first_name as string | null)?.trim() || (client?.last_name as string | null)?.trim() || 'Madame';
+    const rawFirst = (client?.first_name as string | null)?.trim() ?? '';
+    const rawLast = (client?.last_name as string | null)?.trim() ?? '';
+    const firstName = (rawFirst && !/^\d+$/.test(rawFirst)) ? rawFirst : rawLast || 'Madame';
 
     const clientEmail = client?.email as string | undefined;
 
@@ -108,20 +110,17 @@ export async function POST(req: NextRequest) {
     const waMessage = [
       `Bonjour ${firstName} 🌸`,
       '',
-      `Vos produits préférés vous attendent ! ✨`,
+      `Chez Le Monde de l'Esthétique, on pense à votre stock avant même que vous ayez à le faire 💅`,
       '',
-      `Il y a quelques semaines vous nous avez commandé :`,
+      `Votre prochaine commande est prête :`,
       itemLines,
       '',
-      `Ces produits font partie de votre routine beauté — et vos stocks diminuent vite ! En renouvelant maintenant, vous évitez les ruptures et maintenez la qualité de vos soins. 💅`,
-      '',
       devisLink
-        ? `👉 Accédez à votre devis, modifiez-le si besoin et confirmez en un clic :\n${devisLink}`
+        ? `👉 Consultez, modifiez si besoin et confirmez en 1 clic :\n${devisLink}`
         : `👉 Contactez-nous pour renouveler votre commande.`,
       '',
-      `N'hésitez pas à répondre à ce message pour toute question 😊`,
-      '',
-      '— Le Monde de l\'Esthétique ✨',
+      `Sans engagement — vous validez quand vous êtes prête 😊`,
+      `— Le Monde de l'Esthétique, à votre service ✨`,
     ].join('\n');
 
     // HTML email with button and persuasive layout

@@ -140,6 +140,14 @@ function fmtMoney(n: number) {
   return n.toFixed(2).replace('.', ',') + ' €';
 }
 
+// Returns the best display name for a client — skips numeric-only codes stored in first_name
+function clientFirstName(firstName?: string | null, lastName?: string | null): string {
+  const f = firstName?.trim() ?? '';
+  const l = lastName?.trim() ?? '';
+  if (f && !/^\d+$/.test(f)) return f;
+  return l || 'Madame';
+}
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function StockBadge({ qty, stock }: { qty: number; stock: number | null }) {
@@ -805,7 +813,7 @@ export default function DevisProPage() {
       ? `🚚 Mode : Livraison${devis.adresse_livraison ? ` à ${devis.adresse_livraison}` : ''}`
       : `🏪 Mode : Retrait en boutique`;
     const msg = encodeURIComponent(
-      `Bonjour ${devis.client?.firstName} 🌸\n\nJe reviens vers vous au sujet de votre devis *${devis.numero ?? ''}* (${fmtMoney(devis.client_pays)}).\n\n${paymentLine}\n${expeditionLine}\n\nN'hésitez pas à me contacter pour toute question 😊\n— Le Monde de l'Esthétique`
+      `Bonjour ${clientFirstName(devis.client?.firstName, devis.client?.lastName)} 🌸\n\nJe reviens vers vous au sujet de votre devis *${devis.numero ?? ''}* (${fmtMoney(devis.client_pays)}).\n\n${paymentLine}\n${expeditionLine}\n\nN'hésitez pas à me contacter pour toute question 😊\n— Le Monde de l'Esthétique`
     );
     window.open(`https://wa.me/${intl}?text=${msg}`, '_blank');
   };
@@ -828,7 +836,7 @@ export default function DevisProPage() {
       ? `${siteUrl}/facture/${devis.receipt_id}`
       : (devis.pdf_url || null);
 
-    let msg = `Bonjour ${devis.client?.firstName} 🌸\n\nVoici votre facture pour votre commande *${devis.numero ?? ''}* :\n\n${itemLines}\n\n✅ *Total payé : ${fmtMoney(totalPaye)}*\n\n${expeditionLine}`;
+    let msg = `Bonjour ${clientFirstName(devis.client?.firstName, devis.client?.lastName)} 🌸\n\nVoici votre facture pour votre commande *${devis.numero ?? ''}* :\n\n${itemLines}\n\n✅ *Total payé : ${fmtMoney(totalPaye)}*\n\n${expeditionLine}`;
     if (factureLink) msg += `\n\n📄 Consulter votre facture en ligne :\n${factureLink}`;
     msg += '\n\nMerci pour votre confiance ! 🙏\n— Le Monde de l\'Esthétique';
     window.open(`https://wa.me/${intl}?text=${encodeURIComponent(msg)}`, '_blank');
@@ -856,7 +864,7 @@ export default function DevisProPage() {
   const sendEmailLink = async (devis: DevisPro, link: string) => {
     const email = devis.client?.email;
     if (!email) { toast.error('Pas d\'adresse email pour cette cliente'); return; }
-    const firstName = devis.client?.firstName || devis.client?.lastName || 'Madame';
+    const firstName = clientFirstName(devis.client?.firstName, devis.client?.lastName);
     const itemLines = devis.items
       .filter((i) => !i.isBonus)
       .slice(0, 6)
@@ -877,7 +885,7 @@ export default function DevisProPage() {
 
   const sendWhatsAppWithLink = async (devis: DevisPro, link: string) => {
     const phone = devis.client?.whatsapp ?? devis.client?.phone;
-    const firstName = devis.client?.firstName || devis.client?.lastName || 'Madame';
+    const firstName = clientFirstName(devis.client?.firstName, devis.client?.lastName);
     const itemLines = devis.items
       .filter((i) => !i.isBonus)
       .slice(0, 6)
@@ -887,8 +895,9 @@ export default function DevisProPage() {
     const msg = [
       `Bonjour ${firstName} 🌸`,
       '',
-      `Votre commande est prête — vos produits habituels sont sélectionnés, vous n'avez rien à faire.`,
+      `Chez Le Monde de l'Esthétique, on pense à votre stock avant même que vous ayez à le faire 💅`,
       '',
+      `Votre prochaine commande est prête :`,
       itemLines,
       `💰 *${fmtMoney(devis.client_pays)}*`,
       '',
@@ -896,7 +905,7 @@ export default function DevisProPage() {
       link,
       '',
       `Sans engagement — vous validez quand vous êtes prête 😊`,
-      `— Le Monde de l'Esthétique ✨`,
+      `— Le Monde de l'Esthétique, à votre service ✨`,
     ].join('\n');
 
     if (phone) {
