@@ -212,32 +212,10 @@ export default function SubscriptionBoxesWidget() {
   const currentMonth = new Date().toISOString().slice(0, 7);
 
   const load = useCallback(async () => {
-    const supabase = createClient();
-    const { data } = await supabase
-      .from('subscription_orders')
-      .select(`
-        id, subscription_id, status, order_month, total_sell_price, benefit_amount, updated_at,
-        subscription:client_subscriptions(
-          client:clients(id, first_name, last_name),
-          plan:subscription_plans(name, price)
-        ),
-        items:subscription_order_items(
-          id, quantity, unit_sell_price, color_variant,
-          product:products(id, name, image_url)
-        )
-      `)
-      .in('status', ['confirmed', 'preparing'])
-      .eq('order_month', currentMonth)
-      .order('updated_at', { ascending: false })
-      .limit(30);
-
-    setOrders(
-      (data ?? []).map((o: any) => ({
-        ...o,
-        subscription: Array.isArray(o.subscription) ? o.subscription[0] : o.subscription,
-        items: o.items ?? [],
-      }))
-    );
+    const data = await fetch(`/api/dashboard/subscription-boxes?month=${currentMonth}`)
+      .then((r) => r.json())
+      .catch(() => []);
+    setOrders(Array.isArray(data) ? data : []);
     setLoading(false);
   }, [currentMonth]);
 
