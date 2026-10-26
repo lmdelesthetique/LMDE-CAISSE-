@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { sendWhatsApp, sendEmailNotification } from '@/lib/whatsappService';
+import { randomBytes } from 'crypto';
 
 export const maxDuration = 60;
 
@@ -102,9 +103,13 @@ export async function POST(req: NextRequest) {
       .map((i: any) => `• ${i.name}${i.qty > 1 ? ` x${i.qty}` : ''}`)
       .join('\n');
 
-    const devisLink = devis.client_token
-      ? `${siteUrl}/devis/${devis.client_token}`
-      : null;
+    // Ensure the devis has a client_token — generate one if missing
+    let token = devis.client_token as string | null;
+    if (!token) {
+      token = randomBytes(20).toString('hex');
+      await supabase.from('devis_pro').update({ client_token: token }).eq('id', devis.id);
+    }
+    const devisLink = `${siteUrl}/devis/${token}`;
 
     // WhatsApp plain-text message
     const waMessage = [
@@ -115,9 +120,7 @@ export async function POST(req: NextRequest) {
       `Votre prochaine commande est prête :`,
       itemLines,
       '',
-      devisLink
-        ? `👉 Consultez, modifiez si besoin et confirmez en 1 clic :\n${devisLink}`
-        : `👉 Contactez-nous pour renouveler votre commande.`,
+      `👉 Consultez, modifiez si besoin et confirmez en 1 clic :\n${devisLink}`,
       '',
       `Sans engagement — vous validez quand vous êtes prête 😊`,
       `— Le Monde de l'Esthétique, à votre service ✨`,
@@ -152,14 +155,12 @@ export async function POST(req: NextRequest) {
         💡 <strong>Le saviez-vous ?</strong> Les professionnels qui réassortent régulièrement enregistrent moins de pertes de clients liées à l'indisponibilité des soins. <em>Ne laissez pas un produit manquant freiner votre activité !</em>
       </p>
     </div>
-    ${devisLink ? `
     <!-- CTA Button -->
     <div style="text-align:center;margin-bottom:28px">
       <a href="${devisLink}" style="display:inline-block;background:#e91e8c;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:bold;letter-spacing:0.3px">
-        ✅ Consulter et renouveler mon devis
+        ✅ Voir ma commande →
       </a>
-      <p style="font-size:12px;color:#999;margin:10px 0 0">Ou copiez ce lien dans votre navigateur :<br/><a href="${devisLink}" style="color:#e91e8c;word-break:break-all">${devisLink}</a></p>
-    </div>` : `<p style="color:#444;font-size:14px">Contactez-nous pour renouveler votre commande.</p>`}
+    </div>
     <p style="font-size:13px;color:#888;margin:0">Des questions ? Répondez simplement à cet email.</p>
   </div>
   <!-- Footer -->
