@@ -328,7 +328,13 @@ export default function DevisProPage() {
       try {
         const res = await fetch(`/api/clients?search=${encodeURIComponent(clientSearch)}&limit=15`);
         const json = await res.json();
-        setClientResults(Array.isArray(json) ? json : (json.clients ?? []));
+        const raw = Array.isArray(json) ? json : (json.clients ?? []);
+        setClientResults(raw.map((c: any) => ({
+          ...c,
+          firstName: c.firstName ?? c.first_name ?? '',
+          lastName: c.lastName ?? c.last_name ?? '',
+          clientType: c.clientType ?? c.client_type ?? '',
+        })));
       } catch { setClientResults([]); } finally { setClientSearchLoading(false); }
     }, 200);
     return () => clearTimeout(t);
