@@ -40,9 +40,14 @@ export async function GET(req: NextRequest) {
       .select(selectCols)
       .gte('created_at', from)
       .lte('created_at', to)
-      .order('created_at', { ascending: false })
-      .limit(PAGE_SIZE);
-    if (!allMode) q = q.range(page * 50, (page + 1) * 50 - 1);
+      .order('created_at', { ascending: false });
+    // allMode fetches everything for KPI aggregation — use large limit (no default cap)
+    // non-allMode uses paginated 50-per-page display
+    if (allMode) {
+      q = q.limit(50000);
+    } else {
+      q = q.range(page * 50, (page + 1) * 50 - 1);
+    }
     if (method !== 'all') q = q.eq('payment_method', method);
     if (status !== 'all') q = q.eq('status', status);
     return q;

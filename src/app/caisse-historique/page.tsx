@@ -1453,7 +1453,8 @@ export default function CaisseHistoriquePage() {
   const cancelledCount = realFiltered.filter(t => t.status === 'cancelled').length;
 
   // Payment breakdown — for reconciliation with SumUp/bank
-  // Use ALL non-cancelled tickets (including demo) to match terminal totals
+  // allNonCancelled includes demo for terminal reconciliation (cbFormation)
+  // realNonCancelled used for CA-consistent breakdowns
   const allNonCancelled = tickets.filter(t => t.status !== 'cancelled');
   const isRealTicket = (t: TicketRow) => {
     if (t.is_demo === true) return false;
@@ -1471,16 +1472,27 @@ export default function CaisseHistoriquePage() {
   });
 
   // CB split: real customers vs formation (both went through SumUp terminal)
-  const cbReal = realNonCancelled
-    .filter(t => parseMethod(t.payment_method ?? '').label === 'SumUp (CB)')
-    .reduce((s, t) => s + (t.total_amount ?? 0), 0);
-  const cbFormation = demoNonCancelled
-    .filter(t => parseMethod(t.payment_method ?? '').label === 'SumUp (CB)')
-    .reduce((s, t) => s + (t.total_amount ?? 0), 0);
+  // Includes CB portions of Mixte payments for accurate terminal reconciliation
+  const cbReal = realNonCancelled.reduce((s, t) => {
+    const raw = t.payment_method ?? '';
+    if (parseMethod(raw).label === 'SumUp (CB)') return s + (t.total_amount ?? 0);
+    if (raw.startsWith('Mixte|')) { const [, cb] = raw.split('|'); return s + parseFloat(cb ?? '0'); }
+    return s;
+  }, 0);
+  const cbFormation = demoNonCancelled.reduce((s, t) => {
+    const raw = t.payment_method ?? '';
+    if (parseMethod(raw).label === 'SumUp (CB)') return s + (t.total_amount ?? 0);
+    if (raw.startsWith('Mixte|')) { const [, cb] = raw.split('|'); return s + parseFloat(cb ?? '0'); }
+    return s;
+  }, 0);
   const cbTotal = cbReal + cbFormation;
-  const cashTotal = allNonCancelled
-    .filter(t => parseMethod(t.payment_method ?? '').label === 'Espèces')
-    .reduce((s, t) => s + (t.total_amount ?? 0), 0);
+  // cashTotal uses realNonCancelled (consistent with CA) and includes Mixte cash portions
+  const cashTotal = realNonCancelled.reduce((s, t) => {
+    const raw = t.payment_method ?? '';
+    if (parseMethod(raw).label === 'Espèces') return s + (t.total_amount ?? 0);
+    if (raw.startsWith('Mixte|')) { const [, , cash] = raw.split('|'); return s + parseFloat(cash ?? '0'); }
+    return s;
+  }, 0);
   const demoCount = demoNonCancelled.length;
 
   const PERIOD_OPTS: { id: PeriodFilter; label: string }[] = [
@@ -1740,7 +1752,7 @@ export default function CaisseHistoriquePage() {
             )}
           </div>
           <div className="flex flex-wrap gap-3">
-            {/* CB block — split real vs formation */}
+            {/* CB block — split real vs formation, includes Mixte CB portions for terminal reconciliation */}
             <div className="flex-1 min-w-[200px] bg-blue-50 border border-blue-200 rounded-xl p-3 space-y-2">
               <p className="text-xs text-blue-700 font-600">💳 SumUp (CB) — total terminal : <span className="font-700">{fmt(cbTotal)} €</span></p>
               <div className="flex gap-2">
@@ -1755,20 +1767,38 @@ export default function CaisseHistoriquePage() {
                   </div>
                 )}
               </div>
-              <p className="text-[10px] text-blue-600">Total = à comparer avec relevé SumUp</p>
+              <p className="text-[10px] text-blue-600">Total = à comparer avec relevé SumUp (inclut part CB des mixtes)</p>
             </div>
             <div className="flex-1 min-w-[140px] bg-emerald-50 border border-emerald-200 rounded-xl p-3">
               <p className="text-xs text-emerald-700 font-600 mb-1">💵 Espèces</p>
               <p className="text-xl font-700 tabular-nums text-emerald-900">{fmt(cashTotal)} €</p>
+              <p className="text-[10px] text-emerald-600 mt-1">À comparer avec caisse (inclut part espèces des mixtes)</p>
             </div>
             {Object.entries(payBreakdown)
               .filter(([k]) => k !== 'SumUp (CB)' && k !== 'Espèces')
-              .map(([method, total]) => (
-                <div key={method} className="flex-1 min-w-[140px] bg-muted/40 border border-border rounded-xl p-3">
-                  <p className="text-xs text-muted-foreground font-600 mb-1">{method}</p>
-                  <p className="text-xl font-700 tabular-nums text-foreground">{fmt(total)} €</p>
-                </div>
-              ))
+              .map(([method, total]) => {
+                // For Mixte, show the CB+cash split if present
+                if (method === 'Mixte') {
+                  const mixteTickets = realNonCancelled.filter(t => (t.payment_method ?? '').startsWith('Mixte|'));
+                  const mCb = mixteTickets.reduce((s, t) => { const [, cb] = (t.payment_method ?? '').split('|'); return s + parseFloat(cb ?? '0'); }, 0);
+                  const mCash = mixteTickets.reduce((s, t) => { const [, , cash] = (t.payment_method ?? '').split('|'); return s + parseFloat(cash ?? '0'); }, 0);
+                  return (
+                    <div key={method} className="flex-1 min-w-[140px] bg-purple-50 border border-purple-200 rounded-xl p-3">
+                      <p className="text-xs text-purple-700 font-600 mb-1">Mixte (CB + Espèces)</p>
+                      <p className="text-xl font-700 tabular-nums text-purple-900">{fmt(total)} €</p>
+                      {(mCb > 0 || mCash > 0) && (
+                        <p className="text-[10px] text-purple-600 mt-1">CB : {fmt(mCb)} € · Esp : {fmt(mCash)} €</p>
+                      )}
+                    </div>
+                  );
+                }
+                return (
+                  <div key={method} className="flex-1 min-w-[140px] bg-muted/40 border border-border rounded-xl p-3">
+                    <p className="text-xs text-muted-foreground font-600 mb-1">{method}</p>
+                    <p className="text-xl font-700 tabular-nums text-foreground">{fmt(total)} €</p>
+                  </div>
+                );
+              })
             }
           </div>
           {cbFormation > 0 && (
