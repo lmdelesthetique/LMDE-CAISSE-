@@ -138,7 +138,7 @@ function PrepModal({
   const [markingRemis, setMarkingRemis] = useState(false);
   const order = sub.currentOrder!;
   const clientName = sub.client ? `${sub.client.first_name} ${sub.client.last_name}` : '—';
-  const monthLabel = new Date(currentMonth + '-01').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+  const monthLabel = new Date((order.order_month || currentMonth) + '-01').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
   // shipping_mode='pickup' overrides delivery_destination for display
   const dest = order.shipping_mode === 'pickup' ? 'retrait' : order.delivery_destination;
   const isRetrait = dest === 'retrait';
