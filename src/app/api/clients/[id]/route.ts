@@ -14,15 +14,15 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   }
 }
 
-// Fields that can be updated via the client form — sensitive financial fields
-// (loyalty_points, store_credit, total_spent) are modified only through
-// their own dedicated routes (loyalty/redemptions, returns, receipts).
+// Fields that can be updated via the client form or POS avoir deduction.
+// loyalty_points and total_spent are still read-only (managed by loyalty/receipts routes).
 const CLIENT_ALLOWED_FIELDS = new Set([
   'first_name', 'last_name', 'phone', 'email', 'address', 'city', 'zip',
   'country', 'birth_date', 'notes', 'acquisition_source', 'client_type',
   'is_pro', 'is_vip', 'pro_profile', 'tags', 'updated_at',
   'is_active', 'last_purchase_at', 'whatsapp', 'postal_code', 'date_of_birth',
   'gender', 'loyalty_discount_type', 'loyalty_discount_value', 'balance_due',
+  'store_credit', // deducted by POS when avoir is consumed
 ]);
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

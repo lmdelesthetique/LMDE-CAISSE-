@@ -35,6 +35,7 @@ interface SubscriptionOrder {
   delivery_destination: string | null;
   delivery_address: string | null;
   delivery_payment_sent: boolean;
+  created_at?: string | null;
 }
 
 interface PortalProduct {
@@ -2549,15 +2550,25 @@ export default function ClientDashboardPage() {
 
         {tab === 'historique' && (
           <div className="space-y-3">
-            {pastOrders.length === 0 ? (
-              <div className="bg-white rounded-2xl p-8 shadow-sm border border-gray-100 text-center">
-                <p className="text-2xl mb-2">📦</p>
-                <p className="text-sm text-gray-400">Aucune commande passée</p>
-              </div>
-            ) : pastOrders.filter(o => o.id !== currentOrder?.id).map((order) => {
+            {(() => {
+              const histOrders = pastOrders.filter(o => o.id !== currentOrder?.id);
+              if (histOrders.length === 0) {
+                return (
+                  <div className="bg-white rounded-2xl p-8 shadow-sm border border-gray-100 text-center">
+                    <p className="text-2xl mb-2">📦</p>
+                    <p className="text-sm text-gray-400">Aucune commande passée</p>
+                    <p className="text-xs text-gray-300 mt-1">Votre historique apparaîtra ici dès votre première box livrée</p>
+                  </div>
+                );
+              }
+              return histOrders.map((order) => {
               const items = pastOrderItems[order.id] ?? [];
               const isExpanded = expandedPastOrder === order.id;
               const isReordering = reordering === order.id;
+              const monthLabel = new Date(order.order_month + '-01').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+              const createdLabel = order.created_at
+                ? new Date(order.created_at).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+                : null;
               return (
                 <div key={order.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                   {/* Header row */}
@@ -2567,9 +2578,12 @@ export default function ClientDashboardPage() {
                   >
                     <div>
                       <span className="text-sm font-bold text-gray-800 capitalize">
-                        {new Date(order.order_month + '-01').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}
+                        {monthLabel}
                       </span>
-                      <span className="ml-2 text-xs text-gray-400">
+                      {createdLabel && (
+                        <p className="text-[10px] text-gray-400 mt-0.5">Commande du {createdLabel}</p>
+                      )}
+                      <span className="text-xs text-gray-400 block mt-0.5">
                         {items.length > 0 ? `${items.length} produit${items.length > 1 ? 's' : ''}` : ''}
                       </span>
                     </div>
@@ -2671,7 +2685,8 @@ export default function ClientDashboardPage() {
                   )}
                 </div>
               );
-            })}
+            });
+          })()}
           </div>
         )}
       </div>

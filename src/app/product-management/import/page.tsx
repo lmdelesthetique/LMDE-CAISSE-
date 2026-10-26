@@ -872,8 +872,14 @@ export default function ProductImportPage() {
         status:         prodStatus,
         description:    product.description || '',
         location:       product.location || '',
-        image_url:      product.image_url || null,
       };
+      // Only include image_url when a value is provided — for updates without
+      // image data in the CSV, leave the existing DB value untouched.
+      if (product.image_url) {
+        payload.image_url = product.image_url;
+      } else if (!existingId) {
+        payload.image_url = null; // new products start with no image
+      }
       if (existingId) payload.id = existingId;
       return payload;
     };
