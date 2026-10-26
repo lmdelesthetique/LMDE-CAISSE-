@@ -837,7 +837,7 @@ export default function ClientDashboardPage() {
 
   // ── Confirm order ──────────────────────────────────────────────────────────
   const confirmOrder = async () => {
-    if (!currentOrder || currentOrder.status !== 'open') return;
+    if (!currentOrder || !['open', 'preparing'].includes(currentOrder.status)) return;
     setConfirming(true);
     const totalBuy = orderItems.reduce((s, i) => s + i.unit_buy_price * i.quantity, 0);
     const benefit = Math.max(0, (clientUser?.planPrice ?? 0) - totalBuy - effectiveShippingCost);
@@ -1757,6 +1757,24 @@ export default function ClientDashboardPage() {
                   <div className="flex items-center gap-2 p-3 bg-emerald-50 rounded-xl border border-emerald-100">
                     <svg className="w-4 h-4 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
                     <p className="text-xs text-emerald-700 font-semibold">Box confirmée ! Votre conseillère prépare votre commande.</p>
+                  </div>
+                ) : currentOrder?.status === 'preparing' && !currentOrder.total_products_cost && canEdit && !isPastDeadline ? (
+                  /* ── Préparation sans confirmation client — montrer le bouton confirmer ── */
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 p-3 bg-amber-50 rounded-xl border border-amber-100">
+                      <span className="text-base shrink-0">⚠️</span>
+                      <p className="text-xs text-amber-700 font-semibold flex-1">Votre box n&apos;a pas encore été confirmée. Vérifiez vos produits et confirmez.</p>
+                    </div>
+                    <button
+                      onClick={confirmOrder}
+                      disabled={confirming || orderItems.length === 0}
+                      className="w-full py-3 bg-rose-500 text-white rounded-xl text-sm font-bold hover:bg-rose-600 transition-colors disabled:opacity-40 flex items-center justify-center gap-2"
+                    >
+                      {confirming
+                        ? <><SmallSpinner />Confirmation…</>
+                        : <><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>Confirmer ma box</>
+                      }
+                    </button>
                   </div>
                 ) : currentOrder?.status === 'preparing' || currentOrder?.status === 'shipped' ? (
                   /* ── Préparation / Expédiée / Retrait dispo ── */

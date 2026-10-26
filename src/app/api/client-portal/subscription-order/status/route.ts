@@ -22,7 +22,7 @@ export async function PATCH(request: NextRequest) {
   // Fetch the order (needed for ownership check and to know previous status for stock logic)
   const { data: orderRow } = await supabase
     .from('subscription_orders')
-    .select('id, subscription_id, status')
+    .select('id, subscription_id, status, total_products_cost')
     .eq('id', orderId)
     .maybeSingle();
 
@@ -31,9 +31,15 @@ export async function PATCH(request: NextRequest) {
   if (subscriptionId) {
     if (orderRow.subscription_id !== subscriptionId) return NextResponse.json({ error: 'Non autorisé' }, { status: 403 });
 
-    // Guard status transitions: can't cancel/reopen orders already in preparation or shipped
-    if (status && ['preparing', 'shipped', 'en_livraison'].includes(orderRow.status)) {
-      return NextResponse.json({ error: 'Impossible de modifier une commande en cours de préparation ou expédiée.' }, { status: 409 });
+    // Block cancellation / re-open for shipped/en_livraison orders
+    if (status && ['shipped', 'en_livraison'].includes(orderRow.status)) {
+      return NextResponse.json({ error: 'Impossible de modifier une commande expédiée.' }, { status: 409 });
+    }
+    // Allow confirming from 'preparing' when admin moved the order ahead before client confirmed
+    // (detected by total_products_cost being null — stock not yet committed).
+    // Block cancel/re-open from preparing (dangerous).
+    if (status && orderRow.status === 'preparing' && status !== 'confirmed') {
+      return NextResponse.json({ error: 'Impossible d\'annuler ou rouvrir une commande en préparation.' }, { status: 409 });
     }
   }
 
@@ -91,6 +97,13 @@ export async function PATCH(request: NextRequest) {
       if (total_sell_price !== undefined) updates.total_sell_price = total_sell_price;
       if (benefit_amount !== undefined) updates.benefit_amount = benefit_amount;
       if (shipping_cost !== undefined) updates.shipping_cost = shipping_cost;
+
+      // Skip stock deduction if stock was already committed on a previous confirmation
+      // (total_products_cost non-null means order was confirmed before; don't double-deduct)
+      const stockAlreadyCommitted = orderRow.status === 'preparing' && orderRow.total_products_cost != null;
+      if (stockAlreadyCommitted) {
+        // Nothing to do — stock already reserved, just update the status
+      } else {
 
       // Fetch all items with current product stock
       const { data: items, error: itemsErr } = await supabase
@@ -186,6 +199,7 @@ export async function PATCH(request: NextRequest) {
           }).then(({ error: le }) => { if (le) console.error('[sub-order confirm stock log]', le.message); });
         })
       );
+      } // end !stockAlreadyCommitted
     }
   }
 
