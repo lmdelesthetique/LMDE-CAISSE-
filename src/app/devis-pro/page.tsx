@@ -1607,9 +1607,18 @@ export default function DevisProPage() {
                 </button>
               </div>
               {selected.relance_auto_sent_at && (
-                <p className="mt-2 text-[11px] text-emerald-600">
-                  ✅ Relance envoyée le {new Date(selected.relance_auto_sent_at).toLocaleDateString('fr-FR')}
-                </p>
+                <div className="mt-2 flex items-center justify-between gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">
+                  <p className="text-[11px] font-700 text-emerald-700">
+                    ✅ Envoyée le {new Date(selected.relance_auto_sent_at).toLocaleDateString('fr-FR')}
+                  </p>
+                  <button
+                    onClick={() => sendAutoRelanceNow(selected)}
+                    disabled={sendingAutoRelance}
+                    className="text-[11px] font-600 text-emerald-600 hover:underline disabled:opacity-50 shrink-0"
+                  >
+                    {sendingAutoRelance ? 'Envoi…' : 'Renvoyer'}
+                  </button>
+                </div>
               )}
               {dateReassort && !selected.relance_auto_sent_at && (
                 <button
