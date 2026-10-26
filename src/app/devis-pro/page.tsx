@@ -277,6 +277,7 @@ export default function DevisProPage() {
   const [savingNotesDevis, setSavingNotesDevis] = useState(false);
   const [generatingLink, setGeneratingLink] = useState(false);
   const [clientLink, setClientLink] = useState<string | null>(null);
+  const [sendingEmail, setSendingEmail] = useState(false);
 
   // ── Fetch list ──────────────────────────────────────────────────────────────
   const fetchDevis = useCallback(async () => {
@@ -319,7 +320,7 @@ export default function DevisProPage() {
       try {
         const res = await fetch(`/api/clients?search=${encodeURIComponent(clientSearch)}&limit=15`);
         const json = await res.json();
-        setClientResults(json.clients ?? []);
+        setClientResults(Array.isArray(json) ? json : (json.clients ?? []));
       } catch { setClientResults([]); } finally { setClientSearchLoading(false); }
     }, 200);
     return () => clearTimeout(t);
@@ -767,10 +768,14 @@ export default function DevisProPage() {
     if (!devis.client) return;
     setRestoringItems(true);
     try {
+      const normalizedItems = devis.items.map((i: any) => ({
+        ...i,
+        sellPrice: i.sellPrice ?? i.price ?? 0,
+      }));
       await fetch(`/api/clients/${devis.client_id}/pro-profile`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ produits_reassort: devis.items }),
+        body: JSON.stringify({ produits_reassort: normalizedItems }),
       });
       setEditingDevisId(devis.id);
       setEditingDiscountPct(devis.discount_pct ?? 0);
@@ -846,6 +851,28 @@ export default function DevisProPage() {
       toast.success('Lien copié dans le presse-papier !');
     } catch { toast.error('Erreur réseau'); }
     finally { setGeneratingLink(false); }
+  };
+
+  const sendEmailLink = async (devis: DevisPro, link: string) => {
+    const email = devis.client?.email;
+    if (!email) { toast.error('Pas d\'adresse email pour cette cliente'); return; }
+    const firstName = devis.client?.firstName || devis.client?.lastName || 'Madame';
+    const itemLines = devis.items
+      .filter((i) => !i.isBonus)
+      .slice(0, 6)
+      .map((i) => `• ${i.name}${i.qty > 1 ? ` x${i.qty}` : ''}`)
+      .join('\n');
+    setSendingEmail(true);
+    try {
+      const res = await fetch(`/api/devis-pro/${devis.id}/send-link-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, firstName, link, itemLines, amount: devis.client_pays, numero: devis.numero }),
+      });
+      if (res.ok) toast.success('Email envoyé ✓');
+      else toast.error('Erreur envoi email');
+    } catch { toast.error('Erreur réseau'); }
+    finally { setSendingEmail(false); }
   };
 
   const sendWhatsAppWithLink = async (devis: DevisPro, link: string) => {
@@ -1373,6 +1400,14 @@ export default function DevisProPage() {
                   >
                     <Icon name="ChatBubbleLeftEllipsisIcon" size={13} />
                     WA
+                  </button>
+                  <button
+                    onClick={() => sendEmailLink(selected, clientLink)}
+                    disabled={sendingEmail}
+                    className="px-3 py-1.5 rounded-lg bg-blue-500 text-white text-xs font-bold hover:bg-blue-600 disabled:opacity-50 transition-colors flex items-center gap-1"
+                  >
+                    <Icon name="EnvelopeIcon" size={13} />
+                    {sendingEmail ? '...' : 'Mail'}
                   </button>
                 </div>
                 <button onClick={() => setClientLink(null)} className="text-xs text-blue-400 hover:text-blue-600 mt-1">Masquer</button>
