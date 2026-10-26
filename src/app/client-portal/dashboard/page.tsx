@@ -816,8 +816,8 @@ export default function ClientDashboardPage() {
     const item = orderItems.find((i) => i.id === itemId);
     if (!item || !currentOrder) return;
 
-    // If order was confirmed, reset to open so client must re-confirm after changes
-    if (currentOrder.status === 'confirmed') {
+    // If order was confirmed or already sent to preparing, reset to open so client must re-confirm
+    if (['confirmed', 'preparing'].includes(currentOrder.status)) {
       await fetch('/api/client-portal/subscription-order/status', {
         method: 'PATCH',
         headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
