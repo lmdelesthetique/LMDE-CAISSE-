@@ -592,6 +592,9 @@ export default function MarketingPage() {
   // Image URL for email
   const [imageUrl, setImageUrl] = useState('');
 
+  // Clickable product links (email only)
+  const [links, setLinks] = useState<{ label: string; url: string }[]>([]);
+
   // Template bank
   const [showTemplates, setShowTemplates] = useState(false);
 
@@ -650,6 +653,11 @@ export default function MarketingPage() {
     return () => clearTimeout(t);
   }, [manualSearch, selectedClients]);
 
+  const addLink = () => setLinks(prev => [...prev, { label: '', url: '' }]);
+  const updateLink = (i: number, field: 'label' | 'url', val: string) =>
+    setLinks(prev => prev.map((l, idx) => idx === i ? { ...l, [field]: val } : l));
+  const removeLink = (i: number) => setLinks(prev => prev.filter((_, idx) => idx !== i));
+
   const addClient = (c: ClientResult) => {
     if (selectedClients.find(s => s.id === c.id)) return;
     setSelectedClients(prev => [...prev, c]);
@@ -683,6 +691,9 @@ export default function MarketingPage() {
           nom,
           sujet: sujet.trim() || undefined,
           image_url: imageUrl.trim() || undefined,
+          links: links.filter(l => l.url.startsWith('http') && l.label.trim()).length > 0
+            ? links.filter(l => l.url.startsWith('http') && l.label.trim())
+            : undefined,
           segment,
           message,
           channel,
@@ -710,7 +721,7 @@ export default function MarketingPage() {
           });
         } else {
           setSendResult({ ok: true, envoyes: sendData.envoyes, erreurs: sendData.erreurs, smsSent: sendData.smsSent, emailSent: sendData.emailSent });
-          setNom(''); setSujet(''); setMessage(''); setImageUrl(''); setSelectedClients([]); setManualSearch('');
+          setNom(''); setSujet(''); setMessage(''); setImageUrl(''); setLinks([]); setSelectedClients([]); setManualSearch('');
           loadStats();
         }
       } else {
@@ -902,6 +913,51 @@ export default function MarketingPage() {
                     <p className="text-[11px] text-muted-foreground mt-1">
                       Copiez l'URL d'une photo depuis votre Shopify, Instagram ou Google Drive (lien direct). Elle apparaîtra en bannière sous le header rose.
                     </p>
+                  </div>
+
+                  {/* Liens cliquables */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-sm font-medium text-foreground">
+                        Liens produits cliquables <span className="text-muted-foreground font-normal">(optionnel)</span>
+                      </label>
+                      <button
+                        onClick={addLink}
+                        disabled={links.length >= 4}
+                        className="text-xs text-pink-600 hover:text-pink-700 border border-pink-200 hover:border-pink-400 rounded-lg px-2.5 py-1 transition-colors disabled:opacity-40"
+                      >
+                        + Ajouter un lien
+                      </button>
+                    </div>
+                    {links.length === 0 && (
+                      <p className="text-[11px] text-muted-foreground">Boutons cliquables dans l'email (ex: "Voir ce produit" → lien Shopify).</p>
+                    )}
+                    {links.map((link, i) => (
+                      <div key={i} className="flex gap-2 mb-2">
+                        <input
+                          type="text"
+                          value={link.label}
+                          onChange={e => updateLink(i, 'label', e.target.value)}
+                          placeholder="Texte du bouton"
+                          className="flex-1 border border-border rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-pink-400"
+                        />
+                        <input
+                          type="url"
+                          value={link.url}
+                          onChange={e => updateLink(i, 'url', e.target.value)}
+                          placeholder="https://..."
+                          className="flex-[2] border border-border rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-pink-400"
+                        />
+                        <button onClick={() => removeLink(i)} className="text-muted-foreground hover:text-red-500 px-1 text-sm font-bold">×</button>
+                      </div>
+                    ))}
+                    {links.length > 0 && (
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        {links.filter(l => l.label && l.url.startsWith('http')).map((l, i) => (
+                          <span key={i} className="inline-block bg-pink-600 text-white text-[11px] font-semibold rounded px-3 py-1.5">{l.label}</span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

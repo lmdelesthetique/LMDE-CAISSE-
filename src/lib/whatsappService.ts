@@ -114,13 +114,32 @@ async function sendViaBrevoSMS(phone: string, message: string): Promise<{ ok: bo
   return { ok: false, error: (data as any).message || `Brevo SMS HTTP ${res.status}` };
 }
 
-function buildCampaignEmailHtml(message: string, imageUrl?: string): string {
+// Parse "Label::URL|Label::URL" into [{label,url}]
+function parseLinks(raw: string): { label: string; url: string }[] {
+  return raw.split('|').map(p => {
+    const sep = p.indexOf('::');
+    if (sep === -1) return { label: 'Voir le produit', url: p.trim() };
+    return { label: p.slice(0, sep).trim(), url: p.slice(sep + 2).trim() };
+  }).filter(l => l.url.startsWith('http'));
+}
+
+function buildCampaignEmailHtml(message: string, imageUrl?: string, linksRaw?: string): string {
   const safeMsg = message
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/\n/g, '<br/>');
 
   const imageBlock = imageUrl
-    ? `<img src="${imageUrl.replace(/"/g,'')}" alt="" width="560" style="display:block;width:100%;max-width:560px;height:auto;border-radius:0;margin:0" />`
+    ? `<img src="${imageUrl.replace(/"/g, '')}" alt="" width="560" style="display:block;width:100%;max-width:560px;height:auto;border-radius:0;margin:0" />`
+    : '';
+
+  const links = linksRaw ? parseLinks(linksRaw) : [];
+  const linksBlock = links.length > 0
+    ? `<div style="padding:0 28px 24px">
+        <p style="margin:0 0 14px;font-family:Arial,sans-serif;font-size:11px;color:#999;text-transform:uppercase;letter-spacing:1px">Découvrir</p>
+        ${links.map(l =>
+          `<a href="${l.url.replace(/"/g, '')}" target="_blank" style="display:inline-block;margin:0 8px 10px 0;padding:10px 22px;background:#c2185b;color:#ffffff;font-family:Arial,sans-serif;font-size:13px;font-weight:600;text-decoration:none;border-radius:6px;letter-spacing:0.3px">${l.label.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</a>`
+        ).join('')}
+      </div>`
     : '';
 
   return `<!DOCTYPE html>
@@ -143,6 +162,9 @@ function buildCampaignEmailHtml(message: string, imageUrl?: string): string {
     <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:15px;line-height:1.95;color:#1a1a1a;white-space:pre-wrap">${safeMsg}</p>
   </div>
 
+  <!-- Boutons liens produits -->
+  ${linksBlock}
+
   <!-- Séparateur -->
   <div style="height:1px;background:linear-gradient(90deg,transparent,#f9d4e2,transparent);margin:0 28px"></div>
 
@@ -164,13 +186,14 @@ async function sendViaBrevoEmail(
   subject: string,
   message: string,
   htmlOverride?: string,
-  imageUrl?: string
+  imageUrl?: string,
+  linksRaw?: string
 ): Promise<{ ok: boolean; error?: string }> {
   const apiKey = process.env.BREVO_API_KEY;
   if (!apiKey) return { ok: false, error: 'BREVO_API_KEY not configured' };
 
   const fromEmail = process.env.BREVO_SENDER_EMAIL ?? 'lm.delesthetique@gmail.com';
-  const htmlContent = htmlOverride ?? buildCampaignEmailHtml(message, imageUrl);
+  const htmlContent = htmlOverride ?? buildCampaignEmailHtml(message, imageUrl, linksRaw);
 
   const res = await fetch('https://api.brevo.com/v3/smtp/email', {
     method: 'POST',
@@ -195,7 +218,8 @@ export async function sendCampaignMultiChannel(
   subject: string,
   message: string,
   channel: 'sms+email' | 'sms' | 'email' = 'sms+email',
-  imageUrl?: string
+  imageUrl?: string,
+  linksRaw?: string
 ): Promise<{ sms: boolean; email: boolean; anyOk: boolean; errorMsg?: string }> {
   const doSms = channel !== 'email';
   const doEmail = channel !== 'sms';
@@ -206,7 +230,7 @@ export async function sendCampaignMultiChannel(
 
   const [smsRes, emailRes] = await Promise.all([
     (doSms && client.phone) ? sendViaBrevoSMS(cleanPhone(client.phone), message) : Promise.resolve({ ok: false as const }),
-    (doEmail && client.email) ? sendViaBrevoEmail(client.email, client.name, subject, message, undefined, imageUrl) : Promise.resolve({ ok: false as const }),
+    (doEmail && client.email) ? sendViaBrevoEmail(client.email, client.name, subject, message, undefined, imageUrl, linksRaw) : Promise.resolve({ ok: false as const }),
   ]);
 
   const anyOk = smsRes.ok || emailRes.ok;

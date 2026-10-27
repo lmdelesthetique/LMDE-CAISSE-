@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
   let body: any;
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'JSON invalide' }, { status: 400 }); }
 
-  const { nom, sujet, segment, message, channel = 'sms+email', client_ids, image_url } = body as {
+  const { nom, sujet, segment, message, channel = 'sms+email', client_ids, image_url, links } = body as {
     nom?: string;
     sujet?: string;
     segment?: string;
@@ -51,6 +51,7 @@ export async function POST(req: NextRequest) {
     channel?: 'sms+email' | 'sms' | 'email';
     client_ids?: string[];
     image_url?: string;
+    links?: { label: string; url: string }[];
   };
 
   if (!nom?.trim()) return NextResponse.json({ error: 'Nom de campagne requis' }, { status: 400 });
@@ -64,10 +65,13 @@ export async function POST(req: NextRequest) {
   }
 
   const segmentValue = encodeSegment(segment ?? 'tous', channel, hasCustomIds ? client_ids : undefined);
-  // Encode subject and image_url into nom: "name|||subject|||imageUrl" (backward-compatible)
+  // Encode subject + imageUrl + links into nom: "name|||subject|||imageUrl|||linksRaw"
+  const linksEncoded = Array.isArray(links) && links.length > 0
+    ? links.filter(l => l.url?.startsWith('http')).map(l => `${l.label.replace(/\|/g, '').replace(/::/g, '')}::${l.url}`).join('|')
+    : '';
   let storedNom = nom!.trim();
-  if (sujet?.trim() || image_url?.trim()) {
-    storedNom = `${nom!.trim()}|||${sujet?.trim() ?? ''}|||${image_url?.trim() ?? ''}`;
+  if (sujet?.trim() || image_url?.trim() || linksEncoded) {
+    storedNom = `${nom!.trim()}|||${sujet?.trim() ?? ''}|||${image_url?.trim() ?? ''}|||${linksEncoded}`;
   }
 
   try {

@@ -92,13 +92,16 @@ export async function POST(
     let emailSent = 0;
     const logs: any[] = [];
 
-    // Decode nom|||sujet|||imageUrl encoding (see campagnes/route.ts)
-    const [campaignNom, encodedSubject, encodedImageUrl] = (campagne.nom ?? '').split('|||');
-    const subject = encodedSubject?.trim() || campaignNom || "Le Monde de l'Esthétique";
+    // Decode nom|||sujet|||imageUrl|||links encoding (see campagnes/route.ts)
+    const [campaignNom, encodedSubject, encodedImageUrl, encodedLinks] = (campagne.nom ?? '').split('|||');
+    const subjectTemplate = encodedSubject?.trim() || campaignNom || "Le Monde de l'Esthétique";
     const imageUrl = encodedImageUrl?.trim() || undefined;
+    const linksRaw = encodedLinks?.trim() || undefined;
 
     for (const client of clients) {
       const clientName = (client.first_name || 'Cliente').trim();
+      // Replace {prénom} in BOTH subject and message
+      const subject = subjectTemplate.replace(/\{prénom\}/gi, clientName);
       const messageText = (campagne.message ?? '').replace(/\{prénom\}/gi, clientName);
 
       const result = await sendCampaignMultiChannel(
@@ -106,7 +109,8 @@ export async function POST(
         subject,
         messageText,
         channel,
-        imageUrl
+        imageUrl,
+        linksRaw
       );
 
       if (result.anyOk) envoyes++; else erreurs++;
