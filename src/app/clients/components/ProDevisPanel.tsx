@@ -1089,10 +1089,10 @@ export default function ProDevisPanel({
       if (pdfUrl) {
         setLastPdfUrl(pdfUrl);
         if (devisId) {
-          fetch(`/api/devis-pro/${devisId}`, {
+          await fetch(`/api/devis-pro/${devisId}`, {
             method: 'PATCH', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ pdf_url: pdfUrl }),
-          }).catch(() => {});
+          }).catch((e) => console.warn('[ProDevisPanel] pdf_url PATCH failed:', e));
         }
       }
 

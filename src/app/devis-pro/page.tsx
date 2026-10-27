@@ -704,6 +704,7 @@ export default function DevisProPage() {
   // ── Save employee on devis ───────────────────────────────────────────────────
   const saveEmployee = async (empId: string) => {
     if (!selected) return;
+    if (selected.statut === 'annule') { toast.error('Devis annulé — modification impossible.'); return; }
     setSavingEmployee(true);
     try {
       const res = await fetch(`/api/devis-pro/${selected.id}`, {
@@ -753,6 +754,7 @@ export default function DevisProPage() {
   // ── Save devis notes ─────────────────────────────────────────────────────────
   const saveNotesDevis = async () => {
     if (!selected) return;
+    if (selected.statut === 'annule') { toast.error('Devis annulé — modification impossible.'); return; }
     setSavingNotesDevis(true);
     try {
       const res = await fetch(`/api/devis-pro/${selected.id}`, {
