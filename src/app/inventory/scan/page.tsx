@@ -188,8 +188,7 @@ export default function InventaireScanPage() {
   }, []);
 
   const handleAddFromSearch = useCallback(async (product: ProductSearchResult) => {
-    setNameSearch('');
-    setNameResults([]);
+    // Keep search open so multiple products can be added without retyping
 
     if (product.has_color_variants) {
       const variants = await fetch(`/api/product-color-stock?productId=${product.id}`)
@@ -518,9 +517,16 @@ export default function InventaireScanPage() {
 
             {/* Search by name */}
             <div className="bg-white rounded-xl border border-border p-4">
-              <p className="text-[10px] font-600 uppercase tracking-widest text-muted-foreground mb-3">
-                Recherche par nom de produit
-              </p>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-[10px] font-600 uppercase tracking-widest text-muted-foreground">
+                  Recherche par nom de produit
+                </p>
+                {nameResults.length > 0 && (
+                  <span className="text-[10px] text-muted-foreground">
+                    Cliquez pour ajouter · <button onClick={() => { setNameSearch(''); setNameResults([]); }} className="text-primary hover:underline">Effacer</button>
+                  </span>
+                )}
+              </div>
               <div className="relative">
                 <Icon name="MagnifyingGlassIcon" size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                 <input
@@ -528,48 +534,62 @@ export default function InventaireScanPage() {
                   value={nameSearch}
                   onChange={(e) => handleNameSearch(e.target.value)}
                   placeholder="Nom ou référence…"
-                  className="w-full pl-9 pr-3 py-2.5 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-colors"
+                  className="w-full pl-9 pr-8 py-2.5 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-colors"
                 />
-                {nameSearching && (
+                {nameSearching ? (
                   <div className="absolute right-3 top-1/2 -translate-y-1/2">
                     <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                   </div>
-                )}
+                ) : nameSearch.length > 0 ? (
+                  <button
+                    onClick={() => { setNameSearch(''); setNameResults([]); }}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <Icon name="XMarkIcon" size={14} />
+                  </button>
+                ) : null}
               </div>
 
               {nameResults.length > 0 && (
                 <div className="mt-2 border border-border rounded-xl overflow-hidden divide-y divide-border max-h-72 overflow-y-auto">
-                  {nameResults.map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => handleAddFromSearch(p)}
-                      className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-primary/5 transition-colors text-left"
-                    >
-                      <div className="w-10 h-10 rounded-lg overflow-hidden bg-muted shrink-0 border border-border">
-                        {p.image_url ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={p.image_url} alt={p.name} className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <Icon name="PhotoIcon" size={16} className="text-muted-foreground/40" />
-                          </div>
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-600 text-foreground leading-tight line-clamp-2">{p.name}</p>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <p className="text-xs text-muted-foreground font-mono">{p.ref}</p>
-                          <span className={`text-[10px] font-600 px-1.5 py-0.5 rounded-full ${p.stock <= 0 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                            Stock : {p.stock}
-                          </span>
-                          {p.has_color_variants && (
-                            <span className="text-[10px] font-600 px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700">Variantes</span>
+                  {nameResults.map((p) => {
+                    const isAdded = scannedItems.some(i => i.productId === p.id);
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => handleAddFromSearch(p)}
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 transition-colors text-left ${isAdded ? 'bg-emerald-50 hover:bg-emerald-100' : 'hover:bg-primary/5'}`}
+                      >
+                        <div className="w-10 h-10 rounded-lg overflow-hidden bg-muted shrink-0 border border-border">
+                          {p.image_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={p.image_url} alt={p.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <Icon name="PhotoIcon" size={16} className="text-muted-foreground/40" />
+                            </div>
                           )}
                         </div>
-                      </div>
-                      <Icon name="PlusCircleIcon" size={18} className="text-primary shrink-0" />
-                    </button>
-                  ))}
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-600 text-foreground leading-tight line-clamp-2">{p.name}</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <p className="text-xs text-muted-foreground font-mono">{p.ref}</p>
+                            <span className={`text-[10px] font-600 px-1.5 py-0.5 rounded-full ${p.stock <= 0 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                              Stock : {p.stock}
+                            </span>
+                            {p.has_color_variants && (
+                              <span className="text-[10px] font-600 px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700">Variantes</span>
+                            )}
+                          </div>
+                        </div>
+                        {isAdded ? (
+                          <span className="text-[10px] font-700 text-emerald-700 bg-emerald-100 rounded-full px-2 py-0.5 shrink-0">✓ Ajouté</span>
+                        ) : (
+                          <Icon name="PlusCircleIcon" size={18} className="text-primary shrink-0" />
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
 
