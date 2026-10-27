@@ -721,7 +721,7 @@ export default function MarketingPage() {
           message,
           channel,
           client_ids: selectionMode === 'manual' ? selectedClients.map(c => c.id) : undefined,
-          scheduled_at: sendMode === 'schedule' ? scheduledAt : undefined,
+          scheduled_at: sendMode === 'schedule' ? new Date(scheduledAt).toISOString() : undefined,
         }),
       });
       const data = await safeJson(res);
@@ -1237,7 +1237,7 @@ export default function MarketingPage() {
                       type="datetime-local"
                       value={scheduledAt}
                       onChange={e => setScheduledAt(e.target.value)}
-                      min={new Date(Date.now() + 10 * 60000).toISOString().slice(0, 16)}
+                      min={(() => { const t = new Date(Date.now() + 10 * 60000); return new Date(t.getTime() - t.getTimezoneOffset() * 60000).toISOString().slice(0, 16); })()}
                       className="w-full border border-violet-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 bg-violet-50"
                     />
                     {scheduledAt && (

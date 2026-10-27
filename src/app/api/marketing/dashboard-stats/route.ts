@@ -17,9 +17,9 @@ export async function GET() {
     const [segmentStats, campaignsResult] = await Promise.all([
       getSegmentStats(),
       supabase.from('campagnes_marketing')
-        .select('id, nom, segment, statut, total_clients, envoyes, erreurs, sent_at, created_at')
+        .select('id, nom, segment, statut, total_clients, envoyes, erreurs, sent_at, scheduled_at, created_at')
         .order('created_at', { ascending: false })
-        .limit(10),
+        .limit(20),
     ]);
 
     const campaigns = campaignsResult.data ?? [];
