@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
   let body: any;
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'JSON invalide' }, { status: 400 }); }
 
-  const { nom, sujet, segment, message, channel = 'sms+email', client_ids, image_url, links } = body as {
+  const { nom, sujet, segment, message, channel = 'sms+email', client_ids, image_url, links, scheduled_at } = body as {
     nom?: string;
     sujet?: string;
     segment?: string;
@@ -52,6 +52,7 @@ export async function POST(req: NextRequest) {
     client_ids?: string[];
     image_url?: string;
     links?: { label: string; url: string }[];
+    scheduled_at?: string;
   };
 
   if (!nom?.trim()) return NextResponse.json({ error: 'Nom de campagne requis' }, { status: 400 });
@@ -76,9 +77,16 @@ export async function POST(req: NextRequest) {
 
   try {
     const supabase = makeAdminClient();
+    const isScheduled = !!scheduled_at?.trim();
     const { data, error } = await supabase
       .from('campagnes_marketing')
-      .insert({ nom: storedNom, segment: segmentValue, message: message.trim(), statut: 'brouillon' })
+      .insert({
+        nom: storedNom,
+        segment: segmentValue,
+        message: message.trim(),
+        statut: isScheduled ? 'programme' : 'brouillon',
+        ...(isScheduled ? { scheduled_at: new Date(scheduled_at!).toISOString() } : {}),
+      })
       .select()
       .single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });

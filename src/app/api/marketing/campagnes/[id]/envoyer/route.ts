@@ -67,6 +67,7 @@ export async function POST(
       .from('campagnes_marketing').select('*').eq('id', id).maybeSingle();
     if (fetchErr || !campagne) return NextResponse.json({ error: 'Campagne introuvable' }, { status: 404 });
     if (campagne.statut === 'en_cours') return NextResponse.json({ error: 'Campagne déjà en cours' }, { status: 409 });
+    if (campagne.statut === 'terminee') return NextResponse.json({ error: 'Campagne déjà envoyée' }, { status: 409 });
 
     const { key: segKey, channel, ids: customIds } = parseSegmentStr(campagne.segment ?? 'tous');
 

@@ -11,12 +11,13 @@ interface Campaign {
   nom: string;
   segment: string;
   message: string;
-  statut: 'brouillon' | 'en_cours' | 'terminee' | 'erreur';
+  statut: 'brouillon' | 'en_cours' | 'terminee' | 'erreur' | 'programme';
   total_clients: number;
   envoyes: number;
   erreurs: number;
   created_at: string;
   sent_at?: string;
+  scheduled_at?: string;
 }
 
 interface DashboardStats {
@@ -548,6 +549,7 @@ function segmentDisplay(raw: string): string {
 
 const STATUT_LABELS: Record<string, { label: string; color: string }> = {
   brouillon: { label: 'Brouillon', color: 'bg-gray-100 text-gray-700' },
+  programme: { label: 'Programmée', color: 'bg-violet-100 text-violet-700' },
   en_cours: { label: 'En cours', color: 'bg-blue-100 text-blue-700' },
   terminee: { label: 'Terminée', color: 'bg-green-100 text-green-700' },
   erreur: { label: 'Erreur', color: 'bg-red-100 text-red-700' },
@@ -555,6 +557,19 @@ const STATUT_LABELS: Record<string, { label: string; color: string }> = {
 
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function fmtScheduled(iso: string) {
+  const d = new Date(iso);
+  const now = new Date();
+  const diffMs = d.getTime() - now.getTime();
+  if (diffMs < 0) return `Dû le ${fmtDate(iso)}`;
+  const diffH = Math.floor(diffMs / 3600000);
+  const diffMin = Math.floor((diffMs % 3600000) / 60000);
+  if (diffH < 1) return `Dans ${diffMin} min — ${fmtDate(iso)}`;
+  if (diffH < 24) return `Dans ${diffH}h${diffMin > 0 ? diffMin + 'min' : ''} — ${fmtDate(iso)}`;
+  const diffD = Math.ceil(diffH / 24);
+  return `Dans ${diffD} jour${diffD > 1 ? 's' : ''} — ${fmtDate(iso)}`;
 }
 
 async function safeJson(res: Response): Promise<any> {
@@ -594,6 +609,10 @@ export default function MarketingPage() {
 
   // Clickable product links (email only)
   const [links, setLinks] = useState<{ label: string; url: string }[]>([]);
+
+  // Scheduling
+  const [sendMode, setSendMode] = useState<'now' | 'schedule'>('now');
+  const [scheduledAt, setScheduledAt] = useState('');
 
   // Template bank
   const [showTemplates, setShowTemplates] = useState(false);
@@ -681,6 +700,10 @@ export default function MarketingPage() {
       setSendResult({ ok: false, error: 'Sélectionnez au moins une cliente' });
       return;
     }
+    if (sendMode === 'schedule' && !scheduledAt) {
+      setSendResult({ ok: false, error: 'Choisissez une date et heure d\'envoi' });
+      return;
+    }
     setCreating(true);
     setSendResult(null);
     try {
@@ -698,18 +721,28 @@ export default function MarketingPage() {
           message,
           channel,
           client_ids: selectionMode === 'manual' ? selectedClients.map(c => c.id) : undefined,
+          scheduled_at: sendMode === 'schedule' ? scheduledAt : undefined,
         }),
       });
       const data = await safeJson(res);
       if (!res.ok) { setSendResult({ ok: false, error: data.error }); return; }
 
+      // Scheduled — no immediate send, just confirm
+      if (sendMode === 'schedule') {
+        setSendResult({ ok: true, envoyes: 0, erreurs: 0 });
+        setNom(''); setSujet(''); setMessage(''); setImageUrl(''); setLinks([]); setScheduledAt(''); setSelectedClients([]); setManualSearch('');
+        setSendMode('now');
+        loadStats();
+        return;
+      }
+
+      // Immediate send
       setSendingId(data.id);
       const sendRes = await fetch(`/api/marketing/campagnes/${data.id}/envoyer`, { method: 'POST' });
       const sendData = await safeJson(sendRes);
       if (sendRes.ok) {
         const noneReached = (sendData.envoyes ?? 0) === 0 && (sendData.erreurs ?? 0) > 0;
         if (noneReached) {
-          // Delivery fully failed — keep form content so user can adjust and retry
           setSendResult({
             ok: false,
             envoyes: 0,
@@ -721,7 +754,7 @@ export default function MarketingPage() {
           });
         } else {
           setSendResult({ ok: true, envoyes: sendData.envoyes, erreurs: sendData.erreurs, smsSent: sendData.smsSent, emailSent: sendData.emailSent });
-          setNom(''); setSujet(''); setMessage(''); setImageUrl(''); setLinks([]); setSelectedClients([]); setManualSearch('');
+          setNom(''); setSujet(''); setMessage(''); setImageUrl(''); setLinks([]); setScheduledAt(''); setSelectedClients([]); setManualSearch('');
           loadStats();
         }
       } else {
@@ -774,7 +807,8 @@ export default function MarketingPage() {
 
   const segInfo = SEGMENTS.find(s => s.key === segment);
   const charCount = message.length;
-  const canSend = nom.trim() && message.trim() && (selectionMode === 'segment' || selectedClients.length > 0);
+  const canSend = nom.trim() && message.trim() && (selectionMode === 'segment' || selectedClients.length > 0)
+    && (sendMode === 'now' || !!scheduledAt);
 
   const isSmsChannel = channel === 'sms' || channel === 'sms+email';
   const isEmailChannel = channel === 'email' || channel === 'sms+email';
@@ -1152,14 +1186,20 @@ export default function MarketingPage() {
                 }`}>
                   {sendResult.ok ? (
                     <div className="space-y-1">
-                      <p className="font-medium">
-                        {sendResult.erreurs ? '⚠️' : '✅'} Campagne envoyée — {sendResult.envoyes} cliente{(sendResult.envoyes ?? 0) > 1 ? 's' : ''} atteinte{(sendResult.envoyes ?? 0) > 1 ? 's' : ''}
-                        {sendResult.erreurs ? ` · ${sendResult.erreurs} sans canal valide` : ''}
-                      </p>
-                      <div className="flex gap-3 text-xs opacity-80">
-                        {sendResult.smsSent !== undefined && <span>📱 {sendResult.smsSent} SMS</span>}
-                        {sendResult.emailSent !== undefined && <span>✉️ {sendResult.emailSent} emails</span>}
-                      </div>
+                      {(sendResult.envoyes ?? 0) === 0 && (sendResult.erreurs ?? 0) === 0 ? (
+                        <p className="font-medium">🗓️ Campagne programmée — elle partira automatiquement à l'heure choisie.</p>
+                      ) : (
+                        <>
+                          <p className="font-medium">
+                            {sendResult.erreurs ? '⚠️' : '✅'} Campagne envoyée — {sendResult.envoyes} cliente{(sendResult.envoyes ?? 0) > 1 ? 's' : ''} atteinte{(sendResult.envoyes ?? 0) > 1 ? 's' : ''}
+                            {sendResult.erreurs ? ` · ${sendResult.erreurs} sans canal valide` : ''}
+                          </p>
+                          <div className="flex gap-3 text-xs opacity-80">
+                            {sendResult.smsSent !== undefined && <span>📱 {sendResult.smsSent} SMS</span>}
+                            {sendResult.emailSent !== undefined && <span>✉️ {sendResult.emailSent} emails</span>}
+                          </div>
+                        </>
+                      )}
                     </div>
                   ) : (
                     <div className="space-y-1">
@@ -1173,12 +1213,53 @@ export default function MarketingPage() {
                 </div>
               )}
 
+              {/* Mode envoi */}
+              <div>
+                <label className="text-sm font-medium text-foreground">Quand envoyer ?</label>
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  <button
+                    onClick={() => setSendMode('now')}
+                    className={`flex items-center justify-center gap-1.5 border rounded-xl py-2.5 text-sm font-medium transition-all ${sendMode === 'now' ? 'bg-pink-500 text-white border-pink-500' : 'border-border text-muted-foreground hover:border-pink-300'}`}
+                  >
+                    📤 Maintenant
+                  </button>
+                  <button
+                    onClick={() => setSendMode('schedule')}
+                    className={`flex items-center justify-center gap-1.5 border rounded-xl py-2.5 text-sm font-medium transition-all ${sendMode === 'schedule' ? 'bg-violet-600 text-white border-violet-600' : 'border-border text-muted-foreground hover:border-violet-300'}`}
+                  >
+                    🗓️ Programmer
+                  </button>
+                </div>
+
+                {sendMode === 'schedule' && (
+                  <div className="mt-3">
+                    <input
+                      type="datetime-local"
+                      value={scheduledAt}
+                      onChange={e => setScheduledAt(e.target.value)}
+                      min={new Date(Date.now() + 10 * 60000).toISOString().slice(0, 16)}
+                      className="w-full border border-violet-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 bg-violet-50"
+                    />
+                    {scheduledAt && (
+                      <p className="text-xs text-violet-600 mt-1 font-medium">
+                        ✅ Envoi programmé le {new Date(scheduledAt).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })} à {new Date(scheduledAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                    )}
+                    <p className="text-[11px] text-muted-foreground mt-1">La campagne partira automatiquement. Vérifiable dans l'Historique.</p>
+                  </div>
+                )}
+              </div>
+
               <button
                 onClick={handleCreate}
                 disabled={creating || !canSend}
-                className="w-full bg-pink-500 hover:bg-pink-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium py-2.5 rounded-lg text-sm transition-colors"
+                className={`w-full disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium py-2.5 rounded-lg text-sm transition-colors ${sendMode === 'schedule' ? 'bg-violet-600 hover:bg-violet-700' : 'bg-pink-500 hover:bg-pink-600'}`}
               >
-                {creating ? (sendingId ? '📤 Envoi en cours...' : '⏳ Création...') : '📤 Créer et envoyer'}
+                {creating
+                  ? (sendingId ? '📤 Envoi en cours...' : '⏳ Création...')
+                  : sendMode === 'schedule'
+                    ? '🗓️ Programmer cette campagne'
+                    : '📤 Créer et envoyer'}
               </button>
             </div>
           </div>
@@ -1328,7 +1409,7 @@ export default function MarketingPage() {
               <table className="w-full text-sm">
                 <thead className="bg-muted/50">
                   <tr>
-                    {['Campagne', 'Segment / Sélection', 'Statut', 'Clientes', 'Envoyés', 'Erreurs', 'Date', 'Actions'].map(h => (
+                    {['Campagne', 'Segment', 'Statut', 'Clientes', 'Résultat', 'Date / Programmation', 'Actions'].map(h => (
                       <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">{h}</th>
                     ))}
                   </tr>
@@ -1336,25 +1417,65 @@ export default function MarketingPage() {
                 <tbody className="divide-y divide-border">
                   {stats.campaigns.map(c => {
                     const st = STATUT_LABELS[c.statut] ?? STATUT_LABELS['brouillon'];
+                    const total = c.envoyes + c.erreurs;
+                    const rate = total > 0 ? Math.round((c.envoyes / total) * 100) : null;
                     return (
                       <tr key={c.id} className="hover:bg-muted/30">
-                        <td className="px-4 py-3 font-medium">{c.nom.split('|||')[0]}</td>
+                        <td className="px-4 py-3 font-medium max-w-[150px]">
+                          <p className="truncate">{c.nom.split('|||')[0]}</p>
+                        </td>
                         <td className="px-4 py-3 text-muted-foreground text-xs">{segmentDisplay(c.segment)}</td>
                         <td className="px-4 py-3">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${st.color}`}>{st.label}</span>
                         </td>
-                        <td className="px-4 py-3 text-center tabular-nums">{c.total_clients}</td>
-                        <td className="px-4 py-3 text-center tabular-nums text-green-600 font-medium">{c.envoyes}</td>
-                        <td className="px-4 py-3 text-center tabular-nums text-red-500">{c.erreurs}</td>
-                        <td className="px-4 py-3 text-muted-foreground text-xs">{c.sent_at ? fmtDate(c.sent_at) : fmtDate(c.created_at)}</td>
+                        <td className="px-4 py-3 text-center tabular-nums text-xs">{c.total_clients || '—'}</td>
+                        <td className="px-4 py-3 text-xs">
+                          {c.statut === 'terminee' ? (
+                            <div>
+                              <div className="flex items-center gap-1 mb-1">
+                                <span className="text-green-600 font-medium">{c.envoyes} ✓</span>
+                                {c.erreurs > 0 && <span className="text-red-500">{c.erreurs} ✗</span>}
+                              </div>
+                              {rate !== null && (
+                                <div className="w-full bg-gray-100 rounded-full h-1.5">
+                                  <div className={`h-1.5 rounded-full ${rate >= 80 ? 'bg-green-400' : rate >= 50 ? 'bg-amber-400' : 'bg-red-400'}`} style={{ width: `${rate}%` }} />
+                                </div>
+                              )}
+                              {rate !== null && <p className="text-muted-foreground mt-0.5">{rate}% atteintes</p>}
+                            </div>
+                          ) : c.statut === 'programme' ? (
+                            <span className="text-violet-600">En attente</span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-xs">
+                          {c.statut === 'programme' && c.scheduled_at ? (
+                            <span className="text-violet-600 font-medium">{fmtScheduled(c.scheduled_at)}</span>
+                          ) : c.sent_at ? (
+                            <span className="text-muted-foreground">{fmtDate(c.sent_at)}</span>
+                          ) : (
+                            <span className="text-muted-foreground">{fmtDate(c.created_at)}</span>
+                          )}
+                        </td>
                         <td className="px-4 py-3">
-                          <button
-                            onClick={() => handleResend(c.id)}
-                            disabled={!!sendingId || c.statut === 'en_cours'}
-                            className="text-xs border border-border rounded-lg px-2.5 py-1 hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
-                          >
-                            {sendingId === c.id ? '⏳' : '🔄 Renvoyer'}
-                          </button>
+                          {c.statut === 'programme' ? (
+                            <button
+                              onClick={() => handleResend(c.id)}
+                              disabled={!!sendingId}
+                              className="text-xs border border-violet-200 text-violet-600 rounded-lg px-2.5 py-1 hover:bg-violet-50 disabled:opacity-40"
+                            >
+                              {sendingId === c.id ? '⏳' : '▶️ Envoyer maintenant'}
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleResend(c.id)}
+                              disabled={!!sendingId || c.statut === 'en_cours'}
+                              className="text-xs border border-border rounded-lg px-2.5 py-1 hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                              {sendingId === c.id ? '⏳' : '🔄 Renvoyer'}
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );

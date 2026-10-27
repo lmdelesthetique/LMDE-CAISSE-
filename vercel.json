@@ -3,6 +3,10 @@
     {
       "path": "/api/devis-pro/auto-relances?send=1",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/marketing-scheduler",
+      "schedule": "*/30 * * * *"
     }
   ]
 }
