@@ -54,17 +54,368 @@ interface ClientResult {
   email: string | null;
 }
 
-type Tab = 'creer' | 'historique' | 'ia';
+type Tab = 'creer' | 'historique' | 'sequences' | 'ia';
 
 // ── Template bank ────────────────────────────────────────────────────────────
-// Stratégie : 5 piliers prouvés par les grandes marques beauté D2C
-// Règle d'or : relation d'abord, vente après. Jamais "PROMO" en sujet.
 const TEMPLATE_BANK: {
   category: string;
   icon: string;
   description: string;
+  sequence?: string;
   templates: { label: string; segment: SegmentKey; channel: Channel; subject: string; message: string }[];
 }[] = [
+  // ── S1 : Bienvenue ───────────────────────────────────────────────────────
+  {
+    category: 'S1 — Bienvenue',
+    icon: '🌸',
+    sequence: 'S1',
+    description: 'Séquence nouvelle cliente — 3 messages sur 7 jours.',
+    templates: [
+      {
+        label: 'E1 J0 — Email bienvenue',
+        segment: 'nouvelle_cliente',
+        channel: 'email',
+        subject: 'Bienvenue dans la famille LMDE {prénom}',
+        message: `Bonjour {prénom},\n\nToute l'équipe du Monde de l'Esthétique est ravie de t'accueillir !\n\nTu viens de rejoindre une communauté de femmes qui prennent soin d'elles, ici en Martinique. On est là pour t'accompagner à chaque étape 💕\n\nQuelques choses utiles pour commencer :\n– N'hésite jamais à nous poser tes questions par message ou en boutique\n– On connaît chaque produit qu'on vend et on adore conseiller\n– Tu accumules des points à chaque achat pour des avantages fidélité\n\nÀ très bientôt,\nChristy & l'équipe LMDE\n\n––\nPour ne plus recevoir nos messages : réponds STOP`,
+      },
+      {
+        label: 'S1 J+2 — SMS chaleureux',
+        segment: 'nouvelle_cliente',
+        channel: 'sms',
+        subject: '',
+        message: `Coucou {prénom} ! Christy de LMDE. Comment s'est passee ta premiere visite ? N'hesite pas si tu as des questions. On est la pour toi ! A bientot - STOP 36111`,
+      },
+      {
+        label: 'E2 J+7 — Conseil personnalisé',
+        segment: 'nouvelle_cliente',
+        channel: 'email',
+        subject: '{prénom}, un conseil rien que pour toi',
+        message: `Coucou {prénom},\n\nUne semaine que tu fais partie de la famille LMDE ! J'espère que tu es heureuse de tes produits.\n\nJe voulais partager un conseil qu'on donne à toutes nos nouvelles clientes pour notre climat martiniquais :\n\nAvec notre humidité et notre chaleur, la peau a besoin d'une hydratation légère mais constante. Un sérum appliqué sur peau légèrement humide (juste après le gommage) pénètre 2 fois plus vite et dure plus longtemps.\n\nSi tu veux qu'on te compose ta routine idéale selon ta peau, passe nous voir — c'est avec plaisir.\n\nBisous,\nChristy de LMDE\n\n––\nPour ne plus recevoir nos messages : réponds STOP`,
+      },
+    ],
+  },
+
+  // ── S2 : Après kit débutant ──────────────────────────────────────────────
+  {
+    category: 'S2 — Kit débutant',
+    icon: '💅',
+    sequence: 'S2',
+    description: 'Séquence après achat kit — accompagnement sur 21 jours.',
+    templates: [
+      {
+        label: 'E1 J+1 — Email post-achat kit',
+        segment: 'debutante',
+        channel: 'email',
+        subject: '{prénom}, tes premiers pas avec ton kit',
+        message: `Coucou {prénom},\n\nMerci pour ton achat ! J'espère que tu es impatiente de tester ton nouveau kit.\n\nQuelques conseils pour bien démarrer :\n\n1. Commence par un test sur un seul ongle pour vérifier que le produit te convient\n2. Prépare toujours ta surface (lime légèrement, dégraisse)\n3. Applique en couches fines — mieux vaut 3 fines couches qu'une épaisse\n4. La lampe UV : 30 à 60 secondes selon la puissance — chaque couche séparément\n\nTu as une question ? Réponds directement à ce message. Je réponds personnellement.\n\nBisous,\nChristy de LMDE\n\n––\nPour ne plus recevoir nos messages : réponds STOP`,
+      },
+      {
+        label: 'S1 J+10 — SMS re-relance',
+        segment: 'debutante',
+        channel: 'sms',
+        subject: '',
+        message: `Coucou {prénom} ! Christy de LMDE. Tu as essaye ton kit ? Des questions ? Reponds a ce SMS, je suis la. A bientot - STOP 36111`,
+      },
+      {
+        label: 'E2 J+14 — Email résultats',
+        segment: 'debutante',
+        channel: 'email',
+        subject: '{prénom}, comment se passent tes ongles ?',
+        message: `Coucou {prénom},\n\nCa fait 2 semaines que tu as ton kit ! Comment ça se passe ?\n\nSi tu rencontres des difficultés (tenue, brillance, application), sache que c'est normal au début — ça vient avec la pratique. Et on est là pour t'aider.\n\nSi au contraire tout se passe bien... on est ravis !\n\nDans tous les cas, notre prochain atelier pratique peut t'apporter beaucoup. Passe voir les dates en boutique ou réponds à ce message.\n\nBisous,\nChristy de LMDE\n\n––\nPour ne plus recevoir nos messages : réponds STOP`,
+      },
+      {
+        label: 'E3 J+21 — Sans réachat',
+        segment: 'debutante',
+        channel: 'email',
+        subject: 'Une question {prénom}',
+        message: `Coucou {prénom},\n\nJe me posais une question...\n\nTu as eu ton kit il y a 3 semaines et on ne t'a pas revue depuis. Tout va bien ? Tu es heureuse de ton achat ?\n\nSi quelque chose ne va pas — si un produit ne convient pas, si tu as besoin d'aide — réponds-moi, on trouve une solution ensemble.\n\nEt si tu cherches le prochain produit pour compléter ta routine, je serai ravie de te conseiller.\n\nBisous sincères,\nChristy de LMDE\n\n––\nPour ne plus recevoir nos messages : réponds STOP`,
+      },
+    ],
+  },
+
+  // ── S3 : Réassort ────────────────────────────────────────────────────────
+  {
+    category: 'S3 — Réassort',
+    icon: '🔄',
+    sequence: 'S3',
+    description: 'Rappels réassort produits — invitation + suivi.',
+    templates: [
+      {
+        label: 'E1 — Invitation fiche réassort',
+        segment: 'actifs_30j',
+        channel: 'email',
+        subject: '{prénom}, plus jamais en rupture',
+        message: `Coucou {prénom},\n\nTu connais ce moment frustrant où tu arrives en boutique et ton produit préféré est épuisé ?\n\nOn a créé la fiche réassort juste pour ça.\n\nTu nous dis quels produits tu utilises régulièrement — on les surveille pour toi et on t'avertit avant qu'ils soient en rupture. Tu passes, c'est prêt.\n\nC'est gratuit, sans engagement. Juste un service en plus parce que tu le mérites.\n\nIntéressée ? Réponds à ce message ou demande en boutique.\n\nBisous,\nChristy de LMDE\n\n––\nPour ne plus recevoir nos messages : réponds STOP`,
+      },
+      {
+        label: 'S1 — SMS rappel mensuel',
+        segment: 'actifs_30j',
+        channel: 'sms',
+        subject: '',
+        message: `Coucou {prénom} ! Christy de LMDE. Tes produits habituels sont en stock. Passe quand tu veux ! A bientot - STOP 36111`,
+      },
+      {
+        label: 'S2 — SMS dernier flacon',
+        segment: 'actifs_30j',
+        channel: 'sms',
+        subject: '',
+        message: `{prénom} ! Il reste peu de stock de ton produit habituel. Passe avant rupture. On t'en met de cote si tu reponds OUI - Christy LMDE - STOP 36111`,
+      },
+    ],
+  },
+
+  // ── S4 : Le Guide ────────────────────────────────────────────────────────
+  {
+    category: 'S4 — Le Guide LMDE',
+    icon: '📖',
+    sequence: 'S4',
+    description: 'Séquence guide — résultats non garantis, variables selon les personnes.',
+    templates: [
+      {
+        label: 'E1 — Présentation du guide',
+        segment: 'tous',
+        channel: 'email',
+        subject: '{prénom}, notre guide beauté est disponible',
+        message: `Coucou {prénom},\n\nJ'ai une bonne nouvelle à te partager...\n\nOn a créé un guide beauté complet pour t'aider à prendre soin de toi au quotidien, adapté à notre peau et notre climate martiniquais.\n\nDedans tu trouveras :\n– Les routines par type de peau\n– Les techniques d'application pas à pas\n– Les associations de produits qui fonctionnent vraiment\n– Nos conseils pour les cheveux naturels\n\nLes résultats varient selon chaque personne, mais nos clientes qui l'ont suivi nous donnent des retours positifs régulièrement.\n\nDisponible en boutique. Passe nous voir pour en savoir plus.\n\nBisous,\nChristy de LMDE\n\n––\nPour ne plus recevoir nos messages : réponds STOP`,
+      },
+      {
+        label: 'E2 J+3 — Témoignage',
+        segment: 'tous',
+        channel: 'email',
+        subject: 'Ce que nos clientes disent du guide {prénom}',
+        message: `Coucou {prénom},\n\nJe t'avais parlé de notre guide beauté il y a quelques jours...\n\nJe voulais partager avec toi ce qu'une de nos clientes m'a dit la semaine dernière :\n\n« Depuis que j'applique les conseils du guide, ma peau est beaucoup mieux hydratée et mes ongles tiennent plus longtemps. »\n\nÉvidemment, les résultats varient selon chaque personne et chaque type de peau. Mais quand on applique des gestes adaptés régulièrement, ça fait la différence.\n\nSi tu veux le découvrir, il t'attend en boutique.\n\nBisous,\nChristy de LMDE\n\n––\nPour ne plus recevoir nos messages : réponds STOP`,
+      },
+      {
+        label: 'S1 — SMS guide',
+        segment: 'tous',
+        channel: 'sms',
+        subject: '',
+        message: `Coucou {prénom} ! Notre guide beaute est disponible en boutique. Routines, techniques, conseils peau et cheveux. Passe le decouvrir ! Christy LMDE - STOP 36111`,
+      },
+    ],
+  },
+
+  // ── S5 : Réactivation ────────────────────────────────────────────────────
+  {
+    category: 'S5 — Réactivation',
+    icon: '⏰',
+    sequence: 'S5',
+    description: 'Relance clientes inactives 45j et 90j.',
+    templates: [
+      {
+        label: 'E1 Pros 45j — Message exclusif',
+        segment: 'pro',
+        channel: 'email',
+        subject: '{prénom}, vos nouveaux arrivages professionnels',
+        message: `Bonjour {prénom},\n\nCela fait un moment que je ne vous ai pas eu en boutique...\n\nJe voulais vous informer en priorité : on vient de recevoir de nouveaux produits professionnels, notamment [catégorie produits]. Des articles que je pense adaptés à votre activité.\n\nSi vous souhaitez un devis ou voir les références disponibles, répondez à ce message ou passez directement — je prendrai le temps de vous présenter les nouveautés.\n\nCordialement,\nChristy de LMDE\n\n––\nPour ne plus recevoir nos messages : réponds STOP`,
+      },
+      {
+        label: 'E2 Particulières 45j — Message doux',
+        segment: 'a_reactiver_45j',
+        channel: 'email',
+        subject: 'On pensait à toi {prénom}',
+        message: `Coucou {prénom},\n\nÇa fait un petit moment qu'on ne t'a pas vue... et on pense à toi.\n\nPas de message commercial, juste l'envie de prendre de tes nouvelles sincèrement.\n\nSi tu as besoin d'un conseil beauté, si tu cherches un produit particulier, ou si tu veux qu'on te propose une routine adaptée à ta peau — on est là.\n\nÀ très bientôt j'espère,\nChristy & l'équipe LMDE 💕\n\n––\nPour ne plus recevoir nos messages : réponds STOP`,
+      },
+      {
+        label: 'S1 45j — SMS personnel',
+        segment: 'a_reactiver_45j',
+        channel: 'sms',
+        subject: '',
+        message: `Coucou {prénom} ! Christy de LMDE. On pensait a toi. Des nouveautes sont arrivees en boutique. Passe quand tu veux, on sera ravies ! Bisous - STOP 36111`,
+      },
+      {
+        label: 'E3 90j — Dernière tentative',
+        segment: 'inactifs_90j',
+        channel: 'email',
+        subject: 'Une dernière chose {prénom}',
+        message: `Coucou {prénom},\n\nJe t'écris une dernière fois — promis, je ne t'embête plus après ça.\n\nÇa fait maintenant 3 mois qu'on ne t'a pas revue chez LMDE. La vie est chargée, on comprend complètement.\n\nMais si un jour l'envie te reprend de prendre soin de toi, de découvrir de nouveaux produits, ou simplement de passer nous dire bonjour — on sera toujours là avec le sourire.\n\nEt si tu ne souhaites plus recevoir nos messages, c'est totalement normal : réponds juste STOP.\n\nBisous et prends soin de toi,\nChristy de LMDE 💕\n\n––\nPour ne plus recevoir nos messages : réponds STOP`,
+      },
+    ],
+  },
+
+  // ── S6 : Ateliers & Événements ───────────────────────────────────────────
+  {
+    category: 'S6 — Ateliers & Événements',
+    icon: '🎉',
+    sequence: 'S6',
+    description: 'Invitations et suivi événements LMDE.',
+    templates: [
+      {
+        label: 'E1 — Invitation atelier',
+        segment: 'tous',
+        channel: 'email',
+        subject: '{prénom}, tu es invitée à notre prochain atelier',
+        message: `Coucou {prénom},\n\nJ'ai le plaisir de t'inviter à notre prochain atelier LMDE !\n\n📅 Date : {date_atelier}\n📍 Lieu : {lieu}\n\nAu programme :\n– Techniques pratiques de [thème]\n– Conseils personnalisés selon ton type de peau/ongles\n– Moment convivial entre femmes passionnées de beauté\n\nLes places sont limitées, il vaut mieux réserver à l'avance. Réponds à ce message ou appelle-nous directement.\n\nOn espère te voir là-bas !\nChristy & l'équipe LMDE 🌸\n\n––\nPour ne plus recevoir nos messages : réponds STOP`,
+      },
+      {
+        label: 'S1 J-2 — Rappel SMS',
+        segment: 'tous',
+        channel: 'sms',
+        subject: '',
+        message: `Rappel {prénom} ! Notre atelier est dans 2 jours - {date_atelier} a {lieu}. Tu es inscrite ? Reponds pour confirmer. Bisous - Christy LMDE - STOP 36111`,
+      },
+      {
+        label: 'S2 — SMS multilingue (FR/CR/EN)',
+        segment: 'tous',
+        channel: 'sms',
+        subject: '',
+        message: `LMDE Atelier {date_atelier} a {lieu}. FR: Inscriptions ouvertes ! CR: Enregistrement ouvert ! EN: Registrations open! Reponds pour reserver. STOP 36111`,
+      },
+      {
+        label: 'E2 J+1 — Email post-atelier',
+        segment: 'tous',
+        channel: 'email',
+        subject: '{prénom}, merci d\'avoir été là hier',
+        message: `Coucou {prénom},\n\nMerci d'avoir participé à notre atelier hier — c'était un vrai plaisir de vous retrouver toutes !\n\nJ'espère que tu repars avec des techniques utiles et de belles inspirations. N'oublie pas de pratiquer — c'est là que tout se passe.\n\nSi tu as des questions sur ce qu'on a vu ensemble, ou si tu veux un produit qu'on a mentionné, réponds à ce message.\n\nÀ très bientôt pour le prochain événement !\nChristy de LMDE 💕\n\n––\nPour ne plus recevoir nos messages : réponds STOP`,
+      },
+      {
+        label: 'E3 — Soirée November',
+        segment: 'tous',
+        channel: 'email',
+        subject: '{prénom}, soirée beauté chez LMDE ce mois-ci',
+        message: `Coucou {prénom},\n\nCe mois de novembre, on organise quelque chose de spécial...\n\nUne soirée beauté chez LMDE pour nos clientes : démos produits, conseils personnalisés, ambiance conviviale et bonne humeur garantie.\n\n📅 {date_atelier}\n📍 {lieu}\n\nEntrée libre pour nos clientes. Les places sont limitées — inscris-toi dès maintenant en répondant à ce message.\n\nOn te réserve une belle soirée,\nChristy & l'équipe LMDE ✨\n\n––\nPour ne plus recevoir nos messages : réponds STOP`,
+      },
+    ],
+  },
+
+  // ── S8 : Avis ────────────────────────────────────────────────────────────
+  {
+    category: 'S8 — Demande d\'avis',
+    icon: '⭐',
+    sequence: 'S8',
+    description: 'Email J+7 après achat — collecte avis clientes.',
+    templates: [
+      {
+        label: 'E1 J+7 — Demande avis',
+        segment: 'actifs_30j',
+        channel: 'email',
+        subject: '{prénom}, une question rapide',
+        message: `Coucou {prénom},\n\nJ'espère que tu es heureuse de ton dernier achat !\n\nJe voulais juste te demander : est-ce que tout se passe bien ? Est-ce que le produit répond à tes attentes ?\n\nTon avis compte vraiment pour nous — ça nous aide à mieux vous servir.\n\nSi tu as une minute pour nous laisser un commentaire sur Google, c'est ici : {lien_avis}\n\nEt si quelque chose ne va pas, réponds directement à ce message — on s'en occupe.\n\nMerci d'être des nôtres,\nChristy de LMDE 💕\n\n––\nPour ne plus recevoir nos messages : réponds STOP`,
+      },
+    ],
+  },
+
+  // ── S9 : Programme Ambassadrices ─────────────────────────────────────────
+  {
+    category: 'S9 — Ambassadrices',
+    icon: '🌺',
+    sequence: 'S9',
+    description: 'Recrutement et animation programme ambassadrices.',
+    templates: [
+      {
+        label: 'E1 — Invitation programme',
+        segment: 'vip',
+        channel: 'email',
+        subject: '{prénom}, une opportunité pour toi',
+        message: `Coucou {prénom},\n\nJe voulais te parler de quelque chose de particulier.\n\nTu es une de nos clientes les plus fidèles, et je me disais que notre programme Ambassadrices pourrait t'intéresser.\n\nConcrètement : tu partages ton expérience LMDE autour de toi (amies, famille, réseaux) — et chaque nouvelle cliente que tu amènes te rapporte des avantages exclusifs. Pas de pression, pas d'objectif obligatoire. Juste une façon de te remercier pour ce que tu fais déjà naturellement.\n\nTu veux en savoir plus ? Réponds à ce message et on prend 5 minutes pour t'expliquer tout ça.\n\nBisous,\nChristy de LMDE 💕\n\n––\nPour ne plus recevoir nos messages : réponds STOP`,
+      },
+      {
+        label: 'S1 — SMS code ambassadrice',
+        segment: 'ambassadrice',
+        channel: 'sms',
+        subject: '',
+        message: `Coucou {prénom} ! Rappel : ton code ambassadrice {code_ambassadrice} offre -15% a tes filleules. Partage-le ! Questions ? Reponds a ce SMS. Bisous - Christy LMDE - STOP 36111`,
+      },
+    ],
+  },
+
+  // ── S10 : Fidélité ───────────────────────────────────────────────────────
+  {
+    category: 'S10 — Fidélité',
+    icon: '🥇',
+    sequence: 'S10',
+    description: 'Notification points fidélité — récompense clientes fidèles.',
+    templates: [
+      {
+        label: 'S1 — SMS notification points',
+        segment: 'fidelite_300pts',
+        channel: 'sms',
+        subject: '',
+        message: `Coucou {prénom} ! Tu as {points} points fidelite chez LMDE. Tu peux les utiliser pour [avantage]. Viens en profiter ! Bisous - Christy - STOP 36111`,
+      },
+      {
+        label: 'Email — Palier atteint',
+        segment: 'fidelite_300pts',
+        channel: 'email',
+        subject: '{prénom}, tu as atteint un nouveau palier',
+        message: `Coucou {prénom},\n\nFélicitations ! Tu viens d'atteindre {points} points de fidélité chez LMDE.\n\nC'est notre façon de te dire merci — tu fais vraiment partie de nos clientes les plus précieuses.\n\nTes points te donnent droit à : {offre}\n\nMentionne-le lors de ta prochaine visite ou réponds à ce message pour en savoir plus.\n\nBisous,\nChristy & l'équipe LMDE ✨\n\n––\nPour ne plus recevoir nos messages : réponds STOP`,
+      },
+    ],
+  },
+
+  // ── S11 : Anniversaire ───────────────────────────────────────────────────
+  {
+    category: 'S11 — Anniversaire',
+    icon: '🎂',
+    sequence: 'S11',
+    description: 'Message anniversaire — cadeau à définir par campagne.',
+    templates: [
+      {
+        label: 'S1 — SMS anniversaire',
+        segment: 'anniversaire_mois',
+        channel: 'sms',
+        subject: '',
+        message: `Joyeux anniversaire {prénom} ! Toute l'equipe LMDE te souhaite une belle journee. On t'a reserve une surprise en boutique ce mois-ci. Passe nous voir ! Bisous - Christy - STOP 36111`,
+      },
+      {
+        label: 'Email — Joyeux anniversaire',
+        segment: 'anniversaire_mois',
+        channel: 'email',
+        subject: 'Joyeux anniversaire {prénom}',
+        message: `Coucou {prénom},\n\nToute l'équipe LMDE te souhaite un très joyeux anniversaire !\n\nPour fêter ça avec toi, on t'a préparé une petite surprise : {offre}\n\nValable ce mois-ci uniquement — passe nous voir pour en profiter.\n\nOn t'embrasse fort,\nChristy & l'équipe LMDE 🎉💕\n\n––\nPour ne plus recevoir nos messages : réponds STOP`,
+      },
+    ],
+  },
+
+  // ── S12 : Événements saisonniers ─────────────────────────────────────────
+  {
+    category: 'S12 — Halloween & Saisonnier',
+    icon: '🎃',
+    sequence: 'S12',
+    description: 'Campagnes liées aux fêtes et saisons — à utiliser ponctuellement.',
+    templates: [
+      {
+        label: 'E1 — Email Halloween',
+        segment: 'tous',
+        channel: 'email',
+        subject: '{prénom}, un look Halloween qui fait peur (de beauté)',
+        message: `Coucou {prénom},\n\nHalloween approche... et si on créait un look qui impressionne ?\n\nCette semaine chez LMDE, on te propose nos meilleurs produits pour un make-up Halloween :\n– Faux ongles et gels couleur nuit\n– Effets pailletés et nacres profondes\n– Accessoires et contours dramatiques\n\nPasse en boutique, on te conseille selon le look que tu veux créer !\n\nBisous,\nChristy de LMDE 🎃\n\n––\nPour ne plus recevoir nos messages : réponds STOP`,
+      },
+      {
+        label: 'S1 — SMS Halloween',
+        segment: 'tous',
+        channel: 'sms',
+        subject: '',
+        message: `Halloween chez LMDE {prénom} ! Gels, faux ongles et look spectacular. Passe en boutique cette semaine. Bisous - Christy LMDE - STOP 36111`,
+      },
+    ],
+  },
+
+  // ── S13 : Messages de service ────────────────────────────────────────────
+  {
+    category: 'S13 — Messages Service',
+    icon: '📦',
+    sequence: 'S13',
+    description: 'Confirmations et suivi commandes — ne comptent pas dans la fréquence commerciale.',
+    templates: [
+      {
+        label: 'E1 — Confirmation commande France',
+        segment: 'nouvelles',
+        channel: 'email',
+        subject: 'Ta commande LMDE est confirmée {prénom}',
+        message: `Bonjour {prénom},\n\nTa commande est bien confirmée ! Merci de nous faire confiance.\n\nImportant pour les livraisons vers la France métropolitaine : des frais de douane peuvent s'appliquer à la réception de ton colis. Ces frais sont à la charge du destinataire et dépendent des règles douanières en vigueur. En cas de question, n'hésite pas à nous contacter.\n\nOn prépare ta commande avec soin. Tu recevras un message quand elle sera expédiée.\n\nÀ très bientôt,\nChristy & l'équipe LMDE\n\n––\nCeci est un message de service. Pour toute question : réponds à cet email.`,
+      },
+      {
+        label: 'S1 — SMS colis prêt',
+        segment: 'actifs_30j',
+        channel: 'sms',
+        subject: '',
+        message: `{prénom} ton colis LMDE est pret ! Passe le recuperer en boutique ou contacte-nous pour la livraison. Merci ! Christy LMDE`,
+      },
+    ],
+  },
+
+  // ── Piliers classiques ───────────────────────────────────────────────────
   {
     category: 'La Copine Beauté',
     icon: '💕',
@@ -74,99 +425,64 @@ const TEMPLATE_BANK: {
         label: 'Coucou, tu nous manques',
         segment: 'inactifs_90j',
         channel: 'sms+email',
-        subject: '{prénom}, on pensait à toi 💕',
-        message: `Coucou {prénom} 💕\n\nÇa fait un petit moment qu'on ne t'a pas vue... tu nous manques vraiment !\n\nPas de discours de vente, juste l'envie de prendre de tes nouvelles et te dire qu'on t'attend avec le sourire 🌸\n\nSi tu cherches quelque chose de particulier ou si tu veux qu'on te conseille, réponds à ce message — on sera ravies de t'aider.\n\nÀ très bientôt j'espère,\nChristy & l'équipe LMDE 💄`,
+        subject: 'On pensait à toi',
+        message: `Coucou {prénom},\n\nCa fait un petit moment qu'on ne t'a pas vue... tu nous manques vraiment !\n\nPas de discours de vente, juste l'envie de prendre de tes nouvelles et te dire qu'on t'attend avec le sourire.\n\nSi tu cherches quelque chose de particulier ou si tu veux un conseil, réponds à ce message — on sera ravies de t'aider.\n\nA très bientôt j'espère,\nChristy & l'équipe LMDE\n\n––\nPour ne plus recevoir nos messages : réponds STOP`,
       },
       {
-        label: '6 mois — message du cœur',
+        label: '6 mois — message du coeur',
         segment: 'inactifs_6mois',
         channel: 'email',
         subject: 'Un message personnel pour toi {prénom}',
-        message: `Bonjour {prénom},\n\nJe voulais t'écrire personnellement.\n\nÇa fait maintenant 6 mois qu'on ne t'a pas vue chez LMDE et franchement, tu nous manques.\n\nLa vie est parfois bien chargée — on comprend complètement. Mais si l'envie te reprend de prendre soin de toi, toute l'équipe t'attend avec le sourire 😊\n\nEt entre nous, on a reçu des produits que je suis sûre que tu vas adorer.\n\nÀ très bientôt j'espère,\nChristy 💕\nLe Monde de l'Esthétique`,
+        message: `Bonjour {prénom},\n\nJe voulais t'écrire personnellement.\n\nCa fait maintenant 6 mois qu'on ne t'a pas vue chez LMDE et franchement, tu nous manques.\n\nLa vie est parfois bien chargée — on comprend complètement. Mais si l'envie te reprend de prendre soin de toi, toute l'équipe t'attend avec le sourire.\n\nEt entre nous, on a reçu des produits que je suis sûre que tu vas adorer.\n\nA très bientôt j'espère,\nChristy\nLe Monde de l'Esthétique\n\n––\nPour ne plus recevoir nos messages : réponds STOP`,
       },
       {
         label: 'Invitation douce (SMS)',
         segment: 'tièdes_90j',
         channel: 'sms',
         subject: '',
-        message: `Coucou {prénom} 🌺 ça fait un moment ! Chez LMDE on a reçu de belles choses et j'ai pensé à toi. Passe nous voir cette semaine ? Bisous - Christy 💕`,
+        message: `Coucou {prénom} ca fait un moment ! Chez LMDE on a recu de belles choses et j'ai pense a toi. Passe nous voir ? Bisous - Christy - STOP 36111`,
       },
     ],
   },
   {
     category: 'Conseil d\'Experte',
     icon: '💡',
-    description: 'Astuce sans vente → confiance → achat naturel. La méthode Sephora.',
+    description: 'Astuce sans vente → confiance → achat naturel.',
     templates: [
       {
         label: 'Astuce peau tropicale',
         segment: 'actifs_30j',
         channel: 'email',
-        subject: 'Un secret de pro pour ta peau {prénom} 💄',
-        message: `Coucou {prénom} 💄\n\nUne astuce qu'on partage uniquement avec nos clientes...\n\nPar la chaleur et l'humidité de la Martinique, le fond de teint tient bien mieux si tu appliques une brume hydratante AVANT ta base. La peau est légèrement humide, la formule accroche mieux — résultat impeccable toute la journée, même sous 30 degrés ☀️\n\nPetit plus : une touche de poudre translucide sur la zone T, et c'est parfait.\n\nOn a tout ce qu'il faut en boutique. Passe nous voir et on te compose ta routine idéale selon ta carnation 🌸\n\nBisous,\nChristy de LMDE`,
+        subject: 'Un conseil de pro pour ta peau {prénom}',
+        message: `Coucou {prénom},\n\nUne astuce qu'on partage avec nos clientes...\n\nPar la chaleur et l'humidité de la Martinique, le fond de teint tient bien mieux si tu appliques une brume hydratante AVANT ta base. La peau est légèrement humide, la formule accroche mieux — résultat impeccable toute la journée, même sous 30 degrés.\n\nPetit plus : une touche de poudre translucide sur la zone T, et c'est parfait.\n\nOn a tout ce qu'il faut en boutique. Passe nous voir et on te compose ta routine idéale.\n\nBisous,\nChristy de LMDE\n\n––\nPour ne plus recevoir nos messages : réponds STOP`,
       },
       {
         label: 'Astuce sérum (SMS)',
         segment: 'actifs_30j',
         channel: 'sms',
         subject: '',
-        message: `Astuce LMDE {prénom} 💄 : applique ton sérum sur peau légèrement humide — il pénètre 2x mieux ! On a les meilleurs sérums adaptés à notre climat. À bientôt 🌸 Christy`,
+        message: `Astuce LMDE {prénom} : applique ton sérum sur peau légèrement humide — il penètre 2x mieux ! On a les meilleurs sérums adaptés a notre climat. A bientôt - Christy - STOP 36111`,
       },
       {
         label: 'Conseil cheveux naturels',
         segment: 'tous',
         channel: 'email',
-        subject: '{prénom}, tu connais cette astuce cheveux ? 🌿',
-        message: `Coucou {prénom} 🌿\n\nTu le sais peut-être déjà... mais dans notre humidité martiniquaise, les cheveux naturels ont besoin d'une hydratation renforcée, surtout en saison de pluie.\n\nLa méthode LOC (Leave-in → Huile → Crème) garde les boucles définies et hydratées 2 fois plus longtemps. Un vrai game changer !\n\nOn a sélectionné les meilleures huiles et crèmes adaptées à nos cheveux. Viens en découvrir quelques-unes 🌸\n\nÀ très bientôt,\nChristy de LMDE`,
+        subject: '{prénom}, tu connais cette astuce cheveux ?',
+        message: `Coucou {prénom},\n\nDans notre humidité martiniquaise, les cheveux naturels ont besoin d'une hydratation renforcée, surtout en saison de pluie.\n\nLa méthode LOC (Leave-in → Huile → Crème) garde les boucles définies et hydratées 2 fois plus longtemps. Un vrai game changer !\n\nOn a sélectionné les meilleures huiles et crèmes adaptées à nos cheveux. Viens en découvrir quelques-unes.\n\nA très bientôt,\nChristy de LMDE\n\n––\nPour ne plus recevoir nos messages : réponds STOP`,
       },
     ],
   },
   {
     category: 'Avant tout le monde',
     icon: '✨',
-    description: 'Exclusivité et VIP — fait se sentir privilégiée. Meilleur taux de conversion.',
+    description: 'Exclusivité et VIP — fait se sentir privilégiée.',
     templates: [
       {
-        label: 'Nouveauté avant tout le monde',
+        label: 'Nouveauté VIP en priorité',
         segment: 'vip',
         channel: 'sms+email',
-        subject: 'Avant tout le monde, {prénom} ✨',
-        message: `Bonjour {prénom} ✨\n\nJe t'écris avant d'en parler à tout le monde...\n\nOn vient de recevoir [décris la nouveauté en 2-3 phrases] et j'ai pensé à toi en premier.\n\nC'est rare, les quantités sont limitées et je voulais que tu aies la priorité.\n\nTu veux qu'on t'en mette de côté ? Réponds à ce message ou passe directement en boutique 🌸\n\nBisous,\nChristy de LMDE 💄`,
-      },
-      {
-        label: 'Offre silencieuse VIP',
-        segment: 'vip',
-        channel: 'email',
-        subject: 'Juste pour toi {prénom} 🎁',
-        message: `Coucou {prénom} 🎁\n\nOn ne l'a pas annoncé partout — c'est uniquement pour nos clientes fidèles comme toi.\n\n[Décris l'offre ou l'avantage en 2 lignes]\n\nC'est notre façon de te dire merci de nous faire confiance depuis si longtemps 💕\n\nMentionne ce message lors de ta prochaine visite pour en profiter.\n\nÀ très bientôt,\nChristy & l'équipe LMDE ✨`,
-      },
-    ],
-  },
-  {
-    category: 'SMS Ultra-Courts',
-    icon: '📱',
-    description: 'Moins de 160 caractères, ton ami qui t\'écrit. Taux de lecture : 98%.',
-    templates: [
-      {
-        label: 'Relance intime',
-        segment: 'inactifs_90j',
-        channel: 'sms',
-        subject: '',
-        message: `Coucou {prénom} 💕 tu nous manques chez LMDE ! On a des nouveautés qui vont t'adorer. Passe quand tu peux, on sera ravies. Bisous - Christy 🌸`,
-      },
-      {
-        label: 'Alerte stock limité',
-        segment: 'actifs_30j',
-        channel: 'sms',
-        subject: '',
-        message: `{prénom} chez LMDE 💄 [produit/offre] disponible mais stock limité ! On t'en met de côté si tu réponds OUI. À bientôt - Christy 🌸`,
-      },
-      {
-        label: 'Nouveauté flash',
-        segment: 'actifs_30j',
-        channel: 'sms',
-        subject: '',
-        message: `Coucou {prénom} ! On vient de recevoir [nouveauté] et j'ai pensé à toi 💕 Passe nous voir cette semaine ? Bisous - Christy LMDE 🌸`,
+        subject: 'Avant tout le monde {prénom}',
+        message: `Bonjour {prénom},\n\nJe t'écris avant d'en parler à tout le monde...\n\nOn vient de recevoir [décris la nouveauté en 2-3 phrases] et j'ai pensé à toi en premier.\n\nLes quantités sont limitées et je voulais que tu aies la priorité.\n\nTu veux qu'on t'en mette de côté ? Réponds à ce message ou passe directement en boutique.\n\nBisous,\nChristy de LMDE\n\n––\nPour ne plus recevoir nos messages : réponds STOP`,
       },
     ],
   },
@@ -179,26 +495,35 @@ const TEMPLATE_BANK: {
         label: 'Merci pour ta fidélité',
         segment: 'points_eleves',
         channel: 'email',
-        subject: 'Tu le mérites vraiment {prénom} 💕',
-        message: `Bonjour {prénom},\n\nJe voulais prendre un moment pour te dire merci.\n\nTa fidélité chez LMDE compte vraiment beaucoup pour nous. Ce n'est pas juste un achat de plus — tu fais partie de notre famille beauté.\n\nPour te remercier, [avantage fidélité — remise, cadeau, priorité stock...]\n\nPasse nous voir, on sera ravies de te retrouver 💕\n\nAvec toute notre reconnaissance,\nChristy & l'équipe LMDE ✨`,
+        subject: 'Tu le mérites vraiment {prénom}',
+        message: `Bonjour {prénom},\n\nJe voulais prendre un moment pour te dire merci.\n\nTa fidélité chez LMDE compte vraiment beaucoup pour nous. Ce n'est pas juste un achat de plus — tu fais partie de notre famille beauté.\n\nPour te remercier : {offre}\n\nPasse nous voir, on sera ravies de te retrouver.\n\nAvec toute notre reconnaissance,\nChristy & l'équipe LMDE\n\n––\nPour ne plus recevoir nos messages : réponds STOP`,
       },
       {
-        label: 'Bienvenue nouvelle cliente',
-        segment: 'nouvelles',
-        channel: 'email',
-        subject: 'Bienvenue dans la famille LMDE {prénom} 🌸',
-        message: `Bonjour {prénom} 🌸\n\nToute l'équipe du Monde de l'Esthétique est ravie de t'accueillir !\n\nTu viens de rejoindre une communauté de femmes qui prennent soin d'elles — et on est là pour t'accompagner à chaque étape 💕\n\nN'hésite jamais à nous poser tes questions sur les produits, ta routine ou tes besoins. On adore conseiller et on connaît chaque produit qu'on vend.\n\nÀ très bientôt chez nous !\nChristy & l'équipe LMDE ✨`,
-      },
-      {
-        label: 'Invitation abonnement',
+        label: 'Invitation Box Beauté',
         segment: 'sans_abonnement',
         channel: 'email',
-        subject: '{prénom}, et si on prenait soin de toi chaque mois ? 📦',
-        message: `Bonjour {prénom} 💕\n\nJe voulais te parler d'une chose que nos abonnées adorent...\n\nChaque mois, elles reçoivent leur Box Beauté avec des produits sélectionnés selon leurs besoins — sans avoir à penser à rien. C'est 100% automatique.\n\n[Décris l'avantage principal de l'abonnement]\n\nTu veux en savoir plus ? Réponds à ce message ou passe nous voir, on t'explique tout 🌸\n\nBisous,\nChristy de LMDE`,
+        subject: '{prénom}, et si on prenait soin de toi chaque mois ?',
+        message: `Bonjour {prénom},\n\nJe voulais te parler d'une chose que nos abonnées adorent...\n\nChaque mois, elles reçoivent leur Box Beauté avec des produits sélectionnés selon leurs besoins — sans avoir à penser à rien.\n\n[Décris l'avantage principal de l'abonnement]\n\nTu veux en savoir plus ? Réponds à ce message ou passe nous voir.\n\nBisous,\nChristy de LMDE\n\n––\nPour ne plus recevoir nos messages : réponds STOP`,
       },
     ],
   },
 ];
+
+// ── Compliance helpers ───────────────────────────────────────────────────────
+const FORBIDDEN_SUBJECT_WORDS = ['PROMO', 'OFFRE', 'GRATUIT', 'URGENT', 'SOLDES', 'REDUCTION', 'REMISE'];
+function hasForbiddenWords(text: string): string[] {
+  const upper = text.toUpperCase();
+  return FORBIDDEN_SUBJECT_WORDS.filter(w => upper.includes(w) || text.includes('%'));
+}
+function hasEmoji(text: string): boolean {
+  return /\p{Emoji_Presentation}|\p{Extended_Pictographic}/u.test(text);
+}
+function smsSegmentCount(text: string): { segments: number; charsPerSeg: number; total: number } {
+  const unicode = hasEmoji(text);
+  const charsPerSeg = unicode ? 70 : 160;
+  const segments = Math.ceil(text.length / charsPerSeg) || 1;
+  return { segments, charsPerSeg, total: text.length };
+}
 
 // ── Segment display helper ────────────────────────────────────────────────────
 function parseSegmentStr(raw: string): { key: string; channel: Channel; ids: string[] | null } {
@@ -436,6 +761,12 @@ export default function MarketingPage() {
   const charCount = message.length;
   const canSend = nom.trim() && message.trim() && (selectionMode === 'segment' || selectedClients.length > 0);
 
+  const isSmsChannel = channel === 'sms' || channel === 'sms+email';
+  const isEmailChannel = channel === 'email' || channel === 'sms+email';
+  const forbiddenInSubject = hasForbiddenWords(sujet);
+  const smsInfo = isSmsChannel ? smsSegmentCount(message) : null;
+  const smsUnicode = smsInfo ? hasEmoji(message) : false;
+
   return (
     <div className="p-6 max-w-6xl mx-auto">
       {/* Header */}
@@ -462,9 +793,10 @@ export default function MarketingPage() {
       )}
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-6 bg-muted rounded-lg p-1 w-fit">
+      <div className="flex gap-1 mb-6 bg-muted rounded-lg p-1 w-fit flex-wrap">
         {([
           { id: 'creer', label: '📣 Créer une campagne' },
+          { id: 'sequences', label: '🔁 Séquences' },
           { id: 'historique', label: '📋 Historique' },
           { id: 'ia', label: '🤖 Analyse IA' },
         ] as { id: Tab; label: string }[]).map(t => (
@@ -524,19 +856,25 @@ export default function MarketingPage() {
               </div>
 
               {/* Sujet email */}
-              {(channel === 'email' || channel === 'sms+email') && (
+              {isEmailChannel && (
                 <div>
                   <label className="text-sm font-medium text-foreground">Sujet de l'email</label>
                   <input
                     type="text"
                     value={sujet}
                     onChange={e => setSujet(e.target.value)}
-                    placeholder='ex: "On pensait à toi {prénom} 💕" — personnel, pas commercial'
-                    className="mt-1 w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400"
+                    placeholder='ex: "On pensait à toi {prénom}" — personnel, pas commercial'
+                    className={`mt-1 w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 ${forbiddenInSubject.length > 0 ? 'border-red-400 bg-red-50' : 'border-border'}`}
                   />
-                  <p className="text-[11px] text-amber-600 mt-1">
-                    ⚠️ Évitez : PROMO, OFFRE, %, URGENT, GRATUIT — Gmail les classe en "Promotions". Préférez un sujet personnel avec le prénom.
-                  </p>
+                  {forbiddenInSubject.length > 0 ? (
+                    <p className="text-[11px] text-red-600 mt-1 font-medium">
+                      🚫 Mots interdits détectés : {forbiddenInSubject.join(', ')} — Gmail classera ce message en "Promotions"
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-amber-600 mt-1">
+                      ⚠️ Évitez : PROMO, OFFRE, %, URGENT, GRATUIT — Préférez un sujet personnel avec {'{prénom}'}.
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -636,29 +974,41 @@ export default function MarketingPage() {
               <div>
                 <div className="flex items-center justify-between">
                   <label className="text-sm font-medium text-foreground">Message</label>
-                  <span className={`text-xs font-mono ${charCount > 160 ? 'text-orange-500' : 'text-muted-foreground'}`}>
-                    {charCount} car.{charCount > 160 ? ' (multi-SMS)' : ''}
-                  </span>
+                  {smsInfo ? (
+                    <span className={`text-xs font-mono font-medium ${smsInfo.segments > 1 ? 'text-orange-500' : 'text-green-600'}`}>
+                      {charCount} car. · {smsInfo.segments} SMS{smsUnicode ? ' (Unicode)' : ''}
+                    </span>
+                  ) : (
+                    <span className="text-xs font-mono text-muted-foreground">{charCount} car.</span>
+                  )}
                 </div>
                 <textarea
                   value={message}
                   onChange={e => setMessage(e.target.value)}
                   rows={6}
-                  placeholder={`Bonjour {prénom} 👋\n\nVotre message ici...\n\nLe Monde de l'Esthétique 💅`}
+                  placeholder={`Bonjour {prénom},\n\nVotre message ici...\n\nChristy de LMDE - STOP 36111`}
                   className="mt-1 w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 resize-none"
                 />
-                <div className="flex items-center gap-2 mt-1">
-                  <p className="text-xs text-muted-foreground">
-                    Utilisez <code className="bg-muted px-1 rounded">{'{prénom}'}</code> pour personnaliser.
-                  </p>
-                  <div className="flex items-center gap-1 ml-auto">
-                    {(channel === 'sms+email' || channel === 'sms') && (
-                      <span className="text-xs bg-blue-50 text-blue-600 border border-blue-200 rounded px-1.5 py-0.5">📱 SMS</span>
-                    )}
-                    {(channel === 'sms+email' || channel === 'email') && (
-                      <span className="text-xs bg-purple-50 text-purple-600 border border-purple-200 rounded px-1.5 py-0.5">✉️ Email</span>
-                    )}
+                <div className="flex flex-col gap-1 mt-1">
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs text-muted-foreground">
+                      Variables : <code className="bg-muted px-1 rounded">{'{prénom}'}</code> <code className="bg-muted px-1 rounded">{'{points}'}</code> <code className="bg-muted px-1 rounded">{'{offre}'}</code>
+                    </p>
+                    <div className="flex items-center gap-1 ml-auto">
+                      {isSmsChannel && <span className="text-xs bg-blue-50 text-blue-600 border border-blue-200 rounded px-1.5 py-0.5">📱 SMS</span>}
+                      {isEmailChannel && <span className="text-xs bg-purple-50 text-purple-600 border border-purple-200 rounded px-1.5 py-0.5">✉️ Email</span>}
+                    </div>
                   </div>
+                  {isSmsChannel && smsUnicode && (
+                    <p className="text-[11px] text-orange-600 bg-orange-50 border border-orange-200 rounded px-2 py-1">
+                      ⚠️ Le message contient des emojis — mode Unicode activé (70 car./SMS au lieu de 160). Envisagez de supprimer les emojis pour économiser des SMS.
+                    </p>
+                  )}
+                  {isSmsChannel && !message.toUpperCase().includes('STOP') && message.length > 0 && (
+                    <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                      ⚠️ Rappel : les SMS commerciaux doivent contenir une mention STOP (ex: "STOP 36111" à la fin).
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -812,6 +1162,63 @@ export default function MarketingPage() {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* ── TAB: Séquences ── */}
+      {activeTab === 'sequences' && (
+        <div className="space-y-5">
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
+            <p className="font-semibold mb-1">⚠️ Règles d'envoi — À respecter obligatoirement</p>
+            <ul className="list-disc list-inside space-y-0.5 text-xs">
+              <li>Maximum 1 message commercial par semaine par cliente (tous canaux confondus)</li>
+              <li>Les messages de service (confirmation commande, colis prêt) ne comptent pas</li>
+              <li>Toujours tester sur ta propre fiche avant d'envoyer à de vraies clientes</li>
+              <li>Jamais de fausse urgence — seulement les vraies limitations de stock ou places</li>
+              <li>Pour le guide : "Résultats variables selon les personnes" obligatoire</li>
+              <li>Livraisons France : toujours mentionner "Frais de douane possibles"</li>
+            </ul>
+          </div>
+
+          {TEMPLATE_BANK.filter(cat => cat.sequence).map(cat => (
+            <div key={cat.category} className="bg-white border border-border rounded-xl overflow-hidden">
+              <div className="px-5 py-3 border-b border-border bg-muted/30 flex items-center justify-between">
+                <div>
+                  <span className="font-semibold text-foreground">{cat.icon} {cat.category}</span>
+                  <p className="text-xs text-muted-foreground mt-0.5">{cat.description}</p>
+                </div>
+                <span className="text-xs bg-pink-100 text-pink-700 border border-pink-200 rounded-full px-3 py-1 font-medium">{cat.templates.length} message{cat.templates.length > 1 ? 's' : ''}</span>
+              </div>
+              <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {cat.templates.map(t => {
+                  const segInfo = SEGMENTS.find(s => s.key === t.segment);
+                  return (
+                    <div key={t.label} className="border border-border rounded-lg p-3 hover:border-pink-300 transition-colors">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <span className="text-xs font-semibold text-foreground leading-tight">{t.label}</span>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full border shrink-0 ${t.channel === 'sms' ? 'bg-blue-50 text-blue-600 border-blue-200' : t.channel === 'email' ? 'bg-purple-50 text-purple-600 border-purple-200' : 'bg-gray-50 text-gray-500 border-gray-200'}`}>
+                          {t.channel === 'sms' ? '📱' : t.channel === 'email' ? '✉️' : '📱+✉️'}
+                        </span>
+                      </div>
+                      {t.subject && (
+                        <p className="text-[10px] text-purple-600 bg-purple-50 rounded px-1.5 py-0.5 mb-1.5">Sujet : {t.subject}</p>
+                      )}
+                      <p className="text-[10px] text-muted-foreground bg-muted rounded px-1.5 py-0.5 mb-2">
+                        {segInfo ? `${segInfo.icon} ${segInfo.label}` : t.segment}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground line-clamp-2 mb-3">{t.message.split('\n').filter(Boolean)[0]}</p>
+                      <button
+                        onClick={() => { applyTemplate(t); setActiveTab('creer'); }}
+                        className="w-full text-xs bg-pink-500 hover:bg-pink-600 text-white rounded-lg py-1.5 transition-colors font-medium"
+                      >
+                        Utiliser ce modèle
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 

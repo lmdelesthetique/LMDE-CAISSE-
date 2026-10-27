@@ -18,7 +18,15 @@ export type SegmentKey =
   | 'abonnees'
   | 'sans_abonnement'
   | 'points_eleves'
-  | 'nouvelles';
+  | 'nouvelles'
+  | 'nouvelle_cliente'
+  | 'a_reactiver_45j'
+  | 'fidelite_300pts'
+  | 'anniversaire_mois'
+  | 'pro'
+  | 'ambassadrice'
+  | 'a_achete_guide'
+  | 'debutante';
 
 export interface SegmentInfo {
   key: SegmentKey;
@@ -29,15 +37,23 @@ export interface SegmentInfo {
 
 export const SEGMENTS: SegmentInfo[] = [
   { key: 'tous', label: 'Toutes les clientes', description: 'Toutes les clientes avec un numéro de téléphone', icon: '👥' },
+  { key: 'nouvelle_cliente', label: 'Nouvelles (14j)', description: 'Fiche créée dans les 14 derniers jours', icon: '🌸' },
+  { key: 'nouvelles', label: 'Nouvelles (30j)', description: 'Clientes créées dans les 30 derniers jours', icon: '🌟' },
   { key: 'actifs_30j', label: 'Actives (30j)', description: 'Achat dans les 30 derniers jours', icon: '🔥' },
   { key: 'tièdes_90j', label: 'Tièdes (31-90j)', description: 'Dernier achat il y a 31 à 90 jours', icon: '⚡' },
+  { key: 'a_reactiver_45j', label: 'À réactiver (45-89j)', description: 'Dernier achat il y a 45 à 89 jours', icon: '⏰' },
   { key: 'inactifs_90j', label: 'Inactives (90j+)', description: 'Aucun achat depuis plus de 90 jours', icon: '😴' },
   { key: 'inactifs_6mois', label: 'Inactives (6 mois+)', description: 'Aucun achat depuis plus de 6 mois', icon: '💤' },
   { key: 'vip', label: 'VIP (500€+)', description: 'Total dépensé supérieur à 500€', icon: '⭐' },
+  { key: 'pro', label: 'Professionnelles', description: 'Clientes de type professionnel', icon: '🏢' },
+  { key: 'debutante', label: 'Débutantes (kit)', description: 'A acheté un kit débutant', icon: '💅' },
   { key: 'abonnees', label: 'Abonnées', description: 'Clientes avec abonnement actif', icon: '💎' },
   { key: 'sans_abonnement', label: 'Sans abonnement', description: 'Clientes sans abonnement actif', icon: '📦' },
+  { key: 'fidelite_300pts', label: 'Fidélité 300+ pts', description: 'Plus de 300 points de fidélité', icon: '🥇' },
   { key: 'points_eleves', label: 'Points élevés (200+)', description: 'Plus de 200 points de fidélité', icon: '🏆' },
-  { key: 'nouvelles', label: 'Nouvelles (30j)', description: 'Clientes créées dans les 30 derniers jours', icon: '🌟' },
+  { key: 'anniversaire_mois', label: 'Anniversaire ce mois', description: 'Date d\'anniversaire dans le mois en cours', icon: '🎂' },
+  { key: 'ambassadrice', label: 'Ambassadrices', description: 'Ambassadrices actives LMDE', icon: '🌺' },
+  { key: 'a_achete_guide', label: 'A acheté le guide', description: 'A commandé le guide LMDE', icon: '📖' },
 ];
 
 export interface ClientForSegment {
@@ -194,6 +210,75 @@ export async function getSegmentClients(segment: SegmentKey): Promise<ClientForS
       return rows.map(cleanClient);
     }
 
+    case 'nouvelle_cliente': {
+      const d14 = new Date(now); d14.setDate(now.getDate() - 14);
+      const rows = await fetchAll((from, to) =>
+        supabase.from('clients').select(BASE_SELECT)
+          .gte('created_at', d14.toISOString()).not('phone', 'is', null).neq('phone', '').order('created_at', { ascending: true }).range(from, to)
+      );
+      return rows.map(cleanClient);
+    }
+
+    case 'a_reactiver_45j': {
+      const d45 = new Date(now); d45.setDate(now.getDate() - 45);
+      const d89 = new Date(now); d89.setDate(now.getDate() - 89);
+      const recent = await receiptClientIds(d45);
+      const older = await receiptClientIds(d89, d45);
+      const ids = [...older].filter(id => !recent.has(id));
+      return (await clientsByIds(ids)).map(cleanClient);
+    }
+
+    case 'fidelite_300pts': {
+      const rows = await fetchAll((from, to) =>
+        supabase.from('clients').select(BASE_SELECT)
+          .gte('loyalty_points', 300).not('phone', 'is', null).neq('phone', '').order('id', { ascending: true }).range(from, to)
+      );
+      return rows.map(cleanClient);
+    }
+
+    case 'anniversaire_mois': {
+      const month = (now.getMonth() + 1).toString().padStart(2, '0');
+      const rows = await fetchAll((from, to) =>
+        supabase.from('clients').select(BASE_SELECT)
+          .like('birth_date', `%-${month}-%`).not('phone', 'is', null).neq('phone', '').order('id', { ascending: true }).range(from, to)
+      );
+      return rows.map(cleanClient);
+    }
+
+    case 'pro': {
+      const rows = await fetchAll((from, to) =>
+        supabase.from('clients').select(BASE_SELECT)
+          .eq('client_type', 'professionnel').not('phone', 'is', null).neq('phone', '').order('id', { ascending: true }).range(from, to)
+      );
+      return rows.map(cleanClient);
+    }
+
+    case 'ambassadrice': {
+      const ambassadrices = await fetchAll((from, to) =>
+        supabase.from('ambassadrices').select('telephone').eq('statut', 'active').order('id', { ascending: true }).range(from, to)
+      );
+      const phones = ambassadrices.map((a: any) => a.telephone).filter(Boolean);
+      if (!phones.length) return [];
+      const all = await allClientsWithPhone();
+      return all.filter(c => phones.some((p: string) => p === c.phone || p.replace(/\s/g, '') === (c.phone ?? '').replace(/\s/g, ''))).map(cleanClient);
+    }
+
+    case 'a_achete_guide': {
+      const receipts = await fetchAll((from, to) =>
+        supabase.from('receipts').select('client_id').filter('items::text', 'ilike', '%guide%').not('client_id', 'is', null).neq('status', 'cancelled').order('created_at', { ascending: true }).range(from, to)
+      );
+      const ids = [...new Set(receipts.map((r: any) => r.client_id).filter(Boolean))];
+      return (await clientsByIds(ids)).map(cleanClient);
+    }
+
+    case 'debutante': {
+      const receipts = await fetchAll((from, to) =>
+        supabase.from('receipts').select('client_id').filter('items::text', 'ilike', '%kit%').not('client_id', 'is', null).neq('status', 'cancelled').order('created_at', { ascending: true }).range(from, to)
+      );
+      const ids = [...new Set(receipts.map((r: any) => r.client_id).filter(Boolean))];
+      return (await clientsByIds(ids)).map(cleanClient);
+    }
+
     default:
       return [];
   }
@@ -283,6 +368,47 @@ export async function getSegmentCount(segment: SegmentKey): Promise<number> {
       ]);
       const subIds = new Set((subs ?? []).map((s: any) => s.client_id));
       return Math.max(0, (total ?? 0) - subIds.size);
+    }
+    case 'nouvelle_cliente': {
+      const d14 = new Date(now); d14.setDate(now.getDate() - 14);
+      const { count } = await supabase.from('clients').select('*', { count: 'exact', head: true }).gte('created_at', d14.toISOString()).not('phone', 'is', null).neq('phone', '');
+      return count ?? 0;
+    }
+    case 'a_reactiver_45j': {
+      const d45 = new Date(now); d45.setDate(now.getDate() - 45);
+      const d89 = new Date(now); d89.setDate(now.getDate() - 89);
+      const [{ data: d45Data }, { data: d89Data }] = await Promise.all([
+        supabase.from('receipts').select('client_id').gte('created_at', d45.toISOString()).not('client_id', 'is', null).neq('status', 'cancelled'),
+        supabase.from('receipts').select('client_id').gte('created_at', d89.toISOString()).lt('created_at', d45.toISOString()).not('client_id', 'is', null).neq('status', 'cancelled'),
+      ]);
+      const recent = new Set((d45Data ?? []).map((r: any) => r.client_id));
+      const older = new Set((d89Data ?? []).map((r: any) => r.client_id));
+      return [...older].filter(id => !recent.has(id)).length;
+    }
+    case 'fidelite_300pts': {
+      const { count } = await supabase.from('clients').select('*', { count: 'exact', head: true }).gte('loyalty_points', 300).not('phone', 'is', null).neq('phone', '');
+      return count ?? 0;
+    }
+    case 'anniversaire_mois': {
+      const month = (now.getMonth() + 1).toString().padStart(2, '0');
+      const { count } = await supabase.from('clients').select('*', { count: 'exact', head: true }).like('birth_date', `%-${month}-%`).not('phone', 'is', null).neq('phone', '');
+      return count ?? 0;
+    }
+    case 'pro': {
+      const { count } = await supabase.from('clients').select('*', { count: 'exact', head: true }).eq('client_type', 'professionnel').not('phone', 'is', null).neq('phone', '');
+      return count ?? 0;
+    }
+    case 'ambassadrice': {
+      const { count } = await supabase.from('ambassadrices').select('*', { count: 'exact', head: true }).eq('statut', 'active');
+      return count ?? 0;
+    }
+    case 'a_achete_guide': {
+      const { data } = await supabase.from('receipts').select('client_id').filter('items::text', 'ilike', '%guide%').not('client_id', 'is', null).neq('status', 'cancelled');
+      return new Set((data ?? []).map((r: any) => r.client_id)).size;
+    }
+    case 'debutante': {
+      const { data } = await supabase.from('receipts').select('client_id').filter('items::text', 'ilike', '%kit%').not('client_id', 'is', null).neq('status', 'cancelled');
+      return new Set((data ?? []).map((r: any) => r.client_id)).size;
     }
     default:
       return 0;
