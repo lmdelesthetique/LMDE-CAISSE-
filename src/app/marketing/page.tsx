@@ -768,6 +768,27 @@ export default function MarketingPage() {
     }
   };
 
+  const handleCancel = async (id: string) => {
+    if (!confirm('Annuler cette campagne programmée ?')) return;
+    setSendingId(id);
+    try {
+      const res = await fetch(`/api/marketing/campagnes/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'annuler' }),
+      });
+      if (res.ok) { loadStats(); }
+      else {
+        const data = await safeJson(res);
+        setSendResult({ ok: false, error: data.error ?? 'Erreur annulation' });
+      }
+    } catch (e: any) {
+      setSendResult({ ok: false, error: e.message });
+    } finally {
+      setSendingId(null);
+    }
+  };
+
   const handleResend = async (id: string) => {
     setSendingId(id);
     setSendResult(null);
@@ -1460,13 +1481,22 @@ export default function MarketingPage() {
                         </td>
                         <td className="px-4 py-3">
                           {c.statut === 'programme' ? (
-                            <button
-                              onClick={() => handleResend(c.id)}
-                              disabled={!!sendingId}
-                              className="text-xs border border-violet-200 text-violet-600 rounded-lg px-2.5 py-1 hover:bg-violet-50 disabled:opacity-40"
-                            >
-                              {sendingId === c.id ? '⏳' : '▶️ Envoyer maintenant'}
-                            </button>
+                            <div className="flex gap-1.5">
+                              <button
+                                onClick={() => handleResend(c.id)}
+                                disabled={!!sendingId}
+                                className="text-xs border border-violet-200 text-violet-600 rounded-lg px-2 py-1 hover:bg-violet-50 disabled:opacity-40"
+                              >
+                                {sendingId === c.id ? '⏳' : '▶️ Envoyer'}
+                              </button>
+                              <button
+                                onClick={() => handleCancel(c.id)}
+                                disabled={!!sendingId}
+                                className="text-xs border border-red-200 text-red-500 rounded-lg px-2 py-1 hover:bg-red-50 disabled:opacity-40"
+                              >
+                                ✕ Annuler
+                              </button>
+                            </div>
                           ) : (
                             <button
                               onClick={() => handleResend(c.id)}

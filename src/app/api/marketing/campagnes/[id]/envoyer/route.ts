@@ -15,7 +15,10 @@ export const maxDuration = 300;
 
 type Channel = 'sms+email' | 'sms' | 'email';
 
-// Parse the encoded segment value (see campagnes/route.ts encodeSegment)
+// 5 concurrent sends per batch — stays under Brevo rate limits and keeps
+// 3500-client campaigns within the 300s Vercel timeout (~70s vs ~350s sequential)
+const SEND_CONCURRENCY = 5;
+
 function parseSegmentStr(raw: string): { key: string; channel: Channel; ids: string[] | null } {
   const parts = raw.split('|');
   const key = parts[0];
@@ -91,49 +94,58 @@ export async function POST(
     let erreurs = 0;
     let smsSent = 0;
     let emailSent = 0;
-    const logs: any[] = [];
+    const errorMessages: string[] = [];
+    const logBatch: any[] = [];
 
-    // Decode nom|||sujet|||imageUrl|||links encoding (see campagnes/route.ts)
+    // Decode nom|||sujet|||imageUrl|||links encoding
     const [campaignNom, encodedSubject, encodedImageUrl, encodedLinks] = (campagne.nom ?? '').split('|||');
     const subjectTemplate = encodedSubject?.trim() || campaignNom || "Le Monde de l'Esthétique";
     const imageUrl = encodedImageUrl?.trim() || undefined;
     const linksRaw = encodedLinks?.trim() || undefined;
 
-    for (const client of clients) {
-      const clientName = (client.first_name || 'Cliente').trim();
-      // Replace {prénom} in BOTH subject and message
-      const subject = subjectTemplate.replace(/\{prénom\}/gi, clientName);
-      const messageText = (campagne.message ?? '').replace(/\{prénom\}/gi, clientName);
+    // Parallel batches of SEND_CONCURRENCY to avoid Vercel timeout on large segments
+    for (let b = 0; b < clients.length; b += SEND_CONCURRENCY) {
+      const batch = clients.slice(b, b + SEND_CONCURRENCY);
 
-      const result = await sendCampaignMultiChannel(
-        { phone: client.phone || undefined, email: client.email || undefined, name: clientName },
-        subject,
-        messageText,
-        channel,
-        imageUrl,
-        linksRaw
-      );
+      const results = await Promise.all(batch.map(async (client) => {
+        const clientName = (client.first_name || 'Cliente').trim();
+        const subject = subjectTemplate.replace(/\{prénom\}/gi, clientName);
+        const messageText = (campagne.message ?? '').replace(/\{prénom\}/gi, clientName);
 
-      if (result.anyOk) envoyes++; else erreurs++;
-      if (result.sms) smsSent++;
-      if (result.email) emailSent++;
+        const result = await sendCampaignMultiChannel(
+          { phone: client.phone || undefined, email: client.email || undefined, name: clientName },
+          subject, messageText, channel, imageUrl, linksRaw
+        );
 
-      logs.push({
-        campagne_id: id,
-        client_id: client.id,
-        phone: client.phone,
-        client_name: clientName,
-        statut: result.anyOk ? 'envoye' : 'erreur',
-        error_message: result.anyOk ? null : (result.errorMsg ?? 'Erreur envoi'),
-      });
+        return { client, clientName, result };
+      }));
 
-      if (logs.length >= 100) {
-        await supabase.from('campagne_marketing_logs').insert(logs.splice(0, 100));
+      for (const { client, clientName, result } of results) {
+        if (result.anyOk) envoyes++; else erreurs++;
+        if (result.sms) smsSent++;
+        if (result.email) emailSent++;
+        if (!result.anyOk && result.errorMsg) errorMessages.push(result.errorMsg);
+
+        logBatch.push({
+          campagne_id: id,
+          client_id: client.id,
+          phone: client.phone,
+          client_name: clientName,
+          statut: result.anyOk ? 'envoye' : 'erreur',
+          error_message: result.anyOk ? null : (result.errorMsg ?? 'Erreur envoi'),
+        });
+      }
+
+      // Flush logs every 100 — non-blocking (missing table must not abort the campaign)
+      if (logBatch.length >= 100) {
+        const toFlush = logBatch.splice(0, 100);
+        try { await supabase.from('campagne_marketing_logs').insert(toFlush); } catch {}
       }
     }
 
-    if (logs.length > 0) {
-      await supabase.from('campagne_marketing_logs').insert(logs);
+    // Flush remaining logs
+    if (logBatch.length > 0) {
+      try { await supabase.from('campagne_marketing_logs').insert(logBatch); } catch {}
     }
 
     await supabase.from('campagnes_marketing').update({
@@ -143,18 +155,12 @@ export async function POST(
       sent_at: new Date().toISOString(),
     }).eq('id', id);
 
-    // Collect distinct error reasons for the frontend
-    const errorSample = logs
-      .filter(l => l.error_message)
-      .map(l => l.error_message)
-      .filter((v, i, a) => a.indexOf(v) === i)
-      .slice(0, 3)
-      .join(', ');
+    const errorSample = [...new Set(errorMessages)].slice(0, 3).join(', ');
 
     return NextResponse.json({ ok: true, envoyes, erreurs, smsSent, emailSent, total: clients.length, channel, errorSample: erreurs > 0 ? errorSample : undefined });
   } catch (e: any) {
     console.error('[envoyer]', e.message);
-    try { await supabase.from('campagnes_marketing').update({ statut: 'erreur' }).eq('id', id); } catch { /* non-blocking */ }
+    try { await supabase.from('campagnes_marketing').update({ statut: 'erreur' }).eq('id', id); } catch {}
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
