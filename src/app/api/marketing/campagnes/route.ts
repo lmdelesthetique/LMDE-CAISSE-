@@ -43,8 +43,9 @@ export async function POST(req: NextRequest) {
   let body: any;
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'JSON invalide' }, { status: 400 }); }
 
-  const { nom, segment, message, channel = 'sms+email', client_ids } = body as {
+  const { nom, sujet, segment, message, channel = 'sms+email', client_ids } = body as {
     nom?: string;
+    sujet?: string;
     segment?: string;
     message?: string;
     channel?: 'sms+email' | 'sms' | 'email';
@@ -62,12 +63,14 @@ export async function POST(req: NextRequest) {
   }
 
   const segmentValue = encodeSegment(segment ?? 'tous', channel, hasCustomIds ? client_ids : undefined);
+  // Encode email subject into nom using ||| separator (backward-compatible)
+  const storedNom = sujet?.trim() ? `${nom!.trim()}|||${sujet.trim()}` : nom!.trim();
 
   try {
     const supabase = makeAdminClient();
     const { data, error } = await supabase
       .from('campagnes_marketing')
-      .insert({ nom: nom.trim(), segment: segmentValue, message: message.trim(), statut: 'brouillon' })
+      .insert({ nom: storedNom, segment: segmentValue, message: message.trim(), statut: 'brouillon' })
       .select()
       .single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });

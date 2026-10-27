@@ -125,13 +125,14 @@ async function sendViaBrevoEmail(
   if (!apiKey) return { ok: false, error: 'BREVO_API_KEY not configured' };
 
   const fromEmail = process.env.BREVO_SENDER_EMAIL ?? 'lm.delesthetique@gmail.com';
-  const htmlContent = htmlOverride ?? `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7;color:#18181b;max-width:600px;margin:0 auto;padding:24px">${message.replace(/\n/g, '<br/>')}</div>`;
+  // Personal email style — avoids Gmail Promotions tab
+  const htmlContent = htmlOverride ?? `<div style="font-family:Georgia,'Times New Roman',serif;font-size:15px;line-height:1.9;color:#2d2d2d;max-width:500px;margin:0 auto;padding:20px 0"><p style="white-space:pre-wrap;margin:0 0 24px">${message.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br/>')}</p><hr style="border:none;border-top:1px solid #f0f0f0;margin:20px 0 14px"><p style="font-size:12px;color:#aaa;margin:0;font-family:Arial,sans-serif">Le Monde de l'Esthétique — Martinique<br>Pour ne plus recevoir nos messages, répondez STOP.</p></div>`;
 
   const res = await fetch('https://api.brevo.com/v3/smtp/email', {
     method: 'POST',
     headers: { 'api-key': apiKey, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      sender: { name: "Le Monde de l'Esthétique", email: fromEmail },
+      sender: { name: 'Christy | LMDE', email: fromEmail },
       to: [{ email, name: clientName }],
       subject,
       htmlContent,

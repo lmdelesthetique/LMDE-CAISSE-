@@ -92,7 +92,9 @@ export async function POST(
     let emailSent = 0;
     const logs: any[] = [];
 
-    const subject = campagne.nom ?? "Le Monde de l'Esthétique";
+    // Decode nom|||sujet encoding (see campagnes/route.ts)
+    const [campaignNom, encodedSubject] = (campagne.nom ?? '').split('|||');
+    const subject = encodedSubject?.trim() || campaignNom || "Le Monde de l'Esthétique";
 
     for (const client of clients) {
       const clientName = (client.first_name || 'Cliente').trim();

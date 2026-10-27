@@ -57,104 +57,144 @@ interface ClientResult {
 type Tab = 'creer' | 'historique' | 'ia';
 
 // ── Template bank ────────────────────────────────────────────────────────────
+// Stratégie : 5 piliers prouvés par les grandes marques beauté D2C
+// Règle d'or : relation d'abord, vente après. Jamais "PROMO" en sujet.
 const TEMPLATE_BANK: {
   category: string;
   icon: string;
-  templates: { label: string; segment: SegmentKey; channel: Channel; message: string }[];
+  description: string;
+  templates: { label: string; segment: SegmentKey; channel: Channel; subject: string; message: string }[];
 }[] = [
   {
-    category: 'Relance',
-    icon: '🔄',
+    category: 'La Copine Beauté',
+    icon: '💕',
+    description: 'Chaleureux, proche — comme un message d\'une amie. Taux d\'ouverture ×3.',
     templates: [
       {
-        label: 'Tu nous manques',
+        label: 'Coucou, tu nous manques',
         segment: 'inactifs_90j',
         channel: 'sms+email',
-        message: `Coucou {prénom} 👋\n\nOn ne t'a pas vue depuis un moment... Tu nous manques ! 💕\n\nNouveautés en stock, passe nous voir ou réponds à ce message 🌸\n\nLe Monde de l'Esthétique 💅`,
+        subject: '{prénom}, on pensait à toi 💕',
+        message: `Coucou {prénom} 💕\n\nÇa fait un petit moment qu'on ne t'a pas vue... tu nous manques vraiment !\n\nPas de discours de vente, juste l'envie de prendre de tes nouvelles et te dire qu'on t'attend avec le sourire 🌸\n\nSi tu cherches quelque chose de particulier ou si tu veux qu'on te conseille, réponds à ce message — on sera ravies de t'aider.\n\nÀ très bientôt j'espère,\nChristy & l'équipe LMDE 💄`,
       },
       {
-        label: 'Relance 6 mois',
+        label: '6 mois — message du cœur',
         segment: 'inactifs_6mois',
-        channel: 'sms+email',
-        message: `Bonjour {prénom} 🌸\n\nCela fait longtemps qu'on ne t'a pas vue... On espère que tu vas bien ! 😊\n\nDe nouvelles arrivées t'attendent chez Le Monde de l'Esthétique ✨\n\nUne surprise t'attend à ta prochaine visite 🎁\n\nÀ très bientôt !`,
-      },
-    ],
-  },
-  {
-    category: 'Offres & Promos',
-    icon: '🎉',
-    templates: [
-      {
-        label: 'Promotion spéciale',
-        segment: 'tous',
-        channel: 'sms+email',
-        message: `Bonjour {prénom} 🎉\n\n✨ OFFRE SPÉCIALE ✨\n\n[Décrivez votre offre ici]\n\nValable jusqu'au [date]. Ne passe pas à côté ! 💅\n\nLe Monde de l'Esthétique`,
+        channel: 'email',
+        subject: 'Un message personnel pour toi {prénom}',
+        message: `Bonjour {prénom},\n\nJe voulais t'écrire personnellement.\n\nÇa fait maintenant 6 mois qu'on ne t'a pas vue chez LMDE et franchement, tu nous manques.\n\nLa vie est parfois bien chargée — on comprend complètement. Mais si l'envie te reprend de prendre soin de toi, toute l'équipe t'attend avec le sourire 😊\n\nEt entre nous, on a reçu des produits que je suis sûre que tu vas adorer.\n\nÀ très bientôt j'espère,\nChristy 💕\nLe Monde de l'Esthétique`,
       },
       {
-        label: 'Vente flash SMS',
-        segment: 'tous',
+        label: 'Invitation douce (SMS)',
+        segment: 'tièdes_90j',
         channel: 'sms',
-        message: `🚨 VENTE FLASH {prénom} !\n\n-[X]% sur [produits] aujourd'hui seulement ! ⚡\n\nRéponds OUI pour réserver. Stock limité ! 📦\n\nLMDE 💅`,
-      },
-      {
-        label: 'Soldes / Fin de saison',
-        segment: 'actifs_30j',
-        channel: 'sms+email',
-        message: `Coucou {prénom} 🛍️\n\nLes soldes sont là ! 🎉\n\nJusqu'à -[X]% sur une sélection de produits en magasin.\n\nDépêche-toi, les stocks sont limités !\n\nLe Monde de l'Esthétique 💕`,
+        subject: '',
+        message: `Coucou {prénom} 🌺 ça fait un moment ! Chez LMDE on a reçu de belles choses et j'ai pensé à toi. Passe nous voir cette semaine ? Bisous - Christy 💕`,
       },
     ],
   },
   {
-    category: 'Nouveautés',
-    icon: '🌟',
+    category: 'Conseil d\'Experte',
+    icon: '💡',
+    description: 'Astuce sans vente → confiance → achat naturel. La méthode Sephora.',
     templates: [
       {
-        label: 'Nouvelles arrivées',
+        label: 'Astuce peau tropicale',
         segment: 'actifs_30j',
-        channel: 'sms+email',
-        message: `Coucou {prénom} 🌟\n\nOn a pensé à toi ! De nouvelles arrivées viennent d'entrer en stock 😍\n\n[Description des nouveautés]\n\nDisponibles dès maintenant chez Le Monde de l'Esthétique ✨\n\nBisous 💕`,
+        channel: 'email',
+        subject: 'Un secret de pro pour ta peau {prénom} 💄',
+        message: `Coucou {prénom} 💄\n\nUne astuce qu'on partage uniquement avec nos clientes...\n\nPar la chaleur et l'humidité de la Martinique, le fond de teint tient bien mieux si tu appliques une brume hydratante AVANT ta base. La peau est légèrement humide, la formule accroche mieux — résultat impeccable toute la journée, même sous 30 degrés ☀️\n\nPetit plus : une touche de poudre translucide sur la zone T, et c'est parfait.\n\nOn a tout ce qu'il faut en boutique. Passe nous voir et on te compose ta routine idéale selon ta carnation 🌸\n\nBisous,\nChristy de LMDE`,
       },
       {
-        label: 'Nouveau produit exclusif',
+        label: 'Astuce sérum (SMS)',
+        segment: 'actifs_30j',
+        channel: 'sms',
+        subject: '',
+        message: `Astuce LMDE {prénom} 💄 : applique ton sérum sur peau légèrement humide — il pénètre 2x mieux ! On a les meilleurs sérums adaptés à notre climat. À bientôt 🌸 Christy`,
+      },
+      {
+        label: 'Conseil cheveux naturels',
+        segment: 'tous',
+        channel: 'email',
+        subject: '{prénom}, tu connais cette astuce cheveux ? 🌿',
+        message: `Coucou {prénom} 🌿\n\nTu le sais peut-être déjà... mais dans notre humidité martiniquaise, les cheveux naturels ont besoin d'une hydratation renforcée, surtout en saison de pluie.\n\nLa méthode LOC (Leave-in → Huile → Crème) garde les boucles définies et hydratées 2 fois plus longtemps. Un vrai game changer !\n\nOn a sélectionné les meilleures huiles et crèmes adaptées à nos cheveux. Viens en découvrir quelques-unes 🌸\n\nÀ très bientôt,\nChristy de LMDE`,
+      },
+    ],
+  },
+  {
+    category: 'Avant tout le monde',
+    icon: '✨',
+    description: 'Exclusivité et VIP — fait se sentir privilégiée. Meilleur taux de conversion.',
+    templates: [
+      {
+        label: 'Nouveauté avant tout le monde',
+        segment: 'vip',
+        channel: 'sms+email',
+        subject: 'Avant tout le monde, {prénom} ✨',
+        message: `Bonjour {prénom} ✨\n\nJe t'écris avant d'en parler à tout le monde...\n\nOn vient de recevoir [décris la nouveauté en 2-3 phrases] et j'ai pensé à toi en premier.\n\nC'est rare, les quantités sont limitées et je voulais que tu aies la priorité.\n\nTu veux qu'on t'en mette de côté ? Réponds à ce message ou passe directement en boutique 🌸\n\nBisous,\nChristy de LMDE 💄`,
+      },
+      {
+        label: 'Offre silencieuse VIP',
         segment: 'vip',
         channel: 'email',
-        message: `Bonjour {prénom} 💎\n\nEn avant-première pour nos clientes fidèles, découvrez notre nouvelle exclusivité ✨\n\n[Nom du produit — description]\n\nDisponible en exclusivité en magasin avant tout le monde 🔒\n\nLe Monde de l'Esthétique`,
+        subject: 'Juste pour toi {prénom} 🎁',
+        message: `Coucou {prénom} 🎁\n\nOn ne l'a pas annoncé partout — c'est uniquement pour nos clientes fidèles comme toi.\n\n[Décris l'offre ou l'avantage en 2 lignes]\n\nC'est notre façon de te dire merci de nous faire confiance depuis si longtemps 💕\n\nMentionne ce message lors de ta prochaine visite pour en profiter.\n\nÀ très bientôt,\nChristy & l'équipe LMDE ✨`,
       },
     ],
   },
   {
-    category: 'Fidélité',
-    icon: '⭐',
+    category: 'SMS Ultra-Courts',
+    icon: '📱',
+    description: 'Moins de 160 caractères, ton ami qui t\'écrit. Taux de lecture : 98%.',
     templates: [
       {
-        label: 'Points fidélité accumulés',
+        label: 'Relance intime',
+        segment: 'inactifs_90j',
+        channel: 'sms',
+        subject: '',
+        message: `Coucou {prénom} 💕 tu nous manques chez LMDE ! On a des nouveautés qui vont t'adorer. Passe quand tu peux, on sera ravies. Bisous - Christy 🌸`,
+      },
+      {
+        label: 'Alerte stock limité',
+        segment: 'actifs_30j',
+        channel: 'sms',
+        subject: '',
+        message: `{prénom} chez LMDE 💄 [produit/offre] disponible mais stock limité ! On t'en met de côté si tu réponds OUI. À bientôt - Christy 🌸`,
+      },
+      {
+        label: 'Nouveauté flash',
+        segment: 'actifs_30j',
+        channel: 'sms',
+        subject: '',
+        message: `Coucou {prénom} ! On vient de recevoir [nouveauté] et j'ai pensé à toi 💕 Passe nous voir cette semaine ? Bisous - Christy LMDE 🌸`,
+      },
+    ],
+  },
+  {
+    category: 'Gratitude & Lien',
+    icon: '🙏',
+    description: 'La relation avant tout. Crée des clientes à vie.',
+    templates: [
+      {
+        label: 'Merci pour ta fidélité',
         segment: 'points_eleves',
-        channel: 'sms+email',
-        message: `Bonjour {prénom} ⭐\n\nBonne nouvelle ! Tu as accumulé des points de fidélité chez nous 🎁\n\nPasse en magasin pour en profiter — une remise t'attend sur ta prochaine visite ! 💅\n\nLe Monde de l'Esthétique ✨`,
-      },
-      {
-        label: 'Offre VIP exclusive',
-        segment: 'vip',
         channel: 'email',
-        message: `Bonjour {prénom} 💎\n\nEn tant que cliente VIP du Monde de l'Esthétique, tu bénéficies d'un avantage exclusif ✨\n\n[Détail de l'offre VIP]\n\nMerci pour ta fidélité précieuse 🌸\n\nL'équipe LMDE 💕`,
-      },
-    ],
-  },
-  {
-    category: 'Abonnement',
-    icon: '📦',
-    templates: [
-      {
-        label: 'Invitation abonnement',
-        segment: 'sans_abonnement',
-        channel: 'sms+email',
-        message: `Bonjour {prénom} 💅\n\nSavais-tu que nos clientes abonnées reçoivent leur Box Beauté chaque mois avec des produits sélectionnés rien que pour elles ? 📦✨\n\nAbonne-toi dès aujourd'hui et profite de [avantage] !\n\nContacte-nous pour en savoir plus 🌸\n\nLe Monde de l'Esthétique`,
+        subject: 'Tu le mérites vraiment {prénom} 💕',
+        message: `Bonjour {prénom},\n\nJe voulais prendre un moment pour te dire merci.\n\nTa fidélité chez LMDE compte vraiment beaucoup pour nous. Ce n'est pas juste un achat de plus — tu fais partie de notre famille beauté.\n\nPour te remercier, [avantage fidélité — remise, cadeau, priorité stock...]\n\nPasse nous voir, on sera ravies de te retrouver 💕\n\nAvec toute notre reconnaissance,\nChristy & l'équipe LMDE ✨`,
       },
       {
         label: 'Bienvenue nouvelle cliente',
         segment: 'nouvelles',
-        channel: 'sms+email',
-        message: `Bienvenue {prénom} 🌸\n\nToute l'équipe du Monde de l'Esthétique est ravie de t'accueillir parmi nos clientes ! 💕\n\nTu bénéficies d'un avantage de bienvenue lors de ta prochaine visite 🎁\n\nN'hésite pas à nous contacter pour toute question ✨\n\nLe Monde de l'Esthétique`,
+        channel: 'email',
+        subject: 'Bienvenue dans la famille LMDE {prénom} 🌸',
+        message: `Bonjour {prénom} 🌸\n\nToute l'équipe du Monde de l'Esthétique est ravie de t'accueillir !\n\nTu viens de rejoindre une communauté de femmes qui prennent soin d'elles — et on est là pour t'accompagner à chaque étape 💕\n\nN'hésite jamais à nous poser tes questions sur les produits, ta routine ou tes besoins. On adore conseiller et on connaît chaque produit qu'on vend.\n\nÀ très bientôt chez nous !\nChristy & l'équipe LMDE ✨`,
+      },
+      {
+        label: 'Invitation abonnement',
+        segment: 'sans_abonnement',
+        channel: 'email',
+        subject: '{prénom}, et si on prenait soin de toi chaque mois ? 📦',
+        message: `Bonjour {prénom} 💕\n\nJe voulais te parler d'une chose que nos abonnées adorent...\n\nChaque mois, elles reçoivent leur Box Beauté avec des produits sélectionnés selon leurs besoins — sans avoir à penser à rien. C'est 100% automatique.\n\n[Décris l'avantage principal de l'abonnement]\n\nTu veux en savoir plus ? Réponds à ce message ou passe nous voir, on t'explique tout 🌸\n\nBisous,\nChristy de LMDE`,
       },
     ],
   },
@@ -212,6 +252,7 @@ export default function MarketingPage() {
 
   // Form state
   const [nom, setNom] = useState('');
+  const [sujet, setSujet] = useState('');
   const [segment, setSegment] = useState<SegmentKey>('tous');
   const [message, setMessage] = useState('');
   const [channel, setChannel] = useState<Channel>('sms+email');
@@ -293,6 +334,7 @@ export default function MarketingPage() {
   const applyTemplate = (t: typeof TEMPLATE_BANK[0]['templates'][0]) => {
     setMessage(t.message);
     setChannel(t.channel);
+    setSujet(t.subject ?? '');
     if (selectionMode === 'segment') setSegment(t.segment);
     setShowTemplates(false);
   };
@@ -311,6 +353,7 @@ export default function MarketingPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           nom,
+          sujet: sujet.trim() || undefined,
           segment,
           message,
           channel,
@@ -338,7 +381,7 @@ export default function MarketingPage() {
           });
         } else {
           setSendResult({ ok: true, envoyes: sendData.envoyes, erreurs: sendData.erreurs, smsSent: sendData.smsSent, emailSent: sendData.emailSent });
-          setNom(''); setMessage(''); setSelectedClients([]); setManualSearch('');
+          setNom(''); setSujet(''); setMessage(''); setSelectedClients([]); setManualSearch('');
           loadStats();
         }
       } else {
@@ -480,6 +523,23 @@ export default function MarketingPage() {
                 </div>
               </div>
 
+              {/* Sujet email */}
+              {(channel === 'email' || channel === 'sms+email') && (
+                <div>
+                  <label className="text-sm font-medium text-foreground">Sujet de l'email</label>
+                  <input
+                    type="text"
+                    value={sujet}
+                    onChange={e => setSujet(e.target.value)}
+                    placeholder='ex: "On pensait à toi {prénom} 💕" — personnel, pas commercial'
+                    className="mt-1 w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400"
+                  />
+                  <p className="text-[11px] text-amber-600 mt-1">
+                    ⚠️ Évitez : PROMO, OFFRE, %, URGENT, GRATUIT — Gmail les classe en "Promotions". Préférez un sujet personnel avec le prénom.
+                  </p>
+                </div>
+              )}
+
               {/* Clientes ciblées */}
               <div>
                 <div className="flex items-center justify-between mb-2">
@@ -613,10 +673,16 @@ export default function MarketingPage() {
                 </button>
 
                 {showTemplates && (
-                  <div className="mt-3 border border-pink-200 rounded-xl bg-pink-50 p-4 space-y-4">
+                  <div className="mt-3 border border-pink-200 rounded-xl bg-pink-50 p-4 space-y-5">
+                    <p className="text-xs text-pink-700 bg-pink-100 border border-pink-200 rounded-lg px-3 py-2">
+                      💡 <strong>Stratégie</strong> : les messages qui convertissent le mieux ne parlent pas de promotion. Ils créent une relation, donnent un conseil utile, ou font se sentir privilégiée. La vente vient naturellement.
+                    </p>
                     {TEMPLATE_BANK.map(cat => (
                       <div key={cat.category}>
-                        <p className="text-xs font-semibold text-pink-800 uppercase tracking-wide mb-2">{cat.icon} {cat.category}</p>
+                        <div className="mb-2">
+                          <p className="text-xs font-bold text-pink-800 uppercase tracking-wide">{cat.icon} {cat.category}</p>
+                          <p className="text-[11px] text-pink-600">{cat.description}</p>
+                        </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           {cat.templates.map(t => (
                             <button
@@ -624,12 +690,15 @@ export default function MarketingPage() {
                               onClick={() => applyTemplate(t)}
                               className="text-left bg-white border border-pink-200 hover:border-pink-400 rounded-lg p-3 transition-all hover:shadow-sm"
                             >
-                              <div className="flex items-center justify-between mb-1">
+                              <div className="flex items-center justify-between mb-1.5">
                                 <span className="text-xs font-semibold text-foreground">{t.label}</span>
-                                <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${t.channel === 'sms' ? 'bg-blue-50 text-blue-600 border-blue-200' : t.channel === 'email' ? 'bg-purple-50 text-purple-600 border-purple-200' : 'bg-gray-50 text-gray-500 border-gray-200'}`}>
-                                  {t.channel === 'sms' ? '📱' : t.channel === 'email' ? '✉️' : '📱+✉️'}
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded-full border shrink-0 ml-1 ${t.channel === 'sms' ? 'bg-blue-50 text-blue-600 border-blue-200' : t.channel === 'email' ? 'bg-purple-50 text-purple-600 border-purple-200' : 'bg-gray-50 text-gray-500 border-gray-200'}`}>
+                                  {t.channel === 'sms' ? '📱 SMS' : t.channel === 'email' ? '✉️ Email' : '📱+✉️'}
                                 </span>
                               </div>
+                              {t.subject && (
+                                <p className="text-[10px] text-purple-600 bg-purple-50 rounded px-1.5 py-0.5 mb-1.5 font-medium">Sujet : {t.subject}</p>
+                              )}
                               <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">{t.message.split('\n').filter(Boolean)[0]}</p>
                             </button>
                           ))}
@@ -778,7 +847,7 @@ export default function MarketingPage() {
                     const st = STATUT_LABELS[c.statut] ?? STATUT_LABELS['brouillon'];
                     return (
                       <tr key={c.id} className="hover:bg-muted/30">
-                        <td className="px-4 py-3 font-medium">{c.nom}</td>
+                        <td className="px-4 py-3 font-medium">{c.nom.split('|||')[0]}</td>
                         <td className="px-4 py-3 text-muted-foreground text-xs">{segmentDisplay(c.segment)}</td>
                         <td className="px-4 py-3">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${st.color}`}>{st.label}</span>
