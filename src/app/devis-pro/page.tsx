@@ -484,6 +484,7 @@ export default function DevisProPage() {
   // ── Add payment ──────────────────────────────────────────────────────────────
   const addPayment = async () => {
     if (!selected) return;
+    if (selected.statut === 'annule') { toast.error('Devis annulé — impossible d\'ajouter un paiement.'); return; }
     const remaining = Math.max(0, selected.client_pays - (selected.paye_total ?? 0));
 
     // For espèces: record actual amount owed (not what was physically given)
@@ -528,6 +529,7 @@ export default function DevisProPage() {
   // ── Delete payment ───────────────────────────────────────────────────────────
   const deletePayment = async (idx: number) => {
     if (!selected) return;
+    if (selected.statut === 'annule') { toast.error('Devis annulé — impossible de modifier les paiements.'); return; }
     const paiements = selected.paiements.filter((_, i) => i !== idx);
     const payeTotal = paiements.reduce((s, p) => s + p.amount, 0);
     const res = await fetch(`/api/devis-pro/${selected.id}`, {
@@ -650,6 +652,7 @@ export default function DevisProPage() {
   // ── Save expedition + notes ──────────────────────────────────────────────────
   const savePrepaInfo = async () => {
     if (!selected) return;
+    if (['annule', 'livre'].includes(selected.statut)) { toast.error('Devis clôturé — modification impossible.'); return; }
     setSavingNotes(true);
     try {
       const res = await fetch(`/api/devis-pro/${selected.id}`, {
@@ -674,6 +677,7 @@ export default function DevisProPage() {
   // ── Save date_reassort ───────────────────────────────────────────────────────
   const saveReassort = async () => {
     if (!selected) return;
+    if (['annule', 'livre'].includes(selected.statut)) { toast.error('Devis clôturé — modification impossible.'); return; }
     setSavingReassort(true);
     try {
       const res = await fetch(`/api/devis-pro/${selected.id}`, {
@@ -722,6 +726,7 @@ export default function DevisProPage() {
 
   // ── Send auto relance now (manual trigger for a specific devis) ──────────────
   const sendAutoRelanceNow = async (devis: DevisPro) => {
+    if (devis.statut === 'annule') { toast.error('Devis annulé — impossible d\'envoyer une relance.'); return; }
     setSendingAutoRelance(true);
     try {
       const res = await fetch('/api/devis-pro/auto-relances', {
