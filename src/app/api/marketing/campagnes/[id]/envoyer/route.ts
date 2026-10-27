@@ -115,7 +115,7 @@ export async function POST(
         phone: client.phone,
         client_name: clientName,
         statut: result.anyOk ? 'envoye' : 'erreur',
-        error_message: result.anyOk ? null : 'Aucun canal disponible ou erreur envoi',
+        error_message: result.anyOk ? null : (result.errorMsg ?? 'Erreur envoi'),
       });
 
       if (logs.length >= 100) {
@@ -134,7 +134,15 @@ export async function POST(
       sent_at: new Date().toISOString(),
     }).eq('id', id);
 
-    return NextResponse.json({ ok: true, envoyes, erreurs, smsSent, emailSent, total: clients.length, channel });
+    // Collect distinct error reasons for the frontend
+    const errorSample = logs
+      .filter(l => l.error_message)
+      .map(l => l.error_message)
+      .filter((v, i, a) => a.indexOf(v) === i)
+      .slice(0, 3)
+      .join(', ');
+
+    return NextResponse.json({ ok: true, envoyes, erreurs, smsSent, emailSent, total: clients.length, channel, errorSample: erreurs > 0 ? errorSample : undefined });
   } catch (e: any) {
     console.error('[envoyer]', e.message);
     try { await supabase.from('campagnes_marketing').update({ statut: 'erreur' }).eq('id', id); } catch { /* non-blocking */ }

@@ -150,14 +150,25 @@ export async function sendCampaignMultiChannel(
   subject: string,
   message: string,
   channel: 'sms+email' | 'sms' | 'email' = 'sms+email'
-): Promise<{ sms: boolean; email: boolean; anyOk: boolean }> {
+): Promise<{ sms: boolean; email: boolean; anyOk: boolean; errorMsg?: string }> {
   const doSms = channel !== 'email';
   const doEmail = channel !== 'sms';
+
+  // Quick-fail for missing contact info — avoids useless API calls
+  if (doEmail && !client.email && !doSms) return { sms: false, email: false, anyOk: false, errorMsg: 'Pas d\'adresse email' };
+  if (doSms && !client.phone && !doEmail) return { sms: false, email: false, anyOk: false, errorMsg: 'Pas de numéro de téléphone' };
+
   const [smsRes, emailRes] = await Promise.all([
-    (doSms && client.phone) ? sendViaBrevoSMS(cleanPhone(client.phone), message) : Promise.resolve({ ok: false }),
-    (doEmail && client.email) ? sendViaBrevoEmail(client.email, client.name, subject, message) : Promise.resolve({ ok: false }),
+    (doSms && client.phone) ? sendViaBrevoSMS(cleanPhone(client.phone), message) : Promise.resolve({ ok: false as const }),
+    (doEmail && client.email) ? sendViaBrevoEmail(client.email, client.name, subject, message) : Promise.resolve({ ok: false as const }),
   ]);
-  return { sms: smsRes.ok, email: emailRes.ok, anyOk: smsRes.ok || emailRes.ok };
+
+  const anyOk = smsRes.ok || emailRes.ok;
+  const errors: string[] = [];
+  if (doEmail && !emailRes.ok) errors.push(client.email ? ((emailRes as any).error ?? 'Échec email') : 'Pas d\'adresse email');
+  if (doSms && !smsRes.ok) errors.push(client.phone ? ((smsRes as any).error ?? 'Échec SMS') : 'Pas de numéro');
+
+  return { sms: smsRes.ok, email: emailRes.ok, anyOk, errorMsg: anyOk ? undefined : errors.join(' / ') || 'Erreur envoi' };
 }
 
 async function sendViaResend(email: string, message: string, htmlOverride?: string): Promise<{ ok: boolean; error?: string }> {

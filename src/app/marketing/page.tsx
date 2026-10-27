@@ -27,6 +27,16 @@ interface DashboardStats {
   successRate: number;
 }
 
+type SendResultState = {
+  ok: boolean;
+  envoyes?: number;
+  erreurs?: number;
+  smsSent?: number;
+  emailSent?: number;
+  error?: string;
+  errorSample?: string;
+};
+
 interface AiStrategy {
   resume: string;
   segments_prioritaires: { segment: string; raison: string; action: string }[];
@@ -221,7 +231,7 @@ export default function MarketingPage() {
   const [segmentLoading, setSegmentLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [sendingId, setSendingId] = useState<string | null>(null);
-  const [sendResult, setSendResult] = useState<{ ok: boolean; envoyes?: number; erreurs?: number; smsSent?: number; emailSent?: number; error?: string } | null>(null);
+  const [sendResult, setSendResult] = useState<SendResultState | null>(null);
 
   // AI
   const [aiStrategy, setAiStrategy] = useState<AiStrategy | null>(null);
@@ -314,9 +324,23 @@ export default function MarketingPage() {
       const sendRes = await fetch(`/api/marketing/campagnes/${data.id}/envoyer`, { method: 'POST' });
       const sendData = await safeJson(sendRes);
       if (sendRes.ok) {
-        setSendResult({ ok: true, envoyes: sendData.envoyes, erreurs: sendData.erreurs, smsSent: sendData.smsSent, emailSent: sendData.emailSent });
-        setNom(''); setMessage(''); setSelectedClients([]); setManualSearch('');
-        loadStats();
+        const noneReached = (sendData.envoyes ?? 0) === 0 && (sendData.erreurs ?? 0) > 0;
+        if (noneReached) {
+          // Delivery fully failed — keep form content so user can adjust and retry
+          setSendResult({
+            ok: false,
+            envoyes: 0,
+            erreurs: sendData.erreurs,
+            smsSent: 0,
+            emailSent: 0,
+            errorSample: sendData.errorSample,
+            error: `Aucune cliente atteinte${sendData.errorSample ? ` — ${sendData.errorSample}` : ''}. Vérifiez que les clientes ont une adresse email/numéro valide pour ce canal.`,
+          });
+        } else {
+          setSendResult({ ok: true, envoyes: sendData.envoyes, erreurs: sendData.erreurs, smsSent: sendData.smsSent, emailSent: sendData.emailSent });
+          setNom(''); setMessage(''); setSelectedClients([]); setManualSearch('');
+          loadStats();
+        }
       } else {
         setSendResult({ ok: false, error: sendData.error });
       }
@@ -334,8 +358,16 @@ export default function MarketingPage() {
     try {
       const res = await fetch(`/api/marketing/campagnes/${id}/envoyer`, { method: 'POST' });
       const data = await safeJson(res);
-      setSendResult(res.ok ? { ok: true, envoyes: data.envoyes, erreurs: data.erreurs, smsSent: data.smsSent, emailSent: data.emailSent } : { ok: false, error: data.error });
-      if (res.ok) loadStats();
+      if (res.ok) {
+        const noneReached = (data.envoyes ?? 0) === 0 && (data.erreurs ?? 0) > 0;
+        setSendResult(noneReached
+          ? { ok: false, envoyes: 0, erreurs: data.erreurs, error: `Aucune cliente atteinte${data.errorSample ? ` — ${data.errorSample}` : ''}` }
+          : { ok: true, envoyes: data.envoyes, erreurs: data.erreurs, smsSent: data.smsSent, emailSent: data.emailSent }
+        );
+        loadStats();
+      } else {
+        setSendResult({ ok: false, error: data.error });
+      }
     } catch (e: any) {
       setSendResult({ ok: false, error: e.message });
     } finally {
@@ -610,16 +642,31 @@ export default function MarketingPage() {
 
               {/* Result feedback */}
               {sendResult && (
-                <div className={`rounded-lg p-3 text-sm ${sendResult.ok ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+                <div className={`rounded-lg p-3 text-sm ${
+                  sendResult.ok
+                    ? (sendResult.erreurs ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-green-50 text-green-700 border border-green-200')
+                    : 'bg-red-50 text-red-700 border border-red-200'
+                }`}>
                   {sendResult.ok ? (
                     <div className="space-y-1">
-                      <p className="font-medium">✅ Campagne envoyée — {sendResult.envoyes} clientes atteintes{sendResult.erreurs ? ` (${sendResult.erreurs} erreurs)` : ''}</p>
+                      <p className="font-medium">
+                        {sendResult.erreurs ? '⚠️' : '✅'} Campagne envoyée — {sendResult.envoyes} cliente{(sendResult.envoyes ?? 0) > 1 ? 's' : ''} atteinte{(sendResult.envoyes ?? 0) > 1 ? 's' : ''}
+                        {sendResult.erreurs ? ` · ${sendResult.erreurs} sans canal valide` : ''}
+                      </p>
                       <div className="flex gap-3 text-xs opacity-80">
                         {sendResult.smsSent !== undefined && <span>📱 {sendResult.smsSent} SMS</span>}
                         {sendResult.emailSent !== undefined && <span>✉️ {sendResult.emailSent} emails</span>}
                       </div>
                     </div>
-                  ) : `❌ Erreur : ${sendResult.error}`}
+                  ) : (
+                    <div className="space-y-1">
+                      <p className="font-medium">❌ {sendResult.error}</p>
+                      {sendResult.errorSample && (
+                        <p className="text-xs opacity-80">Raison : {sendResult.errorSample}</p>
+                      )}
+                      <p className="text-xs opacity-70 mt-1">Votre campagne a été sauvegardée. Corrigez les infos et relancez.</p>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -761,13 +808,18 @@ export default function MarketingPage() {
             <div className={`m-4 rounded-lg p-3 text-sm ${sendResult.ok ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
               {sendResult.ok ? (
                 <div className="space-y-1">
-                  <p className="font-medium">✅ {sendResult.envoyes} clientes atteintes{sendResult.erreurs ? ` (${sendResult.erreurs} erreurs)` : ''}</p>
+                  <p className="font-medium">✅ {sendResult.envoyes} clientes atteintes{sendResult.erreurs ? ` · ${sendResult.erreurs} sans canal valide` : ''}</p>
                   <div className="flex gap-3 text-xs opacity-80">
                     {sendResult.smsSent !== undefined && <span>📱 {sendResult.smsSent} SMS</span>}
                     {sendResult.emailSent !== undefined && <span>✉️ {sendResult.emailSent} emails</span>}
                   </div>
                 </div>
-              ) : `❌ ${sendResult.error}`}
+              ) : (
+                <div>
+                  <p className="font-medium">❌ {sendResult.error}</p>
+                  {sendResult.errorSample && <p className="text-xs opacity-80 mt-0.5">Raison : {sendResult.errorSample}</p>}
+                </div>
+              )}
             </div>
           )}
         </div>
