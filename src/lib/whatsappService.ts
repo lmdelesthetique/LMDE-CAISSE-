@@ -148,11 +148,14 @@ async function sendViaBrevoEmail(
 export async function sendCampaignMultiChannel(
   client: { phone?: string; email?: string; name: string },
   subject: string,
-  message: string
+  message: string,
+  channel: 'sms+email' | 'sms' | 'email' = 'sms+email'
 ): Promise<{ sms: boolean; email: boolean; anyOk: boolean }> {
+  const doSms = channel !== 'email';
+  const doEmail = channel !== 'sms';
   const [smsRes, emailRes] = await Promise.all([
-    client.phone ? sendViaBrevoSMS(cleanPhone(client.phone), message) : Promise.resolve({ ok: false }),
-    client.email ? sendViaBrevoEmail(client.email, client.name, subject, message) : Promise.resolve({ ok: false }),
+    (doSms && client.phone) ? sendViaBrevoSMS(cleanPhone(client.phone), message) : Promise.resolve({ ok: false }),
+    (doEmail && client.email) ? sendViaBrevoEmail(client.email, client.name, subject, message) : Promise.resolve({ ok: false }),
   ]);
   return { sms: smsRes.ok, email: emailRes.ok, anyOk: smsRes.ok || emailRes.ok };
 }

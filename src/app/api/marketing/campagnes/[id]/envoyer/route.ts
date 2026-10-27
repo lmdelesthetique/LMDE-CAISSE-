@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { getSegmentClients, type SegmentKey } from '@/lib/segmentationService';
+import { getSegmentClients, type SegmentKey, type ClientForSegment } from '@/lib/segmentationService';
 import { sendCampaignMultiChannel } from '@/lib/whatsappService';
 
 function makeAdminClient() {
@@ -11,10 +11,52 @@ function makeAdminClient() {
   );
 }
 
-export const maxDuration = 300; // 5 min max (Vercel/Next.js)
+export const maxDuration = 300;
+
+type Channel = 'sms+email' | 'sms' | 'email';
+
+// Parse the encoded segment value (see campagnes/route.ts encodeSegment)
+function parseSegmentStr(raw: string): { key: string; channel: Channel; ids: string[] | null } {
+  const parts = raw.split('|');
+  const key = parts[0];
+  const isChannel = (s?: string): s is Channel => s === 'sms' || s === 'email' || s === 'sms+email';
+
+  if (key === 'custom') {
+    if (parts.length >= 3 && isChannel(parts[1])) {
+      return { key, channel: parts[1], ids: parts[2].split(',').filter(Boolean) };
+    }
+    if (parts.length >= 2) {
+      return { key, channel: 'sms+email', ids: parts[1].split(',').filter(Boolean) };
+    }
+    return { key, channel: 'sms+email', ids: [] };
+  }
+
+  const channel: Channel = isChannel(parts[1]) ? parts[1] : 'sms+email';
+  return { key, channel, ids: null };
+}
+
+async function getClientsByIds(supabase: ReturnType<typeof makeAdminClient>, ids: string[]): Promise<ClientForSegment[]> {
+  if (!ids.length) return [];
+  const results: any[] = [];
+  for (let i = 0; i < ids.length; i += 500) {
+    const chunk = ids.slice(i, i + 500);
+    const { data } = await supabase
+      .from('clients')
+      .select('id, first_name, last_name, phone, email')
+      .in('id', chunk);
+    if (data) results.push(...data);
+  }
+  return results.map((c: any) => ({
+    id: c.id,
+    first_name: c.first_name ?? '',
+    last_name: c.last_name ?? '',
+    phone: c.phone ?? '',
+    email: c.email ?? undefined,
+  }));
+}
 
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
@@ -26,7 +68,15 @@ export async function POST(
     if (fetchErr || !campagne) return NextResponse.json({ error: 'Campagne introuvable' }, { status: 404 });
     if (campagne.statut === 'en_cours') return NextResponse.json({ error: 'Campagne déjà en cours' }, { status: 409 });
 
-    const clients = await getSegmentClients(campagne.segment as SegmentKey);
+    const { key: segKey, channel, ids: customIds } = parseSegmentStr(campagne.segment ?? 'tous');
+
+    let clients: ClientForSegment[];
+    if (customIds?.length) {
+      clients = await getClientsByIds(supabase, customIds);
+    } else {
+      clients = await getSegmentClients(segKey as SegmentKey);
+    }
+
     if (!clients.length) return NextResponse.json({ error: 'Aucune cliente dans ce segment' }, { status: 400 });
 
     await supabase.from('campagnes_marketing').update({
@@ -46,12 +96,13 @@ export async function POST(
 
     for (const client of clients) {
       const clientName = (client.first_name || 'Cliente').trim();
-      const messageAI = (campagne.message ?? '').replace(/\{prénom\}/gi, clientName);
+      const messageText = (campagne.message ?? '').replace(/\{prénom\}/gi, clientName);
 
       const result = await sendCampaignMultiChannel(
         { phone: client.phone || undefined, email: client.email || undefined, name: clientName },
         subject,
-        messageAI
+        messageText,
+        channel
       );
 
       if (result.anyOk) envoyes++; else erreurs++;
@@ -83,7 +134,7 @@ export async function POST(
       sent_at: new Date().toISOString(),
     }).eq('id', id);
 
-    return NextResponse.json({ ok: true, envoyes, erreurs, smsSent, emailSent, total: clients.length, channel: 'sms+email' });
+    return NextResponse.json({ ok: true, envoyes, erreurs, smsSent, emailSent, total: clients.length, channel });
   } catch (e: any) {
     console.error('[envoyer]', e.message);
     try { await supabase.from('campagnes_marketing').update({ statut: 'erreur' }).eq('id', id); } catch { /* non-blocking */ }
