@@ -43,13 +43,14 @@ export async function POST(req: NextRequest) {
   let body: any;
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'JSON invalide' }, { status: 400 }); }
 
-  const { nom, sujet, segment, message, channel = 'sms+email', client_ids } = body as {
+  const { nom, sujet, segment, message, channel = 'sms+email', client_ids, image_url } = body as {
     nom?: string;
     sujet?: string;
     segment?: string;
     message?: string;
     channel?: 'sms+email' | 'sms' | 'email';
     client_ids?: string[];
+    image_url?: string;
   };
 
   if (!nom?.trim()) return NextResponse.json({ error: 'Nom de campagne requis' }, { status: 400 });
@@ -63,8 +64,11 @@ export async function POST(req: NextRequest) {
   }
 
   const segmentValue = encodeSegment(segment ?? 'tous', channel, hasCustomIds ? client_ids : undefined);
-  // Encode email subject into nom using ||| separator (backward-compatible)
-  const storedNom = sujet?.trim() ? `${nom!.trim()}|||${sujet.trim()}` : nom!.trim();
+  // Encode subject and image_url into nom: "name|||subject|||imageUrl" (backward-compatible)
+  let storedNom = nom!.trim();
+  if (sujet?.trim() || image_url?.trim()) {
+    storedNom = `${nom!.trim()}|||${sujet?.trim() ?? ''}|||${image_url?.trim() ?? ''}`;
+  }
 
   try {
     const supabase = makeAdminClient();

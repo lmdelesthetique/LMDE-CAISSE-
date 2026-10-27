@@ -114,25 +114,69 @@ async function sendViaBrevoSMS(phone: string, message: string): Promise<{ ok: bo
   return { ok: false, error: (data as any).message || `Brevo SMS HTTP ${res.status}` };
 }
 
+function buildCampaignEmailHtml(message: string, imageUrl?: string): string {
+  const safeMsg = message
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\n/g, '<br/>');
+
+  const imageBlock = imageUrl
+    ? `<img src="${imageUrl.replace(/"/g,'')}" alt="" width="560" style="display:block;width:100%;max-width:560px;height:auto;border-radius:0;margin:0" />`
+    : '';
+
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:16px;background:#f8f4f6">
+<div style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.07)">
+
+  <!-- Bannière header -->
+  <div style="background:linear-gradient(135deg,#c2185b 0%,#e91e63 50%,#f06292 100%);padding:28px 28px 22px;text-align:center">
+    <p style="margin:0;font-size:9px;letter-spacing:3px;text-transform:uppercase;color:rgba(255,255,255,0.75);font-family:Arial,sans-serif">LE MONDE DE L'ESTHÉTIQUE</p>
+    <p style="margin:6px 0 0;font-family:Georgia,'Times New Roman',serif;font-size:20px;color:#ffffff;letter-spacing:0.5px">Martinique 🌺</p>
+  </div>
+
+  <!-- Image optionnelle -->
+  ${imageBlock}
+
+  <!-- Corps du message -->
+  <div style="padding:28px 28px 20px">
+    <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:15px;line-height:1.95;color:#1a1a1a;white-space:pre-wrap">${safeMsg}</p>
+  </div>
+
+  <!-- Séparateur -->
+  <div style="height:1px;background:linear-gradient(90deg,transparent,#f9d4e2,transparent);margin:0 28px"></div>
+
+  <!-- Footer -->
+  <div style="padding:18px 28px 24px;text-align:center;background:#fdf8fb">
+    <p style="margin:0;font-family:Arial,sans-serif;font-size:11px;color:#c2185b;font-weight:600;letter-spacing:1px">CHRISTY & L'ÉQUIPE LMDE</p>
+    <p style="margin:4px 0 0;font-family:Arial,sans-serif;font-size:10px;color:#b0b0b0">Le Monde de l'Esthétique · Martinique</p>
+    <p style="margin:10px 0 0;font-family:Arial,sans-serif;font-size:10px;color:#d0d0d0">Pour ne plus recevoir nos messages, répondez <strong>STOP</strong> à cet email.</p>
+  </div>
+
+</div>
+</body>
+</html>`;
+}
+
 async function sendViaBrevoEmail(
   email: string,
   clientName: string,
   subject: string,
   message: string,
-  htmlOverride?: string
+  htmlOverride?: string,
+  imageUrl?: string
 ): Promise<{ ok: boolean; error?: string }> {
   const apiKey = process.env.BREVO_API_KEY;
   if (!apiKey) return { ok: false, error: 'BREVO_API_KEY not configured' };
 
   const fromEmail = process.env.BREVO_SENDER_EMAIL ?? 'lm.delesthetique@gmail.com';
-  // Personal email style — avoids Gmail Promotions tab
-  const htmlContent = htmlOverride ?? `<div style="font-family:Georgia,'Times New Roman',serif;font-size:15px;line-height:1.9;color:#2d2d2d;max-width:500px;margin:0 auto;padding:20px 0"><p style="white-space:pre-wrap;margin:0 0 24px">${message.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br/>')}</p><hr style="border:none;border-top:1px solid #f0f0f0;margin:20px 0 14px"><p style="font-size:12px;color:#aaa;margin:0;font-family:Arial,sans-serif">Le Monde de l'Esthétique — Martinique<br>Pour ne plus recevoir nos messages, répondez STOP.</p></div>`;
+  const htmlContent = htmlOverride ?? buildCampaignEmailHtml(message, imageUrl);
 
   const res = await fetch('https://api.brevo.com/v3/smtp/email', {
     method: 'POST',
     headers: { 'api-key': apiKey, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      sender: { name: 'Christy | LMDE', email: fromEmail },
+      sender: { name: 'Christy | Monde de l\'Esthétique', email: fromEmail },
       to: [{ email, name: clientName }],
       subject,
       htmlContent,
@@ -150,7 +194,8 @@ export async function sendCampaignMultiChannel(
   client: { phone?: string; email?: string; name: string },
   subject: string,
   message: string,
-  channel: 'sms+email' | 'sms' | 'email' = 'sms+email'
+  channel: 'sms+email' | 'sms' | 'email' = 'sms+email',
+  imageUrl?: string
 ): Promise<{ sms: boolean; email: boolean; anyOk: boolean; errorMsg?: string }> {
   const doSms = channel !== 'email';
   const doEmail = channel !== 'sms';
@@ -161,7 +206,7 @@ export async function sendCampaignMultiChannel(
 
   const [smsRes, emailRes] = await Promise.all([
     (doSms && client.phone) ? sendViaBrevoSMS(cleanPhone(client.phone), message) : Promise.resolve({ ok: false as const }),
-    (doEmail && client.email) ? sendViaBrevoEmail(client.email, client.name, subject, message) : Promise.resolve({ ok: false as const }),
+    (doEmail && client.email) ? sendViaBrevoEmail(client.email, client.name, subject, message, undefined, imageUrl) : Promise.resolve({ ok: false as const }),
   ]);
 
   const anyOk = smsRes.ok || emailRes.ok;

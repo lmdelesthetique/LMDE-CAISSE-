@@ -589,6 +589,9 @@ export default function MarketingPage() {
   const [manualSearchLoading, setManualSearchLoading] = useState(false);
   const [selectedClients, setSelectedClients] = useState<ClientResult[]>([]);
 
+  // Image URL for email
+  const [imageUrl, setImageUrl] = useState('');
+
   // Template bank
   const [showTemplates, setShowTemplates] = useState(false);
 
@@ -679,6 +682,7 @@ export default function MarketingPage() {
         body: JSON.stringify({
           nom,
           sujet: sujet.trim() || undefined,
+          image_url: imageUrl.trim() || undefined,
           segment,
           message,
           channel,
@@ -706,7 +710,7 @@ export default function MarketingPage() {
           });
         } else {
           setSendResult({ ok: true, envoyes: sendData.envoyes, erreurs: sendData.erreurs, smsSent: sendData.smsSent, emailSent: sendData.emailSent });
-          setNom(''); setSujet(''); setMessage(''); setSelectedClients([]); setManualSearch('');
+          setNom(''); setSujet(''); setMessage(''); setImageUrl(''); setSelectedClients([]); setManualSearch('');
           loadStats();
         }
       } else {
@@ -857,24 +861,48 @@ export default function MarketingPage() {
 
               {/* Sujet email */}
               {isEmailChannel && (
-                <div>
-                  <label className="text-sm font-medium text-foreground">Sujet de l'email</label>
-                  <input
-                    type="text"
-                    value={sujet}
-                    onChange={e => setSujet(e.target.value)}
-                    placeholder='ex: "On pensait à toi {prénom}" — personnel, pas commercial'
-                    className={`mt-1 w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 ${forbiddenInSubject.length > 0 ? 'border-red-400 bg-red-50' : 'border-border'}`}
-                  />
-                  {forbiddenInSubject.length > 0 ? (
-                    <p className="text-[11px] text-red-600 mt-1 font-medium">
-                      🚫 Mots interdits détectés : {forbiddenInSubject.join(', ')} — Gmail classera ce message en "Promotions"
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-sm font-medium text-foreground">Sujet de l'email</label>
+                    <input
+                      type="text"
+                      value={sujet}
+                      onChange={e => setSujet(e.target.value)}
+                      placeholder='ex: "On pensait à toi {prénom}" — personnel, pas commercial'
+                      className={`mt-1 w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 ${forbiddenInSubject.length > 0 ? 'border-red-400 bg-red-50' : 'border-border'}`}
+                    />
+                    {forbiddenInSubject.length > 0 ? (
+                      <p className="text-[11px] text-red-600 mt-1 font-medium">
+                        🚫 Mots interdits détectés : {forbiddenInSubject.join(', ')} — Gmail classera ce message en "Promotions"
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-amber-600 mt-1">
+                        ⚠️ Évitez : PROMO, OFFRE, %, URGENT, GRATUIT — Préférez un sujet personnel avec {'{prénom}'}.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Image banner */}
+                  <div>
+                    <label className="text-sm font-medium text-foreground">
+                      Photo / bannière <span className="text-muted-foreground font-normal">(optionnel)</span>
+                    </label>
+                    <input
+                      type="url"
+                      value={imageUrl}
+                      onChange={e => setImageUrl(e.target.value)}
+                      placeholder="https://... URL publique d'une image produit ou ambiance"
+                      className="mt-1 w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400"
+                    />
+                    {imageUrl && (
+                      <div className="mt-2 rounded-lg overflow-hidden border border-pink-200">
+                        <img src={imageUrl} alt="Aperçu" className="w-full max-h-32 object-cover" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                      </div>
+                    )}
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      Copiez l'URL d'une photo depuis votre Shopify, Instagram ou Google Drive (lien direct). Elle apparaîtra en bannière sous le header rose.
                     </p>
-                  ) : (
-                    <p className="text-[11px] text-amber-600 mt-1">
-                      ⚠️ Évitez : PROMO, OFFRE, %, URGENT, GRATUIT — Préférez un sujet personnel avec {'{prénom}'}.
-                    </p>
-                  )}
+                  </div>
                 </div>
               )}
 

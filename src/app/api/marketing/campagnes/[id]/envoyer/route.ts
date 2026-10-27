@@ -92,9 +92,10 @@ export async function POST(
     let emailSent = 0;
     const logs: any[] = [];
 
-    // Decode nom|||sujet encoding (see campagnes/route.ts)
-    const [campaignNom, encodedSubject] = (campagne.nom ?? '').split('|||');
+    // Decode nom|||sujet|||imageUrl encoding (see campagnes/route.ts)
+    const [campaignNom, encodedSubject, encodedImageUrl] = (campagne.nom ?? '').split('|||');
     const subject = encodedSubject?.trim() || campaignNom || "Le Monde de l'Esthétique";
+    const imageUrl = encodedImageUrl?.trim() || undefined;
 
     for (const client of clients) {
       const clientName = (client.first_name || 'Cliente').trim();
@@ -104,7 +105,8 @@ export async function POST(
         { phone: client.phone || undefined, email: client.email || undefined, name: clientName },
         subject,
         messageText,
-        channel
+        channel,
+        imageUrl
       );
 
       if (result.anyOk) envoyes++; else erreurs++;
