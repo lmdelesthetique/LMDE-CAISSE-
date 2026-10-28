@@ -1434,14 +1434,21 @@ export default function DevisProPage() {
                     <Icon name="ChatBubbleLeftEllipsisIcon" size={13} />
                     WA
                   </button>
-                  <button
-                    onClick={() => sendEmailLink(selected, clientLink)}
-                    disabled={sendingEmail}
-                    className="px-3 py-1.5 rounded-lg bg-blue-500 text-white text-xs font-bold hover:bg-blue-600 disabled:opacity-50 transition-colors flex items-center gap-1"
-                  >
-                    <Icon name="EnvelopeIcon" size={13} />
-                    {sendingEmail ? '...' : 'Mail'}
-                  </button>
+                  {selected.client?.email ? (
+                    <button
+                      onClick={() => sendEmailLink(selected, clientLink)}
+                      disabled={sendingEmail}
+                      className="px-3 py-1.5 rounded-lg bg-blue-500 text-white text-xs font-bold hover:bg-blue-600 disabled:opacity-50 transition-colors flex items-center gap-1"
+                    >
+                      <Icon name="EnvelopeIcon" size={13} />
+                      {sendingEmail ? '...' : 'Mail'}
+                    </button>
+                  ) : (
+                    <div title="Aucune adresse email enregistrée pour cette cliente" className="px-3 py-1.5 rounded-lg bg-gray-200 text-gray-400 text-xs font-bold flex items-center gap-1 cursor-not-allowed select-none">
+                      <Icon name="EnvelopeIcon" size={13} />
+                      Pas d'email
+                    </div>
+                  )}
                 </div>
                 <button onClick={() => setClientLink(null)} className="text-xs text-blue-400 hover:text-blue-600 mt-1">Masquer</button>
               </div>
