@@ -76,6 +76,36 @@ export default function ProductFormModal({ product, onClose, onSave }: ProductFo
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Storage gallery state
+  const [showGallery, setShowGallery] = useState(false);
+  const [galleryFiles, setGalleryFiles] = useState<{ name: string; url: string }[]>([]);
+  const [galleryOffset, setGalleryOffset] = useState(0);
+  const [galleryHasMore, setGalleryHasMore] = useState(false);
+  const [galleryLoading, setGalleryLoading] = useState(false);
+
+  const openGallery = async () => {
+    setShowGallery(true);
+    if (galleryFiles.length === 0) await loadGallery(0);
+  };
+
+  const loadGallery = async (offset: number) => {
+    setGalleryLoading(true);
+    const res = await fetch(`/api/admin/product-images-list?offset=${offset}`).catch(() => null);
+    const data = res?.ok ? await res.json() : null;
+    if (data?.files) {
+      setGalleryFiles((prev) => offset === 0 ? data.files : [...prev, ...data.files]);
+      setGalleryHasMore(data.hasMore);
+      setGalleryOffset(offset + data.files.length);
+    }
+    setGalleryLoading(false);
+  };
+
+  const pickGalleryImage = (url: string) => {
+    setImagePreview(url);
+    setImageFile(null);
+    setShowGallery(false);
+  };
+
   // Guards: re-assert select values once after their options load (edit mode only)
   const categoryValueAsserted = useRef(false);
   const supplierValueAsserted = useRef(false);
@@ -469,17 +499,23 @@ export default function ProductFormModal({ product, onClose, onSave }: ProductFo
                     </div>
                     <div className="flex flex-col gap-2 flex-1">
                       <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={handleImageChange} className="hidden" id="product-image-input" />
-                      <label htmlFor="product-image-input" className="inline-flex items-center gap-2 px-3 py-2 border border-border rounded-lg text-sm font-600 text-foreground hover:bg-muted cursor-pointer transition-colors w-fit">
-                        <Icon name="ArrowUpTrayIcon" size={14} />
-                        {imagePreview ? 'Changer la photo' : 'Choisir une photo'}
-                      </label>
-                      {imagePreview && (
-                        <button type="button" onClick={handleRemoveImage} className="inline-flex items-center gap-2 px-3 py-2 border border-red-200 rounded-lg text-sm font-600 text-red-600 hover:bg-red-50 cursor-pointer transition-colors w-fit">
-                          <Icon name="TrashIcon" size={14} />
-                          Supprimer la photo
+                      <div className="flex flex-wrap gap-2">
+                        <label htmlFor="product-image-input" className="inline-flex items-center gap-2 px-3 py-2 border border-border rounded-lg text-sm font-600 text-foreground hover:bg-muted cursor-pointer transition-colors">
+                          <Icon name="ArrowUpTrayIcon" size={14} />
+                          {imagePreview ? 'Changer' : 'Uploader'}
+                        </label>
+                        <button type="button" onClick={openGallery} className="inline-flex items-center gap-2 px-3 py-2 border border-border rounded-lg text-sm font-600 text-foreground hover:bg-muted transition-colors">
+                          <Icon name="PhotoIcon" size={14} />
+                          Galerie Storage
                         </button>
-                      )}
-                      <p className="text-xs text-muted-foreground">{imageFile ? `Fichier sélectionné : ${imageFile.name}` : 'Aucun fichier sélectionné'}</p>
+                        {imagePreview && (
+                          <button type="button" onClick={handleRemoveImage} className="inline-flex items-center gap-2 px-3 py-2 border border-red-200 rounded-lg text-sm font-600 text-red-600 hover:bg-red-50 transition-colors">
+                            <Icon name="TrashIcon" size={14} />
+                            Supprimer
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">{imageFile ? `Fichier : ${imageFile.name}` : 'Aucun fichier sélectionné'}</p>
                       {uploadError && (
                         <p className="text-xs text-red-600 font-500 flex items-center gap-1">
                           <Icon name="ExclamationCircleIcon" size={12} />
@@ -1042,6 +1078,69 @@ export default function ProductFormModal({ product, onClose, onSave }: ProductFo
           </div>
         </form>
       </div>
+
+      {/* Storage Gallery Modal */}
+      {showGallery && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setShowGallery(false)} />
+          <div className="relative bg-white rounded-2xl shadow-modal w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-border shrink-0">
+              <div>
+                <h3 className="text-[15px] font-700 text-foreground">Galerie Storage</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">Cliquez sur une image pour l'assigner au produit</p>
+              </div>
+              <button onClick={() => setShowGallery(false)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
+                <Icon name="XMarkIcon" size={18} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              {galleryLoading && galleryFiles.length === 0 ? (
+                <div className="flex items-center justify-center py-16 text-muted-foreground gap-2">
+                  <Icon name="ArrowPathIcon" size={18} className="animate-spin" />
+                  <span className="text-sm">Chargement…</span>
+                </div>
+              ) : galleryFiles.length === 0 ? (
+                <p className="text-center text-sm text-muted-foreground py-12">Aucune image dans le bucket product-images</p>
+              ) : (
+                <>
+                  <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
+                    {galleryFiles.map((file) => (
+                      <button
+                        key={file.name}
+                        type="button"
+                        onClick={() => pickGalleryImage(file.url)}
+                        className="group relative aspect-square rounded-lg overflow-hidden border-2 border-transparent hover:border-primary focus:border-primary transition-all"
+                        title={file.name}
+                      >
+                        <img
+                          src={file.url}
+                          alt={file.name}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-150"
+                          loading="lazy"
+                        />
+                        <div className="absolute inset-0 bg-primary/0 group-hover:bg-primary/10 transition-colors" />
+                      </button>
+                    ))}
+                  </div>
+                  {galleryHasMore && (
+                    <div className="mt-4 flex justify-center">
+                      <button
+                        type="button"
+                        onClick={() => loadGallery(galleryOffset)}
+                        disabled={galleryLoading}
+                        className="flex items-center gap-2 px-4 py-2 border border-border rounded-lg text-sm font-600 text-foreground hover:bg-muted disabled:opacity-50 transition-colors"
+                      >
+                        {galleryLoading ? <Icon name="ArrowPathIcon" size={14} className="animate-spin" /> : <Icon name="ArrowDownTrayIcon" size={14} />}
+                        Charger plus
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
