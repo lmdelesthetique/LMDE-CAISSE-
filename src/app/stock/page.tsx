@@ -646,10 +646,7 @@ export default function StockPage() {
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [bulkLoading, setBulkLoading] = useState(false);
   const [recalcLoading, setRecalcLoading] = useState(false);
-  const [syncImagesLoading, setSyncImagesLoading] = useState(false);
-  const [syncImagesResult, setSyncImagesResult] = useState<{ productsUpdated: number; linesUpdated: number } | null>(null);
-  const [restoreImagesLoading, setRestoreImagesLoading] = useState(false);
-  const [restoreImagesResult, setRestoreImagesResult] = useState<{ found: number; restored: number } | null>(null);
+
   const [dedupLoading, setDedupLoading] = useState(false);
   const [dedupResult, setDedupResult] = useState<{ fixed: number; log: { name: string; removed: number; before: number; after: number; details?: string }[] } | null>(null);
   const [dedupPreview, setDedupPreview] = useState<{ total_duplicates: number; total_extra_units: number; groups: any[] } | null>(null);
@@ -713,59 +710,6 @@ export default function StockPage() {
     }
   };
 
-  const handleSyncImages = async () => {
-    setSyncImagesLoading(true);
-    setSyncImagesResult(null);
-    try {
-      const res = await fetch('/api/admin/sync-product-images', { method: 'POST' });
-      const data = await res.json();
-      setSyncImagesResult(data);
-      if (data.productsUpdated > 0) await loadData();
-    } catch (e) {
-      console.error('sync-product-images', e);
-    } finally {
-      setSyncImagesLoading(false);
-    }
-  };
-
-  const handleRestoreImages = async () => {
-    setRestoreImagesLoading(true);
-    setRestoreImagesResult(null);
-    try {
-      // Step 1: dry-run to see what would be restored
-      const dryRes = await fetch('/api/admin/restore-product-images');
-      const dryData = await dryRes.json();
-      console.log('[restore-images dry-run]', dryData);
-
-      if (dryData.error) {
-        alert(`Erreur : ${dryData.error}\nlistError: ${dryData.listError}`);
-        return;
-      }
-
-      const msg = `Fichiers dans le bucket : ${dryData.bucket_files_total}\n`
-        + `Produits avec URL Shopify : ${dryData.products_with_shopify_url}\n`
-        + `Correspondances trouvées : ${dryData.matched}\n`
-        + `Sans correspondance : ${dryData.unmatched}\n`
-        + (dryData.listError ? `\n⚠️ Erreur listing : ${dryData.listError}\n` : '')
-        + `\nExemples fichiers bucket : ${(dryData.bucket_sample ?? []).slice(0,3).join(', ')}\n`
-        + `\nRestorer ${dryData.matched} photos ?`;
-
-      if (!confirm(msg)) return;
-      if (dryData.matched === 0) { alert('Aucune correspondance trouvée — vérifiez la console pour les détails.'); return; }
-
-      // Step 2: apply
-      const res = await fetch('/api/admin/restore-product-images', { method: 'POST' });
-      const data = await res.json();
-      console.log('[restore-images result]', data);
-      setRestoreImagesResult(data);
-      if (data.restored > 0) await loadData();
-    } catch (e: any) {
-      console.error('restore-product-images', e);
-      alert(`Erreur réseau : ${e.message}`);
-    } finally {
-      setRestoreImagesLoading(false);
-    }
-  };
 
   const handleDedupPreview = async () => {
     setDedupPreviewLoading(true);
@@ -965,24 +909,6 @@ export default function StockPage() {
               >
                 <Icon name="ChartBarIcon" size={15} className={recalcLoading ? 'text-primary animate-pulse' : 'text-muted-foreground'} />
                 <span className="hidden sm:inline">Sync ventes</span>
-              </button>
-              <button
-                onClick={handleSyncImages}
-                disabled={syncImagesLoading}
-                title="Ajouter les images Shopify pour les produits qui n'ont pas encore de photo (ne remplace pas les photos existantes)"
-                className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border text-sm font-500 hover:bg-muted transition-colors disabled:opacity-50"
-              >
-                <Icon name="PhotoIcon" size={15} className={syncImagesLoading ? 'text-primary animate-pulse' : 'text-muted-foreground'} />
-                <span className="hidden sm:inline">{syncImagesResult ? `Images: ${syncImagesResult.productsUpdated} produits` : 'Sync images'}</span>
-              </button>
-              <button
-                onClick={handleRestoreImages}
-                disabled={restoreImagesLoading}
-                title="Restaurer les photos custom depuis le stockage Supabase (répare les images remplacées par erreur)"
-                className="flex items-center gap-2 px-3 py-2 rounded-xl border border-orange-300 bg-orange-50 text-orange-800 text-sm font-500 hover:bg-orange-100 transition-colors disabled:opacity-50"
-              >
-                <Icon name="PhotoIcon" size={15} className={restoreImagesLoading ? 'animate-pulse' : ''} />
-                <span className="hidden sm:inline">{restoreImagesResult ? `Restaurées: ${restoreImagesResult.restored}` : '🔄 Restaurer photos'}</span>
               </button>
               <button
                 onClick={handleDedupPreview}
