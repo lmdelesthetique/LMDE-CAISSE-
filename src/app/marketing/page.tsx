@@ -1253,7 +1253,7 @@ export default function MarketingPage() {
                 </div>
 
                 {sendMode === 'schedule' && (
-                  <div className="mt-3">
+                  <div className="mt-3 space-y-2">
                     <input
                       type="datetime-local"
                       value={scheduledAt}
@@ -1262,11 +1262,16 @@ export default function MarketingPage() {
                       className="w-full border border-violet-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 bg-violet-50"
                     />
                     {scheduledAt && (
-                      <p className="text-xs text-violet-600 mt-1 font-medium">
-                        ✅ Envoi programmé le {new Date(scheduledAt).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })} à {new Date(scheduledAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                      <p className="text-xs text-violet-600 font-medium">
+                        ✅ Programmée le {new Date(scheduledAt).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })} à {new Date(scheduledAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
                       </p>
                     )}
-                    <p className="text-[11px] text-muted-foreground mt-1">La campagne partira automatiquement. Vérifiable dans l'Historique.</p>
+                    <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                      <span className="text-amber-500 text-sm shrink-0 mt-px">⚠️</span>
+                      <p className="text-[11px] text-amber-800 leading-snug">
+                        <strong>Envoi quotidien à 9h (Martinique).</strong> La campagne partira au prochain déclenchement automatique à 9h, même si vous programmez une heure précise. Pour des envois à l'heure exacte, passez en plan Pro Vercel.
+                      </p>
+                    </div>
                   </div>
                 )}
               </div>
