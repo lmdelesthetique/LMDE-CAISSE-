@@ -1,35 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { getAccessToken } from '@/lib/services/shopifyService';
 
-const STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN ?? '';
-const API_VERSION = '2024-10';
 const BUCKET = 'product-images';
 
-async function shopifyFetchImages(shopifyIds: number[]): Promise<Map<number, string>> {
-  const imageMap = new Map<number, string>();
-  if (!shopifyIds.length) return imageMap;
-
-  const token = await getAccessToken();
-  if (!token || !STORE_DOMAIN) return imageMap;
-
-  const CHUNK = 50;
-  for (let i = 0; i < shopifyIds.length; i += CHUNK) {
-    const chunk = shopifyIds.slice(i, i + CHUNK);
-    try {
-      const res = await fetch(
-        `https://${STORE_DOMAIN}/admin/api/${API_VERSION}/products.json?ids=${chunk.join(',')}&fields=id,image`,
-        { headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': token } }
-      );
-      if (!res.ok) continue;
-      const json = await res.json();
-      for (const p of json.products ?? []) {
-        if (p.image?.src) imageMap.set(Number(p.id), p.image.src);
-      }
-    } catch { /* skip on error */ }
-  }
-  return imageMap;
-}
+// RULE: image_url in products ALWAYS points to Supabase Storage only.
+// Shopify CDN URLs (cdn.shopify.com) must never be stored in image_url.
+// Shopify keeps its own images independently — the two systems never mix.
 
 function normalize(s: string): string {
   return s.replace(/[^a-zA-Z0-9]/g, '-').replace(/-+/g, '-').toLowerCase().replace(/^-|-$/g, '');
@@ -40,25 +16,42 @@ function extractBase(fileName: string): string {
   return withoutExt.replace(/-\d{10,}$/, '');
 }
 
-// POST — sync image_url for products with no image, checking Supabase storage first
+function isShopifyCdnUrl(url: string | null): boolean {
+  if (!url) return false;
+  return url.includes('cdn.shopify.com') || url.includes('shopifycdn.com');
+}
+
+function isSupabaseStorageUrl(url: string | null, storageBase: string): boolean {
+  if (!url) return false;
+  return url.startsWith(storageBase);
+}
+
+// POST — enforce Supabase Storage as sole image source for the POS.
+// Processes ALL products (not just those with null image_url):
+//   - NULL image_url       → try to fill from Supabase Storage
+//   - Shopify CDN image_url → replace with Supabase Storage if match found;
+//                             leave Shopify URL untouched if no Storage match
+//   - Already Supabase URL → skip (already correct)
 export async function POST() {
   const supabase = createAdminClient();
   const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').replace(/\/$/, '');
+  const storageBase = `${supabaseUrl}/storage/v1/object/public/${BUCKET}/`;
 
-  // 1. Fetch all products with shopify_product_id set but no image_url
+  // 1. Fetch all products (not just Shopify-linked — any product can have a wrong URL)
   const { data: products, error: pErr } = await supabase
     .from('products')
-    .select('id, ref, name, shopify_product_id, image_url')
-    .not('shopify_product_id', 'is', null);
+    .select('id, ref, name, image_url')
+    .range(0, 9999);
 
   if (pErr) return NextResponse.json({ error: pErr.message }, { status: 500 });
-  if (!products?.length) return NextResponse.json({ productsUpdated: 0, linesUpdated: 0 });
+  if (!products?.length) return NextResponse.json({ productsUpdated: 0, shopifyUrlsReplaced: 0, linesUpdated: 0 });
 
-  // Only consider products with no image_url
-  const nullImageProducts = products.filter((p: any) => !p.image_url);
-  if (!nullImageProducts.length) return NextResponse.json({ productsUpdated: 0, linesUpdated: 0 });
+  // Only process products that need fixing
+  const toProcess = (products as any[]).filter(p =>
+    !p.image_url || isShopifyCdnUrl(p.image_url) || !isSupabaseStorageUrl(p.image_url, storageBase)
+  );
 
-  // 2. List Supabase storage bucket to find custom images
+  // 2. List Supabase Storage bucket
   const allFiles: string[] = [];
   let offset = 0;
   while (true) {
@@ -68,41 +61,33 @@ export async function POST() {
     if (data.length < 1000) break;
     offset += 1000;
   }
+
+  // Build lookup: normalized base name → full filename
   const baseToFile = new Map<string, string>();
   for (const name of allFiles) {
     const base = extractBase(name);
     if (base && !baseToFile.has(base)) baseToFile.set(base, name);
   }
 
-  // 3. Fetch Shopify images as fallback
-  const numericIds = nullImageProducts
-    .map((p: any) => Number(p.shopify_product_id))
-    .filter((n: number) => !isNaN(n) && n > 0);
-  const shopifyImages = await shopifyFetchImages(numericIds);
-
-  // 4. Update products — prefer Supabase storage URL, fall back to Shopify CDN
+  // 3. Update products — Supabase Storage only, never Shopify CDN
   let productsUpdated = 0;
+  let shopifyUrlsReplaced = 0;
   const updatedProductIds = new Set<string>();
 
-  for (const prod of nullImageProducts) {
-    // Try Supabase storage first
+  for (const prod of toProcess) {
     const normalRef = prod.ref ? normalize(prod.ref) : null;
     const normalName = prod.name ? normalize(prod.name) : null;
+
     let storageFile: string | undefined;
     if (normalRef) storageFile = baseToFile.get(normalRef);
     if (!storageFile && normalName) storageFile = baseToFile.get(normalName);
 
-    let imgUrl: string | undefined;
-    if (storageFile) {
-      imgUrl = `${supabaseUrl}/storage/v1/object/public/${BUCKET}/${storageFile}`;
-    } else {
-      // Fallback to Shopify CDN only if no storage file found
-      const shopifyImg = shopifyImages.get(Number(prod.shopify_product_id));
-      if (shopifyImg) imgUrl = shopifyImg;
-    }
+    if (!storageFile) continue; // No Supabase Storage match — leave current URL as is
 
-    if (!imgUrl) continue;
+    const imgUrl = `${storageBase}${storageFile}`;
+    if (prod.image_url === imgUrl) continue; // Already correct
 
+    const wasShopify = isShopifyCdnUrl(prod.image_url);
     const { error } = await supabase
       .from('products')
       .update({ image_url: imgUrl })
@@ -111,29 +96,33 @@ export async function POST() {
     if (!error) {
       productsUpdated++;
       updatedProductIds.add(prod.id);
+      if (wasShopify) shopifyUrlsReplaced++;
     }
   }
 
-  if (updatedProductIds.size === 0) {
-    return NextResponse.json({ productsUpdated: 0, linesUpdated: 0 });
+  // 4. fo_order_lines backfill — Supabase Storage only (null lines only)
+  // Build id/ref → Supabase Storage URL map from ALL products
+  const idToStorageUrl = new Map<string, string>();
+  const refToStorageUrl = new Map<string, string>();
+
+  for (const prod of products as any[]) {
+    const normalRef = prod.ref ? normalize(prod.ref) : null;
+    const normalName = prod.name ? normalize(prod.name) : null;
+    let storageFile: string | undefined;
+    if (normalRef) storageFile = baseToFile.get(normalRef);
+    if (!storageFile && normalName) storageFile = baseToFile.get(normalName);
+    if (!storageFile) continue;
+
+    const imgUrl = `${storageBase}${storageFile}`;
+    idToStorageUrl.set(prod.id, imgUrl);
+    if (prod.ref) refToStorageUrl.set(prod.ref, imgUrl);
   }
 
-  // 5. Build ref → image_url map for fo_order_lines backfill (null lines only)
-  const refToImage = new Map<string, string>();
-  const idToImage = new Map<string, string>();
-  for (const prod of products) {
-    const imgUrl = shopifyImages.get(Number(prod.shopify_product_id));
-    if (!imgUrl) continue;
-    if (prod.ref) refToImage.set(prod.ref, imgUrl);
-    idToImage.set(prod.id, imgUrl);
-  }
-
-  const updatedRefs = [...refToImage.keys()];
-  const updatedIds = [...idToImage.keys()];
-
+  const allIds = [...idToStorageUrl.keys()];
+  const allRefs = [...refToStorageUrl.keys()];
   const orFilters: string[] = [];
-  if (updatedIds.length) orFilters.push(`product_id.in.(${updatedIds.join(',')})`);
-  if (updatedRefs.length) orFilters.push(`product_ref.in.(${updatedRefs.join(',')})`);
+  if (allIds.length) orFilters.push(`product_id.in.(${allIds.join(',')})`);
+  if (allRefs.length) orFilters.push(`product_ref.in.(${allRefs.join(',')})`);
 
   let linesUpdated = 0;
   if (orFilters.length) {
@@ -144,8 +133,9 @@ export async function POST() {
       .or(orFilters.join(','));
 
     for (const line of lines ?? []) {
-      const imgUrl = (line.product_id ? idToImage.get(line.product_id) : null)
-        ?? (line.product_ref ? refToImage.get(line.product_ref) : null);
+      const imgUrl =
+        (line.product_id ? idToStorageUrl.get(line.product_id) : null) ??
+        (line.product_ref ? refToStorageUrl.get(line.product_ref) : null);
       if (!imgUrl) continue;
 
       const { error } = await supabase
@@ -156,5 +146,11 @@ export async function POST() {
     }
   }
 
-  return NextResponse.json({ productsUpdated, linesUpdated });
+  return NextResponse.json({
+    productsUpdated,
+    shopifyUrlsReplaced,
+    linesUpdated,
+    storageFilesFound: allFiles.length,
+    productsChecked: toProcess.length,
+  });
 }
