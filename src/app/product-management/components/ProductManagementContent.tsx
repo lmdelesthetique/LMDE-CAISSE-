@@ -109,31 +109,42 @@ export default function ProductManagementContent() {
   const [filterShopify, setFilterShopify] = useState<'Tous' | 'Synchronisé' | 'Non synchronisé' | 'Erreur'>('Tous');
   const [syncingShopify, setSyncingShopify] = useState(false);
   const [fixingStatus, setFixingStatus] = useState(false);
-  const [showTriggerSQL, setShowTriggerSQL] = useState(false);
-  const [sqlCopied, setSqlCopied] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<{ ids: string[]; names: string[] } | null>(null);
 
-  const TRIGGER_SQL = `CREATE OR REPLACE FUNCTION sync_product_status()
-RETURNS TRIGGER AS $$
-BEGIN
-  IF NEW.stock > 0 THEN
-    NEW.status = 'active';
-    NEW.product_status = 'active';
-  ELSE
-    NEW.status = 'rupture';
-    NEW.product_status = 'rupture';
-  END IF;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
+  // Quick gallery: assign image from Storage directly from the product list
+  const [quickGalleryProductId, setQuickGalleryProductId] = useState<string | null>(null);
+  const [galleryFiles, setGalleryFiles] = useState<{ name: string; url: string }[]>([]);
+  const [galleryOffset, setGalleryOffset] = useState(0);
+  const [galleryHasMore, setGalleryHasMore] = useState(false);
+  const [galleryLoading, setGalleryLoading] = useState(false);
 
-DROP TRIGGER IF EXISTS trigger_sync_product_status ON products;
+  const openQuickGallery = async (productId: string) => {
+    setQuickGalleryProductId(productId);
+    if (galleryFiles.length === 0) await loadGallery(0);
+  };
 
-CREATE TRIGGER trigger_sync_product_status
-BEFORE UPDATE ON products
-FOR EACH ROW
-WHEN (OLD.stock IS DISTINCT FROM NEW.stock)
-EXECUTE FUNCTION sync_product_status();`;
+  const loadGallery = async (offset: number) => {
+    setGalleryLoading(true);
+    const res = await fetch(`/api/admin/product-images-list?offset=${offset}`).catch(() => null);
+    const data = res?.ok ? await res.json() : null;
+    if (data?.files) {
+      setGalleryFiles((prev) => offset === 0 ? data.files : [...prev, ...data.files]);
+      setGalleryHasMore(data.hasMore);
+      setGalleryOffset(offset + data.files.length);
+    }
+    setGalleryLoading(false);
+  };
+
+  const assignImageToProduct = async (productId: string, url: string) => {
+    await fetch(`/api/products/${productId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image_url: url }),
+    });
+    setProducts((prev) => prev.map((p) => p.id === productId ? { ...p, imageUrl: url } : p));
+    setQuickGalleryProductId(null);
+    showToast('Image assignée');
+  };
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });
@@ -437,12 +448,6 @@ EXECUTE FUNCTION sync_product_status();`;
     URL.revokeObjectURL(url);
   };
 
-  const handleCopySQL = () => {
-    navigator.clipboard.writeText(TRIGGER_SQL).then(() => {
-      setSqlCopied(true);
-      setTimeout(() => setSqlCopied(false), 2000);
-    });
-  };
 
   const handleFixStockStatus = async () => {
     setFixingStatus(true);
@@ -516,13 +521,6 @@ EXECUTE FUNCTION sync_product_status();`;
               {fixingStatus ? 'Correction…' : 'Corriger statuts'}
             </button>
             <button
-              onClick={() => setShowTriggerSQL((v) => !v)}
-              className="flex items-center gap-1.5 px-3 py-2 border border-violet-300 bg-violet-50 rounded-lg text-sm font-medium text-violet-700 hover:bg-violet-100 transition-colors"
-            >
-              <Icon name="BoltIcon" size={15} />
-              Trigger SQL
-            </button>
-            <button
               onClick={() => { setBarcodePrintProducts(filtered); setShowBarcodeModal(true); }}
               className="flex items-center gap-1.5 px-3 py-2 border border-border rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
             >
@@ -553,34 +551,6 @@ EXECUTE FUNCTION sync_product_status();`;
         </div>
       </div>
 
-      {/* Trigger SQL panel */}
-      {showTriggerSQL && (
-        <div className="border-b border-violet-200 bg-violet-50 px-6 lg:px-8 xl:px-10 py-4">
-          <div className="max-w-screen-2xl mx-auto flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-600 text-violet-800">Trigger PostgreSQL — sync automatique statut ↔ stock</p>
-                <p className="text-xs text-violet-600 mt-0.5">Copiez ce SQL et exécutez-le dans <strong>Supabase → SQL Editor</strong>. Permanent : plus jamais de statut désynchronisé.</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleCopySQL}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white rounded-lg text-xs font-600 hover:opacity-90 transition-opacity"
-                >
-                  <Icon name={sqlCopied ? 'CheckIcon' : 'ClipboardDocumentIcon'} size={13} />
-                  {sqlCopied ? 'Copié !' : 'Copier le SQL'}
-                </button>
-                <button onClick={() => setShowTriggerSQL(false)} className="text-violet-400 hover:text-violet-700 transition-colors">
-                  <Icon name="XMarkIcon" size={18} />
-                </button>
-              </div>
-            </div>
-            <pre className="bg-white border border-violet-200 rounded-lg p-3 text-[11px] leading-relaxed text-slate-700 overflow-x-auto font-mono whitespace-pre">
-              {TRIGGER_SQL}
-            </pre>
-          </div>
-        </div>
-      )}
 
       <div className="max-w-screen-2xl mx-auto px-6 lg:px-8 xl:px-10 2xl:px-16 py-5 w-full flex flex-col gap-4 flex-1">
         {/* Kit / Product filter */}
@@ -735,13 +705,18 @@ EXECUTE FUNCTION sync_product_status();`;
                       </td>
                       <td className="px-4 py-3 min-w-[200px]">
                         <div className="flex items-center gap-2">
-                          <div className="w-10 h-10 rounded-lg bg-muted/60 flex items-center justify-center shrink-0 overflow-hidden border border-border/50">
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); openQuickGallery(product.id); }}
+                            title="Cliquer pour assigner une image depuis la galerie"
+                            className="w-10 h-10 rounded-lg bg-muted/60 flex items-center justify-center shrink-0 overflow-hidden border border-border/50 hover:border-primary hover:ring-2 hover:ring-primary/20 transition-all group/img"
+                          >
                             {product.imageUrl ? (
-                              <img src={product.imageUrl} alt={`Photo de ${product.name}`} className="w-full h-full object-cover" />
+                              <img src={product.imageUrl} alt={`Photo de ${product.name}`} className="w-full h-full object-cover group-hover/img:opacity-80 transition-opacity" />
                             ) : (
-                              <Icon name="PhotoIcon" size={16} className="text-muted-foreground" />
+                              <Icon name="PhotoIcon" size={16} className="text-muted-foreground group-hover/img:text-primary transition-colors" />
                             )}
-                          </div>
+                          </button>
                           <div className="flex-1">
                             <div className="flex items-start gap-1.5 flex-wrap">
                               <p className="text-sm font-500 text-foreground whitespace-normal break-words" title={product.name} style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>{product.name}</p>
@@ -923,6 +898,63 @@ EXECUTE FUNCTION sync_product_status();`;
               >
                 Supprimer définitivement
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Quick Gallery Modal — assign image from Storage directly from the product list */}
+      {quickGalleryProductId && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setQuickGalleryProductId(null)} />
+          <div className="relative bg-white rounded-2xl shadow-modal w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-border shrink-0">
+              <div>
+                <h3 className="text-[15px] font-700 text-foreground">Galerie Storage</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">Cliquez sur une image pour l'assigner au produit</p>
+              </div>
+              <button onClick={() => setQuickGalleryProductId(null)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
+                <Icon name="XMarkIcon" size={18} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              {galleryLoading && galleryFiles.length === 0 ? (
+                <div className="flex items-center justify-center py-16 text-muted-foreground gap-2">
+                  <Icon name="ArrowPathIcon" size={18} className="animate-spin" />
+                  <span className="text-sm">Chargement…</span>
+                </div>
+              ) : galleryFiles.length === 0 ? (
+                <p className="text-center text-sm text-muted-foreground py-12">Aucune image dans le bucket product-images</p>
+              ) : (
+                <>
+                  <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
+                    {galleryFiles.map((file) => (
+                      <button
+                        key={file.name}
+                        type="button"
+                        onClick={() => assignImageToProduct(quickGalleryProductId, file.url)}
+                        className="group relative aspect-square rounded-lg overflow-hidden border-2 border-transparent hover:border-primary focus:border-primary transition-all"
+                        title={file.name}
+                      >
+                        <img src={file.url} alt={file.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-150" loading="lazy" />
+                        <div className="absolute inset-0 bg-primary/0 group-hover:bg-primary/10 transition-colors" />
+                      </button>
+                    ))}
+                  </div>
+                  {galleryHasMore && (
+                    <div className="mt-4 flex justify-center">
+                      <button
+                        type="button"
+                        onClick={() => loadGallery(galleryOffset)}
+                        disabled={galleryLoading}
+                        className="flex items-center gap-2 px-4 py-2 border border-border rounded-lg text-sm font-600 text-foreground hover:bg-muted disabled:opacity-50 transition-colors"
+                      >
+                        {galleryLoading ? <Icon name="ArrowPathIcon" size={14} className="animate-spin" /> : <Icon name="ArrowDownTrayIcon" size={14} />}
+                        Charger plus
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>
