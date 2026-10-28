@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 
+// Shopify CDN URLs must never be stored in image_url — strip them to null
+function sanitizeImageUrl(url: unknown): string | null | undefined {
+  if (url === undefined) return undefined;
+  if (!url || typeof url !== 'string') return null;
+  if (url.includes('cdn.shopify.com') || url.includes('shopifycdn.com') || url.includes('shopify.com/s/files')) return null;
+  return url;
+}
+
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = createAdminClient();
@@ -20,6 +28,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const supabase = createAdminClient();
 
     const { colorVariants, stockMovement, ...payload } = body;
+
+    if ('image_url' in payload) payload.image_url = sanitizeImageUrl(payload.image_url);
 
     // Main product update
     const { error: updateError } = await supabase
@@ -89,6 +99,8 @@ export async function POST(req: NextRequest) {
 
     const supabase = createAdminClient();
     const { colorVariants, stockMovement, ...payload } = body;
+
+    if ('image_url' in payload) payload.image_url = sanitizeImageUrl(payload.image_url);
 
     const { data: inserted, error: insertError } = await supabase
       .from('products')

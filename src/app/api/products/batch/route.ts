@@ -1,13 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 
+function sanitizeImageUrl(url: unknown): string | null | undefined {
+  if (url === undefined) return undefined;
+  if (!url || typeof url !== 'string') return null;
+  if (url.includes('cdn.shopify.com') || url.includes('shopifycdn.com') || url.includes('shopify.com/s/files')) return null;
+  return url;
+}
+
+function sanitizeProducts(products: any[]): any[] {
+  return products.map((p) => {
+    if ('image_url' in p) return { ...p, image_url: sanitizeImageUrl(p.image_url) };
+    return p;
+  });
+}
+
 // POST /api/products/batch — batch insert { products: [...] }
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const products: any[] = Array.isArray(body.products) ? body.products : [];
   if (products.length === 0) return NextResponse.json({ error: 'products array required' }, { status: 400 });
   const supabase = createAdminClient();
-  const { error } = await supabase.from('products').insert(products);
+  const { error } = await supabase.from('products').insert(sanitizeProducts(products));
   if (error) return NextResponse.json({ error: error.message, code: error.code }, { status: 500 });
   return NextResponse.json({ ok: true, inserted: products.length });
 }
@@ -18,7 +32,7 @@ export async function PUT(req: NextRequest) {
   const products: any[] = Array.isArray(body.products) ? body.products : [];
   if (products.length === 0) return NextResponse.json({ error: 'products array required' }, { status: 400 });
   const supabase = createAdminClient();
-  const { error } = await supabase.from('products').upsert(products, { onConflict: 'id' });
+  const { error } = await supabase.from('products').upsert(sanitizeProducts(products), { onConflict: 'id' });
   if (error) return NextResponse.json({ error: error.message, code: error.code }, { status: 500 });
   return NextResponse.json({ ok: true, upserted: products.length });
 }
