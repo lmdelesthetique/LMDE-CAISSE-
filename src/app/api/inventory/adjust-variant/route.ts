@@ -36,5 +36,12 @@ export async function POST(req: NextRequest) {
     performed_by: body.performedBy ?? 'Inventaire',
   });
 
+  // Non-blocking Shopify sync (only for linked products)
+  fetch(`${process.env.NEXT_PUBLIC_SITE_URL}/api/shopify/sync-stock`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items: [{ productId: body.productId, newStock: total }] }),
+  }).catch(() => {});
+
   return NextResponse.json({ ok: true, totalStock: total });
 }
