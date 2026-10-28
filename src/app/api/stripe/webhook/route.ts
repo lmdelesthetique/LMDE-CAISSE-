@@ -37,6 +37,52 @@ export async function POST(req: NextRequest) {
     case 'checkout.session.completed': {
       const session = event.data.object;
 
+      // ── Devis Pro payment — discriminated by metadata.type ───────────────
+      if (session.metadata?.type === 'devis-pro') {
+        try {
+          const devisId: string = session.metadata.devis_id;
+          const amount = parseFloat(session.metadata.amount) || (session.amount_total ?? 0) / 100;
+
+          if (!devisId || amount <= 0) break;
+
+          const { data: devis } = await supabase
+            .from('devis_pro')
+            .select('paiements, paye_total, client_pays')
+            .eq('id', devisId)
+            .maybeSingle();
+
+          if (!devis) {
+            console.warn('[stripe/webhook] devis-pro: devis introuvable', devisId);
+            break;
+          }
+
+          const paiements: any[] = Array.isArray(devis.paiements) ? devis.paiements : [];
+          // Idempotency: skip if this Stripe session is already recorded
+          if (paiements.some((p: any) => p.note === session.id)) break;
+
+          const newPaiement = {
+            id: session.id,
+            method: 'stripe',
+            amount,
+            note: `Stripe ${session.id}`,
+            date: new Date().toISOString(),
+          };
+          const updatedPaiements = [...paiements, newPaiement];
+          const payeTotal = updatedPaiements.reduce((s: number, p: any) => s + Number(p.amount || 0), 0);
+
+          await supabase
+            .from('devis_pro')
+            .update({ paiements: updatedPaiements, paye_total: payeTotal, updated_at: new Date().toISOString() })
+            .eq('id', devisId);
+
+          console.log('[stripe/webhook] devis-pro paiement enregistré — devis:', devisId, 'montant:', amount.toFixed(2));
+        } catch (err: any) {
+          console.error('[stripe/webhook] devis-pro error:', err.message);
+        }
+        break;
+      }
+      // ─────────────────────────────────────────────────────────────────────
+
       // ── Surplus box payment — discriminated by metadata.type ──────────────
       if (session.metadata?.type === 'surplus') {
         try {

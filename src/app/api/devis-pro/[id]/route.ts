@@ -54,7 +54,7 @@ async function createReceiptFromDevis(supabase: ReturnType<typeof createAdminCli
   } else {
     const uniqueMethods = [...new Set(paiements.map((p: any) => p.method).filter(Boolean))];
     const m = uniqueMethods[0] || 'virement';
-    paymentMethod = m === 'carte' ? 'CB' : m === 'sumup' ? 'SumUp' : m === 'avoir' ? 'store_credit' : m === 'virement' ? 'transfer' : m;
+    paymentMethod = m === 'carte' ? 'CB' : m === 'sumup' ? 'SumUp' : m === 'stripe' ? 'CB' : m === 'avoir' ? 'store_credit' : m === 'virement' ? 'transfer' : m;
   }
 
   const clientName = devis.client

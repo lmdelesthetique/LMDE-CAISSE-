@@ -24,7 +24,7 @@ interface DevisItem {
 
 interface Paiement {
   id?: string;
-  method: 'especes' | 'carte' | 'virement' | 'avoir' | 'sumup';
+  method: 'especes' | 'carte' | 'virement' | 'avoir' | 'sumup' | 'stripe';
   amount: number;
   note?: string;
   date: string;
@@ -117,6 +117,7 @@ const PAYMENT_METHODS = [
   { value: 'virement', label: 'Virement', icon: 'ArrowRightCircleIcon' },
   { value: 'avoir', label: 'Avoir / Budget Pro', icon: 'GiftIcon' },
   { value: 'sumup', label: 'Lien SumUp', icon: 'LinkIcon' },
+  { value: 'stripe', label: 'Paiement Stripe', icon: 'CreditCardIcon' },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -287,6 +288,8 @@ export default function DevisProPage() {
   const [generatingLink, setGeneratingLink] = useState(false);
   const [clientLink, setClientLink] = useState<string | null>(null);
   const [sendingEmail, setSendingEmail] = useState(false);
+  const [generatingStripe, setGeneratingStripe] = useState(false);
+  const [stripeLink, setStripeLink] = useState<string | null>(null);
 
   // ── Fetch list ──────────────────────────────────────────────────────────────
   const fetchDevis = useCallback(async () => {
@@ -354,6 +357,7 @@ export default function DevisProPage() {
     setToCommander(new Set());
     setClientLink(null);
     setGeneratingLink(false);
+    setStripeLink(null);
 
     // In ProDevisPanel, item.id IS the product UUID for non-custom items
     const productIds = selected.items
@@ -954,6 +958,68 @@ export default function DevisProPage() {
     }
   };
 
+  // ── Generate Stripe payment link ──────────────────────────────────────────
+  const generateStripeLink = async (devis: DevisPro) => {
+    setGeneratingStripe(true);
+    setStripeLink(null);
+    try {
+      const res = await fetch(`/api/devis-pro/${devis.id}/stripe-session`, { method: 'POST' });
+      const json = await res.json();
+      if (json.error) { toast.error(json.error); return; }
+      setStripeLink(json.url);
+      await navigator.clipboard.writeText(json.url).catch(() => {});
+      toast.success(`Lien Stripe copié — ${fmtMoney(json.amount)} à encaisser`);
+    } catch { toast.error('Erreur réseau'); }
+    finally { setGeneratingStripe(false); }
+  };
+
+  const sendStripeWhatsApp = (devis: DevisPro, url: string) => {
+    const phone = devis.client?.whatsapp ?? devis.client?.phone;
+    if (!phone) { toast.error('Pas de numéro WhatsApp'); return; }
+    const clean = phone.replace(/\s/g, '');
+    const intl = clean.startsWith('0') ? '+596' + clean.slice(1) : clean.startsWith('+') ? clean : '+596' + clean;
+    const firstName = clientFirstName(devis.client?.firstName, devis.client?.lastName);
+    const remaining = Math.max(0, devis.client_pays - (devis.paye_total ?? 0));
+    const msg = [
+      `Bonjour ${firstName} 🌸`,
+      '',
+      `Pour finaliser votre commande *${devis.numero ?? ''}*, voici votre lien de paiement sécurisé :`,
+      '',
+      `💳 *${fmtMoney(remaining)} à régler*`,
+      url,
+      '',
+      `Le paiement est sécurisé par Stripe. Une fois validé, nous préparons votre commande 🙏`,
+      `— Le Monde de l'Esthétique ✨`,
+    ].join('\n');
+    window.open(`https://wa.me/${intl}?text=${encodeURIComponent(msg)}`, '_blank');
+  };
+
+  const sendStripeEmail = async (devis: DevisPro, url: string) => {
+    const email = devis.client?.email;
+    if (!email) { toast.error('Pas d\'adresse email pour cette cliente'); return; }
+    const firstName = clientFirstName(devis.client?.firstName, devis.client?.lastName);
+    const remaining = Math.max(0, devis.client_pays - (devis.paye_total ?? 0));
+    setSendingEmail(true);
+    try {
+      const res = await fetch(`/api/devis-pro/${devis.id}/send-link-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          firstName,
+          link: url,
+          itemLines: devis.items.filter((i) => !i.isBonus).slice(0, 6).map((i) => `• ${i.name}${i.qty > 1 ? ` x${i.qty}` : ''}`).join('\n'),
+          amount: remaining,
+          numero: devis.numero,
+          subject: `Lien de paiement — Commande ${devis.numero ?? ''}`,
+        }),
+      });
+      if (res.ok) toast.success('Email envoyé ✓');
+      else toast.error('Erreur envoi email');
+    } catch { toast.error('Erreur réseau'); }
+    finally { setSendingEmail(false); }
+  };
+
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="flex h-screen bg-background overflow-hidden">
@@ -1322,6 +1388,17 @@ export default function DevisProPage() {
                     Lien client
                   </button>
                 )}
+                {!['livre', 'annule'].includes(selected.statut) && (selected.client_pays - (selected.paye_total ?? 0)) > 0.50 && (
+                  <button
+                    onClick={() => generateStripeLink(selected)}
+                    disabled={generatingStripe}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-violet-200 bg-violet-50 hover:bg-violet-100 text-violet-700 text-[11px] font-700 transition-colors disabled:opacity-50"
+                    title="Générer un lien de paiement Stripe"
+                  >
+                    {generatingStripe ? <Icon name="ArrowPathIcon" size={13} className="animate-spin" /> : <Icon name="CreditCardIcon" size={13} />}
+                    Stripe
+                  </button>
+                )}
                 <button
                   onClick={() => sendWhatsApp(selected)}
                   className="p-2 rounded-xl border border-border hover:bg-green-50 hover:border-green-200 text-green-600 transition-colors"
@@ -1451,6 +1528,49 @@ export default function DevisProPage() {
                   )}
                 </div>
                 <button onClick={() => setClientLink(null)} className="text-xs text-blue-400 hover:text-blue-600 mt-1">Masquer</button>
+              </div>
+            )}
+
+            {/* Stripe payment link panel */}
+            {stripeLink && (
+              <div className="mx-5 mt-4 p-3 bg-violet-50 border border-violet-200 rounded-xl">
+                <p className="text-xs font-semibold text-violet-700 mb-2">💳 Lien de paiement Stripe</p>
+                <div className="flex gap-2">
+                  <input readOnly value={stripeLink} className="flex-1 text-xs bg-white border border-violet-200 rounded-lg px-2 py-1.5 text-gray-700 truncate" />
+                  <button
+                    onClick={() => { navigator.clipboard.writeText(stripeLink); toast.success('Lien copié !'); }}
+                    className="px-3 py-1.5 rounded-lg bg-violet-600 text-white text-xs font-bold hover:bg-violet-700 transition-colors"
+                    title="Copier"
+                  >
+                    <Icon name="ClipboardIcon" size={13} />
+                  </button>
+                  {(selected.client?.whatsapp || selected.client?.phone) && (
+                    <button
+                      onClick={() => sendStripeWhatsApp(selected, stripeLink)}
+                      className="px-3 py-1.5 rounded-lg bg-green-500 text-white text-xs font-bold hover:bg-green-600 transition-colors flex items-center gap-1"
+                    >
+                      <Icon name="ChatBubbleLeftEllipsisIcon" size={13} />
+                      WA
+                    </button>
+                  )}
+                  {selected.client?.email ? (
+                    <button
+                      onClick={() => sendStripeEmail(selected, stripeLink)}
+                      disabled={sendingEmail}
+                      className="px-3 py-1.5 rounded-lg bg-blue-500 text-white text-xs font-bold hover:bg-blue-600 disabled:opacity-50 transition-colors flex items-center gap-1"
+                    >
+                      <Icon name="EnvelopeIcon" size={13} />
+                      {sendingEmail ? '...' : 'Mail'}
+                    </button>
+                  ) : (
+                    <div title="Aucune adresse email" className="px-3 py-1.5 rounded-lg bg-gray-200 text-gray-400 text-xs font-bold flex items-center gap-1 cursor-not-allowed select-none">
+                      <Icon name="EnvelopeIcon" size={13} />
+                      Pas d'email
+                    </div>
+                  )}
+                </div>
+                <p className="text-[10px] text-violet-500 mt-1">Le paiement sera automatiquement enregistré dans les paiements du devis.</p>
+                <button onClick={() => setStripeLink(null)} className="text-xs text-violet-400 hover:text-violet-600 mt-0.5">Masquer</button>
               </div>
             )}
 
