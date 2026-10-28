@@ -681,6 +681,18 @@ export default function StockPage() {
   useEffect(() => { loadData(); }, [loadData]);
   useEffect(() => { if (activeTab === 'historique') loadMovements(); }, [activeTab, loadMovements]);
 
+  // Auto-restore product images from Supabase Storage on first load of the session.
+  // Silently replaces any Shopify CDN URLs with the correct Supabase Storage URL.
+  useEffect(() => {
+    const key = 'img_restore_done_v1';
+    if (typeof window === 'undefined' || sessionStorage.getItem(key)) return;
+    sessionStorage.setItem(key, '1');
+    fetch('/api/admin/restore-product-images', { method: 'POST' })
+      .then(r => r.json())
+      .then(d => { if (d.restored > 0) loadData(); })
+      .catch(() => {});
+  }, [loadData]);
+
   // Real-time sync: refresh stock when products or stock_movements_log change
   useRealtimeSync({ tables: ['products', 'stock_movements_log'], onRefresh: loadData });
 
