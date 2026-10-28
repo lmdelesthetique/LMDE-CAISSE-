@@ -46,12 +46,19 @@ async function runRestore(dryRun: boolean) {
   }
 
   // 2. Build lookup: normalizedBase → most-recent filename
-  //    (files are returned newest-first when using default sort)
-  const baseToFile = new Map<string, string>();
+  // Filenames follow the pattern: ref-TIMESTAMP.ext (timestamp = 13-digit ms epoch)
+  // Explicitly pick the highest timestamp so the latest upload always wins.
+  const baseToFile = new Map<string, { name: string; ts: number }>();
   for (const name of allFiles) {
     const base = extractBase(name);
-    if (base && !baseToFile.has(base)) baseToFile.set(base, name);
+    if (!base) continue;
+    const tsMatch = name.replace(/\.[^.]+$/, '').match(/-(\d{10,})$/);
+    const ts = tsMatch ? parseInt(tsMatch[1], 10) : 0;
+    const existing = baseToFile.get(base);
+    if (!existing || ts > existing.ts) baseToFile.set(base, { name, ts });
   }
+  const baseToFileName = new Map<string, string>();
+  for (const [base, { name }] of baseToFile) baseToFileName.set(base, name);
 
   // 3. Load all products
   const { data: products, error: pErr } = await supabase
@@ -86,11 +93,11 @@ async function runRestore(dryRun: boolean) {
     let matchedBy = '';
 
     if (normalRef) {
-      fileName = baseToFile.get(normalRef);
+      fileName = baseToFileName.get(normalRef);
       if (fileName) matchedBy = `ref:${normalRef}`;
     }
     if (!fileName && normalName) {
-      fileName = baseToFile.get(normalName);
+      fileName = baseToFileName.get(normalName);
       if (fileName) matchedBy = `name:${normalName}`;
     }
 
@@ -120,7 +127,7 @@ async function runRestore(dryRun: boolean) {
   const debugInfo = {
     bucket_files_total: allFiles.length,
     bucket_sample: allFiles.slice(0, 10),
-    base_keys_sample: [...baseToFile.keys()].slice(0, 10),
+    base_keys_sample: [...baseToFileName.keys()].slice(0, 10),
     products_with_shopify_url: toRestore.length + noMatch.length,
     matched: toRestore.length,
     unmatched: noMatch.length,
