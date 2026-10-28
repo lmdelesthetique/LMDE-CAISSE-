@@ -437,24 +437,13 @@ export default function ProductManagementContent() {
   const handleRecoverImages = async () => {
     setRecoveringImages(true);
     try {
-      // Dry run first to show count
-      const dryRes = await fetch('/api/admin/recover-images-from-receipts');
-      const dry = await dryRes.json();
-      if (dry.recoverable === 0) {
-        showToast(`Aucune image récupérable (${dry.products_without_image} produits sans photo non trouvés dans les reçus)`, 'error');
-        return;
-      }
-      const confirmed = window.confirm(
-        `${dry.recoverable} photos retrouvées dans l'historique des ventes.\n${dry.not_recoverable} produits resteront sans photo (jamais vendus).\n\nRestorer maintenant ?`
-      );
-      if (!confirmed) return;
-      const res = await fetch('/api/admin/recover-images-from-receipts', { method: 'POST' });
+      const res = await fetch('/api/admin/restore-images-bulk', { method: 'POST' });
       const data = await res.json();
-      if (data.recovered > 0) {
-        showToast(`${data.recovered} photos restaurées automatiquement`);
+      if (data.restored > 0) {
+        showToast(`${data.restored} photos restaurées (${data.shopify_remplacés} Shopify → Supabase, ${data.null_restaurés} null → Supabase)`);
         loadProducts();
       } else {
-        showToast('Aucune photo restaurée', 'error');
+        showToast('Aucune photo à restaurer', 'error');
       }
     } catch {
       showToast('Erreur récupération photos', 'error');
