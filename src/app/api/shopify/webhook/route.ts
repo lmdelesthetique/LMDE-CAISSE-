@@ -204,6 +204,66 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // ── Receipt creation for revenue tracking ─────────────────────────────────
+  const totalAmount = order.total_price ? parseFloat(order.total_price) : null;
+  if (totalAmount && totalAmount > 0) {
+    // Idempotency: skip if receipt already exists for this Shopify order
+    const { data: existingReceipt } = await supabase
+      .from('receipts')
+      .select('id')
+      .eq('notes', `Commande Shopify ${order.name}`)
+      .maybeSingle();
+
+    if (!existingReceipt) {
+      const now = new Date();
+      const yy = now.getFullYear().toString().slice(-2);
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      const dd = String(now.getDate()).padStart(2, '0');
+      const rand = Math.floor(Math.random() * 9000) + 1000;
+      const ticketNumber = `TKT-${yy}${mm}${dd}-${rand}`;
+
+      const subtotalHT = Math.round((totalAmount / 1.085) * 100) / 100;
+      const totalTVA = Math.round((totalAmount - subtotalHT) * 100) / 100;
+
+      const receiptItems = lineItems.map((item) => ({
+        name: item.name || item.title || '',
+        qty: item.quantity,
+        quantity: item.quantity,
+        price: item.price ? parseFloat(item.price) : 0,
+        total: item.price ? parseFloat(item.price) * item.quantity : 0,
+        sku: item.sku || undefined,
+      }));
+
+      const clientName =
+        order.shipping_address?.name ||
+        order.billing_address?.name ||
+        order.customer?.email ||
+        'Client Shopify';
+
+      const { error: receiptErr } = await supabase.from('receipts').insert({
+        ticket_number: ticketNumber,
+        items: receiptItems,
+        items_count: receiptItems.length,
+        subtotal_ht: subtotalHT,
+        total_tva: totalTVA,
+        total_amount: totalAmount,
+        discount_amount: 0,
+        payment_method: 'CB',
+        payment_type: 'sale',
+        client_name: clientName,
+        cashier_name: 'Shopify',
+        notes: `Commande Shopify ${order.name}`,
+        status: 'completed',
+        is_demo: false,
+        created_at: now.toISOString(),
+      });
+
+      if (receiptErr) {
+        console.error('[webhook] receipt insert error:', receiptErr.message);
+      }
+    }
+  }
+
   // ── Fulfillment routing ────────────────────────────────────────────────────
   const fulfillmentType = classifyFulfillment(order);
   const products = lineItems.map((item) => ({
@@ -213,7 +273,6 @@ export async function POST(req: NextRequest) {
     price: item.price ? parseFloat(item.price) : undefined,
     imageUrl: item.image?.src || undefined,
   }));
-  const totalAmount = order.total_price ? parseFloat(order.total_price) : null;
   const clientPhone = getPhone(order);
 
   if (fulfillmentType === 'local_delivery') {
