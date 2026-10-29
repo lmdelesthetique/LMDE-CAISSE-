@@ -38,14 +38,16 @@ export async function GET(req: NextRequest) {
   let receiptsQ = supabase.from('receipts').select('total_amount, is_demo, client_name').eq('status', 'completed').neq('is_demo', true).gte('created_at', startDate);
   let ordersQ = supabase.from('fo_orders').select('subtotal, transport_cost, customs_cost, vat_import, freight_forwarder_cost, bank_fees, exchange_fees, local_delivery, other_costs, payment_amount, order_status').gte('created_at', startDate.slice(0, 10));
   let expensesQ = supabase.from('business_expenses').select('amount, category').gte('expense_date', startDate.slice(0, 10));
+  let devisProQ = supabase.from('devis_pro').select('paye_total, receipt_id').gt('paye_total', 0).is('receipt_id', null).gte('created_at', startDate);
 
   if (endDate) {
     receiptsQ = receiptsQ.lt('created_at', endDate);
     ordersQ = ordersQ.lt('created_at', endDate.slice(0, 10));
     expensesQ = expensesQ.lt('expense_date', endDate.slice(0, 10));
+    devisProQ = devisProQ.lt('created_at', endDate);
   }
 
-  const [receiptsRes, ordersRes, expensesRes, feeRes] = await Promise.all([
+  const [receiptsRes, ordersRes, expensesRes, feeRes, devisProRes] = await Promise.all([
     receiptsQ,
     ordersQ,
     expensesQ,
@@ -54,6 +56,7 @@ export async function GET(req: NextRequest) {
       .select('applied_pct, reference_revenue')
       .eq('month_year', feeMonth)
       .maybeSingle(),
+    devisProQ,
   ]);
 
   const rawReceipts = receiptsRes.data ?? [];
@@ -65,18 +68,22 @@ export async function GET(req: NextRequest) {
   const expenses = expensesRes.data ?? [];
   const feeConfig = feeRes.data;
 
-  const revenue = receipts.reduce((s: number, r: any) => s + parseFloat(String(r.total_amount ?? 0)), 0);
+  // Revenue = receipts (POS + delivered devis pro) + devis pro paid but not yet delivered
+  const receiptsRevenue = receipts.reduce((s: number, r: any) => s + parseFloat(String(r.total_amount ?? 0)), 0);
+  const devisProRevenue = (devisProRes.data ?? []).reduce((s: number, d: any) => s + Number(d.paye_total || 0), 0);
+  const revenue = receiptsRevenue + devisProRevenue;
 
-  const costOfGoods = orders.reduce((s: number, o: any) => s + (o.subtotal || 0), 0);
+  // Only count costs from PAID supplier orders (not from orders merely emitted)
+  const paidOrders = orders.filter((o: any) => ['paid', 'payment_received_by_supplier'].includes(o.order_status));
 
-  const importCosts = orders.reduce((s: number, o: any) =>
+  const costOfGoods = paidOrders.reduce((s: number, o: any) => s + (o.subtotal || 0), 0);
+
+  const importCosts = paidOrders.reduce((s: number, o: any) =>
     s + (o.transport_cost || 0) + (o.customs_cost || 0) + (o.vat_import || 0) +
     (o.freight_forwarder_cost || 0) + (o.bank_fees || 0) + (o.exchange_fees || 0) +
     (o.local_delivery || 0) + (o.other_costs || 0), 0);
 
-  const supplierPayments = orders
-    .filter((o: any) => ['paid', 'payment_received_by_supplier'].includes(o.order_status))
-    .reduce((s: number, o: any) => s + (o.payment_amount || 0), 0);
+  const supplierPayments = paidOrders.reduce((s: number, o: any) => s + (o.payment_amount || 0), 0);
 
   const fixedExpenses = expenses.filter((e: any) => e.category === 'fixed_monthly').reduce((s: number, e: any) => s + e.amount, 0);
   const variableExpenses = expenses.filter((e: any) => e.category === 'variable').reduce((s: number, e: any) => s + e.amount, 0);

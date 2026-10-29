@@ -765,12 +765,14 @@ export default function DepensesFournisseursPage() {
     return true;
   });
 
-  const totalSpent = filteredOrders.reduce((s: number, o: any) => s + (o.totalRealCost || 0), 0);
-  const totalProducts = filteredOrders.reduce((s: number, o: any) => s + (o.subtotal || 0), 0);
-  const totalTransport = filteredOrders.reduce((s: number, o: any) => s + (o.transportCost || 0), 0);
-  const totalCustoms = filteredOrders.reduce((s: number, o: any) => s + (o.customsCost || 0), 0);
-  const totalVat = filteredOrders.reduce((s: number, o: any) => s + (o.vatImport || 0), 0);
-  const totalOther = filteredOrders.reduce((s: number, o: any) => s + ((o.freightForwarderCost || 0) + (o.bankFees || 0) + (o.exchangeFees || 0) + (o.localDelivery || 0) + (o.otherCosts || 0)), 0);
+  // Only count costs from paid orders — not from orders merely emitted
+  const paidOrders = filteredOrders.filter((o: any) => ['paid', 'payment_received_by_supplier'].includes(o.orderStatus));
+  const totalSpent = paidOrders.reduce((s: number, o: any) => s + (o.totalRealCost || 0), 0);
+  const totalProducts = paidOrders.reduce((s: number, o: any) => s + (o.subtotal || 0), 0);
+  const totalTransport = paidOrders.reduce((s: number, o: any) => s + (o.transportCost || 0), 0);
+  const totalCustoms = paidOrders.reduce((s: number, o: any) => s + (o.customsCost || 0), 0);
+  const totalVat = paidOrders.reduce((s: number, o: any) => s + (o.vatImport || 0), 0);
+  const totalOther = paidOrders.reduce((s: number, o: any) => s + ((o.freightForwarderCost || 0) + (o.bankFees || 0) + (o.exchangeFees || 0) + (o.localDelivery || 0) + (o.otherCosts || 0)), 0);
 
   const bySupplier: Record<string, any> = {};
   filteredOrders.forEach((o: any) => {
@@ -790,7 +792,6 @@ export default function DepensesFournisseursPage() {
   Object.values(bySupplier).forEach((e: any) => { e.avgOrder = e.orderCount > 0 ? e.totalSpent / e.orderCount : 0; });
   const supplierList = Object.values(bySupplier).sort((a: any, b: any) => b.totalSpent - a.totalSpent);
 
-  const paidOrders = filteredOrders.filter((o: any) => ['paid', 'payment_received_by_supplier'].includes(o.orderStatus));
   const unpaidOrders = filteredOrders.filter((o: any) => ['payment_pending', 'payment_in_progress'].includes(o.orderStatus));
   const totalPaid = paidOrders.reduce((s: number, o: any) => s + (o.supplierPaymentAmount || 0), 0);
   const totalUnpaid = unpaidOrders.reduce((s: number, o: any) => s + (o.totalRealCost || 0), 0);
