@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import Link from 'next/link';
+import { toast } from 'sonner';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -599,8 +600,14 @@ export default function DepensesFournisseursPage() {
 
   const handleDeleteExpense = async (id: string) => {
     if (!confirm('Supprimer cette dépense ?')) return;
-    await fetch(`/api/expenses/business/${id}`, { method: 'DELETE' });
-    await loadExpenses();
+    const res = await fetch(`/api/expenses/business/${id}`, { method: 'DELETE' });
+    if (res.ok) {
+      toast.success('Dépense supprimée');
+      setExpenses((prev) => prev.filter((e) => e.id !== id));
+    } else {
+      const json = await res.json().catch(() => ({}));
+      toast.error(json.error ?? 'Erreur lors de la suppression');
+    }
   };
 
   const exportCSV = () => {

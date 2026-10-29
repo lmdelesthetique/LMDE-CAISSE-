@@ -19,11 +19,16 @@ export async function GET(req: NextRequest) {
     endDate = `${nextM.getFullYear()}-${String(nextM.getMonth() + 1).padStart(2, '0')}-01T00:00:00${MTQ}`;
   } else if (period === 'month') {
     startDate = `${yr}-${String(mo + 1).padStart(2, '0')}-01T00:00:00${MTQ}`;
+    const nextM = new Date(yr, mo + 1, 1);
+    endDate = `${nextM.getFullYear()}-${String(nextM.getMonth() + 1).padStart(2, '0')}-01T00:00:00${MTQ}`;
   } else if (period === '3months') {
     const d = new Date(yr, mo - 3, 1);
     startDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01T00:00:00${MTQ}`;
+    const nextM = new Date(yr, mo + 1, 1);
+    endDate = `${nextM.getFullYear()}-${String(nextM.getMonth() + 1).padStart(2, '0')}-01T00:00:00${MTQ}`;
   } else {
     startDate = `${yr}-01-01T00:00:00${MTQ}`;
+    endDate = `${yr + 1}-01-01T00:00:00${MTQ}`;
   }
 
   const supabase = createAdminClient();

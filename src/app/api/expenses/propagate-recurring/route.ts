@@ -10,12 +10,10 @@ function makeAdminClient() {
 
 function defaultMonths(): string[] {
   const now = new Date();
-  const months: string[] = [];
-  for (let i = 0; i <= 1; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
-    months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
-  }
-  return months;
+  // Only propagate NEXT month — current month entries must not be auto-recreated
+  // (would silently undo user deletions on every page load)
+  const d = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  return [`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`];
 }
 
 export async function POST(req: NextRequest) {
