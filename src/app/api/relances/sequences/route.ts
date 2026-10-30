@@ -29,17 +29,6 @@ export async function POST(req: NextRequest) {
 
   const supabase = createAdminClient();
 
-  // Check if client has no_relance flag
-  const { data: proProfile } = await supabase
-    .from('client_pro_profiles')
-    .select('no_relance')
-    .eq('client_id', client_id)
-    .maybeSingle();
-
-  if ((proProfile as any)?.no_relance) {
-    return NextResponse.json({ error: 'Cette cliente a demandé à ne plus être relancée.' }, { status: 400 });
-  }
-
   // Upsert: one active sequence per client per type
   const { data, error } = await supabase
     .from('client_relance_sequences')

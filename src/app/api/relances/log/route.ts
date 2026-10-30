@@ -48,13 +48,7 @@ export async function POST(req: NextRequest) {
         .update({ statut: 'stop', updated_at: new Date().toISOString() })
         .eq('id', sequence_id);
     }
-    // Mark client no_relance
-    if (client_id) {
-      await supabase
-        .from('client_pro_profiles')
-        .update({ no_relance: true })
-        .eq('client_id', client_id);
-    }
+    // (no_relance flag — add column to client_pro_profiles when ready)
   }
 
   return NextResponse.json({ ok: true });

@@ -49,8 +49,7 @@ export async function GET() {
     .from('devis_pro')
     .select(`
       id, numero, date_reassort, items, client_token, client_pays,
-      client:clients(id, first_name, last_name, phone, whatsapp, email),
-      client_pro:client_pro_profiles(accompagnement)
+      client:clients(id, first_name, last_name, phone, whatsapp, email)
     `)
     .not('date_reassort', 'is', null)
     .not('statut', 'in', '("annule","brouillon")')
@@ -92,7 +91,7 @@ export async function GET() {
       .join(', ') || '—';
     const montant = devis.client_pays ? `${Number(devis.client_pays).toFixed(2)} €` : '—';
     const lienFiche = devis.client_token ? `${SITE_URL}/devis/${devis.client_token}` : SITE_URL;
-    const accomp = (devis.client_pro as any)?.accompagnement ?? [];
+    const accomp: string[] = [];
 
     const devisLogs = sentMap[devis.id] ?? {};
 
@@ -159,7 +158,7 @@ export async function GET() {
     .select(`
       id, client_id, sequence, etape_actuelle, started_at, devis_id, statut,
       client:clients(id, first_name, last_name, phone, whatsapp, email),
-      devis:devis_pro(id, numero, items, client_token, client_pays, client_pro:client_pro_profiles(accompagnement))
+      devis:devis_pro(id, numero, items, client_token, client_pays)
     `)
     .eq('statut', 'active')
     .in('sequence', ['A', 'B']);
@@ -190,7 +189,7 @@ export async function GET() {
     const itemsArr = devis ? (Array.isArray(devis.items) ? devis.items : []) : [];
     const produits = itemsArr.filter((i: any) => !i.isBonus).slice(0, 6).map((i: any) => i.name).join(', ') || '—';
     const lienFiche = devis?.client_token ? `${SITE_URL}/devis/${devis.client_token}` : SITE_URL;
-    const accomp = (devis?.client_pro as any)?.accompagnement ?? [];
+    const accomp: string[] = [];
 
     const daysSinceStart = Math.floor((Date.now() - new Date(seq.started_at).getTime()) / 86400000);
     const isDue = daysSinceStart >= nextTpl.delai_jours;
