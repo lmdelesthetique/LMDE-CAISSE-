@@ -143,6 +143,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
     'nav-commandes-fo': pathname.startsWith('/commandes-fournisseurs'),
     'nav-products': pathname.startsWith('/product-management'),
     'nav-inventory': pathname.startsWith('/inventory'),
+    'nav-clients': pathname.startsWith('/clients') || pathname.startsWith('/devis-pro') || pathname.startsWith('/relances'),
   });
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
