@@ -44,6 +44,7 @@ const navItems: NavItem[] = [
       { id: 'nav-clients-list', label: 'Base clients', href: '/clients', icon: 'UsersIcon' },
       { id: 'nav-clients-analytics', label: 'Segmentation', href: '/clients/analytics', icon: 'ChartBarIcon' },
       { id: 'nav-devis-pro', label: 'Devis Pro', href: '/devis-pro', icon: 'DocumentTextIcon', badgeText: 'NOUVEAU' },
+      { id: 'nav-relances', label: 'Relances Pro', href: '/relances', icon: 'BellAlertIcon' },
     ],
   },
   { id: 'nav-categories', label: 'Catégories', icon: 'RectangleGroupIcon', href: '/categories', group: 'catalogue' },
