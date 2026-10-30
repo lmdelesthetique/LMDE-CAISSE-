@@ -142,6 +142,8 @@ interface ProProfile {
   budget_tranche: string;
   frequence_achat: string;
   besoin_principal: string[];
+  accompagnement: string[];
+  employe_referent: string;
 }
 
 const EMPTY_PRO: ProProfile = {
@@ -151,6 +153,7 @@ const EMPTY_PRO: ProProfile = {
   formule_box_proposee: '', date_premier_contact: '', statut_commercial: 'prospect', prochain_suivi: '',
   main_activity: [], work_location: [], activity_level: '', produits_utilises: [],
   fournisseur_actuel: [], budget_tranche: '', frequence_achat: '', besoin_principal: [],
+  accompagnement: [], employe_referent: '',
 };
 
 const PRO_ACTIVITE_OPTIONS = [
@@ -220,6 +223,14 @@ const PRO_BESOIN_OPTIONS = [
   { value: 'qualite', label: 'Qualité' },
   { value: 'choix', label: 'Choix' },
   { value: 'conseil', label: 'Conseil' },
+];
+
+const PRO_ACCOMPAGNEMENT_OPTIONS = [
+  { value: 'conseils_vocaux', label: 'Conseils vocaux' },
+  { value: 'cadeau', label: 'Cadeau' },
+  { value: 'reconnaissance', label: 'Reconnaissance' },
+  { value: 'petit_mot', label: 'Petit mot' },
+  { value: 'reduction', label: 'Réduction' },
 ];
 
 const PRO_STATUT_OPTIONS = [
@@ -411,6 +422,8 @@ export default function ClientDetailPanel({
             budget_tranche: profile.budget_tranche ?? '',
             frequence_achat: profile.frequence_achat ?? '',
             besoin_principal: toArr(profile.besoin_principal),
+            accompagnement: toArr(profile.accompagnement),
+            employe_referent: profile.employe_referent ?? '',
           });
           setDevisHistory(profile.devis_history ?? []);
         }
@@ -1713,17 +1726,6 @@ export default function ClientDetailPanel({
                       />
                     </div>
                     <div>
-                      <label className="text-xs font-600 text-muted-foreground block mb-2">Type de prestations (box)</label>
-                      <div className="flex flex-wrap gap-2">
-                        {['onglerie', 'extension_cils', 'pedicure', 'esthetique', 'autre'].map((p) => (
-                          <button key={p} type="button" onClick={() => togglePrestation(p)}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-600 border transition-colors ${proProfile.prestation_types.includes(p) ? 'bg-indigo-600 text-white border-indigo-600' : 'border-border text-muted-foreground hover:border-indigo-300'}`}>
-                            {{ onglerie: 'Onglerie', extension_cils: 'Extension cils', pedicure: 'Pédicure', esthetique: 'Esthétique', autre: 'Autre' }[p]}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
                       <label className="text-xs font-600 text-muted-foreground block mb-2">Travaille à <span className="text-indigo-400 normal-case font-400">(plusieurs possibles)</span></label>
                       <ProMultiChip
                         options={PRO_TRAVAILLE_OPTIONS}
@@ -1771,45 +1773,23 @@ export default function ClientDetailPanel({
                         onChange={(v) => setProProfile((p) => ({ ...p, fournisseur_actuel: v }))}
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="text-xs font-600 text-muted-foreground block mb-1">Budget / mois</label>
-                        <select value={proProfile.budget_tranche}
-                          onChange={(e) => setProProfile((p) => ({ ...p, budget_tranche: e.target.value }))}
-                          className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white">
-                          <option value="">— Choisir —</option>
-                          {PRO_BUDGET_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="text-xs font-600 text-muted-foreground block mb-1">Budget mensuel estimé (€)</label>
-                        <input type="number" min="0" value={proProfile.budget_mensuel}
-                          onChange={(e) => setProProfile((p) => ({ ...p, budget_mensuel: e.target.value }))}
-                          placeholder="500"
-                          className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
-                      </div>
+                    <div>
+                      <label className="text-xs font-600 text-muted-foreground block mb-1">Budget mensuel estimé (€)</label>
+                      <input type="number" min="0" value={proProfile.budget_mensuel}
+                        onChange={(e) => setProProfile((p) => ({ ...p, budget_mensuel: e.target.value }))}
+                        placeholder="500"
+                        className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="text-xs font-600 text-muted-foreground block mb-1">Fréquence d&apos;achat</label>
-                        <select value={proProfile.frequence_achat}
-                          onChange={(e) => setProProfile((p) => ({ ...p, frequence_achat: e.target.value }))}
-                          className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white">
-                          <option value="">— Choisir —</option>
-                          {PRO_FREQUENCE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="text-xs font-600 text-muted-foreground block mb-1">Fréquence de commande</label>
-                        <select value={proProfile.frequence_commande}
-                          onChange={(e) => setProProfile((p) => ({ ...p, frequence_commande: e.target.value }))}
-                          className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white">
-                          <option value="">Sélectionner…</option>
-                          <option value="hebdo">Hebdomadaire</option>
-                          <option value="bi_mensuel">Bi-mensuel</option>
-                          <option value="mensuel">Mensuel</option>
-                        </select>
-                      </div>
+                    <div>
+                      <label className="text-xs font-600 text-muted-foreground block mb-1">Fréquence de commande</label>
+                      <select value={proProfile.frequence_commande}
+                        onChange={(e) => setProProfile((p) => ({ ...p, frequence_commande: e.target.value }))}
+                        className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white">
+                        <option value="">Sélectionner…</option>
+                        <option value="hebdo">Hebdomadaire</option>
+                        <option value="bi_mensuel">Bi-mensuel</option>
+                        <option value="mensuel">Mensuel</option>
+                      </select>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
@@ -1837,6 +1817,14 @@ export default function ClientDetailPanel({
                         options={PRO_BESOIN_OPTIONS}
                         selected={proProfile.besoin_principal}
                         onChange={(v) => setProProfile((p) => ({ ...p, besoin_principal: v }))}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-600 text-muted-foreground block mb-2">Qu&apos;est-ce qui te fait te sentir accompagné(e) ? <span className="text-emerald-400 normal-case font-400">(plusieurs possibles)</span></label>
+                      <ProMultiChip
+                        options={PRO_ACCOMPAGNEMENT_OPTIONS}
+                        selected={proProfile.accompagnement}
+                        onChange={(v) => setProProfile((p) => ({ ...p, accompagnement: v }))}
                       />
                     </div>
                   </div>
@@ -1879,15 +1867,11 @@ export default function ClientDetailPanel({
                     </h3>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="text-xs font-600 text-muted-foreground block mb-1">Formule Box Salon Pro proposée</label>
-                        <select value={proProfile.formule_box_proposee}
-                          onChange={(e) => setProProfile((p) => ({ ...p, formule_box_proposee: e.target.value }))}
-                          className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white">
-                          <option value="">Non proposée</option>
-                          <option value="200">200 €</option>
-                          <option value="400">400 €</option>
-                          <option value="700">700 €</option>
-                        </select>
+                        <label className="text-xs font-600 text-muted-foreground block mb-1">Employé(e) qui s&apos;est occupé(e) d&apos;elle</label>
+                        <input type="text" value={proProfile.employe_referent}
+                          onChange={(e) => setProProfile((p) => ({ ...p, employe_referent: e.target.value }))}
+                          placeholder="Ex: Marie, Léa…"
+                          className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
                       </div>
                       <div>
                         <label className="text-xs font-600 text-muted-foreground block mb-1">Date du premier contact</label>
