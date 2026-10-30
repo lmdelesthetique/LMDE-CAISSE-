@@ -205,6 +205,8 @@ Christy`,
   },
 ];
 
+export async function GET() { return POST(); }
+
 export async function POST() {
   const supabase = createAdminClient();
 
