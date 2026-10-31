@@ -38,6 +38,7 @@ export async function GET(req: NextRequest, { params }: Ctx) {
     .select(`
       id, numero, items, discount_pct, credit, total_ttc, client_pays, paye_total,
       free_shipping, statut, client_response, client_responded_at, notes,
+      type_expedition, adresse_livraison,
       client:clients(first_name, last_name)
     `)
     .eq('client_token', token)
@@ -89,13 +90,21 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     updated_at: new Date().toISOString(),
   };
 
+  // Save delivery choice regardless of response type
+  if (body.delivery_mode === 'livraison' || body.delivery_mode === 'retrait') {
+    patch.type_expedition = body.delivery_mode;
+    patch.adresse_livraison = body.delivery_mode === 'livraison' ? (body.delivery_address ?? null) : null;
+  }
+
   if (response === 'modified' && Array.isArray(body.items)) {
     const items = body.items;
     patch.items = items;
     const discountPct = Number((devis as any).discount_pct) || 0;
     const rawTotal = items.reduce((s: number, i: any) => {
       if (i.isBonus) return s;
-      return s + (Number(i.price) || 0) * (Number(i.qty) || 1);
+      // Apply item-level discount if present
+      const itemDiscount = Number(i.discountPct ?? 0);
+      return s + (Number(i.price) || 0) * (1 - itemDiscount / 100) * (Number(i.qty) || 1);
     }, 0);
     const total = Math.round(rawTotal * (1 - discountPct / 100) * 100) / 100;
     // isBonus items already excluded — do not subtract credit (Budget Pro bonus ≠ monetary avoir)

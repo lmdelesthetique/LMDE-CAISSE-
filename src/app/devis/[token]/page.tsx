@@ -22,6 +22,7 @@ interface Item {
   id: string;
   name: string;
   price: number;
+  discountPct: number;
   qty: number;
   imageUrl?: string | null;
   isBonus: boolean;
@@ -50,6 +51,8 @@ interface DevisData {
   statut: string;
   client_response: string | null;
   notes: string | null;
+  type_expedition: 'livraison' | 'retrait' | null;
+  adresse_livraison: string | null;
   client: { first_name: string; last_name: string } | null;
 }
 
@@ -58,6 +61,7 @@ function mapItems(raw: any[]): Item[] {
     id: i.id || i.productId || String(Math.random()),
     name: i.name || i.label || 'Article',
     price: Number(i.price ?? i.sell_price_ttc ?? i.sellPrice ?? 0),
+    discountPct: Number(i.discountPct ?? 0),
     qty: Number(i.qty) || 1,
     imageUrl: i.imageUrl || i.image_url || null,
     isBonus: Boolean(i.isBonus),
@@ -82,6 +86,8 @@ export default function DevisClientPage() {
   const [submitting, setSubmitting] = useState(false);
   const [searchQ, setSearchQ] = useState('');
   const [showCatalog, setShowCatalog] = useState(false);
+  const [deliveryMode, setDeliveryMode] = useState<'retrait' | 'livraison'>('retrait');
+  const [deliveryAddress, setDeliveryAddress] = useState('');
 
   useEffect(() => {
     if (!token) return;
@@ -95,6 +101,8 @@ export default function DevisClientPage() {
         const mapped = mapItems(data.devis.items ?? []);
         setItems(mapped);
         setOriginalItems(mapped);
+        if (data.devis.type_expedition) setDeliveryMode(data.devis.type_expedition);
+        if (data.devis.adresse_livraison) setDeliveryAddress(data.devis.adresse_livraison);
         if (data.devis.client_response || ['livre', 'annule'].includes(data.devis.statut)) setSubmitted(true);
       })
       .catch(() => setErr('Impossible de charger le devis.'))
@@ -125,7 +133,9 @@ export default function DevisClientPage() {
   const discountPct = devis?.discount_pct ?? 0;
   const credit = devis?.credit ?? 0;
   const payableItems = items.filter(i => !i.isBonus);
-  const rawTotal = payableItems.reduce((s, i) => s + i.price * i.qty, 0);
+  // Use effective price (catalog price minus item-level discount) for each item
+  const effectivePrice = (i: Item) => i.price * (1 - i.discountPct / 100);
+  const rawTotal = payableItems.reduce((s, i) => s + effectivePrice(i) * i.qty, 0);
   const totalAfterDiscount = rawTotal * (1 - discountPct / 100);
   // Bonus items (isBonus) are already excluded from rawTotal — never deduct credit again
   const clientPays = Math.max(0, totalAfterDiscount);
@@ -149,7 +159,7 @@ export default function DevisClientPage() {
       const exists = prev.find(i => i.id === p.id);
       if (exists) return prev.map(i => i.id === p.id ? { ...i, qty: i.qty + 1 } : i);
       return [...prev, {
-        id: p.id, name: p.name, price: p.sell_price_ttc,
+        id: p.id, name: p.name, price: p.sell_price_ttc, discountPct: 0,
         qty: 1, imageUrl: p.image_url, isBonus: false, isCustom: false,
       }];
     });
@@ -161,16 +171,25 @@ export default function DevisClientPage() {
       alert('Votre devis ne peut pas être vide.');
       return;
     }
+    if (deliveryMode === 'livraison' && !deliveryAddress.trim()) {
+      alert('Veuillez indiquer votre adresse de livraison.');
+      return;
+    }
     setSubmitting(true);
     try {
       const apiItems = items.map(i => ({
-        id: i.id, name: i.name, price: i.price, qty: i.qty,
-        imageUrl: i.imageUrl, isBonus: i.isBonus, isCustom: i.isCustom,
+        id: i.id, name: i.name, price: i.price, discountPct: i.discountPct ?? 0,
+        qty: i.qty, imageUrl: i.imageUrl, isBonus: i.isBonus, isCustom: i.isCustom,
       }));
       const res = await fetch(`/api/devis/by-token/${token}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ response: type, items: apiItems }),
+        body: JSON.stringify({
+          response: type,
+          items: apiItems,
+          delivery_mode: deliveryMode,
+          delivery_address: deliveryMode === 'livraison' ? deliveryAddress.trim() : null,
+        }),
       });
       if (!res.ok) {
         const j = await res.json();
@@ -289,6 +308,12 @@ export default function DevisClientPage() {
                 <p className="text-sm font-semibold text-gray-900 leading-tight">{item.name}</p>
                 {item.isBonus ? (
                   <p className="text-xs text-emerald-600 font-semibold mt-0.5">✨ Offert — inclus dans votre formule</p>
+                ) : item.discountPct > 0 ? (
+                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                    <p className="text-xs text-gray-400 line-through">{(item.price * item.qty).toFixed(2)} €</p>
+                    <p className="text-sm text-[#B8960C] font-bold">{(effectivePrice(item) * item.qty).toFixed(2)} €</p>
+                    <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">-{item.discountPct}%</span>
+                  </div>
                 ) : (
                   <p className="text-sm text-[#B8960C] font-bold mt-0.5">{(item.price * item.qty).toFixed(2)} €</p>
                 )}
@@ -322,6 +347,50 @@ export default function DevisClientPage() {
               )}
             </div>
           ))}
+        </div>
+
+        {/* Delivery mode */}
+        <div className="bg-white rounded-2xl border border-gray-100 p-4 mb-5">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Mode de livraison</p>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={() => setDeliveryMode('retrait')}
+              className={`py-3 px-3 rounded-xl border-2 text-center transition-all ${
+                deliveryMode === 'retrait'
+                  ? 'border-emerald-500 bg-emerald-50'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              <div className="text-2xl mb-1">🏪</div>
+              <p className={`text-sm font-bold ${deliveryMode === 'retrait' ? 'text-emerald-800' : 'text-gray-700'}`}>Retrait</p>
+              <p className="text-xs text-gray-400">En boutique</p>
+            </button>
+            <button
+              onClick={() => setDeliveryMode('livraison')}
+              className={`py-3 px-3 rounded-xl border-2 text-center transition-all ${
+                deliveryMode === 'livraison'
+                  ? 'border-[#B8960C] bg-amber-50'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              <div className="text-2xl mb-1">🚚</div>
+              <p className={`text-sm font-bold ${deliveryMode === 'livraison' ? 'text-amber-800' : 'text-gray-700'}`}>Livraison</p>
+              <p className="text-xs text-gray-400">À domicile</p>
+            </button>
+          </div>
+          {deliveryMode === 'livraison' && (
+            <div className="mt-4">
+              <label className="text-xs font-semibold text-gray-500 block mb-1.5">Adresse de livraison</label>
+              <textarea
+                value={deliveryAddress}
+                onChange={e => setDeliveryAddress(e.target.value)}
+                placeholder={`Prénom NOM\nNuméro et nom de la rue\nCode postal, Ville\nTél : 0696 XX XX XX`}
+                rows={4}
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#B8960C] resize-none"
+              />
+              <p className="text-[11px] text-gray-400 mt-1">Indiquez votre adresse complète et un numéro de téléphone.</p>
+            </div>
+          )}
         </div>
 
         {/* Add product */}
@@ -460,8 +529,12 @@ export default function DevisClientPage() {
               </div>
             )}
             <div className="flex justify-between text-gray-600">
-              <span>Livraison</span>
-              <span>{devis?.free_shipping ? '✅ Gratuite' : 'À définir'}</span>
+              <span>Mode</span>
+              <span className="font-medium">{deliveryMode === 'livraison' ? '🚚 Livraison' : '🏪 Retrait boutique'}</span>
+            </div>
+            <div className="flex justify-between text-gray-600">
+              <span>Frais de port</span>
+              <span>{devis?.free_shipping ? '✅ Gratuits' : deliveryMode === 'retrait' ? '✅ Gratuit' : 'À définir'}</span>
             </div>
             <div className="border-t border-gray-100 pt-2 flex justify-between font-bold text-gray-900">
               <span>Total</span>
