@@ -282,6 +282,9 @@ export default function DevisProPage() {
   const [editingDevisId, setEditingDevisId] = useState<string | null>(null);
   const [editingDiscountPct, setEditingDiscountPct] = useState(0);
   const [editingStatut, setEditingStatut] = useState<Statut>('brouillon');
+  const [newDevisTab, setNewDevisTab] = useState<'devis' | 'fiche_pro'>('devis');
+  const [ficheProData, setFicheProData] = useState<any>(null);
+  const [ficheProSaving, setFicheProSaving] = useState(false);
   const [restoringItems, setRestoringItems] = useState(false);
   const [confirmAnnuler, setConfirmAnnuler] = useState(false);
   const [notesDevis, setNotesDevis] = useState('');
@@ -322,9 +325,18 @@ export default function DevisProPage() {
 
   // ── Client search for new devis ─────────────────────────────────────────────
   useEffect(() => {
-    if (!showNewDevis) { setClientSearch(''); setClientResults([]); setNewDevisClient(null); return; }
+    if (!showNewDevis) { setClientSearch(''); setClientResults([]); setNewDevisClient(null); setFicheProData(null); setNewDevisTab('devis'); return; }
     setTimeout(() => clientSearchRef.current?.focus(), 100);
   }, [showNewDevis]);
+
+  // Load fiche pro when client selected
+  useEffect(() => {
+    if (!newDevisClient) return;
+    fetch(`/api/clients/${newDevisClient.id}/pro-profile`)
+      .then(r => r.json())
+      .then(d => setFicheProData(d.profile ?? {}))
+      .catch(() => setFicheProData({}));
+  }, [newDevisClient]);
 
   useEffect(() => {
     if (!showNewDevis || newDevisClient) return;
@@ -2205,46 +2217,165 @@ export default function DevisProPage() {
             </div>
           )}
 
-          {/* Step 2: ProDevisPanel for selected client */}
+          {/* Step 2: Fiche Pro + ProDevisPanel tabs */}
           {newDevisClient && (
             <div className="relative flex flex-col w-full bg-white overflow-hidden">
+              {/* Header */}
               <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-border bg-white z-10">
                 <div className="flex items-center gap-2">
-                  <button onClick={() => { setNewDevisClient(null); setEditingDevisId(null); }} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
+                  <button onClick={() => { setNewDevisClient(null); setEditingDevisId(null); setFicheProData(null); }} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
                     <Icon name="ArrowLeftIcon" size={16} />
                   </button>
                   <p className="text-sm font-700 text-foreground">
                     {editingDevisId ? 'Modifier le devis' : 'Nouveau devis'} — {newDevisClient.firstName} {newDevisClient.lastName}
                   </p>
                 </div>
-                <button onClick={() => { setShowNewDevis(false); setEditingDevisId(null); setNewDevisClient(null); setClientSearch(''); setClientResults([]); fetchDevis(); }}
+                <button onClick={() => { setShowNewDevis(false); setEditingDevisId(null); setNewDevisClient(null); setClientSearch(''); setClientResults([]); setFicheProData(null); setNewDevisTab('devis'); fetchDevis(); }}
                   className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
                   <Icon name="XMarkIcon" size={18} />
                 </button>
               </div>
+              {/* Tabs */}
+              <div className="shrink-0 flex border-b border-border bg-white px-4 gap-1 pt-1">
+                <button
+                  onClick={() => setNewDevisTab('devis')}
+                  className={`px-4 py-2 text-sm font-700 border-b-2 transition-colors ${newDevisTab === 'devis' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+                >
+                  📋 Devis
+                </button>
+                <button
+                  onClick={() => setNewDevisTab('fiche_pro')}
+                  className={`px-4 py-2 text-sm font-700 border-b-2 transition-colors ${newDevisTab === 'fiche_pro' ? 'border-pink-500 text-pink-600' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+                >
+                  💅 Fiche Pro
+                  {ficheProData && Object.keys(ficheProData).length > 0 && <span className="ml-1.5 w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />}
+                </button>
+              </div>
+              {/* Tab content */}
               <div className="flex-1 overflow-y-auto">
-                <ProDevisPanel
-                  client={newDevisClient}
-                  initialDiscountPct={editingDevisId ? editingDiscountPct : undefined}
-                  initialStatut={editingDevisId ? editingStatut : undefined}
-                  onHistoryChanged={async () => {
-                    if (editingDevisId) {
-                      // Clear selected immediately so stale UI can't trigger livre/autres actions
-                      setSelected((prev) => prev?.id === editingDevisId ? null : prev);
-                      await fetch(`/api/devis-pro/${editingDevisId}`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ statut: 'annule' }),
-                      }).catch(() => {});
-                      setEditingDevisId(null);
-                    }
-                    setShowNewDevis(false);
-                    setNewDevisClient(null);
-                    setClientSearch('');
-                    setClientResults([]);
-                    fetchDevis();
-                  }}
-                />
+                {newDevisTab === 'devis' ? (
+                  <ProDevisPanel
+                    client={newDevisClient}
+                    initialDiscountPct={editingDevisId ? editingDiscountPct : undefined}
+                    initialStatut={editingDevisId ? editingStatut : undefined}
+                    onHistoryChanged={async () => {
+                      if (editingDevisId) {
+                        setSelected((prev) => prev?.id === editingDevisId ? null : prev);
+                        await fetch(`/api/devis-pro/${editingDevisId}`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ statut: 'annule' }),
+                        }).catch(() => {});
+                        setEditingDevisId(null);
+                      }
+                      setShowNewDevis(false);
+                      setNewDevisClient(null);
+                      setClientSearch('');
+                      setClientResults([]);
+                      setFicheProData(null);
+                      setNewDevisTab('devis');
+                      fetchDevis();
+                    }}
+                  />
+                ) : (
+                  /* Fiche Pro form */
+                  <div className="p-5 space-y-5 max-w-lg mx-auto">
+                    <div>
+                      <label className="text-[11px] font-700 uppercase tracking-widest text-muted-foreground">Nom du salon</label>
+                      <input
+                        type="text" value={ficheProData?.salon_name ?? ''}
+                        onChange={(e) => setFicheProData((p: any) => ({ ...p, salon_name: e.target.value }))}
+                        placeholder="Ex: Institut Beauté Paris"
+                        className="mt-1 w-full px-3 py-2 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-pink-200"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-700 uppercase tracking-widest text-muted-foreground">Statut commercial</label>
+                      <select
+                        value={ficheProData?.statut_commercial ?? 'prospect'}
+                        onChange={(e) => setFicheProData((p: any) => ({ ...p, statut_commercial: e.target.value }))}
+                        className="mt-1 w-full px-3 py-2 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-pink-200 bg-white"
+                      >
+                        {[['prospect','Prospect'],['a_relancer','À relancer'],['cliente_test','Cliente test'],['cliente_active','Cliente active'],['cliente_recurrente','Cliente récurrente'],['cliente_vip','Cliente VIP'],['devis_envoye','Devis envoyé']].map(([v,l]) => (
+                          <option key={v} value={v}>{l}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-700 uppercase tracking-widest text-muted-foreground mb-2 block">Besoin principal</label>
+                      <div className="flex flex-wrap gap-2">
+                        {[['prix','Prix'],['disponibilite','Disponibilité'],['livraison','Livraison rapide'],['qualite','Qualité'],['choix','Choix'],['conseil','Conseil']].map(([v,l]) => {
+                          const sel = (ficheProData?.besoin_principal ?? []).includes(v);
+                          return (
+                            <button key={v} onClick={() => setFicheProData((p: any) => ({ ...p, besoin_principal: sel ? (p.besoin_principal ?? []).filter((x: string) => x !== v) : [...(p.besoin_principal ?? []), v] }))}
+                              className={`px-3 py-1.5 rounded-full text-xs font-700 transition-colors ${sel ? 'bg-pink-500 text-white' : 'bg-muted text-muted-foreground hover:bg-pink-50 hover:text-pink-600'}`}>
+                              {l}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-700 uppercase tracking-widest text-muted-foreground mb-2 block">Qu'est-ce qui la fait se sentir accompagnée ?</label>
+                      <div className="flex flex-wrap gap-2">
+                        {[['conseils_vocaux','Conseils vocaux'],['cadeau','Cadeau'],['reconnaissance','Reconnaissance'],['petit_mot','Petit mot'],['reduction','Réduction']].map(([v,l]) => {
+                          const sel = (ficheProData?.accompagnement ?? []).includes(v);
+                          return (
+                            <button key={v} onClick={() => setFicheProData((p: any) => ({ ...p, accompagnement: sel ? (p.accompagnement ?? []).filter((x: string) => x !== v) : [...(p.accompagnement ?? []), v] }))}
+                              className={`px-3 py-1.5 rounded-full text-xs font-700 transition-colors ${sel ? 'bg-amber-500 text-white' : 'bg-muted text-muted-foreground hover:bg-amber-50 hover:text-amber-600'}`}>
+                              {l}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-700 uppercase tracking-widest text-muted-foreground">Employée qui s'est occupée d'elle</label>
+                      <input
+                        type="text" value={ficheProData?.employe_referent ?? ''}
+                        onChange={(e) => setFicheProData((p: any) => ({ ...p, employe_referent: e.target.value }))}
+                        placeholder="Prénom de l'employée"
+                        className="mt-1 w-full px-3 py-2 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-pink-200"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-700 uppercase tracking-widest text-muted-foreground">Note interne</label>
+                      <textarea
+                        value={ficheProData?.note_pro ?? ''}
+                        onChange={(e) => setFicheProData((p: any) => ({ ...p, note_pro: e.target.value }))}
+                        placeholder="Observations, habitudes, points importants..."
+                        rows={3}
+                        className="mt-1 w-full px-3 py-2 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-pink-200 resize-none"
+                      />
+                    </div>
+                    <div className="flex gap-3 pt-2">
+                      <button
+                        onClick={async () => {
+                          setFicheProSaving(true);
+                          try {
+                            await fetch(`/api/clients/${newDevisClient.id}/pro-profile`, {
+                              method: 'PATCH',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({
+                                salon_name: ficheProData?.salon_name,
+                                statut_commercial: ficheProData?.statut_commercial,
+                                besoin_principal: ficheProData?.besoin_principal ?? [],
+                                accompagnement: ficheProData?.accompagnement ?? [],
+                                employe_referent: ficheProData?.employe_referent,
+                                note_pro: ficheProData?.note_pro,
+                              }),
+                            });
+                            setNewDevisTab('devis');
+                          } finally { setFicheProSaving(false); }
+                        }}
+                        disabled={ficheProSaving}
+                        className="flex-1 py-2.5 bg-pink-500 text-white rounded-xl text-sm font-700 hover:bg-pink-600 disabled:opacity-50 transition-colors"
+                      >
+                        {ficheProSaving ? 'Enregistrement...' : '✅ Enregistrer et aller au devis'}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
