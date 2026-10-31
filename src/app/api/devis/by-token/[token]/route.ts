@@ -31,7 +31,7 @@ export async function GET(req: NextRequest, { params }: Ctx) {
         .gt('stock', 0)
         .eq('category', category)
         .order('name')
-        .limit(200);
+        .limit(1000);
       return NextResponse.json({ products: products ?? [] });
     }
 
@@ -68,7 +68,7 @@ export async function GET(req: NextRequest, { params }: Ctx) {
     .gt('stock', 0)
     .not('category', 'is', null)
     .order('category, name')
-    .limit(2000);
+    .limit(5000);
 
   // Build category list: name, count, up to 4 representative images
   const catMap = new Map<string, { count: number; images: string[] }>();
