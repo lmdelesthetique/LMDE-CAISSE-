@@ -2362,9 +2362,15 @@ export default function DevisProPage() {
                                 besoin_principal: ficheProData?.besoin_principal ?? [],
                                 accompagnement: ficheProData?.accompagnement ?? [],
                                 employe_referent: ficheProData?.employe_referent,
-                                note_pro: ficheProData?.note_pro,
                               }),
                             });
+                            if (ficheProData?.note_pro?.trim()) {
+                              await fetch(`/api/clients/${newDevisClient.id}/notes`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ text: ficheProData.note_pro, type: 'pro' }),
+                              });
+                            }
                             setNewDevisTab('devis');
                           } finally { setFicheProSaving(false); }
                         }}

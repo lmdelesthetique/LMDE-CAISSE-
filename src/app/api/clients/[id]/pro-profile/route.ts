@@ -47,6 +47,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     budget_tranche: body.budget_tranche ?? null,
     frequence_achat: body.frequence_achat ?? null,
     besoin_principal: body.besoin_principal ?? [],
+    accompagnement: body.accompagnement ?? [],
+    employe_referent: body.employe_referent ?? null,
     updated_at: new Date().toISOString(),
   };
 
@@ -78,7 +80,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     statut_commercial: true, prochain_suivi: true, main_activity: true,
     work_location: true, activity_level: true, produits_utilises: true,
     fournisseur_actuel: true, budget_tranche: true, frequence_achat: true,
-    besoin_principal: true,
+    besoin_principal: true, accompagnement: true, employe_referent: true,
   };
   const DEVIS_FIELDS: Record<string, true> = { produits_reassort: true, devis_history: true };
 

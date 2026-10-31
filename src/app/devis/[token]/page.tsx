@@ -153,8 +153,6 @@ export default function DevisClientPage() {
         qty: 1, imageUrl: p.image_url, isBonus: false, isCustom: false,
       }];
     });
-    setSearchQ('');
-    setShowCatalog(false);
   }, []);
 
   const submit = async (type: 'accepted' | 'modified') => {
@@ -334,60 +332,109 @@ export default function DevisClientPage() {
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
-          {showCatalog ? 'Fermer le catalogue' : 'Ajouter un produit depuis le catalogue'}
+          Ajouter un produit depuis le catalogue
         </button>
 
-        {/* Catalog panel */}
+        {/* Catalog panel — full-screen overlay on mobile */}
         {showCatalog && (
-          <div className="bg-white rounded-2xl border border-gray-100 p-4 mb-5">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Catalogue en stock</p>
-            <p className="text-[11px] text-gray-400 mb-3">Tapez un nom ou une référence pour rechercher parmi tous nos produits</p>
-            <input
-              type="text"
-              placeholder="Rechercher par nom ou référence…"
-              value={searchQ}
-              onChange={e => setSearchQ(e.target.value)}
-              autoFocus
-              className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#B8960C] mb-3"
-            />
-            <div className="space-y-2 max-h-80 overflow-y-auto">
+          <div className="fixed inset-0 z-40 bg-[#FDF8F0] flex flex-col">
+            {/* Sticky header */}
+            <div className="bg-white border-b border-gray-100 px-4 pt-4 pb-3 sticky top-0 z-10">
+              <div className="flex items-center gap-3 mb-3">
+                <button
+                  onClick={() => { setShowCatalog(false); setSearchQ(''); }}
+                  className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0"
+                >
+                  <svg className="w-4 h-4 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                </button>
+                <div className="flex-1">
+                  <p className="text-sm font-bold text-gray-900">Catalogue en stock</p>
+                  <p className="text-[11px] text-gray-400">Sélectionne un produit à ajouter à ton devis</p>
+                </div>
+              </div>
+              <div className="relative">
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0" />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Rechercher par nom ou référence…"
+                  value={searchQ}
+                  onChange={e => setSearchQ(e.target.value)}
+                  autoFocus
+                  className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#B8960C] bg-gray-50"
+                />
+                {searchLoading && (
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 inline-block w-4 h-4 border-2 border-[#B8960C] border-t-transparent rounded-full animate-spin" />
+                )}
+              </div>
+            </div>
+
+            {/* Grid */}
+            <div className="flex-1 overflow-y-auto px-3 py-4">
               {searchQ.length > 0 && searchQ.length < 2 ? (
-                <p className="text-xs text-gray-400 text-center py-3">Tapez au moins 2 caractères…</p>
-              ) : searchLoading ? (
-                <p className="text-xs text-gray-400 text-center py-3 flex items-center justify-center gap-2">
-                  <span className="inline-block w-3 h-3 border-2 border-[#B8960C] border-t-transparent rounded-full animate-spin" />
-                  Recherche…
-                </p>
-              ) : displayProducts.length === 0 ? (
-                <p className="text-sm text-gray-400 text-center py-4">Aucun produit trouvé</p>
-              ) : displayProducts.map(p => {
-                const alreadyInCart = items.find(i => i.id === p.id);
-                return (
-                  <button
-                    key={p.id}
-                    onClick={() => addFromCatalog(p)}
-                    className="w-full flex items-center gap-3 p-2.5 rounded-xl hover:bg-amber-50 transition-colors text-left"
-                  >
-                    {p.image_url ? (
-                      <div className="w-10 h-10 rounded-lg overflow-hidden flex-shrink-0 bg-gray-50">
-                        <Image src={p.image_url} alt={p.name} width={40} height={40} className="w-full h-full object-cover" />
-                      </div>
-                    ) : (
-                      <div className="w-10 h-10 rounded-lg bg-gray-100 flex-shrink-0 flex items-center justify-center">💅</div>
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-800 truncate">{p.name}</p>
-                      <p className="text-xs text-gray-400">{p.ref || '—'} · {p.stock} en stock</p>
-                    </div>
-                    <div className="flex-shrink-0 flex flex-col items-end gap-1">
-                      <span className="text-sm font-bold text-[#B8960C]">{p.sell_price_ttc.toFixed(2)} €</span>
-                      {alreadyInCart && (
-                        <span className="text-[10px] text-emerald-600 font-semibold">Dans le devis ({alreadyInCart.qty})</span>
-                      )}
-                    </div>
-                  </button>
-                );
-              })}
+                <p className="text-sm text-gray-400 text-center py-10">Tapez au moins 2 caractères…</p>
+              ) : displayProducts.length === 0 && !searchLoading ? (
+                <p className="text-sm text-gray-400 text-center py-10">Aucun produit trouvé</p>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  {displayProducts.map(p => {
+                    const alreadyInCart = items.find(i => i.id === p.id);
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => addFromCatalog(p)}
+                        className={`relative flex flex-col rounded-2xl overflow-hidden border text-left transition-all active:scale-95 ${
+                          alreadyInCart
+                            ? 'border-[#B8960C] bg-amber-50'
+                            : 'border-gray-100 bg-white hover:border-[#B8960C]/40'
+                        }`}
+                      >
+                        {/* Badge "dans le devis" */}
+                        {alreadyInCart && (
+                          <div className="absolute top-2 right-2 z-10 bg-[#B8960C] text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                            ×{alreadyInCart.qty}
+                          </div>
+                        )}
+                        {/* Image */}
+                        <div className="w-full aspect-square bg-gray-50 flex-shrink-0 relative">
+                          {p.image_url ? (
+                            <Image
+                              src={p.image_url}
+                              alt={p.name}
+                              fill
+                              className="object-cover"
+                              sizes="(max-width: 768px) 50vw, 200px"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-4xl">💅</div>
+                          )}
+                        </div>
+                        {/* Info */}
+                        <div className="p-2.5 flex flex-col gap-0.5">
+                          <p className="text-xs font-semibold text-gray-900 leading-tight line-clamp-2">{p.name}</p>
+                          <p className="text-sm font-bold text-[#B8960C] mt-0.5">{p.sell_price_ttc.toFixed(2)} €</p>
+                          <p className={`text-[10px] font-medium ${
+                            p.stock <= 0 ? 'text-red-400' : p.stock <= 3 ? 'text-orange-400' : 'text-gray-400'
+                          }`}>
+                            {p.stock <= 0 ? 'Rupture' : `${p.stock} en stock`}
+                          </p>
+                        </div>
+                        {/* Add indicator */}
+                        <div className={`mx-2.5 mb-2.5 py-1.5 rounded-xl text-[11px] font-bold text-center transition-colors ${
+                          alreadyInCart
+                            ? 'bg-[#B8960C] text-white'
+                            : 'bg-gray-100 text-gray-500'
+                        }`}>
+                          {alreadyInCart ? '✓ Ajouté' : '+ Ajouter'}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         )}
