@@ -20,6 +20,7 @@ interface DevisItem {
   price?: number;
   isBonus: boolean;
   isCustom: boolean;
+  discountPct?: number;
 }
 
 interface Paiement {
@@ -1630,7 +1631,15 @@ export default function DevisProPage() {
                       </div>
                       <div className="text-right shrink-0">
                         <p className="text-xs font-700">x{item.qty}</p>
-                        <p className="text-[10px] text-muted-foreground">{fmtMoney((item.sellPrice ?? item.price ?? 0) * item.qty)}</p>
+                        {(item.discountPct ?? 0) > 0 ? (
+                          <>
+                            <p className="text-[10px] text-muted-foreground line-through">{fmtMoney((item.sellPrice ?? item.price ?? 0) * item.qty)}</p>
+                            <p className="text-[10px] font-700 text-amber-700">{fmtMoney((item.sellPrice ?? item.price ?? 0) * (1 - (item.discountPct! / 100)) * item.qty)}</p>
+                            <p className="text-[9px] text-amber-600 font-700">-{item.discountPct}%</p>
+                          </>
+                        ) : (
+                          <p className="text-[10px] text-muted-foreground">{fmtMoney((item.sellPrice ?? item.price ?? 0) * item.qty)}</p>
+                        )}
                       </div>
                       {isShortage && !item.isCustom && (
                         <button
