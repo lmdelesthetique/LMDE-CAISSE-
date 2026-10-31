@@ -17,6 +17,7 @@ export interface ReassortItem {
   isCustom: boolean;
   isBonus: boolean; // true = covered by Budget Pro credit, client does not pay
   discountPct?: number; // item-level discount (0–100)
+  stock?: number;
 }
 
 interface SearchProduct {
@@ -513,7 +514,7 @@ function ProductSearchBox({ placeholder, onAdd, variant = 'gold' }: {
         {searching && <Icon name="ArrowPathIcon" size={14} className="animate-spin text-muted-foreground shrink-0" />}
       </div>
       {showResults && results.length > 0 && (
-        <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-white border border-border rounded-xl shadow-xl max-h-96 overflow-y-auto">
+        <div className="absolute top-full left-0 z-50 mt-1 bg-white border border-border rounded-xl shadow-xl max-h-[520px] overflow-y-auto" style={{ width: 'max(100%, 420px)' }}>
           {results.map((p) => (
             <button key={p.id} onClick={() => { onAdd(p); clear(); }}
               className={`w-full flex items-center gap-3 px-3 py-2.5 ${hover} transition-colors text-left border-b border-border/40 last:border-0`}>
@@ -526,7 +527,16 @@ function ProductSearchBox({ placeholder, onAdd, variant = 'gold' }: {
               )}
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-500 text-foreground truncate">{p.name}</p>
-                <p className="text-[11px] text-muted-foreground">{p.ref} · {p.sellPrice.toFixed(2)} €{p.stock <= 0 ? ' · ⚠️ Rupture' : ''}</p>
+                <p className="text-[11px] text-muted-foreground">{p.ref} · {p.sellPrice.toFixed(2)} €</p>
+              </div>
+              <div className="shrink-0 text-right">
+                {p.stock <= 0 ? (
+                  <span className="text-[10px] font-700 px-1.5 py-0.5 rounded-full bg-red-100 text-red-600">Rupture</span>
+                ) : p.stock <= 3 ? (
+                  <span className="text-[10px] font-700 px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">{p.stock} en stock</span>
+                ) : (
+                  <span className="text-[10px] font-700 px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">{p.stock} en stock</span>
+                )}
               </div>
               <Icon name="PlusCircleIcon" size={20} className={`${addIcon} shrink-0`} />
             </button>
@@ -534,7 +544,7 @@ function ProductSearchBox({ placeholder, onAdd, variant = 'gold' }: {
         </div>
       )}
       {showResults && query.length >= 2 && !searching && results.length === 0 && (
-        <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-white border border-border rounded-xl shadow-xl px-4 py-3 text-center text-sm text-muted-foreground">
+        <div className="absolute top-full left-0 z-50 mt-1 bg-white border border-border rounded-xl shadow-xl px-4 py-3 text-center text-sm text-muted-foreground" style={{ width: 'max(100%, 420px)' }}>
           Aucun produit trouvé
         </div>
       )}
@@ -581,6 +591,15 @@ function ItemRow({ item, onQtyChange, onRemove, onDiscountChange, variant }: {
               </>
             ) : (
               <span className="text-[11px] text-muted-foreground">{item.ref && `${item.ref} · `}{item.sellPrice.toFixed(2)} € / unité{item.isCustom && <span className="ml-1 text-amber-600 font-600">· à sourcer</span>}</span>
+            )}
+            {!item.isCustom && item.stock !== undefined && (
+              item.stock <= 0 ? (
+                <span className="text-[10px] font-700 px-1.5 py-0.5 rounded-full bg-red-100 text-red-600">⚠️ Rupture</span>
+              ) : item.stock <= 3 ? (
+                <span className="text-[10px] font-700 px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">⚠️ {item.stock} en stock</span>
+              ) : (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-50 text-green-600">{item.stock} en stock</span>
+              )
             )}
           </div>
           {/* Per-item discount selector — only for non-bonus items */}
@@ -803,14 +822,14 @@ export default function ProDevisPanel({
     setItems((prev) => {
       const ex = prev.find((i) => i.id === p.id && !i.isBonus);
       if (ex) return prev.map((i) => (!i.isBonus && i.id === p.id) ? { ...i, qty: i.qty + 1 } : i);
-      return [...prev, { id: p.id, name: p.name, ref: p.ref, imageUrl: p.imageUrl, sellPrice: p.sellPrice, qty: 1, isCustom: false, isBonus: false }];
+      return [...prev, { id: p.id, name: p.name, ref: p.ref, imageUrl: p.imageUrl, sellPrice: p.sellPrice, qty: 1, isCustom: false, isBonus: false, stock: p.stock }];
     });
 
   const addToBonus = (p: SearchProduct) =>
     setItems((prev) => {
       const ex = prev.find((i) => i.id === p.id && i.isBonus);
       if (ex) return prev.map((i) => (i.isBonus && i.id === p.id) ? { ...i, qty: i.qty + 1 } : i);
-      return [...prev, { id: p.id, name: p.name, ref: p.ref, imageUrl: p.imageUrl, sellPrice: p.sellPrice, qty: 1, isCustom: false, isBonus: true }];
+      return [...prev, { id: p.id, name: p.name, ref: p.ref, imageUrl: p.imageUrl, sellPrice: p.sellPrice, qty: 1, isCustom: false, isBonus: true, stock: p.stock }];
     });
 
   const addCustom = (isBonus: boolean) => {
