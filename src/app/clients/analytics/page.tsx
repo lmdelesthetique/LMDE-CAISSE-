@@ -32,11 +32,12 @@ interface ClientRow {
   segment: string;
   topCategory: string | null;
   categoryRevenue: Record<string, number>;
+  hasFichePro: boolean;
 }
 
 interface Analytics {
   clients: ClientRow[];
-  stats: { total: number; totalRevenue: number; avgSpentPerClient: number; activeClients: number; withBalanceDue: number };
+  stats: { total: number; totalRevenue: number; avgSpentPerClient: number; activeClients: number; withBalanceDue: number; withFichePro: number };
   segments: Record<string, number>;
   clientTypes: Record<string, number>;
   topCities: { city: string; revenue: number }[];
@@ -82,6 +83,7 @@ export default function ClientAnalyticsPage() {
   // Filters
   const [search, setSearch] = useState('');
   const [filterSegment, setFilterSegment] = useState('all');
+  const [filterFichePro, setFilterFichePro] = useState(false);
   const [filterType, setFilterType] = useState('all');
   const [filterCategory, setFilterCategory] = useState('all');
   const [filterCity, setFilterCity] = useState('all');
@@ -126,6 +128,7 @@ export default function ClientAnalyticsPage() {
       );
     }
     if (filterSegment !== 'all') rows = rows.filter((c) => c.segment === filterSegment);
+    if (filterFichePro) rows = rows.filter((c) => c.hasFichePro);
     if (filterType !== 'all') rows = rows.filter((c) => c.clientType === filterType);
     if (filterCity !== 'all') rows = rows.filter((c) => c.city === filterCity);
     if (filterCategory !== 'all') rows = rows.filter((c) => c.topCategory === filterCategory);
@@ -135,7 +138,7 @@ export default function ClientAnalyticsPage() {
       const vb = b[sortBy] as number;
       return sortDir === 'desc' ? vb - va : va - vb;
     });
-  }, [data, search, filterSegment, filterType, filterCity, filterCategory, sortBy, sortDir]);
+  }, [data, search, filterSegment, filterFichePro, filterType, filterCity, filterCategory, sortBy, sortDir]);
 
   const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
   const totalPages = Math.ceil(filtered.length / PER_PAGE);
@@ -288,6 +291,16 @@ export default function ClientAnalyticsPage() {
                     </span>
                   </button>
                 ))}
+                <button
+                  onClick={() => { setFilterFichePro((v) => !v); setPage(1); }}
+                  className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-600 border transition-all ${filterFichePro ? 'text-white border-transparent bg-pink-600' : 'bg-white text-muted-foreground border-border hover:text-pink-600 hover:border-pink-300'}`}
+                  title="Clientes avec une fiche Pro remplie"
+                >
+                  💅 Fiche Pro
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full ${filterFichePro ? 'bg-white/20' : 'bg-muted'}`}>
+                    {data.stats.withFichePro ?? 0}
+                  </span>
+                </button>
               </div>
 
               {/* Charts */}

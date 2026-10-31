@@ -86,7 +86,13 @@ export async function GET() {
       }
     }
 
-    // ── 4. Process each client ────────────────────────────────────────────────
+    // ── 4. Client IDs with a fiche pro ───────────────────────────────────────
+    const { data: proProfiles } = await supabase
+      .from('client_pro_profiles')
+      .select('client_id');
+    const fichePros = new Set((proProfiles ?? []).map((p: any) => p.client_id));
+
+    // ── 5. Process each client ────────────────────────────────────────────────
     const now = Date.now();
 
     const processed = clients
@@ -125,6 +131,7 @@ export async function GET() {
           segment,
           topCategory: topCat,
           categoryRevenue: cats,
+          hasFichePro: fichePros.has(c.id),
         };
       });
 
@@ -156,6 +163,7 @@ export async function GET() {
         avgSpentPerClient: Math.round(avgSpent * 100) / 100,
         activeClients,
         withBalanceDue: processed.filter((c) => c.balanceDue > 0).length,
+        withFichePro: processed.filter((c) => c.hasFichePro).length,
       },
       segments: segCounts,
       clientTypes: typeCounts,
