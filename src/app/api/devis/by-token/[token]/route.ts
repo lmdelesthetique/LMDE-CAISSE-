@@ -4,15 +4,17 @@ import { createAdminClient } from '@/lib/supabase/admin';
 type Ctx = { params: Promise<{ token: string }> };
 
 // GET /api/devis/by-token/[token]
-// Initial load (no ?q): returns devis + top 50 in-stock products
-// With ?q=term (≥ 2 chars): validates token, returns up to 50 matching products only
+// Initial load (no ?q, no ?category): returns devis + categories with representative images
+// With ?q=term (≥ 2 chars): search across all products
+// With ?category=X: returns products for that category
 export async function GET(req: NextRequest, { params }: Ctx) {
   const { token } = await params;
   const q = req.nextUrl.searchParams.get('q')?.trim() ?? '';
+  const category = req.nextUrl.searchParams.get('category')?.trim() ?? '';
   const supabase = createAdminClient();
 
-  // Search-only mode — validate token then run server-side search
-  if (q.length >= 2) {
+  // Validate token for category/search-only modes
+  if (q.length >= 2 || category) {
     const { data: tokenCheck } = await supabase
       .from('devis_pro')
       .select('id')
@@ -21,18 +23,31 @@ export async function GET(req: NextRequest, { params }: Ctx) {
 
     if (!tokenCheck) return NextResponse.json({ error: 'Devis introuvable' }, { status: 404 });
 
+    // Category products
+    if (category && !q) {
+      const { data: products } = await supabase
+        .from('products')
+        .select('id, name, ref, sell_price_ttc, image_url, stock, category')
+        .gt('stock', 0)
+        .eq('category', category)
+        .order('name')
+        .limit(200);
+      return NextResponse.json({ products: products ?? [] });
+    }
+
+    // Search
     const { data: products } = await supabase
       .from('products')
-      .select('id, name, ref, sell_price_ttc, image_url, stock')
+      .select('id, name, ref, sell_price_ttc, image_url, stock, category')
       .gt('stock', 0)
       .or(`name.ilike.%${q}%,ref.ilike.%${q}%`)
       .order('name')
-      .limit(50);
+      .limit(60);
 
     return NextResponse.json({ products: products ?? [] });
   }
 
-  // Initial load: full devis + first 50 products alphabetically
+  // Initial load: full devis + categories grouped with representative images
   const { data: devis, error } = await supabase
     .from('devis_pro')
     .select(`
@@ -46,14 +61,29 @@ export async function GET(req: NextRequest, { params }: Ctx) {
 
   if (error || !devis) return NextResponse.json({ error: 'Devis introuvable' }, { status: 404 });
 
-  const { data: products } = await supabase
+  // Fetch enough products to build category list (with images)
+  const { data: catProducts } = await supabase
     .from('products')
-    .select('id, name, ref, sell_price_ttc, image_url, stock')
+    .select('category, image_url')
     .gt('stock', 0)
-    .order('name')
-    .limit(50);
+    .not('category', 'is', null)
+    .order('category, name')
+    .limit(2000);
 
-  return NextResponse.json({ devis, products: products ?? [] });
+  // Build category list: name, count, up to 4 representative images
+  const catMap = new Map<string, { count: number; images: string[] }>();
+  for (const p of catProducts ?? []) {
+    if (!p.category) continue;
+    const entry = catMap.get(p.category) ?? { count: 0, images: [] };
+    entry.count++;
+    if (p.image_url && entry.images.length < 4) entry.images.push(p.image_url);
+    catMap.set(p.category, entry);
+  }
+  const categories = Array.from(catMap.entries())
+    .map(([name, { count, images }]) => ({ name, count, images }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+
+  return NextResponse.json({ devis, categories });
 }
 
 // PATCH /api/devis/by-token/[token] — client submits their response

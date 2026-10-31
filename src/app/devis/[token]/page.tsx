@@ -36,6 +36,13 @@ interface CatalogProduct {
   sell_price_ttc: number;
   image_url: string | null;
   stock: number;
+  category?: string;
+}
+
+interface CatalogCategory {
+  name: string;
+  count: number;
+  images: string[];
 }
 
 interface DevisData {
@@ -75,7 +82,9 @@ export default function DevisClientPage() {
   const token = params?.token as string;
 
   const [devis, setDevis] = useState<DevisData | null>(null);
-  const [initialProducts, setInitialProducts] = useState<CatalogProduct[]>([]);
+  const [categories, setCategories] = useState<CatalogCategory[]>([]);
+  const [categoryProducts, setCategoryProducts] = useState<CatalogProduct[]>([]);
+  const [categoryLoading, setCategoryLoading] = useState(false);
   const [searchResults, setSearchResults] = useState<CatalogProduct[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [items, setItems] = useState<Item[]>([]);
@@ -86,6 +95,8 @@ export default function DevisClientPage() {
   const [submitting, setSubmitting] = useState(false);
   const [searchQ, setSearchQ] = useState('');
   const [showCatalog, setShowCatalog] = useState(false);
+  const [catalogView, setCatalogView] = useState<'categories' | 'products'>('categories');
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [deliveryMode, setDeliveryMode] = useState<'retrait' | 'livraison'>('retrait');
   const [deliveryAddress, setDeliveryAddress] = useState('');
 
@@ -96,8 +107,7 @@ export default function DevisClientPage() {
       .then(data => {
         if (data.error) { setErr(data.error); return; }
         setDevis(data.devis);
-        setInitialProducts(data.products ?? []);
-        setSearchResults(data.products ?? []);
+        setCategories(data.categories ?? []);
         const mapped = mapItems(data.devis.items ?? []);
         setItems(mapped);
         setOriginalItems(mapped);
@@ -109,10 +119,10 @@ export default function DevisClientPage() {
       .finally(() => setLoading(false));
   }, [token]);
 
-  // Debounced server-side catalog search (supports 5000+ products)
+  // Debounced server-side catalog search
   useEffect(() => {
     if (!token || searchQ.length < 2) {
-      setSearchResults(initialProducts);
+      setSearchResults([]);
       return;
     }
     setSearchLoading(true);
@@ -127,7 +137,22 @@ export default function DevisClientPage() {
       clearTimeout(timer);
       setSearchLoading(false);
     };
-  }, [token, searchQ, initialProducts]);
+  }, [token, searchQ]);
+
+  // Load products for a category
+  const openCategory = useCallback(async (catName: string) => {
+    setCategoryLoading(true);
+    setCategoryProducts([]);
+    setSelectedCategory(catName);
+    setCatalogView('products');
+    try {
+      const res = await fetch(`/api/devis/by-token/${token}?category=${encodeURIComponent(catName)}`);
+      const data = await res.json();
+      setCategoryProducts(data.products ?? []);
+    } catch { /* ignore */ } finally {
+      setCategoryLoading(false);
+    }
+  }, [token]);
 
   // ── Calculations ──────────────────────────────────────────────────────────
   const discountPct = devis?.discount_pct ?? 0;
@@ -208,8 +233,6 @@ export default function DevisClientPage() {
   const originalSig = originalItems.map(i => `${i.id}:${i.qty}`).sort().join('|');
   const currentSig = items.map(i => `${i.id}:${i.qty}`).sort().join('|');
   const hasChanges = originalSig !== currentSig;
-
-  const displayProducts = searchResults;
 
   // ── States ────────────────────────────────────────────────────────────────
   if (loading) return (
@@ -411,7 +434,19 @@ export default function DevisClientPage() {
             <div className="bg-white border-b border-gray-100 px-4 pt-4 pb-3 sticky top-0 z-10">
               <div className="flex items-center gap-3 mb-3">
                 <button
-                  onClick={() => { setShowCatalog(false); setSearchQ(''); }}
+                  onClick={() => {
+                    if (catalogView === 'products' && searchQ.length < 2) {
+                      setCatalogView('categories');
+                      setSelectedCategory(null);
+                      setCategoryProducts([]);
+                    } else {
+                      setShowCatalog(false);
+                      setSearchQ('');
+                      setCatalogView('categories');
+                      setSelectedCategory(null);
+                      setCategoryProducts([]);
+                    }
+                  }}
                   className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0"
                 >
                   <svg className="w-4 h-4 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -419,8 +454,20 @@ export default function DevisClientPage() {
                   </svg>
                 </button>
                 <div className="flex-1">
-                  <p className="text-sm font-bold text-gray-900">Catalogue en stock</p>
-                  <p className="text-[11px] text-gray-400">Sélectionne un produit à ajouter à ton devis</p>
+                  <p className="text-sm font-bold text-gray-900">
+                    {searchQ.length >= 2
+                      ? 'Résultats de recherche'
+                      : catalogView === 'products' && selectedCategory
+                        ? selectedCategory
+                        : 'Catalogue'}
+                  </p>
+                  <p className="text-[11px] text-gray-400">
+                    {searchQ.length >= 2
+                      ? `${searchResults.length} produit${searchResults.length > 1 ? 's' : ''} trouvé${searchResults.length > 1 ? 's' : ''}`
+                      : catalogView === 'products'
+                        ? `${categoryProducts.length} produit${categoryProducts.length > 1 ? 's' : ''} en stock`
+                        : 'Sélectionne une catégorie'}
+                  </p>
                 </div>
               </div>
               <div className="relative">
@@ -432,71 +479,128 @@ export default function DevisClientPage() {
                   placeholder="Rechercher par nom ou référence…"
                   value={searchQ}
                   onChange={e => setSearchQ(e.target.value)}
-                  autoFocus
                   className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#B8960C] bg-gray-50"
                 />
-                {searchLoading && (
+                {(searchLoading || categoryLoading) && (
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 inline-block w-4 h-4 border-2 border-[#B8960C] border-t-transparent rounded-full animate-spin" />
                 )}
               </div>
             </div>
 
-            {/* Grid */}
+            {/* Content */}
             <div className="flex-1 overflow-y-auto px-3 py-4">
+
+              {/* Search mode */}
               {searchQ.length > 0 && searchQ.length < 2 ? (
                 <p className="text-sm text-gray-400 text-center py-10">Tapez au moins 2 caractères…</p>
-              ) : displayProducts.length === 0 && !searchLoading ? (
-                <p className="text-sm text-gray-400 text-center py-10">Aucun produit trouvé</p>
-              ) : (
-                <div className="grid grid-cols-2 gap-3">
-                  {displayProducts.map(p => {
-                    const alreadyInCart = items.find(i => i.id === p.id);
-                    return (
-                      <button
-                        key={p.id}
-                        onClick={() => addFromCatalog(p)}
-                        className={`relative flex flex-col rounded-2xl overflow-hidden border text-left transition-all active:scale-95 ${
-                          alreadyInCart
-                            ? 'border-[#B8960C] bg-amber-50'
-                            : 'border-gray-100 bg-white hover:border-[#B8960C]/40'
-                        }`}
-                      >
-                        {/* Badge "dans le devis" */}
-                        {alreadyInCart && (
-                          <div className="absolute top-2 right-2 z-10 bg-[#B8960C] text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                            ×{alreadyInCart.qty}
+              ) : searchQ.length >= 2 ? (
+                searchLoading ? (
+                  <p className="text-sm text-gray-400 text-center py-10">Recherche…</p>
+                ) : searchResults.length === 0 ? (
+                  <p className="text-sm text-gray-400 text-center py-10">Aucun produit trouvé</p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    {searchResults.map(p => {
+                      const alreadyInCart = items.find(i => i.id === p.id);
+                      return (
+                        <button key={p.id} onClick={() => addFromCatalog(p)}
+                          className={`relative flex flex-col rounded-2xl overflow-hidden border text-left transition-all active:scale-95 ${
+                            alreadyInCart ? 'border-[#B8960C] bg-amber-50' : 'border-gray-100 bg-white hover:border-[#B8960C]/40'
+                          }`}
+                        >
+                          {alreadyInCart && (
+                            <div className="absolute top-2 right-2 z-10 bg-[#B8960C] text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">×{alreadyInCart.qty}</div>
+                          )}
+                          <div className="w-full aspect-square bg-gray-50 flex-shrink-0 relative">
+                            {p.image_url ? <Image src={p.image_url} alt={p.name} fill className="object-cover" sizes="(max-width: 768px) 50vw, 200px" /> : <div className="w-full h-full flex items-center justify-center text-4xl">💅</div>}
                           </div>
-                        )}
-                        {/* Image */}
-                        <div className="w-full aspect-square bg-gray-50 flex-shrink-0 relative">
-                          {p.image_url ? (
-                            <Image
-                              src={p.image_url}
-                              alt={p.name}
-                              fill
-                              className="object-cover"
-                              sizes="(max-width: 768px) 50vw, 200px"
-                            />
-                          ) : (
+                          <div className="p-2.5 flex flex-col gap-0.5">
+                            <p className="text-xs font-semibold text-gray-900 leading-tight line-clamp-2">{p.name}</p>
+                            <p className="text-sm font-bold text-[#B8960C] mt-0.5">{p.sell_price_ttc.toFixed(2)} €</p>
+                            <p className={`text-[10px] font-medium ${p.stock <= 0 ? 'text-red-400' : p.stock <= 3 ? 'text-orange-400' : 'text-gray-400'}`}>
+                              {p.stock <= 0 ? 'Rupture' : `${p.stock} en stock`}
+                            </p>
+                          </div>
+                          <div className={`mx-2.5 mb-2.5 py-1.5 rounded-xl text-[11px] font-bold text-center transition-colors ${alreadyInCart ? 'bg-[#B8960C] text-white' : 'bg-gray-100 text-gray-500'}`}>
+                            {alreadyInCart ? '✓ Ajouté' : '+ Ajouter'}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )
+
+              /* Categories view */
+              ) : catalogView === 'categories' ? (
+                categories.length === 0 ? (
+                  <p className="text-sm text-gray-400 text-center py-10">Catalogue indisponible</p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    {categories.map(cat => (
+                      <button
+                        key={cat.name}
+                        onClick={() => openCategory(cat.name)}
+                        className="flex flex-col rounded-2xl overflow-hidden border border-gray-100 bg-white text-left transition-all active:scale-95 hover:border-[#B8960C]/40"
+                      >
+                        {/* Image collage 2×2 */}
+                        <div className="w-full aspect-square bg-gray-50 overflow-hidden">
+                          {cat.images.length === 0 ? (
                             <div className="w-full h-full flex items-center justify-center text-4xl">💅</div>
+                          ) : cat.images.length === 1 ? (
+                            <div className="relative w-full h-full">
+                              <Image src={cat.images[0]} alt={cat.name} fill className="object-cover" sizes="50vw" />
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-2 grid-rows-2 gap-0.5 w-full h-full">
+                              {cat.images.slice(0, 4).map((url, idx) => (
+                                <div key={idx} className="relative overflow-hidden bg-gray-100">
+                                  <Image src={url} alt={cat.name} fill className="object-cover" sizes="25vw" />
+                                </div>
+                              ))}
+                            </div>
                           )}
                         </div>
-                        {/* Info */}
+                        <div className="p-2.5">
+                          <p className="text-xs font-bold text-gray-900 leading-tight">{cat.name}</p>
+                          <p className="text-[11px] text-gray-400 mt-0.5">{cat.count} produit{cat.count > 1 ? 's' : ''}</p>
+                        </div>
+                        <div className="mx-2.5 mb-2.5 py-1.5 rounded-xl text-[11px] font-bold text-center bg-gray-100 text-gray-500">
+                          Voir les produits →
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )
+
+              /* Products in category */
+              ) : categoryLoading ? (
+                <p className="text-sm text-gray-400 text-center py-10">Chargement…</p>
+              ) : categoryProducts.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-10">Aucun produit dans cette catégorie</p>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  {categoryProducts.map(p => {
+                    const alreadyInCart = items.find(i => i.id === p.id);
+                    return (
+                      <button key={p.id} onClick={() => addFromCatalog(p)}
+                        className={`relative flex flex-col rounded-2xl overflow-hidden border text-left transition-all active:scale-95 ${
+                          alreadyInCart ? 'border-[#B8960C] bg-amber-50' : 'border-gray-100 bg-white hover:border-[#B8960C]/40'
+                        }`}
+                      >
+                        {alreadyInCart && (
+                          <div className="absolute top-2 right-2 z-10 bg-[#B8960C] text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">×{alreadyInCart.qty}</div>
+                        )}
+                        <div className="w-full aspect-square bg-gray-50 flex-shrink-0 relative">
+                          {p.image_url ? <Image src={p.image_url} alt={p.name} fill className="object-cover" sizes="(max-width: 768px) 50vw, 200px" /> : <div className="w-full h-full flex items-center justify-center text-4xl">💅</div>}
+                        </div>
                         <div className="p-2.5 flex flex-col gap-0.5">
                           <p className="text-xs font-semibold text-gray-900 leading-tight line-clamp-2">{p.name}</p>
                           <p className="text-sm font-bold text-[#B8960C] mt-0.5">{p.sell_price_ttc.toFixed(2)} €</p>
-                          <p className={`text-[10px] font-medium ${
-                            p.stock <= 0 ? 'text-red-400' : p.stock <= 3 ? 'text-orange-400' : 'text-gray-400'
-                          }`}>
+                          <p className={`text-[10px] font-medium ${p.stock <= 0 ? 'text-red-400' : p.stock <= 3 ? 'text-orange-400' : 'text-gray-400'}`}>
                             {p.stock <= 0 ? 'Rupture' : `${p.stock} en stock`}
                           </p>
                         </div>
-                        {/* Add indicator */}
-                        <div className={`mx-2.5 mb-2.5 py-1.5 rounded-xl text-[11px] font-bold text-center transition-colors ${
-                          alreadyInCart
-                            ? 'bg-[#B8960C] text-white'
-                            : 'bg-gray-100 text-gray-500'
-                        }`}>
+                        <div className={`mx-2.5 mb-2.5 py-1.5 rounded-xl text-[11px] font-bold text-center transition-colors ${alreadyInCart ? 'bg-[#B8960C] text-white' : 'bg-gray-100 text-gray-500'}`}>
                           {alreadyInCart ? '✓ Ajouté' : '+ Ajouter'}
                         </div>
                       </button>
