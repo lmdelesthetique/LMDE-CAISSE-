@@ -20,6 +20,9 @@ export async function POST(
     return NextResponse.json({ error: 'Montant invalide' }, { status: 400 });
   }
   const amt = Number(amount);
+  // Alma is not in the DB enum — map to 'card' for the constrained column;
+  // full method stays in the deposits JSONB array.
+  const dbMethod = method === 'alma' ? 'card' : method;
 
   const supabase = createAdminClient();
 
@@ -125,7 +128,7 @@ export async function POST(
     .from('reservations')
     .update({
       balance_paid: amt,
-      balance_payment_method: method,
+      balance_payment_method: dbMethod,
       balance_paid_at: now,
       balance_accounting_date: today,
       reservation_status: 'completed',
