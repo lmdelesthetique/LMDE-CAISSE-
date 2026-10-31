@@ -806,8 +806,11 @@ export default function ProDevisPanel({
   const baseTotal = baseItems.reduce((s, i) => s + getEffectivePrice(i) * i.qty, 0);
   const discountAmount = baseTotal * (discountPct / 100);
   const afterDiscount = baseTotal - discountAmount;
-  const tier = getTier(afterDiscount);
-  const nextTierUp = getNextTier(afterDiscount);
+  // Tier is based on catalog prices (before any item or global discounts) so that
+  // applying a commercial discount never reduces the Budget Pro credit earned
+  const baseTotalCatalog = baseItems.reduce((s, i) => s + i.sellPrice * i.qty, 0);
+  const tier = getTier(baseTotalCatalog);
+  const nextTierUp = getNextTier(baseTotalCatalog);
   const credit = tier?.bonus ?? 0;
   const freeShipping = afterDiscount >= 150;
   const bonusTotal = bonusItems.reduce((s, i) => s + i.sellPrice * i.qty, 0);
