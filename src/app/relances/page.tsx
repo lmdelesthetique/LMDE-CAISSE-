@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { toast } from 'sonner';
+import { normalizePhone } from '@/lib/utils/phoneUtils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -77,13 +78,6 @@ function seqLabel(s: string): string {
   return { A: 'Invitation fiche', B: 'Fiche non validée', C: 'Réassort', D: 'Dormante', E: 'Après achat' }[s] ?? s;
 }
 
-function normalizeWA(raw: string): string {
-  const c = raw.replace(/\s/g, '');
-  if (c.startsWith('+')) return c.replace('+', '');
-  if (c.startsWith('0')) return '596' + c.slice(1);
-  return '596' + c;
-}
-
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' });
 }
@@ -144,8 +138,8 @@ function MailModal({ item, onSend, onClose }: {
 
 function RelanceCard({ item, onSent, onIgnored }: {
   item: PendingC | PendingSeq;
-  onSent: (item: PendingC | PendingSeq) => void;
-  onIgnored: (item: PendingC | PendingSeq) => void;
+  onSent: (item: PendingC | PendingSeq) => Promise<void>;
+  onIgnored: (item: PendingC | PendingSeq) => Promise<void>;
 }) {
   const [showMail, setShowMail] = useState(false);
   const [done, setDone] = useState(false);
@@ -162,14 +156,14 @@ function RelanceCard({ item, onSent, onIgnored }: {
     if (!res.ok) { toast.error('Erreur envoi mail'); return; }
     toast.success(`Mail envoyé à ${item.client_prenom}`);
     setShowMail(false);
+    try { await onSent(item); } catch { toast.error('Relance non enregistrée en base'); }
     setDone(true);
-    onSent(item);
   };
 
   const openWA = () => {
     const wa = item.client_wa;
     if (!wa) { toast.error('Pas de numéro WhatsApp'); return; }
-    const number = normalizeWA(wa);
+    const number = normalizePhone(wa);
     const text = encodeURIComponent(item.corps);
     window.open(`https://wa.me/${number}?text=${text}`, '_blank');
   };
@@ -243,11 +237,17 @@ function RelanceCard({ item, onSent, onIgnored }: {
               ✉️ Voir & envoyer le mail
             </button>
           )}
-          <button onClick={() => { setDone(true); onSent(item); }}
+          <button onClick={async () => {
+              try { await onSent(item); setDone(true); }
+              catch { toast.error('Erreur enregistrement'); }
+            }}
             className="px-3 py-2 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-lg text-xs font-600 hover:bg-emerald-100 transition-colors whitespace-nowrap">
             ✓ Marquer envoyé
           </button>
-          <button onClick={() => { setDone(true); onIgnored(item); }}
+          <button onClick={async () => {
+              try { await onIgnored(item); setDone(true); }
+              catch { toast.error('Erreur enregistrement'); }
+            }}
             className="px-3 py-2 border border-border text-muted-foreground rounded-lg text-xs font-600 hover:bg-muted/40 transition-colors">
             Ignorer
           </button>
@@ -292,7 +292,7 @@ export default function RelancesPage() {
 
   const logRelance = async (item: PendingC | PendingSeq, statut: 'envoye' | 'ignore') => {
     const isC = item.type === 'C';
-    await fetch('/api/relances/log', {
+    const res = await fetch('/api/relances/log', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -305,6 +305,7 @@ export default function RelancesPage() {
         sequence_id: !isC ? (item as PendingSeq).sequence_id : undefined,
       }),
     });
+    if (!res.ok) throw new Error(await res.text());
   };
 
   const onSent = async (item: PendingC | PendingSeq) => {

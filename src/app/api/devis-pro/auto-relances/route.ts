@@ -1,19 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { sendWhatsApp, sendEmailNotification } from '@/lib/whatsappService';
+import { normalizePhone } from '@/lib/utils/phoneUtils';
 import { randomBytes } from 'crypto';
 
 export const maxDuration = 60;
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-}
-
-function normalizePhone(raw: string): string {
-  const clean = raw.replace(/\s/g, '');
-  if (clean.startsWith('+')) return clean;
-  if (clean.startsWith('0')) return '+596' + clean.slice(1);
-  return '+596' + clean;
 }
 
 // GET — preview (default) or run relances (?send=1, called by Vercel cron)
