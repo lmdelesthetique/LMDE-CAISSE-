@@ -1174,6 +1174,16 @@ export default function DevisProPage() {
         {/* ── Relances Dashboard ─────────────────────────────────────────────── */}
         {showRelancesView && (
           <div className="flex-1 overflow-y-auto p-4 space-y-6">
+            {/* Back button */}
+            <button
+              onClick={() => { setShowRelancesView(false); setSelected(null); }}
+              className="flex items-center gap-2 text-sm font-600 text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+              Retour aux devis
+            </button>
             {/* Stats */}
             <div className="grid grid-cols-4 gap-3">
               {[
