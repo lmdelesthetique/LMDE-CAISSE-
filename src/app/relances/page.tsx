@@ -326,6 +326,23 @@ export default function RelancesPage() {
     }
   };
 
+  const [seeding, setSeeding] = useState(false);
+
+  const seedTemplates = async (force = false) => {
+    setSeeding(true);
+    try {
+      const res = await fetch('/api/relances/templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force }),
+      });
+      const data = await res.json();
+      if (data.skipped) toast.info('Les templates existent déjà — utilisez "Réinitialiser" pour les remplacer');
+      else { toast.success(`${data.count ?? '?'} templates créés !`); loadTemplates(); }
+    } catch { toast.error('Erreur création templates'); }
+    finally { setSeeding(false); }
+  };
+
   const saveTpl = async () => {
     if (!editTpl) return;
     setSavingTpl(true);
@@ -427,7 +444,34 @@ export default function RelancesPage() {
         {/* ── Onglet Templates ── */}
         {tab === 'templates' && (
           <section className="space-y-3">
-            <p className="text-xs text-muted-foreground">Modifie les templates ici — les changements sont pris en compte immédiatement.</p>
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-muted-foreground">Modifie les messages ici — les changements sont pris en compte immédiatement.</p>
+              <div className="flex gap-2">
+                {templates.length === 0 && (
+                  <button onClick={() => seedTemplates(false)} disabled={seeding}
+                    className="text-xs px-3 py-1.5 bg-primary text-primary-foreground rounded-lg font-600 hover:opacity-90 disabled:opacity-40">
+                    {seeding ? 'Création…' : '✨ Créer les templates de base'}
+                  </button>
+                )}
+                {templates.length > 0 && (
+                  <button onClick={() => { if (confirm('Réinitialiser tous les templates avec les valeurs par défaut ?')) seedTemplates(true); }} disabled={seeding}
+                    className="text-xs px-3 py-1.5 border border-border rounded-lg hover:bg-muted/40 disabled:opacity-40">
+                    {seeding ? '…' : '↺ Réinitialiser'}
+                  </button>
+                )}
+              </div>
+            </div>
+            {templates.length === 0 && !seeding && (
+              <div className="text-center py-16 border-2 border-dashed border-border rounded-xl">
+                <p className="text-3xl mb-3">📝</p>
+                <p className="text-sm font-700 text-foreground">Aucun template configuré</p>
+                <p className="text-xs text-muted-foreground mt-1 mb-4">Cliquez sur "Créer les templates de base" pour initialiser les messages des 5 séquences.</p>
+                <button onClick={() => seedTemplates(false)} disabled={seeding}
+                  className="text-sm px-4 py-2 bg-primary text-primary-foreground rounded-xl font-700 hover:opacity-90">
+                  ✨ Créer les templates de base
+                </button>
+              </div>
+            )}
             {['A', 'B', 'C', 'D', 'E'].map((seq) => {
               const seqTpls = templates.filter((t) => t.sequence === seq);
               if (!seqTpls.length) return null;
