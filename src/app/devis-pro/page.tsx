@@ -1817,6 +1817,28 @@ export default function DevisProPage() {
               )}
             </div>
 
+            {/* Alma price info — always visible */}
+            {selected.client_pays > 0 && (() => {
+              const base = selected.client_pays;
+              const fees = Math.round(base * ALMA_FEE_RATE * 100) / 100;
+              const total = Math.round((base + fees) * 100) / 100;
+              return (
+                <div className="px-5 py-3 border-b border-border bg-orange-50/40">
+                  <p className="text-[10px] font-700 uppercase tracking-wider text-orange-600 mb-2">💳 Prix Alma (paiement en plusieurs fois)</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {([3, 4] as const).map((n) => (
+                      <div key={n} className="bg-white border border-orange-200 rounded-xl px-3 py-2 text-center">
+                        <p className="text-[10px] text-orange-500 font-600">{n}x sans frais client</p>
+                        <p className="text-sm font-800 text-orange-800">{fmtMoney(Math.round((total / n) * 100) / 100)}</p>
+                        <p className="text-[10px] text-orange-400">Total {fmtMoney(total)}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[9px] text-orange-400 mt-1.5">Frais Alma 6,2% inclus dans le total affiché</p>
+                </div>
+              );
+            })()}
+
             {/* Payments */}
             <div className="px-5 py-4 border-b border-border">
               <div className="flex items-center justify-between mb-3">
