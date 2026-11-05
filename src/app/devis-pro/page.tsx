@@ -25,7 +25,7 @@ interface DevisItem {
 
 interface Paiement {
   id?: string;
-  method: 'especes' | 'carte' | 'virement' | 'avoir' | 'sumup' | 'stripe';
+  method: 'especes' | 'carte' | 'virement' | 'avoir' | 'sumup' | 'stripe' | 'alma';
   amount: number;
   note?: string;
   date: string;
@@ -119,7 +119,10 @@ const PAYMENT_METHODS = [
   { value: 'avoir', label: 'Avoir / Budget Pro', icon: 'GiftIcon' },
   { value: 'sumup', label: 'Lien SumUp', icon: 'LinkIcon' },
   { value: 'stripe', label: 'Paiement Stripe', icon: 'CreditCardIcon' },
+  { value: 'alma', label: 'Alma — Paiement en plusieurs fois', icon: 'CreditCardIcon' },
 ];
+
+const ALMA_FEE_RATE = 0.062;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -249,6 +252,7 @@ export default function DevisProPage() {
   const [paymentMethod, setPaymentMethod] = useState<string>('especes');
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentNote, setPaymentNote] = useState('');
+  const [almaInstallments, setAlmaInstallments] = useState<3 | 4>(4);
   const [cashGiven, setCashGiven] = useState('');
   const [editingPaymentIdx, setEditingPaymentIdx] = useState<number | null>(null);
   const [editPaymentAmount, setEditPaymentAmount] = useState('');
@@ -1891,6 +1895,10 @@ export default function DevisProPage() {
                 const remaining = Math.max(0, selected.client_pays - (selected.paye_total ?? 0));
                 const given = parseFloat(cashGiven) || 0;
                 const change = paymentMethod === 'especes' && given > 0 ? given - Math.min(given, remaining > 0 ? remaining : given) : 0;
+                const almaBase = parseFloat(paymentAmount) || remaining;
+                const almaFees = Math.round(almaBase * ALMA_FEE_RATE * 100) / 100;
+                const almaTotal = Math.round((almaBase + almaFees) * 100) / 100;
+                const almaEcheance = Math.round((almaTotal / almaInstallments) * 100) / 100;
                 return (
                 <div className="mt-3 p-3 bg-muted/30 rounded-xl border border-border space-y-2">
                   <select value={paymentMethod} onChange={(e) => { setPaymentMethod(e.target.value); setCashGiven(''); }}
@@ -1918,6 +1926,43 @@ export default function DevisProPage() {
                         <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
                           <span className="text-xs font-700 text-amber-700">💵 Monnaie à rendre</span>
                           <span className="text-sm font-800 text-amber-700">{fmtMoney(change)}</span>
+                        </div>
+                      )}
+                    </>
+                  ) : paymentMethod === 'alma' ? (
+                    <>
+                      <input type="number" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)}
+                        placeholder={`Montant (€) — solde: ${remaining.toFixed(2)}`} step="0.01" min="0"
+                        className="w-full px-3 py-2 text-sm border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-300" />
+                      {/* Alma installments selector */}
+                      <div className="flex gap-2">
+                        {([3, 4] as const).map((n) => (
+                          <button key={n} type="button" onClick={() => setAlmaInstallments(n)}
+                            className={`flex-1 py-2 rounded-xl text-sm font-700 border-2 transition-all ${almaInstallments === n ? 'border-orange-500 bg-orange-500 text-white' : 'border-orange-300 text-orange-700 hover:bg-orange-50'}`}>
+                            {n}x
+                          </button>
+                        ))}
+                      </div>
+                      {/* Alma breakdown */}
+                      {almaBase > 0 && (
+                        <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 space-y-1.5 text-xs">
+                          <p className="font-700 text-orange-800 uppercase tracking-wide text-[10px]">Détail Alma</p>
+                          <div className="flex justify-between text-orange-700">
+                            <span>Montant commande</span>
+                            <span className="font-600">{fmtMoney(almaBase)}</span>
+                          </div>
+                          <div className="flex justify-between text-orange-600">
+                            <span>Frais Alma (6,2%)</span>
+                            <span>+ {fmtMoney(almaFees)}</span>
+                          </div>
+                          <div className="flex justify-between font-800 text-orange-900 border-t border-orange-200 pt-1.5">
+                            <span>Total client avec frais</span>
+                            <span>{fmtMoney(almaTotal)}</span>
+                          </div>
+                          <div className="flex justify-between text-orange-700 bg-orange-100 rounded-lg px-2 py-1.5">
+                            <span>1ère échéance ({almaInstallments}x)</span>
+                            <span className="font-800">{fmtMoney(almaEcheance)}</span>
+                          </div>
                         </div>
                       )}
                     </>
