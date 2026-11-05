@@ -262,13 +262,16 @@ function RelanceCard({ item, onSent, onIgnored }: {
 // ─── Page principale ──────────────────────────────────────────────────────────
 
 export default function RelancesPage() {
-  const [tab, setTab] = useState<'today' | 'templates'>('today');
+  const [tab, setTab] = useState<'today' | 'suivi' | 'templates'>('today');
   const [loading, setLoading] = useState(true);
   const [pendingC, setPendingC] = useState<PendingC[]>([]);
   const [pendingSeq, setPendingSeq] = useState<PendingSeq[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [editTpl, setEditTpl] = useState<Template | null>(null);
   const [savingTpl, setSavingTpl] = useState(false);
+  const [statusData, setStatusData] = useState<any[]>([]);
+  const [statusLoading, setStatusLoading] = useState(false);
+  const [templatesCount, setTemplatesCount] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -287,8 +290,20 @@ export default function RelancesPage() {
     setTemplates(data.templates ?? []);
   }, []);
 
+  const loadStatus = useCallback(async () => {
+    setStatusLoading(true);
+    try {
+      const res = await fetch('/api/relances/status');
+      const data = await res.json();
+      setStatusData(data.devis ?? []);
+      setTemplatesCount(data.templates_count ?? 0);
+    } catch { toast.error('Erreur chargement statut'); }
+    finally { setStatusLoading(false); }
+  }, []);
+
   useEffect(() => { load(); }, [load]);
   useEffect(() => { if (tab === 'templates') loadTemplates(); }, [tab, loadTemplates]);
+  useEffect(() => { if (tab === 'suivi') loadStatus(); }, [tab, loadStatus]);
 
   const logRelance = async (item: PendingC | PendingSeq, statut: 'envoye' | 'ignore') => {
     const isC = item.type === 'C';
@@ -375,10 +390,14 @@ export default function RelancesPage() {
           </div>
         </div>
         <div className="max-w-3xl mx-auto px-4 flex gap-1 pb-0">
-          {(['today', 'templates'] as const).map((t) => (
-            <button key={t} onClick={() => setTab(t)}
-              className={`px-4 py-2 text-xs font-600 border-b-2 transition-colors ${tab === t ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
-              {t === 'today' ? '📋 Relances du jour' : '📝 Templates'}
+          {([
+            { key: 'today', label: '📋 Relances du jour' },
+            { key: 'suivi', label: '📊 Suivi réassort' },
+            { key: 'templates', label: '📝 Templates' },
+          ] as const).map(({ key, label }) => (
+            <button key={key} onClick={() => setTab(key)}
+              className={`px-4 py-2 text-xs font-600 border-b-2 transition-colors ${tab === key ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
+              {label}
             </button>
           ))}
         </div>
@@ -439,6 +458,99 @@ export default function RelancesPage() {
               </>
             )}
           </>
+        )}
+
+        {/* ── Onglet Suivi ── */}
+        {tab === 'suivi' && (
+          <section className="space-y-4">
+            {/* Statut global */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-white border border-border rounded-xl p-3 text-center">
+                <p className="text-2xl font-800 text-primary">{statusData.length}</p>
+                <p className="text-xs text-muted-foreground">Devis configurés</p>
+              </div>
+              <div className="bg-white border border-border rounded-xl p-3 text-center">
+                <p className="text-2xl font-800 text-orange-600">{statusData.filter(d => d.due_today.length > 0).length}</p>
+                <p className="text-xs text-muted-foreground">À envoyer aujourd'hui</p>
+              </div>
+              <div className="bg-white border border-border rounded-xl p-3 text-center">
+                <p className="text-2xl font-800 text-emerald-600">{templatesCount}</p>
+                <p className="text-xs text-muted-foreground">Templates actifs</p>
+              </div>
+            </div>
+
+            {templatesCount === 0 && (
+              <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 text-sm text-orange-700">
+                ⚠️ <strong>Aucun template actif</strong> — va dans l'onglet "📝 Templates" et clique "Créer les templates de base".
+              </div>
+            )}
+
+            {statusLoading ? (
+              <div className="text-center py-10 text-muted-foreground text-sm">Chargement…</div>
+            ) : statusData.length === 0 ? (
+              <div className="text-center py-16 border-2 border-dashed border-border rounded-xl">
+                <p className="text-3xl mb-3">📅</p>
+                <p className="text-sm font-700">Aucun devis avec réassort configuré</p>
+                <p className="text-xs text-muted-foreground mt-1">Dans Devis Pro, ouvre un devis et remplis la section "🔔 Relance réassort mensuelle".</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {statusData.map((d) => (
+                  <div key={d.devis_id} className={`bg-white border rounded-xl p-4 ${d.due_today.length > 0 ? 'border-orange-300 bg-orange-50/30' : 'border-border'}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                          <span className="text-sm font-700 truncate">{d.client_name}</span>
+                          <span className="text-[10px] text-muted-foreground">#{d.numero}</span>
+                          {d.due_today.length > 0 && (
+                            <span className="text-[10px] font-700 bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">
+                              ⚡ {d.due_today.length} message{d.due_today.length > 1 ? 's' : ''} à envoyer
+                            </span>
+                          )}
+                          {!d.has_whatsapp && (
+                            <span className="text-[10px] text-red-500">⚠ Pas de n° WhatsApp</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
+                          <span>📅 Réassort le <strong className="text-foreground">{d.day_of_month}</strong> de chaque mois</span>
+                          {d.last_sent_at ? (
+                            <span>✅ Dernier envoi : {new Date(d.last_sent_at).toLocaleDateString('fr-FR')} ({d.last_etape})</span>
+                          ) : (
+                            <span className="text-amber-600">Aucun envoi enregistré</span>
+                          )}
+                          {d.total_logs > 0 && <span>{d.total_logs} envoi{d.total_logs > 1 ? 's' : ''} ce mois</span>}
+                        </div>
+                        {d.due_today.length > 0 && (
+                          <div className="mt-2 flex gap-1.5 flex-wrap">
+                            {d.due_today.map((s: any) => (
+                              <span key={s.etape} className="text-[10px] font-600 bg-orange-100 text-orange-700 px-2 py-0.5 rounded">
+                                {s.canal === 'whatsapp' ? '📱' : '✉️'} {s.etape}{s.overdue ? ' — EN RETARD' : ' — AUJOURD\'HUI'}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {d.next_step && d.due_today.length === 0 && (
+                          <div className="mt-1.5">
+                            <span className="text-[10px] text-muted-foreground">
+                              Prochain message : {d.next_step.canal === 'whatsapp' ? '📱' : '✉️'} {d.next_step.etape} le {new Date(d.next_step.date).toLocaleDateString('fr-FR')}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      <a href={`/devis-pro?id=${d.devis_id}`}
+                        className="shrink-0 text-xs px-2.5 py-1.5 border border-border rounded-lg hover:bg-muted/40 text-muted-foreground">
+                        Voir devis
+                      </a>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <button onClick={loadStatus} className="w-full py-2 text-xs border border-border rounded-xl hover:bg-muted/40 text-muted-foreground">
+              ↻ Actualiser
+            </button>
+          </section>
         )}
 
         {/* ── Onglet Templates ── */}
