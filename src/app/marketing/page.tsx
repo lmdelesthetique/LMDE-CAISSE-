@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { SEGMENTS, type SegmentKey, type SegmentInfo } from '@/lib/segmentationService';
 
 type Channel = 'sms+email' | 'sms' | 'email';
@@ -585,7 +586,8 @@ function clientName(c: ClientResult): string {
   return l || c.phone || 'Cliente';
 }
 
-export default function MarketingPage() {
+function MarketingPageInner() {
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<Tab>('creer');
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
@@ -628,6 +630,20 @@ export default function MarketingPage() {
   const [aiStrategy, setAiStrategy] = useState<AiStrategy | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiMock, setAiMock] = useState(false);
+
+  // Pre-fill client from URL params (e.g. ?clientId=X&firstName=Y&lastName=Z)
+  const prefilledRef = useRef(false);
+  useEffect(() => {
+    if (prefilledRef.current) return;
+    const clientId = searchParams.get('clientId');
+    if (!clientId) return;
+    prefilledRef.current = true;
+    const firstName = searchParams.get('firstName') ?? '';
+    const lastName = searchParams.get('lastName') ?? '';
+    const phone = searchParams.get('phone') ?? null;
+    setSelectionMode('manual');
+    setSelectedClients([{ id: clientId, first_name: firstName || null, last_name: lastName || null, phone, email: null }]);
+  }, [searchParams]);
 
   const loadStats = useCallback(async () => {
     setStatsLoading(true);
@@ -1670,5 +1686,13 @@ export default function MarketingPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function MarketingPage() {
+  return (
+    <Suspense>
+      <MarketingPageInner />
+    </Suspense>
   );
 }

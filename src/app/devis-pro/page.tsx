@@ -1465,10 +1465,19 @@ export default function DevisProPage() {
                 <button
                   onClick={() => sendWhatsApp(selected)}
                   className="p-2 rounded-xl border border-border hover:bg-green-50 hover:border-green-200 text-green-600 transition-colors"
-                  title="Relancer sur WhatsApp"
+                  title="Relancer sur WhatsApp (message pré-rempli)"
                 >
                   <Icon name="ChatBubbleLeftEllipsisIcon" size={15} />
                 </button>
+                {selected.client_id && (
+                  <a
+                    href={`/marketing?clientId=${selected.client_id}&firstName=${encodeURIComponent(selected.client?.firstName ?? '')}&lastName=${encodeURIComponent(selected.client?.lastName ?? '')}&phone=${encodeURIComponent(selected.client?.phone ?? '')}`}
+                    className="p-2 rounded-xl border border-border hover:bg-pink-50 hover:border-pink-200 text-pink-600 transition-colors"
+                    title="Envoyer un message marketing (templates)"
+                  >
+                    <Icon name="MegaphoneIcon" size={15} />
+                  </a>
+                )}
                 <a
                   href={`/clients?id=${selected.client_id}`}
                   className="p-2 rounded-xl border border-border hover:bg-muted text-muted-foreground transition-colors"
