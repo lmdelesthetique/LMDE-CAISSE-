@@ -508,7 +508,6 @@ export default function DevisProPage() {
     if (selected.statut === 'annule') { toast.error('Devis annulé — impossible d\'ajouter un paiement.'); return; }
     const remaining = Math.max(0, selected.client_pays - (selected.paye_total ?? 0));
 
-    // For espèces: record actual amount owed (not what was physically given)
     let amount: number;
     let noteAuto = paymentNote.trim();
     if (paymentMethod === 'especes' && cashGiven) {
@@ -524,6 +523,36 @@ export default function DevisProPage() {
 
     if (!amount || amount <= 0) { toast.error('Montant invalide'); return; }
 
+    // ── Alma: add fees to devis total + record full amount ──────────────────
+    let newClientPays = selected.client_pays;
+    let newItems = selected.items;
+
+    if (paymentMethod === 'alma') {
+      // Base = entered amount (before fees). Remove any existing alma-frais item first.
+      const baseItems = selected.items.filter((i: DevisItem) => !String(i.id || '').startsWith('custom-alma-frais'));
+      const fees = Math.round(amount * ALMA_FEE_RATE * 100) / 100;
+      const totalWithFees = Math.round((amount + fees) * 100) / 100;
+
+      const almaItem: DevisItem = {
+        id: `custom-alma-frais`,
+        name: `Frais Alma ${almaInstallments}x (6,2%)`,
+        price: fees,
+        sellPrice: fees,
+        qty: 1,
+        isBonus: false,
+        isCustom: true,
+        discountPct: 0,
+        imageUrl: null,
+      };
+
+      newItems = [...baseItems, almaItem];
+      newClientPays = totalWithFees;
+      amount = totalWithFees; // record the full amount with fees
+      noteAuto = noteAuto
+        ? `${noteAuto} — ${almaInstallments}x · Base: ${fmtMoney(amount - fees)}, Frais: ${fmtMoney(fees)}`
+        : `Alma ${almaInstallments}x · Base: ${fmtMoney(totalWithFees - fees)}, Frais: ${fmtMoney(fees)}, Échéance: ${fmtMoney(Math.round(totalWithFees / almaInstallments * 100) / 100)}`;
+    }
+
     const newPaiement: Paiement = {
       id: crypto.randomUUID(),
       method: paymentMethod as any,
@@ -534,17 +563,24 @@ export default function DevisProPage() {
     const paiements = [...(selected.paiements ?? []), newPaiement];
     const payeTotal = paiements.reduce((s, p) => s + p.amount, 0);
 
+    const patch: Record<string, any> = { paiements, paye_total: payeTotal };
+    if (paymentMethod === 'alma') {
+      patch.items = newItems;
+      patch.client_pays = newClientPays;
+      patch.total_ttc = newClientPays;
+    }
+
     const res = await fetch(`/api/devis-pro/${selected.id}`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ paiements, paye_total: payeTotal }),
+      body: JSON.stringify(patch),
     });
     const json = await res.json();
     if (json.error) { toast.error(json.error); return; }
 
-    setSelected((prev) => prev ? { ...prev, paiements, paye_total: payeTotal } : prev);
-    setDevisList((prev) => prev.map((d) => d.id === selected.id ? { ...d, paiements, paye_total: payeTotal } : d));
+    setSelected((prev) => prev ? { ...prev, paiements, paye_total: payeTotal, client_pays: newClientPays, items: newItems } : prev);
+    setDevisList((prev) => prev.map((d) => d.id === selected.id ? { ...d, paiements, paye_total: payeTotal, client_pays: newClientPays } : d));
     setPaymentAmount(''); setPaymentNote(''); setCashGiven(''); setShowPaymentForm(false);
-    toast.success('Paiement enregistré');
+    toast.success(paymentMethod === 'alma' ? `Paiement Alma enregistré — total ${fmtMoney(newClientPays)}` : 'Paiement enregistré');
   };
 
   // ── Delete payment ───────────────────────────────────────────────────────────
