@@ -1814,8 +1814,15 @@ export default function DevisProPage() {
 
             {/* Relance automatique réassort */}
             <div className="px-5 py-4 border-b border-border">
-              <p className="text-[11px] font-700 uppercase tracking-widest text-muted-foreground mb-3">🔔 Relance réassort</p>
-              <p className="text-[11px] text-muted-foreground mb-2">Date à laquelle la cliente reçoit automatiquement un WhatsApp avec ce devis pour renouveler sa commande.</p>
+              <p className="text-[11px] font-700 uppercase tracking-widest text-muted-foreground mb-3">🔔 Relance réassort mensuelle</p>
+              <p className="text-[11px] text-muted-foreground mb-2">
+                Choisis une date — le <strong>jour du mois</strong> sera retenu et les relances s'enverront automatiquement chaque mois à cette date.
+                {dateReassort && (
+                  <span className="ml-1 font-700 text-primary">
+                    → Le {new Date(dateReassort + 'T12:00:00').getDate()} de chaque mois
+                  </span>
+                )}
+              </p>
               <div className="flex items-center gap-2">
                 <input
                   type="date"
