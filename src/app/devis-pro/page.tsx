@@ -298,6 +298,9 @@ export default function DevisProPage() {
   const [sendingEmail, setSendingEmail] = useState(false);
   const [generatingStripe, setGeneratingStripe] = useState(false);
   const [stripeLink, setStripeLink] = useState<string | null>(null);
+  const [clientSequences, setClientSequences] = useState<any[]>([]);
+  const [loadingSeq, setLoadingSeq] = useState(false);
+  const [startingSeq, setStartingSeq] = useState<'A' | 'B' | null>(null);
 
   // ── Fetch list ──────────────────────────────────────────────────────────────
   const fetchDevis = useCallback(async () => {
@@ -375,6 +378,8 @@ export default function DevisProPage() {
     setClientLink(null);
     setGeneratingLink(false);
     setStripeLink(null);
+    setClientSequences([]);
+    if (selected.client_id) loadClientSequences(selected.client_id);
 
     // In ProDevisPanel, item.id IS the product UUID for non-custom items
     const productIds = selected.items
@@ -777,6 +782,47 @@ export default function DevisProPage() {
     } finally {
       setSavingReassort(false);
     }
+  };
+
+  // ── Séquences de relance A/B ─────────────────────────────────────────────────
+  const loadClientSequences = useCallback(async (clientId: string) => {
+    setLoadingSeq(true);
+    try {
+      const res = await fetch(`/api/relances/sequences?client_id=${clientId}`);
+      const data = await res.json();
+      setClientSequences(data.sequences ?? []);
+    } catch {}
+    finally { setLoadingSeq(false); }
+  }, []);
+
+  const startSequence = async (sequence: 'A' | 'B') => {
+    if (!selected) return;
+    setStartingSeq(sequence);
+    try {
+      const res = await fetch('/api/relances/sequences', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_id: selected.client_id, sequence, devis_id: selected.id }),
+      });
+      const data = await res.json();
+      if (data.error) { toast.error(data.error); return; }
+      toast.success(`Séquence ${sequence} démarrée — visible dans Relances Pro`);
+      loadClientSequences(selected.client_id);
+    } catch { toast.error('Erreur réseau'); }
+    finally { setStartingSeq(null); }
+  };
+
+  const stopSequence = async (seqId: string) => {
+    if (!selected) return;
+    const res = await fetch('/api/relances/sequences', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: seqId, statut: 'stop' }),
+    });
+    const data = await res.json();
+    if (data.error) { toast.error(data.error); return; }
+    toast.success('Séquence arrêtée');
+    loadClientSequences(selected.client_id);
   };
 
   // ── Save employee on devis ───────────────────────────────────────────────────
@@ -1878,6 +1924,56 @@ export default function DevisProPage() {
                 >
                   {sendingAutoRelance ? 'Envoi…' : '📲 Envoyer la relance maintenant'}
                 </button>
+              )}
+            </div>
+
+            {/* Séquences de relance A/B */}
+            <div className="px-5 py-4 border-b border-border">
+              <p className="text-[11px] font-700 uppercase tracking-widest text-muted-foreground mb-3">📋 Séquences de relance</p>
+              {loadingSeq ? (
+                <p className="text-xs text-muted-foreground">Chargement…</p>
+              ) : (
+                <div className="space-y-2">
+                  {(['A', 'B'] as const).map((seq) => {
+                    const seqNames: Record<string, string> = {
+                      A: 'Invitation fiche — elle ne connaît pas encore le concept',
+                      B: 'Fiche non validée — elle a reçu son devis mais n\'a pas répondu',
+                    };
+                    const active = clientSequences.find((s) => s.sequence === seq && s.statut === 'active');
+                    return (
+                      <div key={seq} className={`rounded-lg px-3 py-2.5 ${active ? 'bg-indigo-50 border border-indigo-200' : 'bg-muted/30 border border-dashed border-border'}`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-700">Séq. {seq}</span>
+                              {active && (
+                                <span className="text-[10px] font-600 text-indigo-600 bg-indigo-100 px-1.5 py-0.5 rounded">
+                                  ● {active.etape_actuelle ? `étape ${active.etape_actuelle}` : 'démarrée'}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight">{seqNames[seq]}</p>
+                          </div>
+                          <div className="flex gap-1.5 shrink-0">
+                            {active && (
+                              <button onClick={() => stopSequence(active.id)}
+                                className="text-[11px] px-2 py-1 border border-red-200 text-red-500 rounded-lg hover:bg-red-50 font-600">
+                                Arrêter
+                              </button>
+                            )}
+                            <button
+                              onClick={() => startSequence(seq)}
+                              disabled={startingSeq === seq}
+                              className={`text-[11px] px-2.5 py-1 rounded-lg font-700 disabled:opacity-40 ${active ? 'border border-indigo-300 text-indigo-600 hover:bg-indigo-100' : 'bg-indigo-500 text-white hover:bg-indigo-600'}`}
+                            >
+                              {startingSeq === seq ? '…' : active ? '↺ Redémarrer' : '▶ Démarrer'}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </div>
 
