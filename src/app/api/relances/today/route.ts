@@ -224,41 +224,46 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // 5. Sequences A/B/D/E
+  // 5. Sequences A/B/D/E — load without joins to avoid FK cache issues
   const { data: seqList, error: seqErr } = await supabase
     .from('client_relance_sequences')
-    .select(`
-      id, client_id, sequence, etape_actuelle, started_at, devis_id, statut,
-      client:clients(id, first_name, last_name, phone, whatsapp, email),
-      devis:devis_pro(id, numero, items, client_token, client_pays)
-    `)
+    .select('id, client_id, sequence, etape_actuelle, started_at, devis_id, statut')
     .eq('statut', 'active')
     .in('sequence', ['A', 'B', 'D', 'E']);
 
-  if (seqErr) console.error('[relances/today] seqErr:', seqErr.message);
+  dbg.seq_error = seqErr?.message ?? null;
+  dbg.seq_count = (seqList ?? []).length;
 
-  const { data: abTemplates } = await supabase
-    .from('relance_templates')
-    .select('*')
-    .in('sequence', ['A', 'B', 'D', 'E'])
-    .eq('actif', true)
-    .order('delai_jours', { ascending: true });
+  const [{ data: abTemplates }, { data: seqClients }, { data: seqDevis }] = await Promise.all([
+    supabase.from('relance_templates').select('*').in('sequence', ['A', 'B', 'D', 'E']).eq('actif', true).order('delai_jours', { ascending: true }),
+    (seqList ?? []).length > 0
+      ? supabase.from('clients').select('id, first_name, last_name, phone, whatsapp, email').in('id', [...new Set((seqList ?? []).map((s: any) => s.client_id))])
+      : Promise.resolve({ data: [] }),
+    (seqList ?? []).filter((s: any) => s.devis_id).length > 0
+      ? supabase.from('devis_pro').select('id, numero, items, client_token, client_pays').in('id', [...new Set((seqList ?? []).filter((s: any) => s.devis_id).map((s: any) => s.devis_id))])
+      : Promise.resolve({ data: [] }),
+  ]);
+
+  const clientMap: Record<string, any> = {};
+  for (const c of seqClients ?? []) clientMap[c.id] = c;
+  const devisMap: Record<string, any> = {};
+  for (const d of seqDevis ?? []) devisMap[d.id] = d;
 
   const pendingSeq: any[] = [];
 
   for (const seq of seqList ?? []) {
     try {
-      const client = Array.isArray(seq.client) ? (seq.client as any[])[0] : seq.client as any;
-      if (!client) continue;
+      const client = clientMap[seq.client_id];
+      if (!client) { dbg.seq_error = (dbg.seq_error ?? '') + ` no_client:${seq.client_id}`; continue; }
 
       const seqTemplates = (abTemplates ?? []).filter((t: any) => t.sequence === seq.sequence);
       const currentIdx = seqTemplates.findIndex((t: any) => t.etape === seq.etape_actuelle);
       const nextTpl = currentIdx >= 0 ? seqTemplates[currentIdx + 1] : seqTemplates[0];
-      if (!nextTpl) continue;
+      if (!nextTpl) { dbg.seq_error = (dbg.seq_error ?? '') + ` no_template:${seq.sequence}`; continue; }
 
       const firstName = (client.first_name?.trim() && !/^\d+$/.test(client.first_name))
         ? client.first_name.trim() : (client.last_name?.trim() || 'Madame');
-      const devis = Array.isArray(seq.devis) ? (seq.devis as any[])[0] : seq.devis as any;
+      const devis = seq.devis_id ? devisMap[seq.devis_id] : null;
       const itemsArr = devis ? (Array.isArray(devis.items) ? devis.items : []) : [];
       const produits = itemsArr.filter((i: any) => !i.isBonus).slice(0, 6).map((i: any) => i.name).join(', ') || '—';
       const lienFiche = devis?.client_token ? `${SITE_URL}/devis/${devis.client_token}` : SITE_URL;
