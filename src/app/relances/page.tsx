@@ -561,7 +561,7 @@ export default function RelancesPage() {
                   </section>
                 )}
 
-                {total === 0 && !loading && (
+                {total === 0 && pendingSeq.length === 0 && !loading && (
                   <div className="text-center py-20">
                     <p className="text-3xl mb-3">✅</p>
                     <p className="text-base font-700">Rien à envoyer aujourd'hui</p>

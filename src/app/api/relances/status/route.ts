@@ -118,14 +118,17 @@ export async function GET() {
       }
     }
 
-    const firstName = (client?.first_name?.trim() && !/^\d+$/.test(client.first_name))
-      ? client.first_name.trim() : (client?.last_name?.trim() || '—');
+    const hasFirstName = client?.first_name?.trim() && !/^\d+$/.test(client.first_name);
+    const firstName = hasFirstName ? client.first_name.trim() : (client?.last_name?.trim() || '—');
+    const clientName = hasFirstName
+      ? `${firstName} ${client?.last_name ?? ''}`.trim()
+      : firstName;
 
     return {
       devis_id: devis.id,
       numero: devis.numero,
       statut: devis.statut,
-      client_name: `${firstName} ${client?.last_name ?? ''}`.trim(),
+      client_name: clientName,
       has_whatsapp: !!(client?.whatsapp || client?.phone),
       day_of_month: dayOfMonth,
       current_cycle: currentCycle,

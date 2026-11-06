@@ -32,8 +32,8 @@ export async function POST(req: NextRequest) {
 
   if (logErr) return NextResponse.json({ error: logErr.message }, { status: 500 });
 
-  // If it's a sequence A/B: advance to next etape
-  if (sequence_id && statut === 'envoye') {
+  // If it's a sequence A/B: advance to next etape (whether sent or ignored)
+  if (sequence_id && (statut === 'envoye' || statut === 'ignore')) {
     await supabase
       .from('client_relance_sequences')
       .update({ etape_actuelle: etape, updated_at: new Date().toISOString() })

@@ -259,7 +259,11 @@ export async function GET(req: NextRequest) {
       const seqTemplates = (abTemplates ?? []).filter((t: any) => t.sequence === seq.sequence);
       const currentIdx = seqTemplates.findIndex((t: any) => t.etape === seq.etape_actuelle);
       const nextTpl = currentIdx >= 0 ? seqTemplates[currentIdx + 1] : seqTemplates[0];
-      if (!nextTpl) { dbg.seq_error = (dbg.seq_error ?? '') + ` no_template:${seq.sequence}`; continue; }
+      if (!nextTpl) {
+        // All steps sent — auto-mark sequence as complete
+        supabase.from('client_relance_sequences').update({ statut: 'complete', updated_at: new Date().toISOString() }).eq('id', seq.id).then(() => {});
+        continue;
+      }
 
       const firstName = (client.first_name?.trim() && !/^\d+$/.test(client.first_name))
         ? client.first_name.trim() : (client.last_name?.trim() || 'Madame');
