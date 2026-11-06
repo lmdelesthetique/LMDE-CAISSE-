@@ -587,16 +587,37 @@ export default function DevisProPage() {
   const deletePayment = async (idx: number) => {
     if (!selected) return;
     if (selected.statut === 'annule') { toast.error('Devis annulé — impossible de modifier les paiements.'); return; }
+    const deleted = selected.paiements[idx];
     const paiements = selected.paiements.filter((_, i) => i !== idx);
     const payeTotal = paiements.reduce((s, p) => s + p.amount, 0);
+
+    const patch: Record<string, any> = { paiements, paye_total: payeTotal };
+    let newItems = selected.items;
+    let newClientPays = selected.client_pays;
+
+    // Alma: revert fees item and inflated total when payment is removed
+    if (deleted?.method === 'alma') {
+      newItems = selected.items.filter((i: DevisItem) => !String(i.id || '').startsWith('custom-alma-frais'));
+      const globalDisc = Number(selected.discount_pct) || 0;
+      const rawTotal = newItems.reduce((s: number, i: DevisItem) => {
+        if (i.isBonus) return s;
+        const itemDisc = Number(i.discountPct ?? 0);
+        return s + (Number(i.sellPrice ?? i.price ?? 0)) * (1 - itemDisc / 100) * (Number(i.qty) || 1);
+      }, 0);
+      newClientPays = Math.round(rawTotal * (1 - globalDisc / 100) * 100) / 100;
+      patch.items = newItems;
+      patch.client_pays = newClientPays;
+      patch.total_ttc = newClientPays;
+    }
+
     const res = await fetch(`/api/devis-pro/${selected.id}`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ paiements, paye_total: payeTotal }),
+      body: JSON.stringify(patch),
     });
     const json = await res.json();
     if (json.error) { toast.error(json.error); return; }
-    setSelected((prev) => prev ? { ...prev, paiements, paye_total: payeTotal } : prev);
-    setDevisList((prev) => prev.map((d) => d.id === selected.id ? { ...d, paiements, paye_total: payeTotal } : d));
+    setSelected((prev) => prev ? { ...prev, paiements, paye_total: payeTotal, items: newItems, client_pays: newClientPays, total_ttc: newClientPays } : prev);
+    setDevisList((prev) => prev.map((d) => d.id === selected.id ? { ...d, paiements, paye_total: payeTotal, client_pays: newClientPays } : d));
     toast.success('Paiement supprimé');
   };
 

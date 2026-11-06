@@ -63,19 +63,21 @@ async function createReceiptFromDevis(supabase: ReturnType<typeof createAdminCli
 
   const receiptItems = items.map((item: any) => {
     const isCustom = String(item.id || '').startsWith('custom-');
+    const p = Number(item.price ?? item.sellPrice ?? item.sell_price_ttc) || 0;
+    const itemDisc = Number(item.discountPct ?? item.discount ?? 0);
     return {
       product_id: isCustom ? null : (item.productId ?? item.id),
       name: item.name || item.label || 'Article',
       sku: item.sku || '',
-      price: Number(item.price ?? item.sellPrice ?? item.sell_price_ttc) || 0,
+      price: p,
       qty: Number(item.qty) || 1,
       quantity: Number(item.qty) || 1,
-      discount: Number(item.discount) || 0,
+      discount: itemDisc,
       discount_type: item.discountType || item.discount_type || 'percent',
       tva: Number(item.tva) || 0.085,
       is_free_price: false,
       image_url: item.imageUrl || item.image_url || null,
-      total: Math.max(0, (Number(item.price ?? item.sellPrice ?? item.sell_price_ttc) || 0) * (Number(item.qty) || 1)),
+      total: Math.max(0, p * (1 - itemDisc / 100) * (Number(item.qty) || 1)),
     };
   });
 
@@ -83,8 +85,9 @@ async function createReceiptFromDevis(supabase: ReturnType<typeof createAdminCli
   const totalHT = Math.round((totalTTC / 1.085) * 100) / 100;
   const totalTVA = Math.round((totalTTC - totalHT) * 100) / 100;
   const discountPct = Number(devis.discount_pct) || 0;
-  const discountAmount = discountPct > 0
-    ? Math.round((Number(devis.total_ttc) * discountPct / 100) * 100) / 100
+  // total_ttc is already post-discount; recover pre-discount base then compute actual savings
+  const discountAmount = discountPct > 0 && discountPct < 100
+    ? Math.round((Number(devis.total_ttc) * discountPct / (100 - discountPct)) * 100) / 100
     : 0;
 
   const ticketNumber = generateTicketNumber();
