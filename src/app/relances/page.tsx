@@ -25,6 +25,7 @@ interface PendingC {
   sujet: string | null;
   apercu: string | null;
   lien_fiche: string;
+  devis_statut: string;
   timeline: Array<{ etape: string; canal: Canal; delai_jours: number; step_date: string; sent_at: string | null; statut: string | null }>;
 }
 
@@ -143,6 +144,8 @@ function RelanceCard({ item, onSent, onIgnored }: {
 }) {
   const [showMail, setShowMail] = useState(false);
   const [done, setDone] = useState(false);
+  const [creatingReassort, setCreatingReassort] = useState(false);
+  const [newLink, setNewLink] = useState<string | null>(null);
 
   const sendMail = async (sujet: string, corps: string) => {
     const canal = item.type === 'C' ? (item as PendingC).canal : (item as PendingSeq).next_canal;
@@ -160,15 +163,32 @@ function RelanceCard({ item, onSent, onIgnored }: {
     setDone(true);
   };
 
+  const createReassort = async () => {
+    if (item.type !== 'C') return;
+    setCreatingReassort(true);
+    try {
+      const res = await fetch('/api/relances/create-reassort', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ template_devis_id: (item as PendingC).devis_id }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error ?? 'Erreur création'); return; }
+      setNewLink(data.link);
+      toast.success(`Nouveau devis ${data.numero} créé !`);
+    } catch { toast.error('Erreur réseau'); }
+    finally { setCreatingReassort(false); }
+  };
+
   const openWA = () => {
     const wa = item.client_wa;
     if (!wa) { toast.error('Pas de numéro WhatsApp'); return; }
     const number = normalizePhone(wa);
-    // Always append the devis link if not already in the message
-    const lienFiche = item.type === 'C' ? (item as PendingC).lien_fiche : null;
+    // Use new link if a fresh reassort devis was created
+    const activeLien = newLink ?? (item.type === 'C' ? (item as PendingC).lien_fiche : null);
     let text = item.corps;
-    if (lienFiche && lienFiche.includes('/devis/') && !text.includes(lienFiche)) {
-      text += `\n\n🔗 Votre fiche commande : ${lienFiche}`;
+    if (activeLien && activeLien.includes('/devis/') && !text.includes(activeLien)) {
+      text += `\n\n🔗 Votre fiche commande : ${activeLien}`;
     }
     window.open(`https://wa.me/${number}?text=${encodeURIComponent(text)}`, '_blank');
   };
@@ -213,8 +233,37 @@ function RelanceCard({ item, onSent, onIgnored }: {
           <p className="text-xs text-muted-foreground line-clamp-3 whitespace-pre-line">{item.corps}</p>
         </div>
 
+        {/* Warning + create new reassort when devis is closed */}
+        {isC && ['livre', 'annule', 'client_valide', 'pret'].includes((item as PendingC).devis_statut) && !newLink && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
+            <p className="text-xs text-amber-700 font-600 mb-2">
+              ⚠️ Ce devis est déjà <strong>{(item as PendingC).devis_statut}</strong> — la cliente ne peut plus y répondre.
+              Crée un nouveau devis réassort avec les mêmes produits.
+            </p>
+            <button
+              onClick={createReassort}
+              disabled={creatingReassort}
+              className="w-full py-2 bg-amber-500 text-white rounded-lg text-xs font-700 hover:bg-amber-600 disabled:opacity-40"
+            >
+              {creatingReassort ? 'Création…' : '🔄 Créer nouveau devis réassort'}
+            </button>
+          </div>
+        )}
+
+        {/* New reassort link created */}
+        {newLink && (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+            <p className="text-[11px] font-700 text-emerald-700 mb-1">✅ Nouveau devis créé — lien mis à jour</p>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-emerald-600 truncate flex-1">{newLink}</span>
+              <button onClick={() => { navigator.clipboard.writeText(newLink); toast.success('Lien copié !'); }}
+                className="shrink-0 text-[10px] px-2 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded font-600">Copier</button>
+            </div>
+          </div>
+        )}
+
         {/* Devis link — always visible */}
-        {isC && (item as PendingC).lien_fiche?.includes('/devis/') && (
+        {isC && !newLink && (item as PendingC).lien_fiche?.includes('/devis/') && (
           <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
             <span className="text-xs text-blue-700 font-600 shrink-0">🔗 Lien devis :</span>
             <span className="text-xs text-blue-600 truncate flex-1">{(item as PendingC).lien_fiche}</span>

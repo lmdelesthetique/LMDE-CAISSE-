@@ -73,7 +73,7 @@ export async function GET(req: NextRequest) {
   const { data: devisList, error: devisErr } = await supabase
     .from('devis_pro')
     .select(`
-      id, numero, date_reassort, items, client_token, client_pays,
+      id, numero, date_reassort, statut, items, client_token, client_pays,
       client:clients(id, first_name, last_name, phone, whatsapp, email)
     `)
     .not('date_reassort', 'is', null)
@@ -207,6 +207,7 @@ export async function GET(req: NextRequest) {
             step_date: stepDate,
             cycle_date: cycleDate,
             overdue: stepDate < today,
+            devis_statut: devis.statut,
             corps: subst(tpl.corps + accompagnementSuffix(accomp), vars),
             sujet: tpl.sujet ? subst(tpl.sujet, vars) : null,
             apercu: tpl.apercu ? subst(tpl.apercu, vars) : null,
