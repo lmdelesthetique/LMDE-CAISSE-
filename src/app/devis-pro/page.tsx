@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import Link from 'next/link';
 import Icon from '@/components/ui/AppIcon';
 import { toast } from 'sonner';
 import dynamic from 'next/dynamic';
@@ -1275,6 +1276,9 @@ export default function DevisProPage() {
                 </span>
               )}
             </button>
+            <Link href="/relances" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-700 whitespace-nowrap bg-violet-500 text-white hover:bg-violet-600 transition-colors">
+              📋 Relances Pro
+            </Link>
           </div>
         </div>
 
