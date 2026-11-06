@@ -264,7 +264,8 @@ export async function GET(req: NextRequest) {
       const lienFiche = devis?.client_token ? `${SITE_URL}/devis/${devis.client_token}` : SITE_URL;
 
       const daysSinceStart = Math.floor((Date.now() - new Date(seq.started_at).getTime()) / 86400000);
-      const isDue = daysSinceStart >= Number(nextTpl.delai_jours);
+      // First step (nothing sent yet) is always due immediately
+      const isDue = seq.etape_actuelle === null || daysSinceStart >= Number(nextTpl.delai_jours);
 
       const vars: Record<string, string> = {
         'prénom': firstName, 'produits': produits, 'conseil': 'Conseil à configurer 💡',
