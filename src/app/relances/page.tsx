@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { normalizePhone } from '@/lib/utils/phoneUtils';
 
@@ -330,6 +331,7 @@ function RelanceCard({ item, onSent, onIgnored }: {
 // ─── Page principale ──────────────────────────────────────────────────────────
 
 export default function RelancesPage() {
+  const router = useRouter();
   const [tab, setTab] = useState<'today' | 'suivi' | 'templates'>('today');
   const [loading, setLoading] = useState(true);
   const [pendingC, setPendingC] = useState<PendingC[]>([]);
@@ -455,9 +457,14 @@ export default function RelancesPage() {
       {/* Header */}
       <div className="border-b border-border bg-white sticky top-0 z-10">
         <div className="max-w-3xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-700">Relances pro</h1>
-            <p className="text-xs text-muted-foreground">{new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+          <div className="flex items-center gap-3">
+            <button onClick={() => router.back()} className="text-muted-foreground hover:text-foreground transition-colors p-1 -ml-1 rounded-lg hover:bg-muted/40" aria-label="Retour">
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            </button>
+            <div>
+              <h1 className="text-lg font-700">Relances pro</h1>
+              <p className="text-xs text-muted-foreground">{new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             {total > 0 && (
