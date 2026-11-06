@@ -1,7 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { randomBytes } from 'crypto';
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.lmdecaisse.com';
+
+// Auto-generate a client_token for a devis that doesn't have one yet
+async function ensureClientToken(supabase: any, devisId: string): Promise<string> {
+  const token = randomBytes(20).toString('hex');
+  await supabase
+    .from('devis_pro')
+    .update({ client_token: token, updated_at: new Date().toISOString() })
+    .eq('id', devisId);
+  return token;
+}
 
 function subst(tpl: string, vars: Record<string, string>): string {
   return tpl.replace(/\{([^}]+)\}/g, (_, key) => vars[key] ?? `{${key}}`);
@@ -118,7 +129,12 @@ export async function GET(req: NextRequest) {
         .map((i: any) => `${i.name}${i.qty > 1 ? ` ×${i.qty}` : ''}`)
         .join(', ') || '—';
       const montant = devis.client_pays ? `${Number(devis.client_pays).toFixed(2)} €` : '—';
-      const lienFiche = devis.client_token ? `${SITE_URL}/devis/${devis.client_token}` : SITE_URL;
+      // Ensure a client_token exists (auto-generate if missing)
+      let clientToken = devis.client_token;
+      if (!clientToken) {
+        try { clientToken = await ensureClientToken(supabase, devis.id); } catch { /* non-blocking */ }
+      }
+      const lienFiche = clientToken ? `${SITE_URL}/devis/${clientToken}` : SITE_URL;
       const accomp: string[] = [];
       const devisLogs = sentMap[devis.id] ?? {};
 

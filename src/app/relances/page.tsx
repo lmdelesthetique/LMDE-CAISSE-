@@ -164,8 +164,13 @@ function RelanceCard({ item, onSent, onIgnored }: {
     const wa = item.client_wa;
     if (!wa) { toast.error('Pas de numéro WhatsApp'); return; }
     const number = normalizePhone(wa);
-    const text = encodeURIComponent(item.corps);
-    window.open(`https://wa.me/${number}?text=${text}`, '_blank');
+    // Always append the devis link if not already in the message
+    const lienFiche = item.type === 'C' ? (item as PendingC).lien_fiche : null;
+    let text = item.corps;
+    if (lienFiche && lienFiche.includes('/devis/') && !text.includes(lienFiche)) {
+      text += `\n\n🔗 Votre fiche commande : ${lienFiche}`;
+    }
+    window.open(`https://wa.me/${number}?text=${encodeURIComponent(text)}`, '_blank');
   };
 
   const isC = item.type === 'C';
@@ -207,6 +212,20 @@ function RelanceCard({ item, onSent, onIgnored }: {
         <div className="bg-muted/40 rounded-lg p-3">
           <p className="text-xs text-muted-foreground line-clamp-3 whitespace-pre-line">{item.corps}</p>
         </div>
+
+        {/* Devis link — always visible */}
+        {isC && (item as PendingC).lien_fiche?.includes('/devis/') && (
+          <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+            <span className="text-xs text-blue-700 font-600 shrink-0">🔗 Lien devis :</span>
+            <span className="text-xs text-blue-600 truncate flex-1">{(item as PendingC).lien_fiche}</span>
+            <button
+              onClick={() => { navigator.clipboard.writeText((item as PendingC).lien_fiche); toast.success('Lien copié !'); }}
+              className="shrink-0 text-[10px] px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded font-600"
+            >
+              Copier
+            </button>
+          </div>
+        )}
 
         {/* Timeline (Seq C only) */}
         {isC && (
