@@ -85,10 +85,15 @@ async function createReceiptFromDevis(supabase: ReturnType<typeof createAdminCli
   const totalHT = Math.round((totalTTC / 1.085) * 100) / 100;
   const totalTVA = Math.round((totalTTC - totalHT) * 100) / 100;
   const discountPct = Number(devis.discount_pct) || 0;
-  // total_ttc is already post-discount; recover pre-discount base then compute actual savings
-  const discountAmount = discountPct > 0 && discountPct < 100
+  // Item-level discount savings (each item's discountPct applied to its price)
+  const itemDiscountSavings = receiptItems.reduce((s: number, i: any) => {
+    return s + i.price * (i.discount / 100) * i.qty;
+  }, 0);
+  // Global discount savings: total_ttc is already post-discount so recover pre-global base
+  const globalDiscountSavings = discountPct > 0 && discountPct < 100
     ? Math.round((Number(devis.total_ttc) * discountPct / (100 - discountPct)) * 100) / 100
     : 0;
+  const discountAmount = Math.round((itemDiscountSavings + globalDiscountSavings) * 100) / 100;
 
   const ticketNumber = generateTicketNumber();
 
