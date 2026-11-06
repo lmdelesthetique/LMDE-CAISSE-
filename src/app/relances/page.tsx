@@ -273,15 +273,24 @@ export default function RelancesPage() {
   const [statusLoading, setStatusLoading] = useState(false);
   const [templatesCount, setTemplatesCount] = useState(0);
 
+  const [debugInfo, setDebugInfo] = useState<any>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch('/api/relances/today');
       const data = await res.json();
+      if (!res.ok) { toast.error(`Erreur API: ${data.error ?? res.status}`); return; }
       setPendingC(data.pending_c ?? []);
       setPendingSeq(data.pending_sequences ?? []);
-    } catch { toast.error('Erreur chargement relances'); }
+    } catch (e: any) { toast.error('Erreur chargement relances: ' + e.message); }
     finally { setLoading(false); }
+  }, []);
+
+  const loadDebug = useCallback(async () => {
+    const res = await fetch('/api/relances/today?debug=1');
+    const data = await res.json();
+    setDebugInfo(data.debug ?? data);
   }, []);
 
   const loadTemplates = useCallback(async () => {
@@ -387,6 +396,7 @@ export default function RelancesPage() {
               <span className="bg-primary text-primary-foreground text-xs font-700 px-2 py-1 rounded-full">{total} action{total > 1 ? 's' : ''}</span>
             )}
             <button onClick={load} className="text-xs px-3 py-1.5 border border-border rounded-lg hover:bg-muted/40">↻ Actualiser</button>
+            <button onClick={loadDebug} className="text-xs px-2 py-1 border border-dashed border-muted-foreground/40 rounded-lg text-muted-foreground hover:bg-muted/40">🔍 Debug</button>
           </div>
         </div>
         <div className="max-w-3xl mx-auto px-4 flex gap-1 pb-0">
@@ -404,6 +414,34 @@ export default function RelancesPage() {
       </div>
 
       <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
+
+        {/* ── Debug panel ── */}
+        {debugInfo && (
+          <div className="bg-slate-900 text-green-400 rounded-xl p-4 text-[11px] font-mono overflow-auto max-h-96">
+            <div className="flex justify-between mb-2">
+              <span className="font-700 text-green-300">🔍 Debug — today: {debugInfo.today} | window: {debugInfo.windowStart} → {debugInfo.today}</span>
+              <button onClick={() => setDebugInfo(null)} className="text-slate-400 hover:text-white">✕</button>
+            </div>
+            <div className="mb-2">Templates actifs: {debugInfo.templates?.length ?? '?'} → {debugInfo.templates?.map((t: any) => `${t.etape}(${t.delai_jours}j)`).join(', ')}</div>
+            <div className="mb-2">Devis trouvés: {debugInfo.devis_count ?? '?'} | Logs: {debugInfo.logs_count ?? 0}</div>
+            {(debugInfo.steps ?? []).map((s: any, i: number) => (
+              <div key={i} className="border-t border-slate-700 mt-2 pt-2">
+                <div className="text-yellow-300">{s.numero ?? s.devis_id} — jour {s.dayOfMonth}</div>
+                {s.error && <div className="text-red-400">ERREUR: {s.error}</div>}
+                {(s.cycles ?? []).map((c: any, j: number) => (
+                  <div key={j} className="ml-2">
+                    <div className="text-blue-300">cycle offset={c.monthOffset} → {c.cycleDate}</div>
+                    {(c.checks ?? []).map((ch: any, k: number) => (
+                      <div key={k} className={`ml-4 ${!ch.skip ? 'text-green-300 font-700' : 'text-slate-500'}`}>
+                        {ch.etape}: {ch.stepDate} {ch.skip ? `→ skip(${ch.skip})` : '→ ✅ AJOUTÉ'}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* ── Onglet Du jour ── */}
         {tab === 'today' && (
