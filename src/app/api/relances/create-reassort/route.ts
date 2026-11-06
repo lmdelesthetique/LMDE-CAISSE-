@@ -60,6 +60,9 @@ export async function POST(req: NextRequest) {
 
   if (insertErr) return NextResponse.json({ error: insertErr.message }, { status: 500 });
 
+  // Remove date_reassort from original so it no longer appears in future relance cycles
+  await supabase.from('devis_pro').update({ date_reassort: null }).eq('id', template_devis_id);
+
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.lmdecaisse.com';
   return NextResponse.json({
     ok: true,

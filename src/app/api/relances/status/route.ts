@@ -2,18 +2,18 @@ import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 function addDays(dateStr: string, days: number): string {
-  const d = new Date(dateStr + 'T12:00:00Z');
+  const d = new Date(dateStr.substring(0, 10) + 'T12:00:00Z');
   d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().split('T')[0];
+  return d.toISOString().substring(0, 10);
 }
 
 function getCycleDate(dayOfMonth: number, monthOffset: number): string {
-  const ref = new Date();
-  const year = ref.getFullYear();
-  const month = ref.getMonth() + monthOffset;
-  const lastDay = new Date(year, month + 1, 0).getDate();
-  const clampedDay = Math.min(dayOfMonth, lastDay);
-  return new Date(year, month, clampedDay).toISOString().split('T')[0];
+  const now = new Date();
+  const year = now.getUTCFullYear();
+  const month = now.getUTCMonth() + monthOffset;
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const day = Math.min(dayOfMonth, lastDay);
+  return new Date(Date.UTC(year, month, day)).toISOString().substring(0, 10);
 }
 
 export async function GET() {
@@ -85,7 +85,8 @@ export async function GET() {
         if (stepDate < today) continue; // skip past steps
         const alreadySent = logs.some(
           (l: any) => l.etape === (tpl as any).etape && l.statut === 'envoye' &&
-            l.sent_at >= cycleWindowStart && l.sent_at <= cycleWindowEnd + 'T23:59:59Z'
+            l.sent_at.substring(0, 10) >= cycleWindowStart &&
+            l.sent_at.substring(0, 10) <= cycleWindowEnd
         );
         if (!alreadySent) {
           nextStep = { etape: (tpl as any).etape, canal: (tpl as any).canal, date: stepDate };
@@ -108,7 +109,8 @@ export async function GET() {
         if (stepDate < windowStart || stepDate > today) continue;
         const alreadySent = logs.some(
           (l: any) => l.etape === (tpl as any).etape && l.statut === 'envoye' &&
-            l.sent_at >= cycleWindowStart && l.sent_at <= cycleWindowEnd + 'T23:59:59Z'
+            l.sent_at.substring(0, 10) >= cycleWindowStart &&
+            l.sent_at.substring(0, 10) <= cycleWindowEnd
         );
         if (!alreadySent) {
           dueToday.push({ etape: (tpl as any).etape, canal: (tpl as any).canal, overdue: stepDate < today });
