@@ -290,6 +290,7 @@ export async function GET(req: NextRequest) {
         next_etape: nextTpl.etape, next_canal: nextTpl.canal,
         next_delai: nextTpl.delai_jours, days_in_sequence: daysSinceStart,
         is_due: isDue, template_id: nextTpl.id,
+        lien_fiche: devis?.client_token ? lienFiche : null,
         corps: subst(nextTpl.corps, vars),
         sujet: nextTpl.sujet ? subst(nextTpl.sujet, vars) : null,
         apercu: nextTpl.apercu ? subst(nextTpl.apercu, vars) : null,

@@ -46,6 +46,7 @@ interface PendingSeq {
   days_in_sequence: number;
   is_due: boolean;
   template_id: string;
+  lien_fiche: string | null;
   corps: string;
   sujet: string | null;
   apercu: string | null;
@@ -185,11 +186,11 @@ function RelanceCard({ item, onSent, onIgnored }: {
     const wa = item.client_wa;
     if (!wa) { toast.error('Pas de numéro WhatsApp'); return; }
     const number = normalizePhone(wa);
-    // Use new link if a fresh reassort devis was created
-    const activeLien = newLink ?? (item.type === 'C' ? (item as PendingC).lien_fiche : null);
+    const activeLien = newLink
+      ?? (item.type === 'C' ? (item as PendingC).lien_fiche : (item as PendingSeq).lien_fiche);
     let text = item.corps;
     if (activeLien && activeLien.includes('/devis/') && !text.includes(activeLien)) {
-      text += `\n\n🔗 Votre fiche commande : ${activeLien}`;
+      text += `\n\n🔗 Votre fiche : ${activeLien}`;
     }
     window.open(`https://wa.me/${number}?text=${encodeURIComponent(text)}`, '_blank');
   };
@@ -263,19 +264,23 @@ function RelanceCard({ item, onSent, onIgnored }: {
           </div>
         )}
 
-        {/* Devis link — always visible */}
-        {isC && !newLink && (item as PendingC).lien_fiche?.includes('/devis/') && (
-          <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
-            <span className="text-xs text-blue-700 font-600 shrink-0">🔗 Lien devis :</span>
-            <span className="text-xs text-blue-600 truncate flex-1">{(item as PendingC).lien_fiche}</span>
-            <button
-              onClick={() => { navigator.clipboard.writeText((item as PendingC).lien_fiche); toast.success('Lien copié !'); }}
-              className="shrink-0 text-[10px] px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded font-600"
-            >
-              Copier
-            </button>
-          </div>
-        )}
+        {/* Devis link — always visible for C and A/B when devis attached */}
+        {!newLink && (() => {
+          const lien = isC ? (item as PendingC).lien_fiche : (item as PendingSeq).lien_fiche;
+          if (!lien?.includes('/devis/')) return null;
+          return (
+            <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+              <span className="text-xs text-blue-700 font-600 shrink-0">🔗 Lien fiche :</span>
+              <span className="text-xs text-blue-600 truncate flex-1">{lien}</span>
+              <button
+                onClick={() => { navigator.clipboard.writeText(lien); toast.success('Lien copié !'); }}
+                className="shrink-0 text-[10px] px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded font-600"
+              >
+                Copier
+              </button>
+            </div>
+          );
+        })()}
 
         {/* Timeline (Seq C only) */}
         {isC && (
