@@ -1133,6 +1133,33 @@ export default function AbonnementsPage() {
   const [cancelReason, setCancelReason] = useState('');
   const [cancellingSub, setCancellingSub] = useState(false);
 
+  // Stripe sync
+  const [stripeSyncing, setStripeSyncing] = useState(false);
+  const [stripeSyncResult, setStripeSyncResult] = useState<{ cancelled: number; already_cancelled: number; errors: number } | null>(null);
+
+  const handleSyncStripeCancellations = async () => {
+    if (!confirm('Annuler sur Stripe tous les abonnements résiliés dans l\'app qui sont encore actifs côté Stripe ?')) return;
+    setStripeSyncing(true);
+    setStripeSyncResult(null);
+    try {
+      const res = await fetch('/api/admin/sync-stripe-cancellations', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        setStripeSyncResult({ cancelled: data.cancelled, already_cancelled: data.already_cancelled, errors: data.errors });
+        showEmailToast(data.errors === 0, data.errors > 0
+          ? `${data.cancelled} annulés — ${data.errors} erreurs`
+          : `${data.cancelled} annulés sur Stripe · ${data.already_cancelled} déjà annulés`
+        );
+      } else {
+        showEmailToast(false, data.error ?? 'Erreur sync Stripe');
+      }
+    } catch {
+      showEmailToast(false, 'Erreur réseau');
+    } finally {
+      setStripeSyncing(false);
+    }
+  };
+
   // Add new subscriber flow
   const [showNewClientModal, setShowNewClientModal] = useState(false);
   const [subSetupClient, setSubSetupClient] = useState<Client | null>(null);
@@ -1405,6 +1432,20 @@ export default function AbonnementsPage() {
             <p className="text-sm text-muted-foreground mt-0.5">Gestion des box beauté mensuelles</p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={handleSyncStripeCancellations}
+              disabled={stripeSyncing}
+              title="Annuler sur Stripe tous les abonnements résiliés dans l'app qui sont encore actifs"
+              className="flex items-center gap-2 px-3 py-2 bg-orange-100 text-orange-700 border border-orange-200 rounded-xl text-sm font-semibold hover:bg-orange-200 transition-colors disabled:opacity-40"
+            >
+              {stripeSyncing ? (
+                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              ) : '🔄'}
+              Vérifier Stripe
+            </button>
             <button
               onClick={() => setShowNewClientModal(true)}
               className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 transition-colors"
