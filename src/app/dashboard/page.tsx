@@ -19,6 +19,7 @@ import AIMonthlyReport from './components/AIMonthlyReport';
 import MDLEStrategiePanel from './components/MDLEStrategiePanel';
 import SubscriptionBoxAlert from './components/SubscriptionBoxAlert';
 import SubscriptionBoxesWidget from './components/SubscriptionBoxesWidget';
+import DevisReassortWidget from './components/DevisReassortWidget';
 import { type DashboardFiltersState } from '@/lib/services/dashboardService';
 
 const DAYS_FR = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
@@ -80,6 +81,9 @@ export default function DashboardPage() {
 
           {/* CA by category */}
           <CACategoryBreakdown filters={filters} />
+
+          {/* Devis Réassort validés par client */}
+          <DevisReassortWidget />
 
           {/* Shopify + Boxes Row */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
