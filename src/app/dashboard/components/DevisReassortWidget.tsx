@@ -97,8 +97,6 @@ export default function DevisReassortWidget() {
   const treatedList = devis.filter(d => treated.has(d.id));
   const displayList = [...pending, ...treatedList];
 
-  if (!loading && devis.length === 0) return null;
-
   return (
     <div className="rounded-xl border bg-white shadow-card flex flex-col overflow-hidden">
       {/* Header */}
