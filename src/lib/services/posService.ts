@@ -104,7 +104,8 @@ export async function saveReceipt(params: SaveReceiptParams): Promise<{ id: stri
     ...(params.employeeId ? { employee_id: params.employeeId } : {}),
     loyalty_points_earned: params.loyaltyPointsEarned || 0,
     loyalty_reward_used: params.loyaltyRewardUsed || null,
-    store_credit_used: params.storeCreditUsed || 0,
+    // Only include if non-zero to avoid breaking inserts if column not yet migrated
+    ...(params.storeCreditUsed ? { store_credit_used: params.storeCreditUsed } : {}),
     notes: params.notes || null,
     status: 'completed',
     // Only include is_demo when true — avoids 42703 if migration not yet applied

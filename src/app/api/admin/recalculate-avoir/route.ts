@@ -22,7 +22,7 @@ export async function POST() {
         .select('client_id, store_credit_used')
         .not('client_id', 'is', null)
         .neq('status', 'cancelled')
-        .gt('store_credit_used', 0),
+        .not('store_credit_used', 'is', null),
       supabase
         .from('devis_pro')
         .select('client_id, paiements')
@@ -32,7 +32,12 @@ export async function POST() {
     ]);
 
     if (returnsRes.error) return NextResponse.json({ error: `returns: ${returnsRes.error.message}` }, { status: 500 });
-    if (receiptsRes.error) return NextResponse.json({ error: `receipts: ${receiptsRes.error.message}` }, { status: 500 });
+    // receipts.store_credit_used column may not exist yet — treat as no POS debits
+    if (receiptsRes.error && receiptsRes.error.message?.includes('store_credit_used')) {
+      console.warn('[recalculate-avoir] store_credit_used column missing in receipts — skipping POS debits');
+    } else if (receiptsRes.error) {
+      return NextResponse.json({ error: `receipts: ${receiptsRes.error.message}` }, { status: 500 });
+    }
     if (devisRes.error) return NextResponse.json({ error: `devis_pro: ${devisRes.error.message}` }, { status: 500 });
 
     // 2. Aggregate per client

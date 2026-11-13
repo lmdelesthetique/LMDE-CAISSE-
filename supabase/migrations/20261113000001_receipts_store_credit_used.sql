@@ -1,0 +1,2 @@
+ALTER TABLE receipts
+  ADD COLUMN IF NOT EXISTS store_credit_used NUMERIC(10,2) NOT NULL DEFAULT 0;
