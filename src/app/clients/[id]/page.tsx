@@ -64,6 +64,8 @@ export default function ClientDetailPage() {
   const [notFound, setNotFound] = useState(false);
   const [referralData, setReferralData] = useState<{ referralCode: string | null; referralCount: number; referralPointsEarned: number; filleuls: any[] } | null>(null);
   const [generatingCode, setGeneratingCode] = useState(false);
+  const [avoirHistory, setAvoirHistory] = useState<Array<{ id: string; date: string; type: 'credit' | 'debit'; source: 'retour' | 'caisse' | 'devis'; source_ref: string | null; amount: number; balance_after: number }>>([]);
+  const [avoirLoading, setAvoirLoading] = useState(false);
 
   const refreshClient = async () => {
     const c = await clientService.getById(clientId);
@@ -118,6 +120,18 @@ export default function ClientDetailPage() {
         const refRes = await fetch(`/api/referrals?clientId=${clientId}&role=parrain`).then(r => r.ok ? r.json() : []);
         setReferralData(prev => prev ? { ...prev, filleuls: Array.isArray(refRes) ? refRes : [] } : prev);
       } catch { /* non-blocking */ }
+
+      // Load avoir history (non-blocking)
+      setAvoirLoading(true);
+      try {
+        const avoirRes = await fetch(`/api/clients/${clientId}/avoir-history`);
+        if (avoirRes.ok) {
+          const { history } = await avoirRes.json();
+          setAvoirHistory(history ?? []);
+        }
+      } catch { /* non-blocking */ } finally {
+        setAvoirLoading(false);
+      }
     })();
   }, [clientId]);
 
@@ -243,6 +257,53 @@ export default function ClientDetailPage() {
                 <p className="text-2xl font-700 tabular-nums text-foreground">{client.storeCredit.toFixed(2)} €</p>
                 <p className="text-xs text-muted-foreground mt-0.5">Avoir</p>
               </div>
+            </div>
+
+            {/* Avoir history */}
+            <div className="bg-white rounded-xl border border-border overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+                <div className="flex items-center gap-2">
+                  <Icon name="CreditCardIcon" size={15} className="text-blue-600" />
+                  <h2 className="text-sm font-700 text-foreground">Avoir</h2>
+                </div>
+                <span className={`text-lg font-800 tabular-nums ${client.storeCredit > 0 ? 'text-blue-700' : 'text-muted-foreground'}`}>
+                  {client.storeCredit.toFixed(2)} €
+                </span>
+              </div>
+              {avoirLoading ? (
+                <div className="p-4 space-y-2">
+                  {[1,2].map(i => <div key={i} className="h-10 bg-muted animate-pulse rounded-lg" />)}
+                </div>
+              ) : avoirHistory.length === 0 ? (
+                <p className="px-5 py-4 text-sm text-muted-foreground">Aucun mouvement avoir</p>
+              ) : (
+                <div className="divide-y divide-border">
+                  {avoirHistory.map(e => {
+                    const isCredit = e.type === 'credit';
+                    const sourceLabel = e.source === 'retour' ? 'Retour' : e.source === 'caisse' ? 'Caisse' : 'Devis Pro';
+                    const sourceIcon = e.source === 'retour' ? '↩️' : e.source === 'caisse' ? '🛒' : '📋';
+                    const dateStr = new Date(e.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
+                    return (
+                      <div key={e.id} className="flex items-center justify-between px-5 py-3 hover:bg-muted/30">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs shrink-0 ${isCredit ? 'bg-emerald-100' : 'bg-red-100'}`}>
+                            {isCredit ? '+' : '−'}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="text-sm font-600 text-foreground truncate">
+                              {sourceIcon} {sourceLabel}{e.source_ref ? ` · ${e.source_ref}` : ''}
+                            </p>
+                            <p className="text-[11px] text-muted-foreground">{dateStr} · Solde après : {e.balance_after.toFixed(2)} €</p>
+                          </div>
+                        </div>
+                        <span className={`text-sm font-800 tabular-nums shrink-0 ml-3 ${isCredit ? 'text-emerald-600' : 'text-red-500'}`}>
+                          {isCredit ? '+' : '−'}{e.amount.toFixed(2)} €
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {/* Loyalty */}
