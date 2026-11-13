@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
   const subIds = subs.map((s: any) => s.id);
   const { data: orders, error: ordersErr } = await supabase
     .from('subscription_orders')
-    .select('id, subscription_id, status, total_products_cost, total_sell_price, benefit_amount, shipping_cost, statut_livraison, delivery_id, notified_at, delivery_destination, delivery_address, delivery_payment_sent, shipping_mode')
+    .select('id, subscription_id, status, order_month, total_products_cost, total_sell_price, benefit_amount, shipping_cost, statut_livraison, delivery_id, notified_at, delivery_destination, delivery_address, delivery_payment_sent, shipping_mode')
     .in('subscription_id', subIds)
     .eq('order_month', month);
 

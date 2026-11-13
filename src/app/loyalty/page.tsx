@@ -607,6 +607,7 @@ export default function LoyaltyPage() {
   const [extendingTiers, setExtendingTiers] = useState(false);
   const [cleaningDuplicates, setCleaningDuplicates] = useState(false);
   const [fixingTotals, setFixingTotals] = useState(false);
+  const [recalcAvoir, setRecalcAvoir] = useState(false);
   const [productCategoryFilter, setProductCategoryFilter] = useState<ProductCategoryFilter>('all');
 
   const handleSyncAll = async () => {
@@ -689,6 +690,24 @@ export default function LoyaltyPage() {
       toast.error(`Erreur : ${e?.message ?? 'Impossible de corriger les totaux'}`);
     } finally {
       setFixingTotals(false);
+    }
+  };
+
+  const handleRecalculateAvoir = async () => {
+    setRecalcAvoir(true);
+    try {
+      const res = await fetch('/api/admin/recalculate-avoir', { method: 'POST' });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+      toast.success(
+        `✓ Avoirs recalculés — ${json.clientsUpdated} cliente(s) mis à jour, ${json.clientsAlreadyCorrect} déjà corrects`,
+        { duration: 6000 }
+      );
+      await loadData();
+    } catch (e: any) {
+      toast.error(`Erreur : ${e?.message ?? 'Recalcul avoirs impossible'}`);
+    } finally {
+      setRecalcAvoir(false);
     }
   };
 
@@ -834,6 +853,13 @@ export default function LoyaltyPage() {
                   {recalcPoints
                     ? <><Icon name="ArrowPathIcon" size={15} className="animate-spin" />Calcul…</>
                     : <><Icon name="CalculatorIcon" size={15} />Recalc. points (tickets)</>
+                  }
+                </button>
+                <button onClick={handleRecalculateAvoir} disabled={recalcAvoir || syncingAll}
+                  className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg text-sm font-600 hover:opacity-90 transition-opacity disabled:opacity-40">
+                  {recalcAvoir
+                    ? <><Icon name="ArrowPathIcon" size={15} className="animate-spin" />Calcul…</>
+                    : <><Icon name="CalculatorIcon" size={15} />Recalc. avoirs</>
                   }
                 </button>
                 <button onClick={handleRecalculatePaliers} disabled={recalculating || syncingAll || cleaningDuplicates}

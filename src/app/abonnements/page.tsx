@@ -34,6 +34,7 @@ interface SubscriptionRow {
   currentOrder?: {
     id: string;
     status: OrderStatus;
+    order_month: string | null;
     total_products_cost: number;
     total_sell_price: number;
     benefit_amount: number;
