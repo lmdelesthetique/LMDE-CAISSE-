@@ -221,7 +221,7 @@ function mapReceiptToPurchase(row: any): ClientPurchase {
     status: row.status ?? 'completed',
     loyaltyPointsEarned: row.loyalty_points_earned ?? 0,
     loyaltyPointsUsed: 0,
-    storeCreditUsed: 0,
+    storeCreditUsed: parseFloat(row.store_credit_used ?? 0),
     cashierName: row.cashier_name ?? null,
     notes: row.notes ?? null,
     purchasedAt: row.created_at ?? '',
@@ -401,10 +401,15 @@ export const clientService = {
       const res = await fetch(`/api/clients/${clientId}/purchases`).catch(() => null);
       if (!res?.ok) return [];
       const data = await res.json();
+      // Legacy format: plain array of client_purchases
       if (Array.isArray(data)) return data.map(mapPurchase);
-      // source === 'receipts' fallback from API
-      if (data.receipts) return (data.receipts as any[]).map(mapReceiptToPurchase);
-      return [];
+      // New merged format: { purchases: [...legacy], receipts: [...new] }
+      const legacy = Array.isArray(data.purchases) ? data.purchases.map(mapPurchase) : [];
+      const fromReceipts = Array.isArray(data.receipts) ? data.receipts.map(mapReceiptToPurchase) : [];
+      // Sort all combined by date descending
+      return [...legacy, ...fromReceipts].sort((a, b) =>
+        new Date(b.purchasedAt || 0).getTime() - new Date(a.purchasedAt || 0).getTime()
+      );
     } catch (e: any) { console.log('clientService.getPurchases exception:', e.message); return []; }
   },
 
