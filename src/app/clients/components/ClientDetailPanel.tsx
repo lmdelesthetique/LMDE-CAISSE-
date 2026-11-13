@@ -343,6 +343,8 @@ export default function ClientDetailPanel({
   });
   const [savingSub, setSavingSub] = useState(false);
   const [savingDiscount, setSavingDiscount] = useState(false);
+  const [avoirHistory, setAvoirHistory] = useState<Array<{ id: string; date: string; type: 'credit' | 'debit'; source: string; source_ref: string | null; amount: number; balance_after: number }> | null>(null);
+  const [avoirLoading, setAvoirLoading] = useState(false);
 
   // Box subscription portal state
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
@@ -387,6 +389,17 @@ export default function ClientDetailPanel({
     date_premier_contact: p.date_premier_contact || null,
     prochain_suivi: p.prochain_suivi || null,
   }), []);
+
+  // Load avoir history on first open
+  useEffect(() => {
+    if (avoirHistory !== null) return;
+    setAvoirLoading(true);
+    fetch(`/api/clients/${client.id}/avoir-history`)
+      .then(r => r.ok ? r.json() : { history: [] })
+      .then(({ history }) => setAvoirHistory(history ?? []))
+      .catch(() => setAvoirHistory([]))
+      .finally(() => setAvoirLoading(false));
+  }, [client.id, avoirHistory]);
 
   useEffect(() => {
     if ((tab !== 'pro' && tab !== 'histoDevis') || proLoaded) return;
@@ -834,16 +847,44 @@ export default function ClientDetailPanel({
                 </div>
               )}
 
-              {/* Store credit */}
-              {client.storeCredit > 0 && (
-                <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 flex items-center justify-between">
+              {/* Avoir — always shown with history */}
+              <div className="bg-blue-50 border border-blue-200 rounded-xl overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3">
                   <div className="flex items-center gap-2">
                     <Icon name="CreditCardIcon" size={16} className="text-blue-600" />
-                    <span className="text-sm font-500 text-blue-800">Avoir disponible</span>
+                    <span className="text-sm font-500 text-blue-800">Avoir</span>
                   </div>
-                  <span className="text-lg font-700 tabular-nums text-blue-700">{client.storeCredit.toFixed(2)} €</span>
+                  <span className={`text-lg font-700 tabular-nums ${client.storeCredit > 0 ? 'text-blue-700' : 'text-muted-foreground'}`}>
+                    {client.storeCredit.toFixed(2)} €
+                  </span>
                 </div>
-              )}
+                {avoirLoading ? (
+                  <div className="px-4 pb-3 space-y-1.5">
+                    {[1,2].map(i => <div key={i} className="h-7 bg-blue-100 animate-pulse rounded" />)}
+                  </div>
+                ) : avoirHistory && avoirHistory.length > 0 ? (
+                  <div className="border-t border-blue-200 divide-y divide-blue-100">
+                    {avoirHistory.slice(0, 6).map(e => {
+                      const isCredit = e.type === 'credit';
+                      const srcLabel = e.source === 'retour' ? '↩ Retour' : e.source === 'caisse' ? '🛒 Caisse' : '📋 Devis';
+                      const dateStr = new Date(e.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+                      return (
+                        <div key={e.id} className="flex items-center justify-between px-4 py-2">
+                          <div>
+                            <p className="text-xs font-600 text-blue-900">{srcLabel}{e.source_ref ? ` · ${e.source_ref}` : ''}</p>
+                            <p className="text-[10px] text-blue-500">{dateStr} · reste {e.balance_after.toFixed(2)} €</p>
+                          </div>
+                          <span className={`text-xs font-800 tabular-nums ${isCredit ? 'text-emerald-600' : 'text-red-500'}`}>
+                            {isCredit ? '+' : '−'}{e.amount.toFixed(2)} €
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : avoirHistory && avoirHistory.length === 0 && client.storeCredit === 0 ? null : avoirHistory && avoirHistory.length === 0 ? (
+                  <p className="px-4 pb-3 text-xs text-blue-500">Aucun mouvement enregistré</p>
+                ) : null}
+              </div>
 
               {/* Balance due */}
               {client.balanceDue > 0 && (
