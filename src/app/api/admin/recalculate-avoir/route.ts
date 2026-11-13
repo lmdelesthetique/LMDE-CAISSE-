@@ -85,6 +85,10 @@ export async function POST() {
     if (cErr) return NextResponse.json({ error: `clients: ${cErr.message}` }, { status: 500 });
 
     // 5. Build updates
+    // IMPORTANT: only reduce balances — never increase.
+    // Before nov 2026 the POS deducted store_credit but didn't record store_credit_used on the
+    // receipt, so old debits are invisible to this recalculation. Inflating existing balances
+    // would be incorrect. We only fix clients whose balance is HIGHER than what we can justify.
     const updates: Array<{ id: string; store_credit: number }> = [];
     let skipped = 0;
 
@@ -94,7 +98,12 @@ export async function POST() {
       const correct = Math.max(0, Math.round((totalCredits - totalDebits) * 100) / 100);
       const current = Math.round(Number(client.store_credit ?? 0) * 100) / 100;
 
-      if (correct !== current) {
+      // Only update if recalculated is LOWER than current (we found debits that weren't reflected)
+      // or if current is 0 and correct is > 0 (missed adding a return credit).
+      // Never increase an existing non-zero balance — old untracked debits would make it wrong.
+      const shouldUpdate = correct !== current && (correct < current || current === 0);
+
+      if (shouldUpdate) {
         updates.push({ id: client.id, store_credit: correct });
       } else {
         skipped++;

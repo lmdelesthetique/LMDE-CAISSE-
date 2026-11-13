@@ -864,14 +864,21 @@ export default function ClientDetailPanel({
                   </div>
                 ) : avoirHistory && avoirHistory.length > 0 ? (
                   <div className="border-t border-blue-200 divide-y divide-blue-100">
-                    {avoirHistory.slice(0, 6).map(e => {
+                    {avoirHistory.slice(0, 8).map(e => {
                       const isCredit = e.type === 'credit';
-                      const srcLabel = e.source === 'retour' ? '↩ Retour' : e.source === 'caisse' ? '🛒 Caisse' : '📋 Devis';
-                      const dateStr = new Date(e.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+                      const isLegacy = e.id === 'legacy_gap';
+                      const srcLabel = isLegacy
+                        ? '⏮ Avant nov. 2026'
+                        : e.source === 'retour' ? '↩ Retour'
+                        : e.source === 'caisse' ? '🛒 Caisse'
+                        : '📋 Devis';
+                      const dateStr = isLegacy
+                        ? 'Non tracé'
+                        : new Date(e.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
                       return (
-                        <div key={e.id} className="flex items-center justify-between px-4 py-2">
+                        <div key={e.id} className={`flex items-center justify-between px-4 py-2 ${isLegacy ? 'opacity-60' : ''}`}>
                           <div>
-                            <p className="text-xs font-600 text-blue-900">{srcLabel}{e.source_ref ? ` · ${e.source_ref}` : ''}</p>
+                            <p className={`text-xs font-600 ${isLegacy ? 'text-blue-700 italic' : 'text-blue-900'}`}>{srcLabel}</p>
                             <p className="text-[10px] text-blue-500">{dateStr} · reste {e.balance_after.toFixed(2)} €</p>
                           </div>
                           <span className={`text-xs font-800 tabular-nums ${isCredit ? 'text-emerald-600' : 'text-red-500'}`}>

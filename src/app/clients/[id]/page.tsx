@@ -280,18 +280,19 @@ export default function ClientDetailPage() {
                 <div className="divide-y divide-border">
                   {avoirHistory.map(e => {
                     const isCredit = e.type === 'credit';
-                    const sourceLabel = e.source === 'retour' ? 'Retour' : e.source === 'caisse' ? 'Caisse' : 'Devis Pro';
-                    const sourceIcon = e.source === 'retour' ? '↩️' : e.source === 'caisse' ? '🛒' : '📋';
-                    const dateStr = new Date(e.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
+                    const isLegacy = e.id === 'legacy_gap';
+                    const sourceLabel = isLegacy ? 'Avant nov. 2026 (non tracé)' : e.source === 'retour' ? 'Retour' : e.source === 'caisse' ? 'Caisse' : 'Devis Pro';
+                    const sourceIcon = isLegacy ? '⏮' : e.source === 'retour' ? '↩️' : e.source === 'caisse' ? '🛒' : '📋';
+                    const dateStr = isLegacy ? '—' : new Date(e.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
                     return (
-                      <div key={e.id} className="flex items-center justify-between px-5 py-3 hover:bg-muted/30">
+                      <div key={e.id} className={`flex items-center justify-between px-5 py-3 hover:bg-muted/30 ${isLegacy ? 'opacity-60' : ''}`}>
                         <div className="flex items-center gap-3 min-w-0">
                           <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs shrink-0 ${isCredit ? 'bg-emerald-100' : 'bg-red-100'}`}>
                             {isCredit ? '+' : '−'}
                           </span>
                           <div className="min-w-0">
-                            <p className="text-sm font-600 text-foreground truncate">
-                              {sourceIcon} {sourceLabel}{e.source_ref ? ` · ${e.source_ref}` : ''}
+                            <p className={`text-sm font-600 truncate ${isLegacy ? 'italic text-muted-foreground' : 'text-foreground'}`}>
+                              {sourceIcon} {sourceLabel}
                             </p>
                             <p className="text-[11px] text-muted-foreground">{dateStr} · Solde après : {e.balance_after.toFixed(2)} €</p>
                           </div>

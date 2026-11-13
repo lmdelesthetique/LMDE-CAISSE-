@@ -15,7 +15,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   const { id } = await params;
   const supabase = createAdminClient();
 
-  const [returnsRes, receiptsRes, devisRes] = await Promise.all([
+  const [clientRes, returnsRes, receiptsRes, devisRes] = await Promise.all([
+    supabase.from('clients').select('store_credit').eq('id', id).single(),
+
     supabase
       .from('returns')
       .select('id, created_at, total_amount, avoir_number, refund_type')
@@ -40,6 +42,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       .order('updated_at', { ascending: true }),
   ]);
 
+  const actualBalance = Math.round(Number(clientRes.data?.store_credit ?? 0) * 100) / 100;
+
   const entries: Array<Omit<AvoirEntry, 'balance_after'> & { balance_after?: number }> = [];
 
   // Credits from returns
@@ -54,7 +58,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     });
   }
 
-  // Debits from POS receipts
+  // Debits from POS receipts (only new ones with store_credit_used column populated)
   for (const r of receiptsRes.data ?? []) {
     const used = Number(r.store_credit_used ?? 0);
     if (used > 0) {
@@ -87,14 +91,41 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     }
   }
 
-  // Sort by date ascending, compute running balance
+  // Sort by date ascending
   entries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
+  // Compute what running balance would be from known entries alone
+  let knownBalance = 0;
+  for (const e of entries) {
+    knownBalance = e.type === 'credit'
+      ? knownBalance + e.amount
+      : Math.max(0, knownBalance - e.amount);
+  }
+  knownBalance = Math.round(knownBalance * 100) / 100;
+
+  // If known balance > actual, there are old POS deductions not recorded in store_credit_used.
+  // Insert a synthetic "legacy gap" debit BEFORE the first entry.
+  const gap = Math.round((knownBalance - actualBalance) * 100) / 100;
+  if (gap > 0.01) {
+    const firstDate = entries.length > 0
+      ? new Date(new Date(entries[0].date).getTime() - 86400000).toISOString()
+      : new Date().toISOString();
+    entries.unshift({
+      id: 'legacy_gap',
+      date: firstDate,
+      type: 'debit',
+      source: 'caisse',
+      source_ref: 'Utilisations non tracées',
+      amount: gap,
+    });
+  }
+
+  // Recompute running balance with gap entry included
   let running = 0;
   const result: AvoirEntry[] = entries.map(e => {
     running = e.type === 'credit' ? running + e.amount : Math.max(0, running - e.amount);
     return { ...e, balance_after: Math.round(running * 100) / 100 };
   });
 
-  return NextResponse.json({ history: result.reverse(), current_balance: Math.round(running * 100) / 100 });
+  return NextResponse.json({ history: result.reverse(), current_balance: actualBalance });
 }
