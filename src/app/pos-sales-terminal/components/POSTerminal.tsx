@@ -1467,6 +1467,13 @@ export default function POSTerminal() {
           } catch (e) {
             console.error('[POS] Avoir record update exception:', e);
           }
+        } else {
+          // Button path: no specific record ID — consume client returns oldest-first (non-blocking)
+          fetch('/api/returns/consume-client-avoir', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ clientId: client.id, amountConsumed: globalDiscountAmount }),
+          }).catch(e => console.error('[POS] consume-client-avoir exception:', e));
         }
       }
 
@@ -1631,6 +1638,13 @@ export default function POSTerminal() {
           } catch (e) {
             console.error('[POS] Avoir record update exception:', e);
           }
+        } else {
+          // Button path: consume client returns oldest-first (non-blocking)
+          fetch('/api/returns/consume-client-avoir', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ clientId: client.id, amountConsumed: globalDiscountAmount }),
+          }).catch(e => console.error('[POS] consume-client-avoir exception:', e));
         }
       }
 
