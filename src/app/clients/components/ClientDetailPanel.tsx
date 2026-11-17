@@ -345,6 +345,9 @@ export default function ClientDetailPanel({
   const [savingDiscount, setSavingDiscount] = useState(false);
   const [avoirHistory, setAvoirHistory] = useState<Array<{ id: string; date: string; type: 'credit' | 'debit'; source: string; source_ref: string | null; amount: number; balance_after: number }> | null>(null);
   const [avoirLoading, setAvoirLoading] = useState(false);
+  const [editingAvoir, setEditingAvoir] = useState(false);
+  const [avoirEditValue, setAvoirEditValue] = useState('');
+  const [savingAvoir, setSavingAvoir] = useState(false);
 
   // Box subscription portal state
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
@@ -854,9 +857,54 @@ export default function ClientDetailPanel({
                     <Icon name="CreditCardIcon" size={16} className="text-blue-600" />
                     <span className="text-sm font-500 text-blue-800">Avoir</span>
                   </div>
-                  <span className={`text-lg font-700 tabular-nums ${client.storeCredit > 0 ? 'text-blue-700' : 'text-muted-foreground'}`}>
-                    {client.storeCredit.toFixed(2)} €
-                  </span>
+                  {editingAvoir ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={avoirEditValue}
+                        onChange={e => setAvoirEditValue(e.target.value)}
+                        className="w-24 text-sm text-right border border-blue-300 rounded px-2 py-0.5 bg-white focus:outline-none"
+                        autoFocus
+                      />
+                      <span className="text-sm text-blue-700">€</span>
+                      <button
+                        disabled={savingAvoir}
+                        onClick={async () => {
+                          const val = parseFloat(avoirEditValue);
+                          if (isNaN(val) || val < 0) return;
+                          setSavingAvoir(true);
+                          await fetch(`/api/clients/${client.id}`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ store_credit: Math.round(val * 100) / 100 }),
+                          }).catch(() => null);
+                          onClientUpdated({ ...client, storeCredit: Math.round(val * 100) / 100 });
+                          setAvoirHistory(null);
+                          setEditingAvoir(false);
+                          setSavingAvoir(false);
+                        }}
+                        className="text-xs px-2 py-0.5 bg-blue-600 text-white rounded disabled:opacity-50"
+                      >
+                        {savingAvoir ? '…' : 'OK'}
+                      </button>
+                      <button onClick={() => setEditingAvoir(false)} className="text-xs text-blue-500">✕</button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span className={`text-lg font-700 tabular-nums ${client.storeCredit > 0 ? 'text-blue-700' : 'text-muted-foreground'}`}>
+                        {client.storeCredit.toFixed(2)} €
+                      </span>
+                      <button
+                        onClick={() => { setAvoirEditValue(client.storeCredit.toFixed(2)); setEditingAvoir(true); }}
+                        className="text-[10px] text-blue-400 hover:text-blue-600 px-1"
+                        title="Corriger manuellement"
+                      >
+                        ✏️
+                      </button>
+                    </div>
+                  )}
                 </div>
                 {avoirLoading ? (
                   <div className="px-4 pb-3 space-y-1.5">
