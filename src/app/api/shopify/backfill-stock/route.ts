@@ -221,7 +221,7 @@ async function runBackfill(req: NextRequest, dryRun: boolean) {
   //    A product marked inactive might still have a valid Shopify link.
   const { data: allProducts } = await supabase
     .from('products')
-    .select('id, name, stock, shopify_variant_id, shopify_product_id, ref, barcode')
+    .select('id, name, stock, shopify, shopify_variant_id, shopify_product_id, ref, barcode')
     .range(0, 9999);
 
   const byVariantId = new Map<string, { id: string; name: string; stock: number }>();
@@ -326,42 +326,60 @@ async function runBackfill(req: NextRequest, dryRun: boolean) {
           }
         }
 
-        // POST mode + high confidence (≥50%) → auto-correct the Shopify link and deduct
-        if (!dryRun && bestCandidate && bestScore >= 0.50 && item.product_id) {
+        // Separate: find best LINKED candidate (shopify:true) — prioritized over unlinked
+        let bestLinked: typeof bestCandidate = null;
+        let bestLinkedScore = 0;
+        for (const p of (allProducts ?? []) as any[]) {
+          if (!p.shopify) continue;
+          const score = wordOverlapScore(searchTitle, p.name);
+          if (score > bestLinkedScore) { bestLinkedScore = score; bestLinked = p; }
+        }
+
+        // Choose which candidate to use:
+        // - Linked product with score >= 0.25 → strong preference (it's already tracked)
+        // - Any product with score >= 0.50 as fallback
+        const autoCandidate = (bestLinked && bestLinkedScore >= 0.25)
+          ? bestLinked
+          : (bestCandidate && bestScore >= 0.50 ? bestCandidate : null);
+        const autoCandidateScore = (bestLinked && bestLinkedScore >= 0.25) ? bestLinkedScore : bestScore;
+
+        // POST mode → auto-correct the Shopify link and deduct
+        if (!dryRun && autoCandidate && item.product_id) {
           const newProductId = String(item.product_id);
           const newVariantId = item.variant_id ? String(item.variant_id) : null;
           await supabase.from('products').update({
             shopify_product_id: newProductId,
             ...(newVariantId ? { shopify_variant_id: newVariantId } : {}),
             shopify: true,
-          }).eq('id', bestCandidate.id);
-          // Update in-memory maps so later orders in this run benefit immediately
-          byProductId.set(newProductId, bestCandidate);
-          if (newVariantId) byVariantId.set(newVariantId, bestCandidate);
-          product = bestCandidate;
+          }).eq('id', autoCandidate.id);
+          byProductId.set(newProductId, autoCandidate);
+          if (newVariantId) byVariantId.set(newVariantId, autoCandidate);
+          product = autoCandidate;
           lineResult.matched_by = 'sku';
-          lineResult.reason = `Auto-lié par nom (score ${Math.round(bestScore * 100)}%) — liens Shopify corrigés`;
+          lineResult.reason = `Auto-lié par nom (score ${Math.round(autoCandidateScore * 100)}%) — liens Shopify corrigés`;
         }
 
-        // Still no product (dry run or score too low) → show suggestion and skip
+        // Still no product (dry run or no candidate) → show suggestion and skip
         if (!product) {
-          if (bestCandidate && bestScore >= 0.30) {
-            lineResult.pos_suggestion_name = bestCandidate.name;
-            lineResult.pos_suggestion_id = bestCandidate.id;
+          const displayCandidate = bestLinked ?? bestCandidate;
+          const displayScore = bestLinked ? bestLinkedScore : bestScore;
+          if (displayCandidate && displayScore >= 0.25) {
+            lineResult.pos_suggestion_name = displayCandidate.name;
+            lineResult.pos_suggestion_id = displayCandidate.id;
             const orderPid = item.product_id ? String(item.product_id) : null;
-            const linkedPid = bestCandidate.shopify_product_id ? String(bestCandidate.shopify_product_id) : null;
-            const linkedVid = bestCandidate.shopify_variant_id ? String(bestCandidate.shopify_variant_id) : null;
+            const linkedPid = displayCandidate.shopify_product_id ? String(displayCandidate.shopify_product_id) : null;
+            const linkedVid = displayCandidate.shopify_variant_id ? String(displayCandidate.shopify_variant_id) : null;
             const isLinked = !!(linkedPid || linkedVid);
-            if (dryRun && bestScore >= 0.50 && orderPid) {
-              lineResult.reason = `Sera auto-lié par nom (score ${Math.round(bestScore * 100)}%) avec "${bestCandidate.name}" → stock sera décompté automatiquement en cliquant Appliquer`;
+            if (dryRun && orderPid) {
+              lineResult.reason = `Sera auto-lié par nom (score ${Math.round(displayScore * 100)}%) avec "${displayCandidate.name}" → stock sera décompté automatiquement en cliquant Appliquer`;
             } else if (linkedPid && orderPid && linkedPid !== orderPid) {
-              lineResult.reason = `Produit POS similaire : "${bestCandidate.name}" — mais lié à un AUTRE produit Shopify (ID …${linkedPid.slice(-6)}) → sera corrigé automatiquement en cliquant Appliquer`;
+              lineResult.reason = `Produit POS similaire : "${displayCandidate.name}" — lié à un AUTRE produit Shopify → sera corrigé automatiquement en cliquant Appliquer`;
             } else if (isLinked && !linkedPid) {
-              lineResult.reason = `Produit POS similaire : "${bestCandidate.name}" — lié (variant_id présent) mais shopify_product_id manquant → cliquer 🔧 Réparer les liens manquants en haut de page`;
+              lineResult.reason = `Produit POS similaire : "${displayCandidate.name}" — shopify_product_id manquant → cliquer 🔧 Réparer les liens manquants`;
             } else if (!isLinked) {
-              lineResult.reason = `Produit POS similaire : "${bestCandidate.name}" — non encore lié à Shopify → aller dans l'onglet Non liés pour l'associer`;
+              lineResult.reason = `Produit POS similaire : "${displayCandidate.name}" — non encore lié à Shopify → aller dans l'onglet Non liés pour l'associer`;
             } else {
-              lineResult.reason = `Produit POS similaire : "${bestCandidate.name}" (score ${Math.round(bestScore * 100)}%) — vérifier le lien dans Sync Shopify`;
+              lineResult.reason = `Produit POS similaire : "${displayCandidate.name}" (score ${Math.round(displayScore * 100)}%) — vérifier le lien dans Sync Shopify`;
             }
           } else {
             lineResult.reason = `Produit introuvable (variant_id=${item.variant_id ?? '—'}, product_id=${item.product_id ?? '—'}, sku=${item.sku ?? '—'}) — lier ce produit dans Sync Shopify`;
