@@ -105,23 +105,10 @@ export async function POST(req: NextRequest) {
   const shopifyOrderId = String(order.id);
   const orderRef = String(order.order_number);
 
-  // ── Order-level idempotency guard ──────────────────────────────────────────
-  // Check at order level FIRST to prevent concurrent webhook replays from
-  // both passing the per-product checks before either logs the first deduction.
-  const { data: orderAlreadyProcessed } = await supabase
-    .from('stock_movements_log')
-    .select('id')
-    .eq('source', 'shopify_sale')
-    .eq('reference', orderRef)
-    .limit(1)
-    .maybeSingle();
-
-  if (orderAlreadyProcessed) {
-    console.log(`[webhook] Order #${orderRef} already processed — skipping duplicate webhook`);
-    return NextResponse.json({ ok: true, skipped: true });
-  }
-
   // ── Stock deduction (idempotent per product+order) ─────────────────────────
+  // No order-level guard — per-product check below handles idempotency.
+  // Order-level guard would block re-processing orders where new products
+  // became linked after the first webhook fired.
   for (const item of lineItems) {
     if (!item.quantity) continue;
 
@@ -147,14 +134,15 @@ export async function POST(req: NextRequest) {
     }
 
     // Fallback: match by Shopify product_id — handles multi-variant products where
-    // the sold variant_id differs from the one stored in the POS link
+    // the sold variant_id differs from the one stored in the POS link.
+    // Use limit(1)+array select to avoid maybeSingle() returning null when 2+ rows match.
     if (!product && item.product_id) {
-      const { data } = await supabase
+      const { data: rows } = await supabase
         .from('products')
         .select('id, name, stock')
         .eq('shopify_product_id', String(item.product_id))
-        .maybeSingle();
-      product = data;
+        .limit(1);
+      product = rows?.[0] ?? null;
     }
 
     if (!product) continue;

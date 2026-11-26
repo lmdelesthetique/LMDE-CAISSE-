@@ -347,9 +347,27 @@ async function runBackfill(req: NextRequest, dryRun: boolean) {
         if (!dryRun && autoCandidate && item.product_id) {
           const newProductId = String(item.product_id);
           const newVariantId = item.variant_id ? String(item.variant_id) : null;
+
+          // Fetch inventory_item_id from Shopify so push-stock can sync back later
+          let newInventoryItemId: string | null = null;
+          if (newVariantId) {
+            try {
+              const varRes = await fetch(
+                `https://${STORE_DOMAIN}/admin/api/${API_VERSION}/variants/${newVariantId}.json?fields=id,inventory_item_id`,
+                { headers: { 'X-Shopify-Access-Token': token! } }
+              );
+              if (varRes.ok) {
+                const varJson = await varRes.json();
+                const iid = varJson.variant?.inventory_item_id;
+                if (iid) newInventoryItemId = String(iid);
+              }
+            } catch { /* non-blocking */ }
+          }
+
           await supabase.from('products').update({
             shopify_product_id: newProductId,
             ...(newVariantId ? { shopify_variant_id: newVariantId } : {}),
+            ...(newInventoryItemId ? { shopify_inventory_item_id: newInventoryItemId } : {}),
             shopify: true,
           }).eq('id', autoCandidate.id);
           byProductId.set(newProductId, autoCandidate);
