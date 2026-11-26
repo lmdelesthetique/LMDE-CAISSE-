@@ -514,6 +514,15 @@ async function runBackfill(req: NextRequest, dryRun: boolean) {
   const ordersWithIntrouvable = results.filter((r) => r.skipped_count > 0);
   const ordersNeedingAttention = results.filter((r) => r.deducted_count > 0 || r.skipped_count > 0);
 
+  // Count lines already done in PREVIOUS runs (not just fully-processed orders)
+  const totalLinesAlreadyDone = results.reduce(
+    (sum, r) => sum + r.lines.filter((l: any) => l.reason === 'Déjà traité').length, 0
+  );
+  // Count lines truly introuvable (no POS match at all)
+  const totalLinesIntrouvable = results.reduce(
+    (sum, r) => sum + r.lines.filter((l: any) => !l.deducted && l.reason !== 'Déjà traité').length, 0
+  );
+
   return NextResponse.json({
     dry_run: dryRun,
     period_days: days,
@@ -521,11 +530,13 @@ async function runBackfill(req: NextRequest, dryRun: boolean) {
     summary: {
       total_shopify_orders: allOrders.length,
       already_processed: ordersFullyAlreadyDone.length,
+      lines_already_done: totalLinesAlreadyDone,
       orders_needing_backfill: ordersNeedingAttention.length,
       orders_with_deduction: ordersWithNewDeductions.length,
       orders_unmatched: ordersWithIntrouvable.length,
       total_lines_deducted: totalDeducted,
       total_lines_skipped: totalSkipped,
+      total_lines_introuvable: totalLinesIntrouvable,
       debug_processed_keys_count: processedKeys.size,
       debug_processed_query_error: processedError?.message ?? null,
     },

@@ -1125,14 +1125,16 @@ export default function ShopifySyncPage() {
                           <p className="text-[11px] text-muted-foreground">Commandes Shopify</p>
                         </div>
                         <div className="text-center">
-                          <p className="text-2xl font-700 text-emerald-700">{backfillResult.summary.already_processed}</p>
-                          <p className="text-[11px] text-muted-foreground">Déjà décomptées ✅</p>
+                          <p className="text-2xl font-700 text-emerald-700">
+                            {(backfillResult.summary.lines_already_done ?? 0) + (backfillResult.summary.total_lines_deducted ?? 0)}
+                          </p>
+                          <p className="text-[11px] text-muted-foreground">Lignes décomptées ✅</p>
                         </div>
                         <div className="text-center">
-                          <p className={`text-2xl font-700 ${backfillResult.summary.orders_needing_backfill > 0 ? 'text-red-600' : 'text-emerald-700'}`}>
-                            {backfillResult.summary.orders_needing_backfill}
+                          <p className={`text-2xl font-700 ${(backfillResult.summary.total_lines_introuvable ?? backfillResult.summary.orders_needing_backfill) > 0 ? 'text-red-600' : 'text-emerald-700'}`}>
+                            {backfillResult.summary.total_lines_introuvable ?? backfillResult.summary.orders_needing_backfill}
                           </p>
-                          <p className="text-[11px] text-muted-foreground">{backfillResult.applied ? 'Rattrapées' : 'À rattraper'}</p>
+                          <p className="text-[11px] text-muted-foreground">{backfillResult.applied ? 'Introuvables restantes' : 'À rattraper'}</p>
                         </div>
                         <div className="text-center">
                           <p className={`text-2xl font-700 ${backfillResult.summary.orders_unmatched > 0 ? 'text-amber-600' : 'text-emerald-700'}`}>
