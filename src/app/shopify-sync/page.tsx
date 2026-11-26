@@ -474,7 +474,7 @@ export default function ShopifySyncPage() {
   const [pushResult, setPushResult] = useState<{ ok: number; failed: number } | null>(null);
 
   // ── Backfill state ─────────────────────────────────────────────────────────
-  const [backfillDays, setBackfillDays] = useState(90);
+  const [backfillDays, setBackfillDays] = useState(365);
   const [backfillRunning, setBackfillRunning] = useState(false);
   const [backfillResult, setBackfillResult] = useState<any | null>(null);
   const [showBackfill, setShowBackfill] = useState(false);
