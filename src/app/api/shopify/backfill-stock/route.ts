@@ -315,40 +315,62 @@ async function runBackfill(req: NextRequest, dryRun: boolean) {
       }
 
       if (!product) {
-        // Level 5: name-based suggestion (display only — no stock deduction)
+        // Level 5: name-based match
         const searchTitle = item.name || item.title || '';
-        let bestCandidate: { id: string; name: string; shopify_product_id?: string | null; shopify_variant_id?: string | null } | null = null;
+        let bestCandidate: { id: string; name: string; stock: number; shopify_product_id?: string | null; shopify_variant_id?: string | null } | null = null;
         let bestScore = 0;
         if (searchTitle) {
           for (const p of (allProducts ?? []) as any[]) {
             const score = wordOverlapScore(searchTitle, p.name);
-            if (score > bestScore) { bestScore = score; bestCandidate = { id: p.id, name: p.name, shopify_product_id: p.shopify_product_id, shopify_variant_id: p.shopify_variant_id }; }
+            if (score > bestScore) { bestScore = score; bestCandidate = p; }
           }
         }
-        if (bestCandidate && bestScore >= 0.30) {
-          lineResult.pos_suggestion_name = bestCandidate.name;
-          lineResult.pos_suggestion_id = bestCandidate.id;
-          const orderPid = item.product_id ? String(item.product_id) : null;
-          const linkedPid = bestCandidate.shopify_product_id ? String(bestCandidate.shopify_product_id) : null;
-          const linkedVid = bestCandidate.shopify_variant_id ? String(bestCandidate.shopify_variant_id) : null;
-          const isLinked = !!(linkedPid || linkedVid);
-          if (linkedPid && orderPid && linkedPid !== orderPid) {
-            lineResult.reason = `Produit POS similaire : "${bestCandidate.name}" — mais lié à un AUTRE produit Shopify (ID …${linkedPid.slice(-6)}) alors que cette commande vient du produit Shopify ID …${orderPid.slice(-6)} → délier et re-lier au bon produit Shopify dans l'onglet Liés`;
-          } else if (isLinked && !linkedPid) {
-            // Has shopify_variant_id but no shopify_product_id — repair will fix this
-            lineResult.reason = `Produit POS similaire : "${bestCandidate.name}" — lié (variant_id présent) mais shopify_product_id manquant → cliquer 🔧 Réparer les liens manquants en haut de page`;
-          } else if (!isLinked) {
-            lineResult.reason = `Produit POS similaire : "${bestCandidate.name}" — non encore lié à Shopify → aller dans l'onglet Non liés pour l'associer`;
+
+        // POST mode + high confidence (≥50%) → auto-correct the Shopify link and deduct
+        if (!dryRun && bestCandidate && bestScore >= 0.50 && item.product_id) {
+          const newProductId = String(item.product_id);
+          const newVariantId = item.variant_id ? String(item.variant_id) : null;
+          await supabase.from('products').update({
+            shopify_product_id: newProductId,
+            ...(newVariantId ? { shopify_variant_id: newVariantId } : {}),
+            shopify: true,
+          }).eq('id', bestCandidate.id);
+          // Update in-memory maps so later orders in this run benefit immediately
+          byProductId.set(newProductId, bestCandidate);
+          if (newVariantId) byVariantId.set(newVariantId, bestCandidate);
+          product = bestCandidate;
+          lineResult.matched_by = 'sku';
+          lineResult.reason = `Auto-lié par nom (score ${Math.round(bestScore * 100)}%) — liens Shopify corrigés`;
+        }
+
+        // Still no product (dry run or score too low) → show suggestion and skip
+        if (!product) {
+          if (bestCandidate && bestScore >= 0.30) {
+            lineResult.pos_suggestion_name = bestCandidate.name;
+            lineResult.pos_suggestion_id = bestCandidate.id;
+            const orderPid = item.product_id ? String(item.product_id) : null;
+            const linkedPid = bestCandidate.shopify_product_id ? String(bestCandidate.shopify_product_id) : null;
+            const linkedVid = bestCandidate.shopify_variant_id ? String(bestCandidate.shopify_variant_id) : null;
+            const isLinked = !!(linkedPid || linkedVid);
+            if (dryRun && bestScore >= 0.50 && orderPid) {
+              lineResult.reason = `Sera auto-lié par nom (score ${Math.round(bestScore * 100)}%) avec "${bestCandidate.name}" → stock sera décompté automatiquement en cliquant Appliquer`;
+            } else if (linkedPid && orderPid && linkedPid !== orderPid) {
+              lineResult.reason = `Produit POS similaire : "${bestCandidate.name}" — mais lié à un AUTRE produit Shopify (ID …${linkedPid.slice(-6)}) → sera corrigé automatiquement en cliquant Appliquer`;
+            } else if (isLinked && !linkedPid) {
+              lineResult.reason = `Produit POS similaire : "${bestCandidate.name}" — lié (variant_id présent) mais shopify_product_id manquant → cliquer 🔧 Réparer les liens manquants en haut de page`;
+            } else if (!isLinked) {
+              lineResult.reason = `Produit POS similaire : "${bestCandidate.name}" — non encore lié à Shopify → aller dans l'onglet Non liés pour l'associer`;
+            } else {
+              lineResult.reason = `Produit POS similaire : "${bestCandidate.name}" (score ${Math.round(bestScore * 100)}%) — vérifier le lien dans Sync Shopify`;
+            }
           } else {
-            lineResult.reason = `Produit POS similaire : "${bestCandidate.name}" (score ${Math.round(bestScore * 100)}%) — vérifier le lien dans Sync Shopify`;
+            lineResult.reason = `Produit introuvable (variant_id=${item.variant_id ?? '—'}, product_id=${item.product_id ?? '—'}, sku=${item.sku ?? '—'}) — lier ce produit dans Sync Shopify`;
           }
-        } else {
-          lineResult.reason = `Produit introuvable (variant_id=${item.variant_id ?? '—'}, product_id=${item.product_id ?? '—'}, sku=${item.sku ?? '—'}) — lier ce produit dans Sync Shopify`;
+          orderResult.lines.push(lineResult);
+          orderResult.skipped_count++;
+          totalSkipped++;
+          continue;
         }
-        orderResult.lines.push(lineResult);
-        orderResult.skipped_count++;
-        totalSkipped++;
-        continue;
       }
 
       lineResult.product_id = product.id;
@@ -398,6 +420,8 @@ async function runBackfill(req: NextRequest, dryRun: boolean) {
           .from('products')
           .update({ stock: newStock, updated_at: new Date().toISOString() })
           .eq('id', product.id);
+
+        await syncColorStocksToTotal(supabase, product.id, newStock);
 
         await supabase.from('stock_movements_log').insert({
           product_id: product.id,
